@@ -13,8 +13,13 @@ import {
   AnalyticsPage, ApprovalsPage, AuditPage, Dashboard, EvalsPage, NewTender,
   Sidebar, SuppliersPage, TeamPage, TenderDetail, TendersPage, Topbar,
 } from "./buyer";
+import { ICON_CSS } from "./icons";
+import { MOTION_CSS } from "./motion";
 import { CSS, EXTRA_CSS } from "./styles";
 import { AuctionRoom, BidRoom, PortalHome } from "./supplier";
+import { ConfirmDialog, Toasts, useToasts } from "./ui";
+
+const ALL_CSS = CSS + EXTRA_CSS + MOTION_CSS + ICON_CSS;
 
 const HOME = { procurement: "dashboard", evaluator: "evals", approver: "approvals", auditor: "audit", supplier: "portal" };
 
@@ -64,7 +69,7 @@ function Login({ onLoggedIn, onScreen }) {
 
   return (
     <div className="loginwrap">
-      <style>{CSS + EXTRA_CSS}</style>
+      <style>{ALL_CSS}</style>
       <div className="logincard">
         <div className="loginlogo"><span className="seal" aria-hidden="true" /><b>DOCKET</b></div>
         <div className="card">
@@ -120,10 +125,11 @@ export default function App() {
   const toLogin = () => { window.history.replaceState({}, "", "/"); setScreen(null); };
   const [data, setData] = useState(null);
   const [route, setRoute] = useState(null);
-  const [banner, setBanner] = useState("");
   const [accounts, setAccounts] = useState([]);
   const [guide, setGuide] = useState(false);
   const [security, setSecurity] = useState(false);
+  const [askReset, setAskReset] = useState(false);
+  const [toast, toasts, dropToast] = useToasts();
 
   const signOut = (serverSide) => {
     if (serverSide) apiLogout().catch(() => {});
@@ -140,7 +146,7 @@ export default function App() {
       return d;
     } catch (e) {
       if (e.status === 401) signOut(false);
-      else setBanner(e.message || "Could not reach the server.");
+      else toast.warn("Could not reach the server", e.message || "Check your connection and try again.");
       return null;
     }
   };
@@ -175,7 +181,7 @@ export default function App() {
   if (!data || !route) {
     return (
       <div className="booting">
-        <style>{CSS + EXTRA_CSS}</style>
+        <style>{ALL_CSS}</style>
         <span className="seal" aria-hidden="true" />
         Opening the docket…
       </div>
@@ -184,15 +190,17 @@ export default function App() {
 
   const user = data.me;
 
+  /* Every action returns true/false so call sites can toast their own success
+     copy; failures are surfaced here once, in the caller's words where the
+     server gave us any. */
   const wrap = (fn, refreshAfter = true) => async (...args) => {
     try {
       await fn(...args);
       if (refreshAfter) await refresh();
-      setBanner("");
       return true;
     } catch (e) {
       if (e.status === 401) { signOut(false); return false; }
-      setBanner(e.message || "Something went wrong.");
+      toast.warn("That didn't go through", e.message || "Something went wrong.");
       return false;
     }
   };
@@ -245,47 +253,49 @@ export default function App() {
       storeAuth(res.token, username);
       setToken(res.token); // effect reloads bootstrap and routes home
     } catch (e) {
-      setBanner(e.message || "Could not switch account.");
+      toast.warn("Could not switch account", e.message || "");
     }
   };
 
   const onReset = async () => {
-    if (!window.confirm("Reset all demo data to the original seed?")) return;
     try {
       const r = await raw(`/reset/`, { method: "POST", body: {} });
       if (r.token) {
         storeAuth(r.token, getUsername());
         setToken(r.token);
+        toast.ok("Demo data restored", "Every tender, bid and audit event is back to the original seed.");
       } else {
         signOut(false);
       }
     } catch (e) {
-      setBanner(e.message || "Reset failed.");
+      toast.warn("Reset failed", e.message || "");
     }
   };
 
-  const api = { state: data, user, go, route, act, ai };
+  const api = { state: data, user, go, route, act, ai, toast };
   const allowed = ALLOWED[user.role] || [];
   const page = allowed.includes(route.page) ? route.page : HOME[user.role];
 
   return (
     <div className="dk">
-      <style>{CSS + EXTRA_CSS}</style>
+      <style>{ALL_CSS}</style>
       <Sidebar api={api} />
       <div className="main">
         <Topbar api={api} accounts={accounts} username={getUsername()}
-                onSwitch={onSwitch} onLogout={() => signOut(true)} onReset={onReset}
+                onSwitch={onSwitch} onLogout={() => signOut(true)} onReset={() => setAskReset(true)}
                 onGuide={() => setGuide(true)} onSecurity={() => setSecurity(true)} />
+        {askReset && (
+          <ConfirmDialog title="Reset all demo data?" confirmLabel="Hold to reset the demo" tone="wax"
+                         hold holdHint="Wipes everything — hold to confirm"
+                         onClose={() => setAskReset(false)} onConfirm={onReset}>
+            Every tender, bid, score, letter, notification and audit event goes back to the original seed —
+            including anything you created in this session. <b>This cannot be undone.</b>
+          </ConfirmDialog>
+        )}
         {guide && <GuidePanel role={user.role} onClose={() => setGuide(false)} />}
         {security && <SecurityPanel me={user} onRenamed={refresh} onClose={() => setSecurity(false)}
           onLogoutAll={async () => { try { await raw("/auth/logout_all/", { method: "POST", body: {} }); } catch (e) {} signOut(false); }} />}
         <main className="content">
-          {banner && (
-            <div className="notice" style={{ marginBottom: 14, borderLeft: "3px solid var(--wax)", display: "flex", gap: 10, alignItems: "center" }}>
-              <span style={{ flex: 1 }}>{banner}</span>
-              <button className="btn sm" onClick={() => setBanner("")}>Dismiss</button>
-            </div>
-          )}
           {page === "dashboard" && <Dashboard api={api} />}
           {page === "tenders" && <TendersPage api={api} />}
           {page === "tender" && <TenderDetail key={route.id + (route.tab || "")} api={api} id={route.id} initialTab={route.tab} />}
@@ -302,6 +312,7 @@ export default function App() {
             : <BidRoom key={route.id} api={api} id={route.id} />)}
         </main>
       </div>
+      <Toasts items={toasts} onDismiss={dropToast} />
     </div>
   );
 }

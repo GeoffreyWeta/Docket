@@ -1,8 +1,12 @@
 import React from "react";
 
 import { STATUS, daysLeft, fmtCompact, fmtDate, fmtMoney, nowMs } from "./helpers";
+import { Icon } from "./icons";
+import { fmtRemaining, tickRateFor, useTicker } from "./motion";
 
 /* ---------------- atoms ---------------- */
+
+const DAY_MS = 86400000;
 
 export const Stamp = ({ s }) => {
   const m = STATUS[s] || STATUS.draft;
@@ -13,13 +17,27 @@ export const Money = ({ n, strong }) => (
   <span className="money" style={strong ? { fontWeight: 600 } : null}>{fmtMoney(n)}</span>
 );
 
-export const Countdown = ({ t }) => {
-  const d = daysLeft(t);
-  if (d < 0) return <span className="mono faint">closed {fmtDate(t)}</span>;
-  const urgent = d <= 2;
+/* Accepts `t` or `deadline` — both spellings are in use across the app, and
+   passing the wrong one used to render "NaN days left" in the auction room.
+   Inside the last day it stops rounding to days and ticks a real clock. */
+export const Countdown = ({ t, deadline }) => {
+  const at = t ?? deadline;
+  const left = at == null ? NaN : at - nowMs();
+  useTicker(Number.isFinite(left) && left > 0 && left < DAY_MS ? tickRateFor(left) : 0);
+  if (!Number.isFinite(left)) return <span className="mono faint">—</span>;
+  if (left <= 0) return <span className="mono faint">closed {fmtDate(at)}</span>;
+  if (left < DAY_MS) {
+    const critical = left < 120_000;
+    return (
+      <span className={"clock" + (critical ? " critical" : " soon")} title={"Closes " + fmtDate(at)}>
+        {fmtRemaining(left)} left
+      </span>
+    );
+  }
+  const d = daysLeft(at);
   return (
-    <span className="mono" style={{ color: urgent ? "var(--wax)" : "var(--muted)" }}>
-      {d === 0 ? "closes today" : d + (d === 1 ? " day left" : " days left")}
+    <span className="mono" style={{ color: d <= 2 ? "var(--wax)" : "var(--muted)" }}>
+      {d + (d === 1 ? " day left" : " days left")}
     </span>
   );
 };
@@ -32,7 +50,14 @@ export const Stat = ({ k, v, d, tone }) => (
   </div>
 );
 
-export const Empty = ({ children }) => <div className="empty">{children}</div>;
+/* `icon` gives an empty state something to look at — pass an icon name from
+   icons.jsx (e.g. <Empty icon="envelope">No bids yet.</Empty>). */
+export const Empty = ({ children, icon }) => (
+  <div className="empty">
+    {icon ? <Icon n={icon} s={30} /> : null}
+    {children}
+  </div>
+);
 
 export function MiniBars({ data }) {
   const max = Math.max(...data.map((d) => d.value), 1);

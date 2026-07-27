@@ -1,8 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import { downloadDoc, raw } from "./api";
 import { Countdown, Empty, Money, Stat } from "./atoms";
 import { effStatus, fmtCompact, fmtDate, fmtDateTime, fmtMoney } from "./helpers";
+import { Icon, SealMark } from "./icons";
+import { cue, usePrev } from "./motion";
+import { ConfirmDialog, LiveCountdown, RollNumber, Sparkline } from "./ui";
 
 /* ---------------- supplier portal ---------------- */
 
@@ -66,10 +69,10 @@ export function PortalHome({ api }) {
           </div>
           {myComplianceDocs.map((x) => (
             <div className="docrow" key={x.id}>
-              <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}>{x.name}</button>
+              <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}><Icon n="file" s={13} />{x.name}</button>
               {x.expiry ? <span className="mono faint">expires {fmtDate(x.expiry)}</span> : null}
               <span style={{ flex: 1 }} />
-              <button className="btn sm" aria-label="Remove document" onClick={() => act.deleteMyDoc(x.id)}>✕</button>
+              <button className="btn sm iconly" aria-label="Remove document" onClick={() => act.deleteMyDoc(x.id)}><Icon n="close" s={12} /></button>
             </div>
           ))}
           {myComplianceDocs.length === 0 && (supplier.docs || []).map((d, i) => (
@@ -80,7 +83,7 @@ export function PortalHome({ api }) {
                    value={docForm.label} onChange={(e) => setDocForm({ ...docForm, label: e.target.value })} />
             <input className="in" style={{ maxWidth: 160 }} type="date" aria-label="Expiry date"
                    value={docForm.expiry} onChange={(e) => setDocForm({ ...docForm, expiry: e.target.value })} />
-            <label className="btn sm">Upload document<input type="file" hidden onChange={uploadCompliance} /></label>
+            <label className="btn sm"><Icon n="upload" s={14} />Upload document<input type="file" hidden onChange={uploadCompliance} /></label>
           </div>
           <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>The buyer's procurement team sees these when reviewing your prequalification, and DOCKET reminds them before anything expires.</div>
         </div>
@@ -162,7 +165,7 @@ export function PortalHome({ api }) {
 }
 
 export function BidRoom({ api, id }) {
-  const { state, user, act, ai, go } = api;
+  const { state, user, act, ai, go, toast } = api;
   const me = user.supplierId;
   const [form, setForm] = useState({ amount: "", decl: false });
   const [prices, setPrices] = useState({});
@@ -170,6 +173,7 @@ export function BidRoom({ api, id }) {
   const [q, setQ] = useState("");
   const [aiFb, setAiFb] = useState("");
   const [busy, setBusy] = useState(false);
+  const [askWithdraw, setAskWithdraw] = useState(false);
   const t = state.tenders.find((x) => x.id === id);
   if (!t) return <Empty>Tender not found.</Empty>;
   const st = effStatus(t);
@@ -191,17 +195,21 @@ export function BidRoom({ api, id }) {
     e.target.value = "";
   };
 
-  const submit = () => {
-    act.submitBid(t.id, {
+  const submit = async () => {
+    const ok = await act.submitBid(t.id, {
       amount: hasLines ? undefined : Number(form.amount),
       lines: hasLines ? Object.fromEntries(t.lines.map((l) => [l.id, Number(prices[l.id])])) : undefined,
       acks: addenda.map((a) => a.id).filter((aid) => acks[aid]),
     });
+    if (ok) {
+      cue.stamp();
+      toast.ok("Bid sealed", "Encrypted at rest. The buyer sees only that a bid exists until the recorded opening.");
+    }
   };
   const withdraw = async () => {
-    if (!window.confirm("Withdraw your sealed bid? You can submit a replacement any time before the deadline. The withdrawal is recorded in the audit trail.")) return;
-    await act.withdrawBid(t.id);
+    const ok = await act.withdrawBid(t.id);
     setAiFb("");
+    if (ok) toast.ok("Sealed bid withdrawn", "Your documents are unlocked. Submit a replacement any time before the deadline.");
   };
   const ask = async () => {
     if (!q.trim()) return;
@@ -247,7 +255,7 @@ export function BidRoom({ api, id }) {
           <div className="cbody">
             {tenderDocs.map((x) => (
               <div className="docrow" key={x.id}>
-                <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}>{x.name}</button>
+                <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}><Icon n="file" s={13} />{x.name}</button>
                 <span className="mono faint">{Math.max(1, Math.round(x.size / 1024))} KB</span>
               </div>
             ))}
@@ -269,17 +277,26 @@ export function BidRoom({ api, id }) {
         </div>
       )}
 
+      {askWithdraw && (
+        <ConfirmDialog title="Withdraw your sealed bid?" confirmLabel="Withdraw the bid" tone="wax"
+                       onClose={() => setAskWithdraw(false)}
+                       onConfirm={withdraw}>
+          Your prices stay unread — nothing is revealed by withdrawing. Your documents unlock so you can
+          swap them, and you can submit a replacement any time before the deadline.
+          <b> The withdrawal is recorded in the audit trail under your company's name.</b>
+        </ConfirmDialog>
+      )}
       {myBid ? (
         <div>
           <div className="receipt" style={{ marginBottom: 14 }}>
-            <span className="sealdot" style={{ display: "inline-block", width: 22, height: 22 }} />
+            <SealMark s={26} className="stamped" />
             <h3 style={{ fontFamily: "Georgia,'Times New Roman',serif", margin: "10px 0 4px" }}>Bid sealed</h3>
             <p className="muted" style={{ margin: "0 0 12px", fontSize: 13 }}>
               Submitted {fmtDateTime(myBid.submittedAt)}. Your bid is cryptographically sealed — the buyer sees only that a bid exists.
               Contents are revealed to everyone at the recorded opening after the deadline.
             </p>
             <div className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>RECEIPT {myBid.id.toUpperCase()} · {t.ref}</div>
-            {st === "published" && <div style={{ marginTop: 14 }}><button className="btn sm" onClick={withdraw}>Withdraw & replace before deadline</button></div>}
+            {st === "published" && <div style={{ marginTop: 14 }}><button className="btn sm" onClick={() => setAskWithdraw(true)}>Withdraw & replace before deadline</button></div>}
           </div>
         </div>
       ) : st === "published" ? (
@@ -317,10 +334,10 @@ export function BidRoom({ api, id }) {
               {myDocs.map((x) => (
                 <div className="docrow" key={x.id}>
                   <span className="chip" style={{ textTransform: "capitalize" }}>{x.envelope}</span>
-                  <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}>{x.name}</button>
+                  <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}><Icon n="file" s={13} />{x.name}</button>
                   <span className="mono faint">{Math.max(1, Math.round(x.size / 1024))} KB</span>
                   <span style={{ flex: 1 }} />
-                  <button className="btn sm" aria-label="Remove document" onClick={() => act.deleteDoc(x.id)}>✕</button>
+                  <button className="btn sm iconly" aria-label="Remove document" onClick={() => act.deleteDoc(x.id)}><Icon n="close" s={12} /></button>
                 </div>
               ))}
               <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
@@ -350,7 +367,7 @@ export function BidRoom({ api, id }) {
             </div>
             {aiFb && <div className="aihint" style={{ marginBottom: 12 }}>{aiFb}</div>}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button className="btn wax" disabled={pct < 100} onClick={submit}>Seal & submit bid</button>
+              <button className="btn wax" disabled={pct < 100} onClick={submit}><Icon n="stamp" s={15} />Seal & submit bid</button>
               <button className="btn" onClick={reviewAI} disabled={busy}>{busy ? "Reviewing…" : "Review my bid with AI"}</button>
             </div>
             <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>Once sealed, the buyer cannot see your prices until the recorded opening. You can withdraw and replace your bid any time before the deadline. The AI review is advisory and stays on your side of the wall.</div>
@@ -374,7 +391,7 @@ export function BidRoom({ api, id }) {
           {st === "published" && (
             <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
               <input className="in" placeholder="Ask the buyer a question…" aria-label="Ask a clarification" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} />
-              <button className="btn" onClick={ask} disabled={!q.trim()}>Ask</button>
+              <button className="btn" onClick={ask} disabled={!q.trim()}><Icon n="question" s={14} />Ask</button>
             </div>
           )}
         </div>
@@ -384,40 +401,85 @@ export function BidRoom({ api, id }) {
 }
 
 
-const POLL_MS = 5000;
+const POLL_LIVE_MS = 2500;   // a live auction is a market — poll like one
+const POLL_IDLE_MS = 10000;
 
 export function AuctionRoom({ api, id }) {
-  const { state, user, go, act } = api;
+  const { state, user, go, toast } = api;
   const t = state.tenders.find((x) => x.id === id);
   const [a, setA] = useState(null);
   const [amount, setAmount] = useState("");
   const [msg, setMsg] = useState("");
-  const [flash, setFlash] = useState("");
+  const [extended, setExtended] = useState(0);
+  const [placing, setPlacing] = useState(false);
+  const prevRank = usePrev(a?.myRank ?? null);
+  const prevMovements = usePrev(a?.movements ?? 0);
+  const prevDeadline = useRef(null);
 
   const poll = async () => {
-    try { setA(await raw(`/tenders/${id}/auction/`)); } catch (e) { /* keep last state */ }
+    try {
+      const next = await raw(`/tenders/${id}/auction/`);
+      // the buyer never sees this, but the supplier should feel the room move
+      if (prevDeadline.current && next.deadline > prevDeadline.current + 1000 && next.live) {
+        setExtended(next.deadline);
+        toast.info("Close extended by two minutes", "A bid landed inside the final two minutes — anti-sniping pushed the deadline out.");
+      }
+      prevDeadline.current = next.deadline;
+      setA(next);
+    } catch (e) { /* keep the last known state rather than blanking the room */ }
   };
   useEffect(() => {
     poll();
-    const h = setInterval(poll, POLL_MS);
+    const h = setInterval(poll, a?.live === false ? POLL_IDLE_MS : POLL_LIVE_MS);
     return () => clearInterval(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, a?.live]);
+
+  /* Overtaken or back in front — announced in words, with a glyph, and only
+     then in colour (see the CVD note in ui.jsx). */
+  useEffect(() => {
+    if (prevRank == null || a?.myRank == null || prevRank === a.myRank) return;
+    if (a.myRank > prevRank) {
+      cue.outbid();
+      toast.warn(`▼ Outbid — now position ${a.myRank}`, `You held position ${prevRank}. Undercut your own price by at least ${fmtCompact(a.minDecrement)} to take the lead back.`);
+    } else {
+      cue.lead();
+      toast.ok(`▲ Position ${a.myRank}${a.myRank === 1 ? " — you lead" : ""}`, `Up from position ${prevRank}.`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [a?.myRank]);
 
   if (!t) return null;
-  const myLast = a?.myBids?.length ? a.myBids[a.myBids.length - 1] : null;
+  const myBids = a?.myBids || [];
+  const myLast = myBids.length ? myBids[myBids.length - 1] : null;
   const floor = myLast ? myLast.amount - (a?.minDecrement || 0) : (a?.ceiling || t.budget);
+  const leading = !!a?.leading;
+  const stateColor = a?.myRank ? (leading ? "var(--green)" : "var(--wax)") : "var(--muted)";
+  const roomMoved = (a?.movements ?? 0) > (prevMovements ?? 0);
+  const quick = myLast
+    ? [floor, floor - (a?.minDecrement || 0), floor - (a?.minDecrement || 0) * 3].filter((v) => v > 0)
+    : [a?.ceiling ?? t.budget, Math.round((a?.ceiling ?? t.budget) * 0.97), Math.round((a?.ceiling ?? t.budget) * 0.94)];
 
   const place = async () => {
-    setMsg(""); setFlash("");
+    setMsg("");
+    setPlacing(true);
     try {
       const r = await raw(`/tenders/${id}/auction/bids/`, { method: "POST", body: { amount: Number(amount) } });
       setAmount("");
-      setFlash(r.extended
-        ? `Bid placed — you're position ${r.myRank}. The close was extended 2 minutes (anti-sniping).`
-        : `Bid placed — you're position ${r.myRank} of ${a ? Math.max(a.bidders, r.myRank) : r.myRank}.`);
+      cue.tick();
+      if (r.extended) {
+        setExtended(r.deadline);
+        toast.info("Your bid extended the close by two minutes", "Bids inside the final two minutes push the deadline out — nobody can snipe this auction.");
+      }
+      toast.ok(r.myRank === 1 ? "▲ Bid placed — you lead" : `Bid placed — position ${r.myRank}`,
+               "Binding until someone undercuts you.");
+      prevDeadline.current = r.deadline;
       poll();
-    } catch (e) { setMsg(e.message); }
+    } catch (e) {
+      setMsg(e.message);
+      toast.warn("Bid rejected", e.message);
+    }
+    setPlacing(false);
   };
 
   return (
@@ -429,21 +491,28 @@ export function AuctionRoom({ api, id }) {
           <h1>{t.title}</h1>
         </div>
         <div className="grow" />
-        {a?.live ? <Countdown deadline={a.deadline} /> : <span className="chip">{a?.recorded ? "Results recorded" : "Auction closed"}</span>}
+        {extended === a?.deadline && a?.live && <span className="extbadge">+2:00 anti-snipe</span>}
+        {a?.live
+          ? <LiveCountdown deadline={a.deadline} />
+          : <span className="chip">{a?.recorded ? "Results recorded" : "Auction closed"}</span>}
       </div>
 
       <div className="grid2" style={{ alignItems: "start" }}>
         <div>
           <div className="card" style={{ marginBottom: 14 }}>
             <div className="chead"><h3>Your position</h3><span className="mono faint" style={{ marginLeft: "auto" }}>rank only — competitor prices are never shown</span></div>
-            <div className="cbody" style={{ textAlign: "center", padding: "22px 18px" }}>
+            <div className="cbody" style={{ textAlign: "center", padding: "20px 18px" }}>
               {a?.myRank
                 ? <>
-                    <div style={{ fontFamily: "Georgia,'Times New Roman',serif", fontSize: 54, lineHeight: 1, color: a.leading ? "var(--green)" : "var(--wax)" }}>
-                      #{a.myRank}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                      <span aria-hidden="true" style={{ fontSize: 19, color: stateColor, fontWeight: 700 }}>{leading ? "▲" : "▼"}</span>
+                      <RollNumber value={a.myRank} size={54} color={stateColor} />
                     </div>
-                    <div className="muted" style={{ marginTop: 6, fontSize: 13 }}>
-                      of {a.bidders} bidder{a.bidders === 1 ? "" : "s"} · {a.leading ? "you hold the leading price" : "you are being outbid"}
+                    <div style={{ marginTop: 6, fontSize: 13, fontWeight: leading ? 600 : 400, color: leading ? "var(--green)" : "var(--ink)" }}>
+                      {leading ? "You hold the leading price" : "You are being outbid"}
+                    </div>
+                    <div className="muted" style={{ fontSize: 12.5, marginTop: 2 }}>
+                      of {a.bidders} bidder{a.bidders === 1 ? "" : "s"} · your price <Money n={myLast?.amount} />
                     </div>
                   </>
                 : <div className="muted" style={{ fontSize: 13.5 }}>No bid placed yet — {a?.bidders || 0} bidder(s) are already in. Your opening bid must be at or under the <b><Money n={a?.ceiling ?? t.budget} /></b> ceiling.</div>}
@@ -452,17 +521,28 @@ export function AuctionRoom({ api, id }) {
 
           {a?.live && (
             <div className="card" style={{ marginBottom: 14 }}>
-              <div className="chead"><h3>Place a bid</h3></div>
+              <div className="chead"><h3>Place a bid</h3>
+                <span className={"mono faint" + (roomMoved ? " tickbump" : "")} style={{ marginLeft: "auto" }}>
+                  {a.movements} movement{a.movements === 1 ? "" : "s"} in the room
+                </span>
+              </div>
               <div className="cbody">
-                <div className="frow">
-                  <label className="lbl">Your lump-sum price (NGN) — must be ≤ <Money n={Math.max(0, floor)} /></label>
-                  <input className="in" type="number" value={amount} onChange={(e) => setAmount(e.target.value)}
-                         onKeyDown={(e) => e.key === "Enter" && place()} placeholder={String(Math.max(0, floor))} />
+                <div className="frow" style={{ marginBottom: 9 }}>
+                  <label className="lbl" htmlFor="auc-amt">Your lump-sum price (₦) — must be ≤ <Money n={Math.max(0, floor)} /></label>
+                  <input id="auc-amt" className="in" type="number" value={amount} onChange={(e) => setAmount(e.target.value)}
+                         onKeyDown={(e) => e.key === "Enter" && Number(amount) && place()} placeholder={String(Math.max(0, floor))} />
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 11 }}>
+                  {quick.map((v, i) => (
+                    <button key={i} className="btn sm" onClick={() => setAmount(String(v))}
+                            title={myLast ? "Undercut your own price" : "Open at this price"}>
+                      {i === 0 && myLast ? "match floor · " : ""}{fmtCompact(v)}
+                    </button>
+                  ))}
                 </div>
                 {myLast && <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>Your current bid: <Money n={myLast.amount} /> · minimum decrement <Money n={a.minDecrement} /></div>}
                 {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 10 }}>{msg}</div>}
-                {flash && <div className="notice" style={{ borderLeft: "3px solid var(--green)", marginBottom: 10 }}>{flash}</div>}
-                <button className="btn pri" onClick={place} disabled={!Number(amount)}>Place bid</button>
+                <button className="btn pri" onClick={place} disabled={!Number(amount) || placing}>{placing ? "Placing…" : "Place bid"}</button>
                 <div className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>Bids are binding. A bid inside the final two minutes extends the close by two minutes.</div>
               </div>
             </div>
@@ -473,16 +553,26 @@ export function AuctionRoom({ api, id }) {
         </div>
 
         <div className="card">
-          <div className="chead"><h3>Your bid history</h3><span className="mono faint" style={{ marginLeft: "auto" }}>{a?.movements ?? 0} total price movements in the room</span></div>
-          <div className="cbody" style={{ paddingTop: 6 }}>
-            {(a?.myBids || []).slice().reverse().map((b, i) => (
+          <div className="chead"><h3>Your price movements</h3>
+            <span className="mono faint" style={{ marginLeft: "auto" }}>yours only — never a competitor's</span>
+          </div>
+          <div className="cbody" style={{ paddingTop: 12 }}>
+            {myBids.length > 0 && (
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
+                <Sparkline points={myBids.map((b) => ({ value: b.amount, at: b.at }))} w={260} h={52}
+                           color={stateColor}
+                           label={`Your ${myBids.length} price movement(s), latest ${fmtMoney(myLast.amount)}`} />
+              </div>
+            )}
+            {myBids.slice().reverse().map((b, i) => (
               <div className="rowline" key={i}>
                 <span className="mono muted" style={{ fontSize: 12 }}>{fmtDateTime(b.at)}</span>
                 <span style={{ flex: 1 }} />
+                {i === 0 && <span className="chip ok" style={{ fontSize: 10.5 }}>current</span>}
                 <Money n={b.amount} strong={i === 0} />
               </div>
             ))}
-            {!(a?.myBids || []).length && <span className="muted" style={{ fontSize: 13 }}>Nothing yet.</span>}
+            {!myBids.length && <span className="muted" style={{ fontSize: 13 }}>Nothing yet.</span>}
           </div>
         </div>
       </div>

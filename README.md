@@ -146,6 +146,15 @@ API smoke test (auth, sealing, blindness, uploads, COI, notifications, awards):
 
     cd backend && python smoke.py
 
+Test company + test user — a self-registered vendor ("Test Company Ltd",
+`testco@example.com`) and an invited teammate ("Test User", procurement,
+`test.user@example.com`), both created through the same endpoints the UI calls,
+plus an open sandbox tender so the vendor portal has a live bid room:
+
+    cd backend && python test_org.py           # idempotent; never wipes data
+    cd backend && python test_org.py --full    # reseeds, then tests everything
+                                               # through those two accounts
+
 ## Background jobs
 
 The sweep (deadline sealing events, bid-deadline reminders, compliance-document

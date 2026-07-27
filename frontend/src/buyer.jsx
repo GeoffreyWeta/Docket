@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import { downloadDoc, downloadUrl, raw } from "./api";
 import { Countdown, Empty, MiniBars, Money, Stamp, Stat, StageTracker } from "./atoms";
@@ -6,6 +6,9 @@ import {
   DAY, abnormallyLow, commScore, daysLeft, effStatus, fmtCompact, fmtDate, fmtDateTime,
   fmtMoney, mean, median, stdev, techScore, totalScore, uid, varianceFlags,
 } from "./helpers";
+import { Icon, SealMark } from "./icons";
+import { DUR, cue, useFlip } from "./motion";
+import { ConfirmDialog, Dialog, HoldButton, LiveCountdown, SoundToggle } from "./ui";
 
 /* ---------------- chrome ---------------- */
 
@@ -15,6 +18,12 @@ export const NAV = {
   approver: [["approvals", "Approvals"], ["tenders", "All tenders"], ["audit", "Audit trail"]],
   auditor: [["audit", "Audit trail"], ["tenders", "All tenders"]],
   supplier: [["portal", "My invitations"]],
+};
+
+/* One icon per destination — the sidebar is scanned by shape before it is read. */
+const NAV_ICON = {
+  dashboard: "dashboard", tenders: "tender", suppliers: "suppliers", team: "team",
+  analytics: "analytics", audit: "audit", evals: "scales", approvals: "stamp", portal: "portal",
 };
 
 export function Sidebar({ api }) {
@@ -31,10 +40,12 @@ export function Sidebar({ api }) {
       <div className="orgline">{api.state.org.name}<br />{api.state.org.note}</div>
       <div className="navsec">Workspace</div>
       {items.map(([key, label]) => (
-        <button key={key} className={"navi" + (isOn(key) ? " on" : "")} onClick={() => go({ page: key })}>{label}</button>
+        <button key={key} className={"navi" + (isOn(key) ? " on" : "")} onClick={() => go({ page: key })}>
+          <Icon n={NAV_ICON[key] || "tender"} s={16} />{label}
+        </button>
       ))}
       {user.role === "procurement" && (
-        <button className="newbtn" onClick={() => go({ page: "new" })}>+ New tender</button>
+        <button className="newbtn" onClick={() => go({ page: "new" })}><Icon n="plus" s={15} />New tender</button>
       )}
       <div className="spacer" />
       <div className="sidefoot">Data stays on this device.<br />Sealed bids stay sealed.</div>
@@ -55,7 +66,7 @@ function Bell({ api }) {
   return (
     <div className="bellwrap">
       <button className={"btn sm" + (unread ? " hasnew" : "")} aria-label="Notifications" onClick={toggle}>
-        Alerts{unread ? ` · ${unread}` : ""}
+        <Icon n="bell" s={14} />Alerts{unread ? ` · ${unread}` : ""}
       </button>
       {open && (
         <div className="ndrop" role="dialog" aria-label="Notifications">
@@ -80,10 +91,11 @@ export function Topbar({ api, accounts, username, onSwitch, onLogout, onReset, o
     <header className="topbar">
       <span className="crumb">{state.org.short.toUpperCase()} / PROCUREMENT</span>
       <div className="grow" />
-      <button className="btn sm" onClick={onGuide} title="How to get started in your role">Guide</button>
-      <button className="btn sm" onClick={onSecurity} title="Two-factor authentication and sessions">Security</button>
+      <button className="btn sm" onClick={onGuide} title="How to get started in your role"><Icon n="question" s={14} />Guide</button>
+      <button className="btn sm" onClick={onSecurity} title="Two-factor authentication and sessions"><Icon n="shield" s={14} />Security</button>
       <Bell api={api} />
-      <button className="btn sm" onClick={onReset} title="Restore the original demo data">Reset demo</button>
+      <SoundToggle />
+      <button className="btn sm" onClick={onReset} title="Restore the original demo data"><Icon n="refresh" s={14} />Reset demo</button>
       <div className="whoami">
         <div className="avatar" aria-hidden="true">{initials}</div>
         {state.demoLogin && accounts.length > 0 ? (
@@ -93,7 +105,7 @@ export function Topbar({ api, accounts, username, onSwitch, onLogout, onReset, o
         ) : (
           <span style={{ fontSize: 13, fontWeight: 600 }}>{user.name}</span>
         )}
-        <button className="btn sm" onClick={onLogout}>Sign out</button>
+        <button className="btn sm" onClick={onLogout}><Icon n="exit" s={14} />Sign out</button>
       </div>
     </header>
   );
@@ -371,7 +383,7 @@ export function OverviewTab({ api, t }) {
         <div className="cbody">
           {(state.documents || []).filter((x) => x.kind === "tender" && x.tenderId === t.id).map((x) => (
             <div className="docrow" key={x.id}>
-              <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}>{x.name}</button>
+              <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}><Icon n="file" s={13} />{x.name}</button>
               <span className="mono faint">{Math.max(1, Math.round(x.size / 1024))} KB · {fmtDate(x.uploadedAt)}</span>
               <span style={{ flex: 1 }} />
               {canManage && t.status !== "awarded" && <button className="btn sm" aria-label="Remove document" onClick={() => act.deleteDoc(x.id)}>✕</button>}
@@ -523,11 +535,24 @@ export function ClarTab({ api, t }) {
 /* ---------------- bids & opening ---------------- */
 
 export function BidsTab({ api, t }) {
-  const { state, user, act } = api;
+  const { state, user, act, toast } = api;
   const st = effStatus(t);
   const bids = state.bids.filter((b) => b.tenderId === t.id);
 
-  const openBids = () => act.openBids(t.id);
+  /* The recorded opening. Held rather than clicked: it is irreversible, it is
+     logged under the caller's name, and the hold is the ceremony. */
+  const openBids = async () => {
+    const ok = await act.openBids(t.id);
+    if (ok) {
+      cue.tear();
+      toast.ok(t.twoStage && !t.techOpenedAt ? "Technical envelopes opened"
+                                            : t.twoStage ? "Commercial envelopes opened"
+                                            : `${bids.length} seal(s) broken`,
+               t.twoStage && !t.techOpenedAt
+                 ? "Prices stay sealed until technical scoring concludes."
+                 : "Amounts and documents are now on the record. The panel can score.");
+    }
+  };
 
   if (t.type === "AUC" && !t.openedAt) {
     return <AuctionBoard api={api} t={t} />;
@@ -549,7 +574,7 @@ export function BidsTab({ api, t }) {
             const scored = Object.keys(b.scores || {}).length;
             return (
               <div className="sealrow" key={b.id}>
-                <span className="sealdot" aria-hidden="true" />
+                <SealMark s={15} />
                 <div style={{ flex: 1 }}>
                   <b>{s.name}</b>
                   <div className="muted" style={{ fontSize: 12 }}>
@@ -567,13 +592,14 @@ export function BidsTab({ api, t }) {
         </div>
         {user.role === "procurement" && (
           <div className="ceremony">
-            <span className="sealdot" style={{ display: "inline-block", width: 22, height: 22 }} />
+            <SealMark s={26} className="stamped" />
             <h3>Open commercial envelopes</h3>
             <p className="muted" style={{ maxWidth: 500, margin: "0 auto 16px", fontSize: 13 }}>
               Requires technical scores on every bid. Bidders at or above {threshold}/100 have their prices
               revealed; the rest are disqualified and their commercial envelopes are never decrypted.
             </p>
-            <button className="btn wax" onClick={openBids}>Open commercial envelopes (threshold {threshold}/100)</button>
+            <HoldButton label={`Hold to open commercial envelopes (threshold ${threshold}/100)`} onDone={openBids} />
+            <div className="holdhint" style={{ marginTop: 8 }}>Disqualified bidders' pricing is never decrypted — not now, not ever.</div>
           </div>
         )}
       </div>
@@ -588,7 +614,7 @@ export function BidsTab({ api, t }) {
             const s = state.suppliers.find((x) => x.id === b.supplierId);
             return (
               <div className="sealrow" key={b.id}>
-                <span className="sealdot" aria-hidden="true" />
+                <SealMark s={15} />
                 <div style={{ flex: 1 }}><b>{s.name}</b><div className="muted" style={{ fontSize: 12 }}>Sealed bid received {fmtDateTime(b.submittedAt)}</div></div>
                 <span className="mono waxfg" style={{ fontSize: 11, letterSpacing: ".1em" }}>SEALED</span>
               </div>
@@ -598,15 +624,17 @@ export function BidsTab({ api, t }) {
         </div>
         {st === "closed" && user.role === "procurement" && bids.length > 0 && (
           <div className="ceremony">
-            <span className="sealdot" style={{ display: "inline-block", width: 22, height: 22 }} />
+            <SealMark s={26} className="stamped" />
             <h3>Bid opening</h3>
             <p className="muted" style={{ maxWidth: 480, margin: "0 auto 16px", fontSize: 13 }}>
               The deadline has passed. Breaking the seals reveals all {bids.length} bids at once, is recorded permanently in the
               audit trail under your name, and moves this tender into evaluation.
             </p>
-            <button className="btn wax" onClick={openBids}>
-              {t.twoStage ? `Open ${bids.length} technical envelopes (stage 1 of 2)` : `Break seals & open ${bids.length} bids`}
-            </button>
+            <HoldButton onDone={openBids}
+                        label={t.twoStage
+                          ? `Hold to open ${bids.length} technical envelope(s) — stage 1 of 2`
+                          : `Hold to break ${bids.length} seal(s)`} />
+            <div className="holdhint" style={{ marginTop: 8 }}>Press and hold — the opening is permanent and carries your name.</div>
           </div>
         )}
         {st === "published" && (
@@ -708,6 +736,7 @@ export function EvalTab({ api, t }) {
   const bids = state.bids.filter((b) => b.tenderId === t.id);
   const [brief, setBrief] = useState("");
   const [busy, setBusy] = useState(false);
+  const [recBid, setRecBid] = useState(null);   // bid queued for the recommendation dialog
   const [openRows, setOpenRows] = useState({});
   const [myScores, setMyScores] = useState(() => {
     const m = {};
@@ -731,12 +760,10 @@ export function EvalTab({ api, t }) {
     act.saveScores(bidId, { [cid]: num });
   };
 
-  const recommend = (bid) => {
-    const s = state.suppliers.find((x) => x.id === bid.supplierId);
-    if (!window.confirm(`Recommend "${t.title}" for award to ${s.name} at ${fmtMoney(bid.amount)}?\n\nThe recommendation and memo go to the approver. Nothing reaches suppliers until it's approved.`)) return;
-    act.recommend(t.id, bid.id); // the memo is composed and stored server-side
+  const withdrawRec = async () => {
+    const ok = await act.withdrawRec(t.id);
+    if (ok) api.toast.ok("Recommendation withdrawn", "It is back with the panel; the approver's queue is clear.");
   };
-  const withdrawRec = () => act.withdrawRec(t.id);
 
   const genBrief = async () => {
     setBusy(true); setBrief("");
@@ -815,8 +842,23 @@ export function EvalTab({ api, t }) {
 
   /* ---- chair view: consensus matrix ---- */
   const rec = t.awardRec;
+  const recSupplier = recBid && state.suppliers.find((x) => x.id === recBid.supplierId);
   return (
     <div>
+      {recBid && (
+        <ConfirmDialog title="Recommend this bid for award?" confirmLabel="Send to the approver"
+                       onClose={() => setRecBid(null)}
+                       onConfirm={async () => {
+                         const ok = await act.recommend(t.id, recBid.id);  // memo composed server-side
+                         if (ok) api.toast.ok("Recommendation sent", `${recSupplier.name} at ${fmtCompact(recBid.amount)} is now in the approver's queue.`);
+                       }}>
+          <b>{recSupplier?.name}</b> at <b>{fmtMoney(recBid.amount)}</b> for “{t.title}”.
+          <div style={{ marginTop: 8 }}>
+            The panel memo is composed from the scores and pricing and goes to the approver with your name on it.
+            Nothing reaches any supplier until the approver signs off — and you can withdraw it until they do.
+          </div>
+        </ConfirmDialog>
+      )}
       {rec && t.status !== "awarded" && (
         <div className="notice" style={{ marginBottom: 14, borderLeft: "3px solid var(--brass)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{ flex: 1 }}>
@@ -860,7 +902,7 @@ export function EvalTab({ api, t }) {
                         </td>
                         <td style={{ whiteSpace: "nowrap" }}>
                           <button className="btn sm" onClick={() => setOpenRows((o) => ({ ...o, [b.id]: !o[b.id] }))}>{isOpen ? "Hide scores" : "Scores"}</button>
-                          {user.role === "procurement" && t.status !== "awarded" && !rec && <button className="btn sm" style={{ marginLeft: 6 }} onClick={() => recommend(b)}>Recommend award…</button>}
+                          {user.role === "procurement" && t.status !== "awarded" && !rec && <button className="btn sm" style={{ marginLeft: 6 }} onClick={() => setRecBid(b)}>Recommend award…</button>}
                         </td>
                       </tr>
                       {isOpen && (
@@ -981,6 +1023,7 @@ export function ApprovalsPage({ api }) {
   const awards = state.tenders.filter((t) => t.status === "evaluation" && t.awardRec);
   const [thr, setThr] = useState(String(state.org.approvalThreshold || ""));
   const [thrMsg, setThrMsg] = useState("");
+  const [awardT, setAwardT] = useState(null);   // tender queued for award sign-off
 
   const awarded = state.tenders.filter((t) => t.status === "awarded");
   const committed = awarded.reduce((s, t) => s + (t.awardedAmount || 0), 0);
@@ -995,17 +1038,51 @@ export function ApprovalsPage({ api }) {
     } catch (e) { setThrMsg(e.message); }
   };
 
-  const decidePub = (t, ok) => act.publishDecision(t.id, ok);
+  const decidePub = async (t, ok) => {
+    const done = await act.publishDecision(t.id, ok);
+    if (done) {
+      api.toast.ok(ok ? "Published" : "Returned to the panel",
+                   ok ? `Invitations are out to ${t.invited.length} supplier(s) on ${t.ref}.`
+                      : `${t.ref} is back with procurement as a draft.`);
+    }
+  };
 
-  const decideAward = (t, ok) => {
+  /** Approving an award issues letters to every bidder and cannot be undone,
+      so it is press-and-hold rather than a click. */
+  const approveAward = async (t) => {
     const rec = t.awardRec;
-    const winner = state.suppliers.find((s) => s.id === rec.supplierId);
-    if (ok && !window.confirm(`Approve the award of "${t.title}" to ${winner.name} at ${fmtMoney(rec.amount)}?\n\nThe award letter and regret letters are issued immediately.`)) return;
-    act.awardDecision(t.id, ok); // letters are generated and issued server-side
+    const done = await act.awardDecision(t.id, true);   // letters generated server-side
+    setAwardT(null);
+    if (done) {
+      cue.chime();
+      const winner = state.suppliers.find((s) => s.id === rec.supplierId);
+      api.toast.ok("Award approved — letters issued", `${winner.name} at ${fmtCompact(rec.amount)}. Every bidder has been notified.`);
+    }
+  };
+  const returnAward = async (t) => {
+    const done = await act.awardDecision(t.id, false);
+    if (done) api.toast.info("Returned to the panel", "Procurement has been asked to revisit the recommendation.");
   };
 
   return (
     <div>
+      {awardT && (() => {
+        const rec = awardT.awardRec;
+        const winner = state.suppliers.find((s) => s.id === rec.supplierId);
+        const losers = state.bids.filter((b) => b.tenderId === awardT.id && b.supplierId !== rec.supplierId).length;
+        return (
+          <ConfirmDialog title="Approve this award?" confirmLabel="Hold to approve & issue letters"
+                         tone="pri" hold holdHint="Irreversible — hold to sign off"
+                         onClose={() => setAwardT(null)} onConfirm={() => approveAward(awardT)}>
+            <b>{winner.name}</b> wins “{awardT.title}” at <b>{fmtMoney(rec.amount)}</b> — {fmtCompact(awardT.budget - rec.amount)} under
+            the {fmtCompact(awardT.budget)} ceiling.
+            <div style={{ marginTop: 8 }}>
+              Signing off issues the award letter immediately, plus {losers} regret letter{losers === 1 ? "" : "s"},
+              and notifies every bidder. It is recorded in the audit trail under your name and <b>cannot be undone.</b>
+            </div>
+          </ConfirmDialog>
+        );
+      })()}
       <div className="pagehead"><h1>Approvals</h1><span className="sub">nothing reaches suppliers without a named sign-off</span></div>
       <div className="grid2" style={{ alignItems: "stretch", marginBottom: 14 }}>
         <div className="card">
@@ -1057,8 +1134,8 @@ export function ApprovalsPage({ api }) {
               </div>
               <div className="mono faint" style={{ marginBottom: 12 }}>Recommended by {rec.by} · {fmtDateTime(rec.at)}</div>
               <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn pri" onClick={() => decideAward(t, true)}>Approve award & issue letters</button>
-                <button className="btn" onClick={() => decideAward(t, false)}>Return to panel</button>
+                <button className="btn pri" onClick={() => setAwardT(t)}>Approve award & issue letters…</button>
+                <button className="btn" onClick={() => returnAward(t)}>Return to panel</button>
               </div>
             </div>
           </div>
@@ -1276,20 +1353,17 @@ export function NewTender({ api, editId }) {
 /* ---------------- suppliers ---------------- */
 
 export function SuppliersPage({ api }) {
-  const { state, user, act } = api;
+  const { state, user, act, toast } = api;
   const canManage = user.role === "procurement";
-  const prequalify = (s) => {
-    if (!window.confirm(`Approve prequalification for ${s.name}? They become eligible for invitations without a waiver.`)) return;
-    act.prequalDecision(s.id, true);
-  };
-  const decline = (s) => {
-    const reason = window.prompt(`Decline ${s.name} — the reason is recorded in the audit trail and sent to the vendor:`);
-    if (reason && reason.trim()) act.prequalDecision(s.id, false, reason.trim());
-  };
-  const inviteVendor = async () => {
-    const email = window.prompt("Vendor's email — they'll receive a registration link:");
-    if (email && email.trim() && await act.inviteVendor(email.trim())) window.alert("Invitation sent.");
-  };
+  const [preS, setPreS] = useState(null);        // vendor queued for approval
+  const [declineS, setDeclineS] = useState(null); // vendor queued for decline
+  const [reason, setReason] = useState("");
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [email, setEmail] = useState("");
+
+  const prequalify = (s) => setPreS(s);
+  const decline = (s) => { setReason(""); setDeclineS(s); };
+  const inviteVendor = () => { setEmail(""); setInviteOpen(true); };
   const queue = state.suppliers.filter((s) => !s.prequalified && s.registeredAt);
   const complianceDocs = (sid) => (state.documents || []).filter((x) => x.kind === "supplier" && x.supplierId === sid);
   const [sq, setSq] = useState("");
@@ -1302,6 +1376,53 @@ export function SuppliersPage({ api }) {
   });
   return (
     <div>
+      {preS && (
+        <ConfirmDialog title={`Prequalify ${preS.name}?`} confirmLabel="Prequalify" onClose={() => setPreS(null)}
+                       onConfirm={async () => {
+                         if (await act.prequalDecision(preS.id, true)) toast.ok(`${preS.name} prequalified`, "They are now eligible for invitations, and they have been notified.");
+                       }}>
+          They become eligible for tender invitations without a waiver, and the decision is recorded in the
+          audit trail under your name. Check their compliance documents first if you haven't.
+        </ConfirmDialog>
+      )}
+      {declineS && (
+        <Dialog title={`Decline ${declineS.name}`} onClose={() => setDeclineS(null)} footer={
+          <>
+            <button className="btn" onClick={() => setDeclineS(null)}>Cancel</button>
+            <button className="btn wax" disabled={!reason.trim()}
+                    onClick={async () => {
+                      const s = declineS;
+                      setDeclineS(null);
+                      if (await act.prequalDecision(s.id, false, reason.trim())) {
+                        toast.ok(`${s.name} declined`, "The reason has been sent to the vendor and recorded in the audit trail.");
+                      }
+                    }}>Decline & send the reason</button>
+          </>
+        }>
+          The vendor sees this reason verbatim and can fix it and come back — so make it specific and actionable.
+          It is recorded permanently in the audit trail.
+          <textarea className="in" style={{ marginTop: 10 }} autoFocus value={reason} onChange={(e) => setReason(e.target.value)}
+                    placeholder="e.g. Public liability insurance expires inside the contract term — upload a renewal covering to Dec 2027." />
+        </Dialog>
+      )}
+      {inviteOpen && (
+        <Dialog title="Invite a vendor to register" onClose={() => setInviteOpen(false)} footer={
+          <>
+            <button className="btn" onClick={() => setInviteOpen(false)}>Cancel</button>
+            <button className="btn pri" disabled={!email.includes("@")}
+                    onClick={async () => {
+                      const to = email.trim();
+                      setInviteOpen(false);
+                      if (await act.inviteVendor(to)) toast.ok("Invitation sent", `${to} has a registration link. They appear in the review queue once they complete it.`);
+                    }}>Send invitation</button>
+          </>
+        }>
+          They receive a link to register their company. Once registered they land in your prequalification
+          queue with their compliance documents attached.
+          <input className="in" style={{ marginTop: 10 }} autoFocus type="email" placeholder="vendor@company.com"
+                 value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Dialog>
+      )}
       <div className="pagehead"><h1>Suppliers</h1><span className="sub">{visible.length} shown</span>
         <input className="in" style={{ width: 200, marginLeft: 12 }} placeholder="Search suppliers…"
                aria-label="Search suppliers" value={sq} onChange={(e) => setSq(e.target.value)} />
@@ -1310,14 +1431,16 @@ export function SuppliersPage({ api }) {
         </label>
         {canManage && (
           <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-            <label className="btn sm">Import CSV
+            <label className="btn sm"><Icon n="upload" /> Import CSV
               <input type="file" accept=".csv" hidden onChange={async (e) => {
                 const f = e.target.files[0];
-                if (f && await act.upload("/suppliers/import/", f)) window.alert("Import complete — check the register below.");
+                if (f && await act.upload("/suppliers/import/", f)) {
+                  toast.ok("Supplier book imported", "New vendors are in the register below; duplicates and blank rows were skipped.");
+                }
                 e.target.value = "";
               }} />
             </label>
-            <button className="btn sm" onClick={inviteVendor}>Invite a vendor to register</button>
+            <button className="btn sm" onClick={inviteVendor}><Icon n="mail" /> Invite a vendor to register</button>
           </span>
         )}
       </div>
@@ -1647,60 +1770,105 @@ export function TeamPage({ api }) {
 }
 
 function AuctionBoard({ api, t }) {
-  const { state, user, act } = api;
+  const { state, user, act, toast } = api;
   const [a, setA] = useState(null);
+  const [extended, setExtended] = useState(0);
+  const body = useRef(null);
+  const prevAmounts = useRef(new Map());
+  const prevLeader = useRef(null);
+  const prevDeadline = useRef(null);
+  const [moved, setMoved] = useState(new Set());
+
   const poll = async () => {
-    try { setA(await raw(`/tenders/${t.id}/auction/`)); } catch (e) { /* keep last */ }
+    try {
+      const next = await raw(`/tenders/${t.id}/auction/`);
+      const board = next.leaderboard || [];
+      // flash the rows whose price actually changed since the last poll
+      const changed = new Set(board.filter((x) => prevAmounts.current.get(x.supplierId) !== x.amount &&
+                                                  prevAmounts.current.size > 0).map((x) => x.supplierId));
+      if (changed.size) {
+        setMoved(changed);
+        setTimeout(() => setMoved(new Set()), DUR.ceremony);
+      }
+      const leader = board[0]?.supplierId || null;
+      if (prevLeader.current && leader && leader !== prevLeader.current) {
+        cue.tick();
+        toast.info("New leader in the auction", `${board[0].supplier} now holds the best price at ${fmtCompact(board[0].amount)}.`);
+      }
+      if (prevDeadline.current && next.deadline > prevDeadline.current + 1000 && next.live) {
+        setExtended(next.deadline);
+        toast.info("Close extended by two minutes", "A bid landed inside the final two minutes (anti-sniping).");
+      }
+      prevAmounts.current = new Map(board.map((x) => [x.supplierId, x.amount]));
+      prevLeader.current = leader;
+      prevDeadline.current = next.deadline;
+      setA(next);
+    } catch (e) { /* keep last */ }
   };
   useEffect(() => {
     poll();
-    const h = setInterval(poll, 5000);
+    const h = setInterval(poll, a?.live === false ? 10000 : 2500);
     return () => clearInterval(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t.id]);
+  }, [t.id, a?.live]);
 
   const live = a?.live;
+  const board = a?.leaderboard || [];
+  useFlip(body, board.map((x) => x.supplierId).join("|"));
+
   return (
     <div>
-      <div className="notice" style={{ marginBottom: 14 }}>
-        <b>Reverse auction.</b> Suppliers see only their own rank; this leaderboard is buyer-side only.
-        Bids inside the final two minutes extend the close by two minutes.
-        {live && <> Closing soon — see the countdown on the Overview tab.</>}
+      <div className="notice" style={{ marginBottom: 14, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ flex: 1, minWidth: 260 }}>
+          <b>Reverse auction.</b> Suppliers see only their own rank; this leaderboard is buyer-side only.
+          Bids inside the final two minutes extend the close by two minutes.
+        </span>
+        {extended === a?.deadline && live && <span className="extbadge">+2:00 anti-snipe</span>}
+        {live
+          ? <LiveCountdown deadline={a.deadline} />
+          : <span className="chip">{a?.recorded ? "Results recorded" : "Auction closed"}</span>}
       </div>
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="chead"><h3>Live standings</h3>
+        <div className="chead"><h3>{live ? "Live standings" : "Final standings"}</h3>
           <span className="mono faint" style={{ marginLeft: "auto" }}>
-            {a ? `${a.bidders} bidder(s) · ${a.movements} price movements · ceiling ${fmtCompact(a.ceiling)}` : "loading…"}
+            {a ? <>{a.bidders} bidder(s) · <span className={moved.size ? "tickbump" : ""}>{a.movements} price movements</span> · ceiling {fmtCompact(a.ceiling)}</> : "loading…"}
           </span>
         </div>
         <table className="tbl">
-          <thead><tr><th style={{ width: 60 }}>Rank</th><th>Supplier</th><th className="num">Current price</th><th className="num">vs ceiling</th><th>Last movement</th></tr></thead>
-          <tbody>
-            {(a?.leaderboard || []).map((x, i) => (
-              <tr key={x.supplierId}>
-                <td className="mono" style={{ color: i === 0 ? "var(--green)" : undefined, fontWeight: i === 0 ? 700 : 400 }}>#{i + 1}</td>
-                <td><b>{x.supplier}</b></td>
+          <thead><tr><th style={{ width: 68 }}>Rank</th><th>Supplier</th><th className="num">Current price</th><th className="num">vs ceiling</th><th>Last movement</th></tr></thead>
+          <tbody ref={body}>
+            {board.map((x, i) => (
+              <tr key={x.supplierId} data-flip={x.supplierId} className={moved.has(x.supplierId) ? "flash" : ""}>
+                <td className="mono" style={{ color: i === 0 ? "var(--green)" : undefined, fontWeight: i === 0 ? 700 : 400 }}>
+                  {i === 0 ? "▲ " : ""}#{i + 1}
+                </td>
+                <td><b>{x.supplier}</b>{i === 0 && <span className="chip ok" style={{ marginLeft: 8, fontSize: 10.5 }}>leading</span>}</td>
                 <td className="num"><Money n={x.amount} strong={i === 0} /></td>
                 <td className="num mono" style={{ color: "var(--green)" }}>{(((x.amount - (a?.ceiling || t.budget)) / (a?.ceiling || t.budget)) * 100).toFixed(1)}%</td>
                 <td className="mono muted">{fmtDateTime(x.at)}</td>
               </tr>
             ))}
-            {!a?.leaderboard?.length && <tr><td colSpan={5}><Empty>No bids yet.</Empty></td></tr>}
+            {!board.length && <tr><td colSpan={5}><Empty>No bids yet — the room is open and waiting.</Empty></td></tr>}
           </tbody>
         </table>
       </div>
-      {!live && a && user.role === "procurement" && (a.leaderboard || []).length > 0 && (
+      {!live && a && user.role === "procurement" && board.length > 0 && (
         <div className="ceremony">
-          <span className="sealdot" style={{ display: "inline-block", width: 22, height: 22 }} />
+          <SealMark s={26} className="stamped" />
           <h3>Auction closed</h3>
           <p className="muted" style={{ maxWidth: 480, margin: "0 auto 16px", fontSize: 13 }}>
             Recording the results locks the final standings as formal bids and moves the tender into the
-            standard recommendation → CFO approval → letters flow.
+            standard recommendation → CFO approval → letters flow. It cannot be undone.
           </p>
-          <button className="btn wax" onClick={() => act.openBids(t.id)}>Record results & close out</button>
+          <HoldButton label={`Hold to record ${board.length} final standing(s)`}
+                      onDone={async () => {
+                        const ok = await act.openBids(t.id);
+                        if (ok) toast.ok("Results recorded", "The standings are now formal bids — ready for an award recommendation.");
+                      }} />
+          <div className="holdhint" style={{ marginTop: 8 }}>Press and hold — this is recorded in the audit trail under your name.</div>
         </div>
       )}
-      {live && <div className="muted" style={{ fontSize: 12 }}>This board refreshes every 5 seconds.</div>}
+      {live && <div className="muted" style={{ fontSize: 12 }}>This board refreshes every 2.5 seconds.</div>}
     </div>
   );
 }
