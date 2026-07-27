@@ -139,7 +139,7 @@ export function Dashboard({ api }) {
             {awardRecs.map((t) => (
               <div className="rowline" key={"ar" + t.id}>
                 <div style={{ flex: 1 }}><b>{t.title}</b><div className="muted" style={{ fontSize: 12 }}>Award recommendation with the approver</div></div>
-                <span className="chip gold">Awaiting award approval</span>
+                <span className="stamp gold">Awaiting award approval</span>
               </div>
             ))}
             {approvals.map((t) => (

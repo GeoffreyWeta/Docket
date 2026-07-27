@@ -173,7 +173,13 @@ export default function App() {
                   onLoggedIn={(res, username) => { storeAuth(res.token, username); setToken(res.token); }} />;
   }
   if (!data || !route) {
-    return <div style={{ padding: 40, fontFamily: "system-ui", color: "#5F6A63" }}><style>{CSS + EXTRA_CSS}</style>Opening the docket…</div>;
+    return (
+      <div className="booting">
+        <style>{CSS + EXTRA_CSS}</style>
+        <span className="seal" aria-hidden="true" />
+        Opening the docket…
+      </div>
+    );
   }
 
   const user = data.me;
