@@ -24,7 +24,7 @@ export const median = (a) => { const s = [...a].sort((x, y) => x - y); const m =
 export const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
 export const stdev = (a) => { if (a.length < 2) return 0; const m = mean(a); return Math.sqrt(mean(a.map((x) => (x - m) * (x - m)))); };
 
-/* Status vocabulary. Only the wording lives here — the colours are per-theme
+/* Status vocabulary. Only the wording lives here: the colours are per-theme
    CSS (`.stamp.st-<key>` in styles.js), so a stamp restyles with the theme
    instead of carrying a baked-in hex through the JSX. */
 export const STATUS = {

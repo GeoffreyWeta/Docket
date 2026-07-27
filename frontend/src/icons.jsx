@@ -1,9 +1,9 @@
-/* DOCKET icon set — inline SVG, no icon font, no CDN, no dependency.
+/* DOCKET icon set: inline SVG, no icon font, no CDN, no dependency.
 
    Drawn to the same rules as the rest of the system: a 20×20 box, 1.6 stroke,
    round caps and joins, currentColor only, geometry snapped to the half-pixel
    grid so 16px renders crisply. The vocabulary is deliberately stationery and
-   procurement — seals, envelopes, ledgers, stamps, scales — not generic SaaS.
+   procurement (seals, envelopes, ledgers, stamps, scales), not generic SaaS.
 
    Usage:  <Icon n="seal" />            inline, inherits colour + 1em sizing
            <Icon n="ledger" s={18} />   explicit pixel size
@@ -49,6 +49,8 @@ const P = {
   question: <><circle cx="10" cy="10" r="7.2" /><path d="M7.9 7.8a2.1 2.1 0 1 1 3 1.9c-.6.4-.9.8-.9 1.6M10 14.6v.1" /></>,
   plus: <><path d="M10 4.2v11.6M4.2 10h11.6" /></>,
   close: <><path d="M5 5l10 10M15 5 5 15" /></>,
+  /* the drawer handle: three rules, same 1.6 stroke as everything else */
+  menu: <><path d="M3 5.5h14M3 10h14M3 14.5h14" /></>,
   mail: <><rect x="2.5" y="4.5" width="15" height="11" rx="1.2" /><path d="M2.5 6 10 11l7.5-5" /></>,
   refresh: <><path d="M16.5 10a6.5 6.5 0 1 1-2.1-4.8" /><path d="M16.8 3.6v3.2h-3.2" /></>,
   exit: <><path d="M12 5.5V3.6H4v12.8h8v-1.9" /><path d="M8.6 10h8.4M14.2 7.4 16.8 10l-2.6 2.6" /></>,
@@ -71,7 +73,7 @@ export function Icon({ n, s, className = "", style, title }) {
   );
 }
 
-/** Wax seal — the one filled mark in the set, so it reads as an object rather
+/** Wax seal: the one filled mark in the set, so it reads as an object rather
     than an outline. Used wherever a bid is sealed. */
 export function SealMark({ s = 15, cracked = false, className = "", style }) {
   return (

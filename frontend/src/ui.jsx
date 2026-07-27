@@ -2,18 +2,52 @@
 
    House rules encoded here:
    * No browser dialogs. Consequential actions get a designed dialog, and the
-     irreversible ones get press-and-hold — the confirmation *is* the ceremony.
+     irreversible ones get press-and-hold: the confirmation *is* the ceremony.
    * State is never carried by colour alone. --green and --wax sit only ΔE 5.7
      apart under protanopia (measured), and they are exactly the pair that says
-     "you are leading" vs "you are being outbid" — so every state ships a glyph
+     "you are leading" vs "you are being outbid", so every state ships a glyph
      and words too. Do not "simplify" those away.
    * Everything is interruptible and silent under prefers-reduced-motion. */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
+import { DESKTOP_Q } from "./breakpoints";
 import { DUR, EASE, cue, fmtRemaining, reducedMotion, setSoundEnabled, soundEnabled, tickRateFor, useTicker } from "./motion";
 import { fmtDateTime, fmtMoney } from "./helpers";
 import { Icon } from "./icons";
 import { THEMES, getTheme, setTheme } from "./theme";
+
+/* ---------------- viewport ----------------
+   The stylesheet handles every *appearance* difference between a phone and a
+   desktop on its own. These hooks exist for the one thing CSS cannot do:
+   decide what to render. The drawer's secondary chrome lives in one place at a
+   time (the top bar or the drawer foot) rather than being duplicated into
+   the DOM twice and hidden with display:none, so there is only ever one
+   tabbable copy of "Sign out". The query comes from breakpoints.js, the same
+   number the CSS shell switches on. */
+
+/** Subscribes to a media query and re-renders when it changes. */
+export function useMedia(query) {
+  const [matches, setMatches] = useState(() => {
+    try { return window.matchMedia(query).matches; } catch (e) { return false; }
+  });
+  useEffect(() => {
+    let mq;
+    try { mq = window.matchMedia(query); } catch (e) { return undefined; }
+    const sync = () => setMatches(mq.matches);
+    sync();
+    // addListener is the Safari < 14 spelling; it is still the only one there
+    if (mq.addEventListener) mq.addEventListener("change", sync);
+    else mq.addListener(sync);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener("change", sync);
+      else mq.removeListener(sync);
+    };
+  }, [query]);
+  return matches;
+}
+
+/** True once the sidebar is permanent furniture rather than a drawer. */
+export const useIsDesktop = () => useMedia(DESKTOP_Q);
 
 /* ---------------- toasts ---------------- */
 
@@ -85,7 +119,7 @@ export function Dialog({ title, children, footer, onClose, wide }) {
   );
 }
 
-/** One-call confirmation. `hold` turns the confirm button into press-and-hold —
+/** One-call confirmation. `hold` turns the confirm button into press-and-hold:
     use it for anything the server cannot undo. */
 export function ConfirmDialog({ title, children, confirmLabel = "Confirm", tone = "pri",
                                hold = false, holdHint, onConfirm, onClose }) {
@@ -112,8 +146,8 @@ export function ConfirmDialog({ title, children, confirmLabel = "Confirm", tone 
 /* ---------------- press and hold ---------------- */
 
 /** Fills over `holdMs`, fires on completion, cancels on early release.
-    Keyboard: hold Enter or Space. Reduced motion still requires the hold —
-    it is a safety gesture, not decoration — but skips the shake. */
+    Keyboard: hold Enter or Space. Reduced motion still requires the hold:
+    it is a safety gesture, not decoration, but skips the shake. */
 export function HoldButton({ label, busyLabel = "Working…", holdMs = 1150, tone = "wax",
                             onDone, disabled, busy, className = "" }) {
   const [p, setP] = useState(0);
@@ -164,7 +198,7 @@ export function HoldButton({ label, busyLabel = "Working…", holdMs = 1150, ton
 /* ---------------- live countdown ---------------- */
 
 /** A clock that actually ticks. Coarse when the deadline is days away, second
-    by second inside the last two hours, urgent under two minutes — which is
+    by second inside the last two hours, urgent under two minutes, which is
     exactly the anti-sniping window. */
 export function LiveCountdown({ deadline, prefix, className = "" }) {
   const left = deadline - Date.now();
@@ -184,9 +218,9 @@ export function LiveCountdown({ deadline, prefix, className = "" }) {
 /* ---------------- rolling number ---------------- */
 
 /** Digits roll like a counter wheel. Used for auction rank, where the change
-    matters more than the value — never as the only signal of state. */
+    matters more than the value, never as the only signal of state. */
 export function RollNumber({ value, size = 54, color }) {
-  const digits = String(value ?? "—").split("");
+  const digits = String(value ?? "-").split("");
   return (
     <span className={"roll" + (reducedMotion() ? " norm" : "")}
           style={{ fontFamily: "var(--font-serif)", fontSize: size, lineHeight: 1, color }}
@@ -257,9 +291,8 @@ export function ThemeSwitch() {
   const now = THEMES.find((t) => t.id === cur) || THEMES[0];
   return (
     <button className="btn sm" onClick={() => setCur(setTheme(next.id))}
-            title={`${now.hint} — click for ${next.label}`}>
-      <Icon n={cur === "night" ? "seal" : cur === "material" ? "dashboard" : "tender"} s={14} />
-      {now.label}
+            title={`${now.hint}. Click for ${next.label}`}>
+      <Icon n={now.icon} s={14} />{now.label}
     </button>
   );
 }
@@ -274,7 +307,7 @@ export function SoundToggle() {
   };
   return (
     <button className="btn sm" onClick={flip} aria-pressed={on}
-            title={on ? "Sound cues on — seal, rank and award cues" : "Sound cues off"}>
+            title={on ? "Sound cues on: seal, rank and award cues" : "Sound cues off"}>
       {on ? "♪ On" : "♪ Off"}
     </button>
   );

@@ -17,7 +17,7 @@ import { ICON_CSS } from "./icons";
 import { MOTION_CSS } from "./motion";
 import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
 import { AuctionRoom, BidRoom, PortalHome } from "./supplier";
-import { ConfirmDialog, Toasts, useToasts } from "./ui";
+import { ConfirmDialog, Toasts, useIsDesktop, useToasts } from "./ui";
 
 const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS;
 
@@ -86,7 +86,7 @@ function Login({ onLoggedIn, onScreen }) {
             )}
             {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 12 }}>{msg}</div>}
             <button className="btn pri" style={{ width: "100%" }} onClick={submit} disabled={busy || !u.trim() || !pw}>Sign in</button>
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
+            <div className="linkrow">
               <button className="doclink" onClick={() => onScreen("register")}>Register your company (vendors)</button>
               <button className="doclink" onClick={() => onScreen("forgot")}>Forgot password?</button>
             </div>
@@ -130,6 +130,8 @@ export default function App() {
   const [security, setSecurity] = useState(false);
   const [askReset, setAskReset] = useState(false);
   const [toast, toasts, dropToast] = useToasts();
+  const desktop = useIsDesktop();
+  const [nav, setNav] = useState(false);   // navigation drawer, phones only
 
   const signOut = (serverSide) => {
     if (serverSide) apiLogout().catch(() => {});
@@ -166,6 +168,22 @@ export default function App() {
     authConfig().then((c) => setAccounts(c.accounts || [])).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  /* While the drawer is over the page, the page must not scroll under it, and
+     Escape must close it. Widening past the desktop breakpoint drops the lock
+     too: the sidebar is furniture there, and a stuck body overflow would leave
+     the desktop unable to scroll. */
+  const drawerOpen = nav && !desktop;
+  useEffect(() => {
+    document.body.classList.toggle("navopen", drawerOpen);
+    if (!drawerOpen) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setNav(false); };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.classList.remove("navopen");
+    };
+  }, [drawerOpen]);
 
   if (screen) {
     if (screen.name === "register") return <RegisterVendor onDone={toLogin} />;
@@ -243,8 +261,9 @@ export default function App() {
   };
 
   const go = (r) => {
+    setNav(false);   // a chosen destination closes the drawer over it
     setRoute(r);
-    refresh(); // silent — keeps the current view until fresh data lands
+    refresh(); // silent: keeps the current view until fresh data lands
   };
 
   const onSwitch = async (username) => {
@@ -276,19 +295,26 @@ export default function App() {
   const allowed = ALLOWED[user.role] || [];
   const page = allowed.includes(route.page) ? route.page : HOME[user.role];
 
+  /* The secondary chrome, handed to whichever of the two can house it: the top
+     bar on a desktop, the drawer foot on a phone. */
+  const chrome = {
+    accounts, username: getUsername(), onSwitch,
+    onLogout: () => signOut(true), onReset: () => setAskReset(true),
+    onGuide: () => setGuide(true), onSecurity: () => setSecurity(true),
+  };
+
   return (
     <div className="dk">
       <style>{ALL_CSS}</style>
-      <Sidebar api={api} />
+      <Sidebar api={api} chrome={chrome} open={drawerOpen} desktop={desktop} onClose={() => setNav(false)} />
+      {drawerOpen && <div className="navscrim" onClick={() => setNav(false)} aria-hidden="true" />}
       <div className="main">
-        <Topbar api={api} accounts={accounts} username={getUsername()}
-                onSwitch={onSwitch} onLogout={() => signOut(true)} onReset={() => setAskReset(true)}
-                onGuide={() => setGuide(true)} onSecurity={() => setSecurity(true)} />
+        <Topbar api={api} chrome={chrome} desktop={desktop} navOpen={drawerOpen} onMenu={() => setNav(true)} />
         {askReset && (
           <ConfirmDialog title="Reset all demo data?" confirmLabel="Hold to reset the demo" tone="wax"
-                         hold holdHint="Wipes everything — hold to confirm"
+                         hold holdHint="Wipes everything: hold to confirm"
                          onClose={() => setAskReset(false)} onConfirm={onReset}>
-            Every tender, bid, score, letter, notification and audit event goes back to the original seed —
+            Every tender, bid, score, letter, notification and audit event goes back to the original seed,
             including anything you created in this session. <b>This cannot be undone.</b>
           </ConfirmDialog>
         )}

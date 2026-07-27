@@ -20,13 +20,18 @@ export const NAV = {
   supplier: [["portal", "My invitations"]],
 };
 
-/* One icon per destination — the sidebar is scanned by shape before it is read. */
+/* One icon per destination: the sidebar is scanned by shape before it is read. */
 const NAV_ICON = {
   dashboard: "dashboard", tenders: "tender", suppliers: "suppliers", team: "team",
   analytics: "analytics", audit: "audit", evals: "scales", approvals: "stamp", portal: "portal",
 };
 
-export function Sidebar({ api }) {
+/** The workspace navigation: a permanent column on a desktop, an off-canvas
+    drawer below that, which is also where the secondary chrome lives, since
+    the top bar has no room for it on a phone. `go()` in App.jsx closes the
+    drawer on every route change, so tapping a destination never leaves it
+    sitting over the answer. */
+export function Sidebar({ api, chrome, open, desktop, onClose }) {
   const { user, route, go } = api;
   const items = NAV[user.role] || [];
   const isOn = (key) =>
@@ -35,8 +40,14 @@ export function Sidebar({ api }) {
     (route.page === "bidroom" && key === "portal") ||
     (route.page === "new" && key === "tenders");
   return (
-    <nav className="side" aria-label="Main">
-      <div className="wordmark"><span className="seal" aria-hidden="true" /><b>DOCKET</b></div>
+    <nav id="dk-nav" className={"side" + (open ? " open" : "")} aria-label="Main"
+         aria-hidden={desktop ? undefined : !open}>
+      <div className="wordmark">
+        <span className="seal" aria-hidden="true" /><b>DOCKET</b>
+        <button className="drawerx" aria-label="Close navigation" onClick={onClose}>
+          <Icon n="close" s={17} />
+        </button>
+      </div>
       <div className="orgline">{api.state.org.name}<br />{api.state.org.note}</div>
       <div className="navsec">Workspace</div>
       {items.map(([key, label]) => (
@@ -48,6 +59,7 @@ export function Sidebar({ api }) {
         <button className="newbtn" onClick={() => go({ page: "new" })}><Icon n="plus" s={15} />New tender</button>
       )}
       <div className="spacer" />
+      {!desktop && chrome && <ChromeActions api={api} {...chrome} stacked />}
       <div className="sidefoot">Data stays on this device.<br />Sealed bids stay sealed.</div>
     </nav>
   );
@@ -77,37 +89,64 @@ function Bell({ api }) {
               <div className="nb">{n.body}</div>
             </div>
           ))}
-          {!items.length && <div className="nitem nb">Nothing yet — invitations, sealed bids, deadlines and awards will land here (and by email when SMTP is configured).</div>}
+          {!items.length && <div className="nitem nb">Nothing yet. Invitations, sealed bids, deadlines and awards will land here (and by email when SMTP is configured).</div>}
         </div>
       )}
     </div>
   );
 }
 
-export function Topbar({ api, accounts, username, onSwitch, onLogout, onReset, onGuide, onSecurity }) {
+/** Guide, security, theme, sound, demo reset, who you are and the way out.
+    Seven controls plus an account switcher do not fit a phone's top bar, and
+    wrapping them there cost three rows of the viewport before any content. So
+    they render inline in the bar on a desktop and stacked in the drawer foot on
+    a phone: one component either way, so there is never a second tabbable
+    "Sign out" hidden off-screen. */
+function ChromeActions({ api, accounts, username, onSwitch, onLogout, onReset, onGuide, onSecurity, stacked }) {
   const { state, user } = api;
   const initials = user.name.split(" ").map((w) => w[0]).slice(0, 2).join("");
-  return (
-    <header className="topbar">
-      <span className="crumb">{state.org.short.toUpperCase()} / PROCUREMENT</span>
-      <div className="grow" />
+  const kit = (
+    <>
       <button className="btn sm" onClick={onGuide} title="How to get started in your role"><Icon n="question" s={14} />Guide</button>
       <button className="btn sm" onClick={onSecurity} title="Two-factor authentication and sessions"><Icon n="shield" s={14} />Security</button>
-      <Bell api={api} />
+      {/* the bell keeps its place in the bar on a phone: alerts are why you
+          glance at the top of the screen, not something to open a drawer for */}
+      {!stacked && <Bell api={api} />}
       <ThemeSwitch />
       <SoundToggle />
       <button className="btn sm" onClick={onReset} title="Restore the original demo data"><Icon n="refresh" s={14} />Reset demo</button>
       <div className="whoami">
-        <div className="avatar" aria-hidden="true">{initials}</div>
+        {stacked
+          ? <div className="me"><div className="avatar" aria-hidden="true">{initials}</div>{user.name}</div>
+          : <div className="avatar" aria-hidden="true">{initials}</div>}
         {state.demoLogin && accounts.length > 0 ? (
-          <select aria-label="Switch demo account" value={username} onChange={(e) => onSwitch(e.target.value)}>
+          <select className={stacked ? "in" : undefined} aria-label="Switch demo account"
+                  value={username} onChange={(e) => onSwitch(e.target.value)}>
             {accounts.map((a) => <option key={a.username} value={a.username}>{a.label}</option>)}
           </select>
-        ) : (
+        ) : !stacked ? (
           <span style={{ fontSize: 13, fontWeight: 600 }}>{user.name}</span>
-        )}
+        ) : null}
         <button className="btn sm" onClick={onLogout}><Icon n="exit" s={14} />Sign out</button>
       </div>
+    </>
+  );
+  return stacked ? <div className="chromeacts">{kit}</div> : kit;
+}
+
+export function Topbar({ api, chrome, desktop, onMenu, navOpen }) {
+  const { state } = api;
+  return (
+    <header className="topbar">
+      {!desktop && (
+        <button className="iconbtn" onClick={onMenu} aria-label="Open navigation"
+                aria-controls="dk-nav" aria-expanded={!!navOpen}>
+          <Icon n="menu" s={20} />
+        </button>
+      )}
+      <span className="crumb">{state.org.short.toUpperCase()} / PROCUREMENT</span>
+      <div className="grow" />
+      {desktop ? <ChromeActions api={api} {...chrome} /> : <Bell api={api} />}
     </header>
   );
 }
@@ -133,7 +172,7 @@ export function Dashboard({ api }) {
       <div className="pagehead"><h1>Dashboard</h1><span className="sub">Everything that needs a decision, in one place.</span></div>
       <div className="grid g4" style={{ marginBottom: 16 }}>
         <Stat k="Open for bids" v={open.length} d="live tenders with suppliers bidding" />
-        <Stat k="Sealed, awaiting opening" v={sealed.length} d="deadline passed — seals unbroken" tone={sealed.length ? "var(--wax)" : null} />
+        <Stat k="Sealed, awaiting opening" v={sealed.length} d="deadline passed, seals unbroken" tone={sealed.length ? "var(--wax)" : null} />
         <Stat k="In evaluation" v={evaluating.length} d="panels scoring" />
         <Stat k="Savings this year" v={fmtCompact(savings)} d="awarded vs. budget" tone="var(--green)" />
       </div>
@@ -145,7 +184,7 @@ export function Dashboard({ api }) {
             {sealed.map((t) => (
               <div className="rowline" key={t.id}>
                 <span className="sealdot" style={{ width: 11, height: 11 }} />
-                <div style={{ flex: 1 }}><b>{t.title}</b><div className="muted" style={{ fontSize: 12 }}>Deadline passed — sealed bids ready to open</div></div>
+                <div style={{ flex: 1 }}><b>{t.title}</b><div className="muted" style={{ fontSize: 12 }}>Deadline passed: sealed bids ready to open</div></div>
                 <button className="btn sm wax" onClick={() => go({ page: "tender", id: t.id, tab: "bids" })}>Open bids</button>
               </div>
             ))}
@@ -247,19 +286,24 @@ export function TendersPage({ api }) {
       <div className="pagehead">
         <h1>Tenders</h1><span className="sub">{rows.length} shown</span>
         <div className="grow" />
-        <input className="in" style={{ width: 220 }} placeholder="Search ref, title, category…"
-               aria-label="Search tenders" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select className="in" style={{ width: "auto" }} aria-label="Filter by status"
-                value={statusF} onChange={(e) => setStatusF(e.target.value)}>
-          <option value="all">All statuses</option>
-          <option value="active">Hide awarded</option>
-          <option value="live">Live (open for bids)</option>
-          <option value="evaluation">In evaluation</option>
-          <option value="awarded">Awarded</option>
-        </select>
-        {user.role === "procurement" && <button className="btn pri" onClick={() => go({ page: "new" })}>New tender</button>}
+        <div className="pagetools">
+          <input className="in" placeholder="Search ref, title, category…"
+                 aria-label="Search tenders" value={q} onChange={(e) => setQ(e.target.value)} />
+          <select className="in" aria-label="Filter by status"
+                  value={statusF} onChange={(e) => setStatusF(e.target.value)}>
+            <option value="all">All statuses</option>
+            <option value="active">Hide awarded</option>
+            <option value="live">Live (open for bids)</option>
+            <option value="evaluation">In evaluation</option>
+            <option value="awarded">Awarded</option>
+          </select>
+          {user.role === "procurement" && <button className="btn pri" onClick={() => go({ page: "new" })}>New tender</button>}
+        </div>
       </div>
       <div className="card">
+        {/* data-l names each cell for the phone layout, where the table becomes
+            a list of records. The title and the status stamp carry the record
+            rather than a field, so they stay unlabelled. */}
         <table className="tbl">
           <thead><tr><th>Ref</th><th>Title</th><th>Category</th><th className="num">Budget</th><th>Deadline</th><th>Bids</th><th>Status</th>{user.role === "procurement" && <th />}</tr></thead>
           <tbody>
@@ -270,14 +314,14 @@ export function TendersPage({ api }) {
                 <tr key={t.id} className="click" onClick={() => go({ page: "tender", id: t.id })}>
                   <td className="mono muted">{t.ref}</td>
                   <td><b>{t.title}</b>{t.awardRec && t.status === "evaluation" && <span className="chip gold" style={{ marginLeft: 8 }}>With approver</span>}</td>
-                  <td className="muted">{t.category}</td>
-                  <td className="num"><Money n={t.budget} /></td>
-                  <td>{t.status === "approval" || t.status === "draft" ? <span className="faint">—</span> : <Countdown t={t.deadline} />}</td>
-                  <td className="mono">{st === "published" || st === "closed" ? nBids + " sealed" : nBids || "—"}</td>
+                  <td className="muted" data-l="Category">{t.category}</td>
+                  <td className="num" data-l="Budget"><Money n={t.budget} /></td>
+                  <td data-l="Deadline">{t.status === "approval" || t.status === "draft" ? <span className="faint">-</span> : <Countdown t={t.deadline} />}</td>
+                  <td className="mono" data-l="Bids">{st === "published" || st === "closed" ? nBids + " sealed" : nBids || "-"}</td>
                   <td><Stamp s={st} /></td>
                   {user.role === "procurement" && (
                     <td onClick={(e) => e.stopPropagation()}>
-                      <button className="btn sm" title="Create a draft copy — dates cleared, structure carried over"
+                      <button className="btn sm" title="Create a draft copy: dates cleared, structure carried over"
                               onClick={async () => { if (await act.duplicate(t.id)) go({ page: "tenders" }); }}>Duplicate</button>
                     </td>
                   )}
@@ -402,7 +446,7 @@ export function OverviewTab({ api, t }) {
             <thead><tr><th>#</th><th>Line</th><th className="num">Qty</th><th>Unit</th></tr></thead>
             <tbody>
               {t.lines.map((l, i) => (
-                <tr key={l.id}><td className="mono muted">{i + 1}</td><td>{l.desc}</td><td className="num mono">{l.qty.toLocaleString()}</td><td className="muted">{l.unit}</td></tr>
+                <tr key={l.id}><td className="mono muted">{i + 1}</td><td>{l.desc}</td><td className="num mono" data-l="Qty">{l.qty.toLocaleString()}</td><td className="muted" data-l="Unit">{l.unit}</td></tr>
               ))}
             </tbody>
           </table>
@@ -566,7 +610,7 @@ export function BidsTab({ api, t }) {
       <div>
         <div className="notice" style={{ marginBottom: 14 }}>
           <b>Stage 1 of 2.</b> Technical envelopes are open and being scored blind. Prices and commercial
-          documents remain cryptographically sealed — bidders scoring below <b>{threshold}/100</b> will have
+          documents remain cryptographically sealed. Bidders scoring below <b>{threshold}/100</b> will have
           their commercial envelopes returned unopened.
         </div>
         <div className="grid" style={{ gridTemplateColumns: "1fr", gap: 10, marginBottom: 16 }}>
@@ -600,7 +644,7 @@ export function BidsTab({ api, t }) {
               revealed; the rest are disqualified and their commercial envelopes are never decrypted.
             </p>
             <HoldButton label={`Hold to open commercial envelopes (threshold ${threshold}/100)`} onDone={openBids} />
-            <div className="holdhint" style={{ marginTop: 8 }}>Disqualified bidders' pricing is never decrypted — not now, not ever.</div>
+            <div className="holdhint" style={{ marginTop: 8 }}>Disqualified bidders' pricing is never decrypted: not now, not ever.</div>
           </div>
         )}
       </div>
@@ -633,13 +677,13 @@ export function BidsTab({ api, t }) {
             </p>
             <HoldButton onDone={openBids}
                         label={t.twoStage
-                          ? `Hold to open ${bids.length} technical envelope(s) — stage 1 of 2`
+                          ? `Hold to open ${bids.length} technical envelope(s), stage 1 of 2`
                           : `Hold to break ${bids.length} seal(s)`} />
-            <div className="holdhint" style={{ marginTop: 8 }}>Press and hold — the opening is permanent and carries your name.</div>
+            <div className="holdhint" style={{ marginTop: 8 }}>Press and hold: the opening is permanent and carries your name.</div>
           </div>
         )}
         {st === "published" && (
-          <div className="notice">Bids stay sealed until the deadline passes on {fmtDate(t.deadline)}. Nobody — including this team — can view their contents before the opening is logged.</div>
+          <div className="notice">Bids stay sealed until the deadline passes on {fmtDate(t.deadline)}. Nobody, including this team, can view their contents before the opening is logged.</div>
         )}
       </div>
     );
@@ -678,18 +722,18 @@ export function BidsTab({ api, t }) {
                       ))}
                     </div>
                   </td>
-                  <td className="mono muted">{fmtDateTime(b.submittedAt)}</td>
+                  <td className="mono muted" data-l="Submitted">{fmtDateTime(b.submittedAt)}</td>
                   {b.disqualified ? (
                     <>
-                      <td className="num mono waxfg" style={{ fontSize: 11, letterSpacing: ".08em" }}>RETURNED UNOPENED</td>
-                      <td className="num faint">—</td>
-                      <td><span className="chip warn">Disqualified at technical stage</span></td>
+                      <td className="num mono waxfg" data-l="Amount" style={{ fontSize: 11, letterSpacing: ".08em" }}>RETURNED UNOPENED</td>
+                      <td className="num faint" data-l="vs budget">-</td>
+                      <td data-l="Flags"><span className="chip warn">Disqualified at technical stage</span></td>
                     </>
                   ) : (
                     <>
-                      <td className="num"><Money n={b.amount} strong /></td>
-                      <td className="num mono" style={{ color: delta < 0 ? "var(--green)" : "var(--wax)" }}>{delta > 0 ? "+" : ""}{delta.toFixed(1)}%</td>
-                      <td>{low ? <span className="chip warn">Abnormally low — verify viability</span> : <span className="faint">—</span>}</td>
+                      <td className="num" data-l="Amount"><Money n={b.amount} strong /></td>
+                      <td className="num mono" data-l="vs budget" style={{ color: delta < 0 ? "var(--green)" : "var(--wax)" }}>{delta > 0 ? "+" : ""}{delta.toFixed(1)}%</td>
+                      <td data-l="Flags">{low ? <span className="chip warn">Abnormally low: verify viability</span> : <span className="faint">-</span>}</td>
                     </>
                   )}
                 </tr>
@@ -701,8 +745,8 @@ export function BidsTab({ api, t }) {
       {hasLines && (
         <div className="card">
           <div className="chead"><h3>Line-item comparison</h3><span className="mono faint" style={{ marginLeft: "auto" }}>unit rates · lowest per line in green</span></div>
-          <div style={{ overflowX: "auto" }}>
-            <table className="tbl">
+          <div className="tscroll">
+            <table className="tbl wide">
               <thead>
                 <tr><th>Line</th><th className="num">Qty</th>{bids.map((b) => <th key={b.id} className="num">{state.suppliers.find((x) => x.id === b.supplierId).name}</th>)}</tr>
               </thead>
@@ -713,7 +757,7 @@ export function BidsTab({ api, t }) {
                     <td className="num mono muted">{l.qty.toLocaleString()}</td>
                     {bids.map((b) => {
                       const p = b.lines?.[l.id];
-                      return <td key={b.id} className={"num money" + (p != null && p === lineMin[l.id] ? " best" : "")}>{p != null ? fmtMoney(p) : "—"}</td>;
+                      return <td key={b.id} className={"num money" + (p != null && p === lineMin[l.id] ? " best" : "")}>{p != null ? fmtMoney(p) : "-"}</td>;
                     })}
                   </tr>
                 ))}
@@ -752,7 +796,7 @@ export function EvalTab({ api, t }) {
   const evaluators = state.users.filter((u) => u.role === "evaluator");
 
   if (!t.openedAt) {
-    return <div className="notice">Evaluation opens once the deadline passes and the seals are formally broken. Until then there is nothing to score — by design.</div>;
+    return <div className="notice">Evaluation opens once the deadline passes and the seals are formally broken. Until then there is nothing to score, by design.</div>;
   }
 
   const setScore = (bidId, cid, v) => {
@@ -770,7 +814,7 @@ export function EvalTab({ api, t }) {
     setBusy(true); setBrief("");
     try {
       const out = await ai.brief(t.id);
-      setBrief(out || "No response — try again.");
+      setBrief(out || "No response, try again.");
     } catch (e) {
       setBrief(e.message || "The drafting service is unreachable right now. Try again in a moment.");
     }
@@ -797,7 +841,7 @@ export function EvalTab({ api, t }) {
     return (
       <div>
         <div className="notice" style={{ marginBottom: 14 }}>
-          Blind scoring — you can only see your own scores. The consensus matrix is revealed to the panel chair, never to individual scorers, so nobody anchors on a colleague's numbers.
+          Blind scoring: you can only see your own scores. The consensus matrix is revealed to the panel chair, never to individual scorers, so nobody anchors on a colleague's numbers.
         </div>
         {bids.map((b) => {
           const s = state.suppliers.find((x) => x.id === b.supplierId);
@@ -822,11 +866,11 @@ export function EvalTab({ api, t }) {
                 {t.criteria.map((c) => (
                   <div className="rowline" key={c.id}>
                     <span style={{ flex: 1 }}>{c.name} <span className="mono faint">({c.weight}%)</span></span>
-                    <input className="in" style={{ width: 74 }} type="number" min="0" max="10" aria-label={`Score for ${c.name}`} value={mine[c.id] ?? ""} placeholder="0–10" onChange={(e) => setScore(b.id, c.id, e.target.value)} />
+                    <input className="in numin" type="number" min="0" max="10" aria-label={`Score for ${c.name}`} value={mine[c.id] ?? ""} placeholder="0–10" onChange={(e) => setScore(b.id, c.id, e.target.value)} />
                   </div>
                 ))}
                 <div style={{ marginTop: 12 }}>
-                  <label className="lbl" htmlFor={"note-" + b.id}>Justification — visible to the panel chair and auditors</label>
+                  <label className="lbl" htmlFor={"note-" + b.id}>Justification (visible to the panel chair and auditors)</label>
                   <textarea id={"note-" + b.id} className="in" style={{ minHeight: 60 }}
                     placeholder="Why these scores? Auditors will ask."
                     value={myNotes[b.id] ?? ""}
@@ -856,22 +900,22 @@ export function EvalTab({ api, t }) {
           <b>{recSupplier?.name}</b> at <b>{fmtMoney(recBid.amount)}</b> for “{t.title}”.
           <div style={{ marginTop: 8 }}>
             The panel memo is composed from the scores and pricing and goes to the approver with your name on it.
-            Nothing reaches any supplier until the approver signs off — and you can withdraw it until they do.
+            Nothing reaches any supplier until the approver signs off, and you can withdraw it until they do.
           </div>
         </ConfirmDialog>
       )}
       {rec && t.status !== "awarded" && (
         <div className="notice" style={{ marginBottom: 14, borderLeft: "3px solid var(--brass)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{ flex: 1 }}>
-            <b>Recommended for award:</b> {state.suppliers.find((s) => s.id === rec.supplierId).name} at <Money n={rec.amount} /> — with the approver since {fmtDateTime(rec.at)}.
+            <b>Recommended for award:</b> {state.suppliers.find((s) => s.id === rec.supplierId).name} at <Money n={rec.amount} />, with the approver since {fmtDateTime(rec.at)}.
           </span>
           {user.role === "procurement" && <button className="btn sm" onClick={withdrawRec}>Withdraw recommendation</button>}
         </div>
       )}
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="chead"><h3>Consensus matrix</h3><span className="mono faint" style={{ marginLeft: "auto" }}>{t.techWeight}% technical · {t.commWeight}% commercial</span></div>
-        <div style={{ overflowX: "auto" }}>
-          <table className="tbl">
+        <div className="tscroll">
+          <table className="tbl wide">
             <thead><tr><th>Supplier</th><th className="num">Amount</th><th className="num">Technical</th><th className="num">Commercial</th><th className="num">Total</th><th>Flags</th><th></th></tr></thead>
             <tbody>
               {bids
@@ -893,13 +937,13 @@ export function EvalTab({ api, t }) {
                           {t.awardedTo === b.supplierId && <span className="chip gold" style={{ marginLeft: 8 }}>Awarded</span>}
                         </td>
                         <td className="num">{b.amount != null ? <Money n={b.amount} /> : <span className="mono waxfg" style={{ fontSize: 10.5 }}>{b.disqualified ? "UNOPENED" : "SEALED"}</span>}</td>
-                        <td className="num mono">{ts != null ? ts.toFixed(0) : "—"}</td>
+                        <td className="num mono">{ts != null ? ts.toFixed(0) : "-"}</td>
                         <td className="num mono">{commScore(t, b, bids).toFixed(0)}</td>
-                        <td className="num mono" style={{ fontWeight: 600 }}>{total != null ? total.toFixed(1) : "—"}</td>
+                        <td className="num mono" style={{ fontWeight: 600 }}>{total != null ? total.toFixed(1) : "-"}</td>
                         <td>
                           {low && <span className="chip warn" style={{ marginRight: 4 }}>Abnormally low</span>}
                           {flags.map((c) => <span key={c.id} className="chip warn" title="Evaluators disagree strongly on this criterion" style={{ marginRight: 4 }}>Panel split: {c.name}</span>)}
-                          {!low && !flags.length && <span className="faint">—</span>}
+                          {!low && !flags.length && <span className="faint">-</span>}
                         </td>
                         <td style={{ whiteSpace: "nowrap" }}>
                           <button className="btn sm" onClick={() => setOpenRows((o) => ({ ...o, [b.id]: !o[b.id] }))}>{isOpen ? "Hide scores" : "Scores"}</button>
@@ -919,8 +963,8 @@ export function EvalTab({ api, t }) {
                                   return (
                                     <tr key={c.id}>
                                       <td>{c.name} <span className="mono faint">({c.weight}%)</span></td>
-                                      {vals.map((v, i) => <td key={i} className="num mono" style={{ textAlign: "right" }}>{v != null && v !== "" ? v : "—"}</td>)}
-                                      <td className="num mono" style={{ textAlign: "right", color: split ? "var(--wax)" : "var(--faint)" }}>{nums.length > 1 ? "±" + stdev(nums).toFixed(1) : "—"}</td>
+                                      {vals.map((v, i) => <td key={i} className="num mono" style={{ textAlign: "right" }}>{v != null && v !== "" ? v : "-"}</td>)}
+                                      <td className="num mono" style={{ textAlign: "right", color: split ? "var(--wax)" : "var(--faint)" }}>{nums.length > 1 ? "±" + stdev(nums).toFixed(1) : "-"}</td>
                                     </tr>
                                   );
                                 })}
@@ -951,7 +995,7 @@ export function EvalTab({ api, t }) {
             <button className="btn sm" style={{ marginLeft: "auto" }} onClick={genBrief} disabled={busy}>{busy ? "Drafting…" : "Draft with AI"}</button>
           </div>
           <div className="cbody">
-            {brief ? <div className="aihint">{brief}</div> : <span className="muted" style={{ fontSize: 13 }}>Generate a neutral summary of strengths, risks and verification points across all bids — advisory only, the decision stays with the panel.</span>}
+            {brief ? <div className="aihint">{brief}</div> : <span className="muted" style={{ fontSize: 13 }}>Generate a neutral summary of strengths, risks and verification points across all bids. Advisory only: the decision stays with the panel.</span>}
           </div>
         </div>
       )}
@@ -995,7 +1039,7 @@ export function EvalsPage({ api }) {
   };
   return (
     <div>
-      <div className="pagehead"><h1>My evaluations</h1><span className="sub">score independently — the panel never sees each other's numbers</span></div>
+      <div className="pagehead"><h1>My evaluations</h1><span className="sub">score independently, the panel never sees each other's numbers</span></div>
       <div className="card">
         <table className="tbl">
           <thead><tr><th>Ref</th><th>Title</th><th>Your progress</th><th></th></tr></thead>
@@ -1004,7 +1048,7 @@ export function EvalsPage({ api }) {
               <tr key={t.id} className="click" onClick={() => go({ page: "tender", id: t.id, tab: "eval" })}>
                 <td className="mono muted">{t.ref}</td>
                 <td><b>{t.title}</b></td>
-                <td className="mono muted">{progress(t)}</td>
+                <td className="mono muted" data-l="Progress">{progress(t)}</td>
                 <td><button className="btn sm">Score →</button></td>
               </tr>
             ))}
@@ -1035,7 +1079,7 @@ export function ApprovalsPage({ api }) {
     setThrMsg("");
     try {
       const r = await raw("/settings/", { method: "POST", body: { approvalThreshold: Number(thr) } });
-      setThrMsg(`Saved — publication at or above ${fmtCompact(r.approvalThreshold)} now needs your sign-off.`);
+      setThrMsg(`Saved. Publication at or above ${fmtCompact(r.approvalThreshold)} now needs your sign-off.`);
     } catch (e) { setThrMsg(e.message); }
   };
 
@@ -1057,7 +1101,7 @@ export function ApprovalsPage({ api }) {
     if (done) {
       cue.chime();
       const winner = state.suppliers.find((s) => s.id === rec.supplierId);
-      api.toast.ok("Award approved — letters issued", `${winner.name} at ${fmtCompact(rec.amount)}. Every bidder has been notified.`);
+      api.toast.ok("Award approved, letters issued", `${winner.name} at ${fmtCompact(rec.amount)}. Every bidder has been notified.`);
     }
   };
   const returnAward = async (t) => {
@@ -1073,9 +1117,9 @@ export function ApprovalsPage({ api }) {
         const losers = state.bids.filter((b) => b.tenderId === awardT.id && b.supplierId !== rec.supplierId).length;
         return (
           <ConfirmDialog title="Approve this award?" confirmLabel="Hold to approve & issue letters"
-                         tone="pri" hold holdHint="Irreversible — hold to sign off"
+                         tone="pri" hold holdHint="Irreversible: hold to sign off"
                          onClose={() => setAwardT(null)} onConfirm={() => approveAward(awardT)}>
-            <b>{winner.name}</b> wins “{awardT.title}” at <b>{fmtMoney(rec.amount)}</b> — {fmtCompact(awardT.budget - rec.amount)} under
+            <b>{winner.name}</b> wins “{awardT.title}” at <b>{fmtMoney(rec.amount)}</b>, {fmtCompact(awardT.budget - rec.amount)} under
             the {fmtCompact(awardT.budget)} ceiling.
             <div style={{ marginTop: 8 }}>
               Signing off issues the award letter immediately, plus {losers} regret letter{losers === 1 ? "" : "s"},
@@ -1099,7 +1143,7 @@ export function ApprovalsPage({ api }) {
           <div className="chead"><h3>Approval matrix</h3><span className="mono faint" style={{ marginLeft: "auto" }}>only you can change this</span></div>
           <div className="cbody">
             <div className="frow">
-              <label className="lbl">Publication threshold (NGN) — tenders at or above this need your sign-off; below publishes directly</label>
+              <label className="lbl">Publication threshold (NGN): tenders at or above this need your sign-off; below publishes directly</label>
               <div style={{ display: "flex", gap: 8 }}>
                 <input className="in" type="number" value={thr} onChange={(e) => setThr(e.target.value)} />
                 <button className="btn pri" onClick={saveThr} disabled={!Number(thr)}>Save</button>
@@ -1130,7 +1174,7 @@ export function ApprovalsPage({ api }) {
                   .sort((x, y) => (y.tot ?? -1) - (x.tot ?? -1))
                   .map(({ b, tot }) => {
                     const s = state.suppliers.find((x) => x.id === b.supplierId);
-                    return <span key={b.id} className={"chip" + (b.supplierId === rec.supplierId ? " gold" : "")}>{s.name} · {fmtCompact(b.amount)} · total {tot != null ? tot.toFixed(1) : "—"}</span>;
+                    return <span key={b.id} className={"chip" + (b.supplierId === rec.supplierId ? " gold" : "")}>{s.name} · {fmtCompact(b.amount)} · total {tot != null ? tot.toFixed(1) : "-"}</span>;
                   })}
               </div>
               <div className="mono faint" style={{ marginBottom: 12 }}>Recommended by {rec.by} · {fmtDateTime(rec.at)}</div>
@@ -1247,14 +1291,14 @@ export function NewTender({ api, editId }) {
           <div className="grid g3">
             <div className="frow"><label className="lbl">Type</label>
               <select className="in" value={f.type} onChange={(e) => set("type", e.target.value)}>
-                <option value="RFQ">RFQ — sealed quotation</option>
-                <option value="RFP">RFP — sealed proposal</option>
-                <option value="RFI">RFI — information</option>
-                <option value="AUC">Reverse auction — live price competition</option>
+                <option value="RFQ">RFQ: sealed quotation</option>
+                <option value="RFP">RFP: sealed proposal</option>
+                <option value="RFI">RFI: information</option>
+                <option value="AUC">Reverse auction: live price competition</option>
               </select></div>
             {isAuction ? (
               <div className="frow">
-                <label className="lbl">Minimum decrement (NGN) — each new bid must undercut the bidder's previous price by at least this</label>
+                <label className="lbl">Minimum decrement (NGN): each new bid must undercut the bidder's previous price by at least this</label>
                 <input className="in" type="number" value={f.minDecrement} onChange={(e) => set("minDecrement", e.target.value)} placeholder="e.g. 500000" />
                 <div className="muted" style={{ fontSize: 12, marginTop: 5 }}>
                   Price-only competition: the budget acts as the opening ceiling, bidders see live rank (never
@@ -1265,12 +1309,12 @@ export function NewTender({ api, editId }) {
               <div className="frow">
                 <label style={{ display: "flex", gap: 9, alignItems: "center", fontSize: 13, cursor: "pointer" }}>
                   <input type="checkbox" checked={f.twoStage} onChange={(e) => set("twoStage", e.target.checked)} />
-                  Two-stage opening — technical envelopes first; commercial envelopes only for bidders scoring ≥
-                  <input className="in" type="number" min="0" max="100" style={{ width: 66, margin: "0 4px" }}
+                  Two-stage opening: technical envelopes first; commercial envelopes only for bidders scoring ≥
+                  <input className="in numin" type="number" min="0" max="100" style={{ margin: "0 4px" }}
                          value={f.techThreshold} onChange={(e) => set("techThreshold", e.target.value)}
                          onClick={(e) => e.stopPropagation()} /> /100
                 </label>
-                <div className="muted" style={{ fontSize: 12, marginTop: 5 }}>Failed bidders' pricing is never decrypted — their commercial envelope is returned unopened. Standard in public-sector procurement.</div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 5 }}>Failed bidders' pricing is never decrypted: their commercial envelope is returned unopened. Standard in public-sector procurement.</div>
               </div>
             )}
             <div className="frow"><label className="lbl">Category</label>
@@ -1283,7 +1327,7 @@ export function NewTender({ api, editId }) {
           <div className="grid g2">
             <div className="frow"><label className="lbl">Submission deadline</label>
               <input className="in" type="date" min={new Date().toISOString().slice(0, 10)} value={f.deadline} onChange={(e) => set("deadline", e.target.value)} /></div>
-            <div className="frow"><label className="lbl">Technical weight — {f.techWeight}% technical / {100 - f.techWeight}% commercial</label>
+            <div className="frow"><label className="lbl">Technical weight: {f.techWeight}% technical / {100 - f.techWeight}% commercial</label>
               <input className="in" type="range" min="30" max="90" step="5" value={f.techWeight} onChange={(e) => set("techWeight", e.target.value)} /></div>
           </div>
           <div className="frow" style={{ marginBottom: 0 }}>
@@ -1295,18 +1339,18 @@ export function NewTender({ api, editId }) {
       </div>
 
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="chead"><h3>Priced line items</h3><span className="mono faint" style={{ marginLeft: "auto" }}>optional — leave empty for a lump-sum bid</span></div>
+        <div className="chead"><h3>Priced line items</h3><span className="mono faint" style={{ marginLeft: "auto" }}>optional, leave empty for a lump-sum bid</span></div>
         <div className="cbody">
           {f.lines.map((l, i) => (
-            <div key={l.id} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <input className="in" style={{ flex: 2 }} placeholder="Line description" aria-label={"Line " + (i + 1)} value={l.desc} onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, desc: e.target.value } : x))} />
-              <input className="in" style={{ width: 90 }} type="number" min="1" placeholder="Qty" aria-label="Quantity" value={l.qty} onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, qty: e.target.value } : x))} />
-              <input className="in" style={{ width: 110 }} placeholder="Unit" aria-label="Unit" value={l.unit} onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, unit: e.target.value } : x))} />
+            <div key={l.id} className="lineedit">
+              <input className="in desc" placeholder="Line description" aria-label={"Line " + (i + 1)} value={l.desc} onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, desc: e.target.value } : x))} />
+              <input className="in" type="number" min="1" placeholder="Qty" aria-label="Quantity" value={l.qty} onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, qty: e.target.value } : x))} />
+              <input className="in" placeholder="Unit" aria-label="Unit" value={l.unit} onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, unit: e.target.value } : x))} />
               <button className="btn sm" aria-label="Remove line" onClick={() => set("lines", f.lines.filter((x) => x.id !== l.id))}>✕</button>
             </div>
           ))}
           <button className="btn sm" onClick={() => set("lines", [...f.lines, { id: uid(), desc: "", qty: "", unit: "unit" }])}>+ Add line item</button>
-          {!linesOk && <div className="notice" style={{ marginTop: 10 }}>Every line needs a description and a quantity above zero — or remove the empty lines.</div>}
+          {!linesOk && <div className="notice" style={{ marginTop: 10 }}>Every line needs a description and a quantity above zero, or remove the empty lines.</div>}
         </div>
       </div>
 
@@ -1316,9 +1360,9 @@ export function NewTender({ api, editId }) {
           <span className="mono" style={{ marginLeft: "auto", color: weightSum === 100 ? "var(--green)" : "var(--wax)" }}>{weightSum}/100%</span></div>
         <div className="cbody">
           {f.criteria.map((c, i) => (
-            <div key={c.id} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <input className="in" style={{ flex: 1 }} aria-label={"Criterion " + (i + 1)} value={c.name} onChange={(e) => set("criteria", f.criteria.map((x) => x.id === c.id ? { ...x, name: e.target.value } : x))} />
-              <input className="in" style={{ width: 84 }} type="number" min="0" max="100" aria-label="Weight %" value={c.weight} onChange={(e) => set("criteria", f.criteria.map((x) => x.id === c.id ? { ...x, weight: e.target.value } : x))} />
+            <div key={c.id} className="critedit">
+              <input className="in cname" aria-label={"Criterion " + (i + 1)} value={c.name} onChange={(e) => set("criteria", f.criteria.map((x) => x.id === c.id ? { ...x, name: e.target.value } : x))} />
+              <input className="in" type="number" min="0" max="100" aria-label="Weight %" value={c.weight} onChange={(e) => set("criteria", f.criteria.map((x) => x.id === c.id ? { ...x, weight: e.target.value } : x))} />
               <button className="btn sm" aria-label="Remove criterion" onClick={() => set("criteria", f.criteria.filter((x) => x.id !== c.id))}>✕</button>
             </div>
           ))}
@@ -1400,10 +1444,10 @@ export function SuppliersPage({ api }) {
                     }}>Decline & send the reason</button>
           </>
         }>
-          The vendor sees this reason verbatim and can fix it and come back — so make it specific and actionable.
+          The vendor sees this reason verbatim and can fix it and come back, so make it specific and actionable.
           It is recorded permanently in the audit trail.
           <textarea className="in" style={{ marginTop: 10 }} autoFocus value={reason} onChange={(e) => setReason(e.target.value)}
-                    placeholder="e.g. Public liability insurance expires inside the contract term — upload a renewal covering to Dec 2027." />
+                    placeholder="e.g. Public liability insurance expires inside the contract term. Upload a renewal covering to Dec 2027." />
         </Dialog>
       )}
       {inviteOpen && (
@@ -1470,15 +1514,15 @@ export function SuppliersPage({ api }) {
         </div>
       )}
       <div className="card">
-        <div style={{ overflowX: "auto" }}>
+        <div className="tscroll">
           <table className="tbl">
             <thead><tr><th>Supplier</th><th>Category</th><th>Prequalified</th><th>Compliance documents</th><th className="num">On-time</th><th className="num">Quality</th></tr></thead>
             <tbody>
               {visible.map((s) => (
                 <tr key={s.id}>
                   <td><b>{s.name}</b><div className="muted" style={{ fontSize: 11.5 }}>{s.location}</div></td>
-                  <td className="muted">{s.category}</td>
-                  <td>
+                  <td className="muted" data-l="Category">{s.category}</td>
+                  <td data-l="Prequalified">
                     {s.prequalified
                       ? <span className="chip ok">Prequalified</span>
                       : <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
@@ -1486,7 +1530,7 @@ export function SuppliersPage({ api }) {
                           {user.role === "procurement" && <button className="btn sm" onClick={() => prequalify(s)}>Approve</button>}
                         </span>}
                   </td>
-                  <td>
+                  <td data-l="Documents">
                     {s.docs.map((d, i) => {
                       const dl = d.expiry ? daysLeft(d.expiry) : null;
                       const label = `${d.name}${dl !== null ? (dl <= 60 ? ` · ${dl}d left` : " · valid") : ""}`;
@@ -1495,8 +1539,8 @@ export function SuppliersPage({ api }) {
                         : <span key={i} className={"chip " + (dl !== null && dl <= 60 ? "warn" : "")} style={{ marginRight: 5, marginBottom: 3 }}>{label}</span>;
                     })}
                   </td>
-                  <td className="num mono">{s.perf.onTime}%</td>
-                  <td className="num mono">{s.perf.quality}%</td>
+                  <td className="num mono" data-l="On-time">{s.perf.onTime}%</td>
+                  <td className="num mono" data-l="Quality">{s.perf.quality}%</td>
                 </tr>
               ))}
             </tbody>
@@ -1540,7 +1584,7 @@ export function AnalyticsPage({ api }) {
     setBusy(true); setInsight("");
     try {
       const out = await ai.insights();
-      setInsight(out || "No response — try again.");
+      setInsight(out || "No response, try again.");
     } catch (e) {
       setInsight(e.message || "The insight service is unreachable right now. Try again in a moment.");
     }
@@ -1552,7 +1596,7 @@ export function AnalyticsPage({ api }) {
       <div className="pagehead"><h1>Analytics</h1><span className="sub">where the money and the risk actually are</span></div>
       <div className="grid g4" style={{ marginBottom: 16 }}>
         <Stat k="Savings vs budget" v={fmtCompact(savings)} d={awarded.length + " awarded tenders"} tone="var(--green)" />
-        <Stat k="Avg award cycle" v={cycle.length ? Math.round(mean(cycle)) + "d" : "—"} d="publish → award" />
+        <Stat k="Avg award cycle" v={cycle.length ? Math.round(mean(cycle)) + "d" : "-"} d="publish → award" />
         <Stat k="Price anomalies" v={outliers.length} d="abnormally low bids flagged" tone={outliers.length ? "var(--wax)" : null} />
         <Stat k="Panel splits" v={splits.length} d="criteria where evaluators disagree" tone={splits.length ? "var(--wax)" : null} />
       </div>
@@ -1639,18 +1683,18 @@ export function AuditPage({ api }) {
         const flags = [];
         state.tenders.filter((t) => t.openedAt).forEach((t) => {
           const n = state.bids.filter((b) => b.tenderId === t.id).length;
-          if (n === 1) flags.push(`${t.ref}: single-bidder competition — only one bid was received.`);
+          if (n === 1) flags.push(`${t.ref}: single-bidder competition: only one bid was received.`);
         });
         const wins = {};
         awarded.forEach((t) => { wins[t.awardedTo] = (wins[t.awardedTo] || 0) + 1; });
         Object.entries(wins).forEach(([sid, n]) => {
           if (awarded.length >= 2 && n / awarded.length > 0.5) {
             const s = state.suppliers.find((x) => x.id === sid);
-            flags.push(`${s ? s.name : sid} holds ${n} of ${awarded.length} awards — concentration worth a look.`);
+            flags.push(`${s ? s.name : sid} holds ${n} of ${awarded.length} awards, concentration worth a look.`);
           }
         });
         awarded.forEach((t) => {
-          if (t.budget && t.awardedAmount / t.budget > 0.97) flags.push(`${t.ref}: awarded at ${((t.awardedAmount / t.budget) * 100).toFixed(1)}% of the ceiling — barely competitive.`);
+          if (t.budget && t.awardedAmount / t.budget > 0.97) flags.push(`${t.ref}: awarded at ${((t.awardedAmount / t.budget) * 100).toFixed(1)}% of the ceiling, barely competitive.`);
         });
         return flags.length ? (
           <div className="card" style={{ marginBottom: 14, borderLeft: "3px solid var(--brass)" }}>
@@ -1664,8 +1708,8 @@ export function AuditPage({ api }) {
       {integrity && !integrity.busy && (
         <div className="notice" style={{ marginBottom: 14, borderLeft: `3px solid ${integrity.ok ? "var(--green)" : "var(--wax)"}` }}>
           {integrity.ok
-            ? <>Chain verified — {integrity.count} events, each cryptographically linked to the one before it. Rewriting any historical entry would break every hash after it.</>
-            : <>Integrity check FAILED{integrity.brokenAt ? ` at event #${integrity.brokenAt}` : ""} — the recorded history has been altered. {integrity.error || ""}</>}
+            ? <>Chain verified: {integrity.count} events, each cryptographically linked to the one before it. Rewriting any historical entry would break every hash after it.</>
+            : <>Integrity check FAILED{integrity.brokenAt ? ` at event #${integrity.brokenAt}` : ""}: the recorded history has been altered. {integrity.error || ""}</>}
         </div>
       )}
       <div className="card"><div className="cbody">
@@ -1707,8 +1751,8 @@ export function TeamPage({ api }) {
     } catch (e) { setMsg(e.message); }
   };
 
-  const ROLES = [["procurement", "Procurement — runs tenders"], ["evaluator", "Evaluator — scores blind"],
-                 ["approver", "Approver — signs publications & awards"], ["auditor", "Auditor — read-only oversight"]];
+  const ROLES = [["procurement", "Procurement: runs tenders"], ["evaluator", "Evaluator: scores blind"],
+                 ["approver", "Approver: signs publications & awards"], ["auditor", "Auditor: read-only oversight"]];
   return (
     <div>
       <div className="pagehead"><h1>Team</h1><span className="sub">who can do what in this workspace</span></div>
@@ -1716,15 +1760,15 @@ export function TeamPage({ api }) {
       <div className="grid2" style={{ alignItems: "start" }}>
         <div className="card">
           <div className="chead"><h3>Members</h3></div>
-          <div style={{ overflowX: "auto" }}>
+          <div className="tscroll">
             <table className="tbl">
               <thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>
               <tbody>
                 {(team?.members || []).map((m) => (
                   <tr key={m.username}>
                     <td><b>{m.name}</b><div className="muted" style={{ fontSize: 11.5 }}>{m.title}</div></td>
-                    <td className="muted">{m.email}</td>
-                    <td><span className="chip">{m.role}</span></td>
+                    <td className="muted" data-l="Email">{m.email}</td>
+                    <td data-l="Role"><span className="chip">{m.role}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -1748,7 +1792,7 @@ export function TeamPage({ api }) {
               <select className="in" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>
                 {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select></div>
-            <div className="frow"><label className="lbl">Name (optional — they can set it themselves)</label>
+            <div className="frow"><label className="lbl">Name (optional, they can set it themselves)</label>
               <input className="in" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
             <div className="frow"><label className="lbl">Title (optional)</label>
               <input className="in" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
@@ -1756,7 +1800,7 @@ export function TeamPage({ api }) {
             <button className="btn pri" onClick={invite} disabled={!f.email.trim()}>Send invitation</button>
             {link && (
               <div className="notice" style={{ marginTop: 12 }}>
-                Demo mode — the invitation email prints to the server log, so here's the link to try the flow yourself:{" "}
+                Demo mode: the invitation email prints to the server log, so here's the link to try the flow yourself:{" "}
                 <span className="mono" style={{ fontSize: 11, wordBreak: "break-all" }}>{link}</span>
               </div>
             )}
@@ -1844,12 +1888,12 @@ function AuctionBoard({ api, t }) {
                   {i === 0 ? "▲ " : ""}#{i + 1}
                 </td>
                 <td><b>{x.supplier}</b>{i === 0 && <span className="chip ok" style={{ marginLeft: 8, fontSize: 10.5 }}>leading</span>}</td>
-                <td className="num"><Money n={x.amount} strong={i === 0} /></td>
-                <td className="num mono" style={{ color: "var(--green)" }}>{(((x.amount - (a?.ceiling || t.budget)) / (a?.ceiling || t.budget)) * 100).toFixed(1)}%</td>
-                <td className="mono muted">{fmtDateTime(x.at)}</td>
+                <td className="num" data-l="Price"><Money n={x.amount} strong={i === 0} /></td>
+                <td className="num mono" data-l="vs ceiling" style={{ color: "var(--green)" }}>{(((x.amount - (a?.ceiling || t.budget)) / (a?.ceiling || t.budget)) * 100).toFixed(1)}%</td>
+                <td className="mono muted" data-l="Last bid">{fmtDateTime(x.at)}</td>
               </tr>
             ))}
-            {!board.length && <tr><td colSpan={5}><Empty>No bids yet — the room is open and waiting.</Empty></td></tr>}
+            {!board.length && <tr><td colSpan={5}><Empty>No bids yet. The room is open and waiting.</Empty></td></tr>}
           </tbody>
         </table>
       </div>
@@ -1864,9 +1908,9 @@ function AuctionBoard({ api, t }) {
           <HoldButton label={`Hold to record ${board.length} final standing(s)`}
                       onDone={async () => {
                         const ok = await act.openBids(t.id);
-                        if (ok) toast.ok("Results recorded", "The standings are now formal bids — ready for an award recommendation.");
+                        if (ok) toast.ok("Results recorded", "The standings are now formal bids, ready for an award recommendation.");
                       }} />
-          <div className="holdhint" style={{ marginTop: 8 }}>Press and hold — this is recorded in the audit trail under your name.</div>
+          <div className="holdhint" style={{ marginTop: 8 }}>Press and hold: this is recorded in the audit trail under your name.</div>
         </div>
       )}
       {live && <div className="muted" style={{ fontSize: 12 }}>This board refreshes every 2.5 seconds.</div>}
@@ -1884,19 +1928,19 @@ function WorkspaceCard({ api }) {
     setMsg("");
     try {
       const r = await raw("/settings/", { method: "POST", body: { name, short } });
-      setMsg(`Saved — this workspace is now "${r.name}". New tender references will start with ${ (r.short || r.name).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3) }-; existing references are unchanged.`);
+      setMsg(`Saved. This workspace is now "${r.name}". New tender references will start with ${ (r.short || r.name).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3) }-; existing references are unchanged.`);
     } catch (e) { setMsg(e.message); }
   };
   return (
     <div className="card" style={{ marginBottom: 14 }}>
       <div className="chead"><h3>Workspace</h3><span className="mono faint" style={{ marginLeft: "auto" }}>appears on invitations, letters and memos</span></div>
       <div className="cbody">
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <div className="frow" style={{ flex: 2, minWidth: 220, marginBottom: 0 }}>
+        <div className="formrow">
+          <div className="frow" style={{ flex: 2, minWidth: 220 }}>
             <label className="lbl">Organisation name</label>
             <input className="in" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
-          <div className="frow" style={{ flex: 1, minWidth: 130, marginBottom: 0 }}>
+          <div className="frow" style={{ flex: 1, minWidth: 130 }}>
             <label className="lbl">Short name (top bar, ref prefix)</label>
             <input className="in" value={short} onChange={(e) => setShort(e.target.value)} />
           </div>

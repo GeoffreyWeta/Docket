@@ -2,18 +2,29 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover lets the shell paint under the notch and home bar;
+         every edge that matters pads itself back with env(safe-area-inset-*).
+         No maximum-scale / user-scalable: pinch-zoom stays available. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#12241D" />
-    <meta name="description" content="DOCKET — sealed-bid tendering: cryptographic sealing, blind evaluation and a tamper-evident audit trail." />
-    <title>DOCKET — sealed-bid tendering</title>
+    <!-- installed to a phone home screen, DOCKET runs full-bleed with the
+         sidebar green behind the status bar -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="DOCKET" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="description" content="DOCKET: sealed-bid tendering, cryptographic sealing, blind evaluation and a tamper-evident audit trail." />
+    <title>DOCKET: sealed-bid tendering</title>
     <!-- Wax seal on the sidebar's deep green, inlined so the tab icon costs no request. -->
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2312241D'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23A9331F'/%3E%3Ccircle cx='13.7' cy='13.5' r='2.4' fill='%23E0674C'/%3E%3C/svg%3E" />
     <style>
       /* Paint the right surface before the bundle evaluates, so first paint is
-         never white — and never the wrong theme. */
+         never white, and never the wrong theme. */
       html { background: #F4F3ED; }
-      html[data-theme="material"] { background: #F4F6F4; }
+      html[data-theme="material"] { background: #F6F5F9; }
+      html[data-theme="material-dark"] { background: #121216; color-scheme: dark; }
       html[data-theme="night"] { background: #0F1613; color-scheme: dark; }
     </style>
     <script>
@@ -22,9 +33,9 @@
       (function () {
         try {
           var t = localStorage.getItem("docket.theme");
-          if (t === "material" || t === "night") {
+          if (t === "material" || t === "material-dark" || t === "night") {
             document.documentElement.setAttribute("data-theme", t);
-            if (t === "night") {
+            if (t === "night" || t === "material-dark") {
               var m = document.querySelector('meta[name="color-scheme"]');
               if (m) m.setAttribute("content", "dark");
             }

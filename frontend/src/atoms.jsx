@@ -17,14 +17,14 @@ export const Money = ({ n, strong }) => (
   <span className="money" style={strong ? { fontWeight: 600 } : null}>{fmtMoney(n)}</span>
 );
 
-/* Accepts `t` or `deadline` — both spellings are in use across the app, and
+/* Accepts `t` or `deadline`: both spellings are in use across the app, and
    passing the wrong one used to render "NaN days left" in the auction room.
    Inside the last day it stops rounding to days and ticks a real clock. */
 export const Countdown = ({ t, deadline }) => {
   const at = t ?? deadline;
   const left = at == null ? NaN : at - nowMs();
   useTicker(Number.isFinite(left) && left > 0 && left < DAY_MS ? tickRateFor(left) : 0);
-  if (!Number.isFinite(left)) return <span className="mono faint">—</span>;
+  if (!Number.isFinite(left)) return <span className="mono faint">-</span>;
   if (left <= 0) return <span className="mono faint">closed {fmtDate(at)}</span>;
   if (left < DAY_MS) {
     const critical = left < 120_000;
@@ -50,7 +50,7 @@ export const Stat = ({ k, v, d, tone }) => (
   </div>
 );
 
-/* `icon` gives an empty state something to look at — pass an icon name from
+/* `icon` gives an empty state something to look at: pass an icon name from
    icons.jsx (e.g. <Empty icon="envelope">No bids yet.</Empty>). */
 export const Empty = ({ children, icon }) => (
   <div className="empty">

@@ -42,7 +42,7 @@ export function RegisterVendor({ onDone }) {
   };
   if (state === "sent") return (
     <Shell title="Check your email" sub="vendor registration">
-      <p style={{ fontSize: 13.5, lineHeight: 1.6 }}>We sent a confirmation link to <b>{f.email}</b>. Click it to activate your account — then sign in and upload your compliance documents for prequalification.</p>
+      <p style={{ fontSize: 13.5, lineHeight: 1.6 }}>We sent a confirmation link to <b>{f.email}</b>. Click it to activate your account, then sign in and upload your compliance documents for prequalification.</p>
       <button className="btn" onClick={onDone}>Back to sign in</button>
     </Shell>
   );
@@ -59,7 +59,7 @@ export function RegisterVendor({ onDone }) {
   return (
     <Shell title="Register your company" sub="vendor onboarding">
       <Field label="Registered company name"><input className="in" value={f.company} onChange={set("company")} /></Field>
-      <Field label="Work email — this becomes your username"><input className="in" value={f.email} onChange={set("email")} /></Field>
+      <Field label="Work email (this becomes your username)"><input className="in" value={f.email} onChange={set("email")} /></Field>
       <Field label="Password (8+ characters)"><input className="in" type="password" value={f.password} onChange={set("password")} /></Field>
       <Field label="What you supply"><input className="in" placeholder="e.g. Produce, Logistics, Equipment" value={f.category} onChange={set("category")} /></Field>
       <Field label="Location"><input className="in" placeholder="City" value={f.location} onChange={set("location")} /></Field>
@@ -100,7 +100,7 @@ export function AcceptInvite({ token, onDone }) {
   };
   if (ok) return (
     <Shell title="Welcome aboard" sub="team invitation">
-      <p style={{ fontSize: 13.5, lineHeight: 1.6 }}>Your account is ready — sign in with your email address and the password you just set.</p>
+      <p style={{ fontSize: 13.5, lineHeight: 1.6 }}>Your account is ready. Sign in with your email address and the password you just set.</p>
       <button className="btn pri" onClick={onDone}>Sign in</button>
     </Shell>
   );

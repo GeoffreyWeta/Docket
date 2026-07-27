@@ -42,8 +42,8 @@ export function PortalHome({ api }) {
       {!supplier.prequalified && (
         <div className="notice" style={{ marginBottom: 16, borderLeft: supplier.rejectedReason ? "3px solid var(--wax)" : undefined }}>
           {supplier.rejectedReason
-            ? <>The buyer reviewed your registration and needs more before prequalifying you: <b>{supplier.rejectedReason}</b> — update your compliance documents below and they'll take another look.</>
-            : <>Your registration is with the buyer's procurement team. Upload your compliance documents below — tax clearance, certifications, insurance — to speed the review up. You'll be notified of the outcome.</>}
+            ? <>The buyer reviewed your registration and needs more before prequalifying you: <b>{supplier.rejectedReason}</b>. Update your compliance documents below and they'll take another look.</>
+            : <>Your registration is with the buyer's procurement team. Upload your compliance documents below (tax clearance, certifications, insurance) to speed the review up. You'll be notified of the outcome.</>}
         </div>
       )}
 
@@ -104,7 +104,7 @@ export function PortalHome({ api }) {
               <Stat k="Bids submitted" v={bidsMade.length} />
               <Stat k="Won" v={wins.length} />
               <Stat k="Lost" v={losses} />
-              <Stat k="Win rate" v={decided.length ? Math.round((wins.length / decided.length) * 100) + "%" : "—"} />
+              <Stat k="Win rate" v={decided.length ? Math.round((wins.length / decided.length) * 100) + "%" : "-"} />
               <Stat k="Awarded value" v={fmtCompact(value)} />
             </div>
           </div>
@@ -229,7 +229,7 @@ export function BidRoom({ api, id }) {
         lines: hasLines ? prices : undefined,
         missing,
       });
-      setAiFb(out || "No response — try again.");
+      setAiFb(out || "No response, try again.");
     } catch (e) {
       setAiFb(e.message || "The review service is unreachable right now. Try again in a moment.");
     }
@@ -281,7 +281,7 @@ export function BidRoom({ api, id }) {
         <ConfirmDialog title="Withdraw your sealed bid?" confirmLabel="Withdraw the bid" tone="wax"
                        onClose={() => setAskWithdraw(false)}
                        onConfirm={withdraw}>
-          Your prices stay unread — nothing is revealed by withdrawing. Your documents unlock so you can
+          Your prices stay unread: nothing is revealed by withdrawing. Your documents unlock so you can
           swap them, and you can submit a replacement any time before the deadline.
           <b> The withdrawal is recorded in the audit trail under your company's name.</b>
         </ConfirmDialog>
@@ -292,7 +292,7 @@ export function BidRoom({ api, id }) {
             <SealMark s={26} className="stamped" />
             <h3 style={{ fontFamily: "Georgia,'Times New Roman',serif", margin: "10px 0 4px" }}>Bid sealed</h3>
             <p className="muted" style={{ margin: "0 0 12px", fontSize: 13 }}>
-              Submitted {fmtDateTime(myBid.submittedAt)}. Your bid is cryptographically sealed — the buyer sees only that a bid exists.
+              Submitted {fmtDateTime(myBid.submittedAt)}. Your bid is cryptographically sealed: the buyer sees only that a bid exists.
               Contents are revealed to everyone at the recorded opening after the deadline.
             </p>
             <div className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>RECEIPT {myBid.id.toUpperCase()} · {t.ref}</div>
@@ -315,7 +315,7 @@ export function BidRoom({ api, id }) {
                   <div key={l.id} style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 8 }}>
                     <div style={{ flex: 1, fontSize: 13 }}>{l.desc}<div className="mono faint" style={{ fontSize: 11 }}>{l.qty.toLocaleString()} × {l.unit}</div></div>
                     <input className="in" style={{ width: 150 }} type="number" min="0" placeholder={"per " + l.unit} aria-label={"Unit rate for " + l.desc} value={prices[l.id] ?? ""} onChange={(e) => setPrices((p) => ({ ...p, [l.id]: e.target.value }))} />
-                    <div className="money" style={{ width: 130, textAlign: "right", fontSize: 12.5, color: "var(--muted)" }}>{prices[l.id] ? fmtMoney(Number(prices[l.id]) * l.qty) : "—"}</div>
+                    <div className="money" style={{ width: 130, textAlign: "right", fontSize: 12.5, color: "var(--muted)" }}>{prices[l.id] ? fmtMoney(Number(prices[l.id]) * l.qty) : "-"}</div>
                   </div>
                 ))}
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, borderTop: "1px solid var(--line)", paddingTop: 10, alignItems: "baseline" }}>
@@ -356,7 +356,7 @@ export function BidRoom({ api, id }) {
               <label className="lbl">Declaration</label>
               <label style={{ display: "flex", gap: 9, alignItems: "center", padding: "6px 0", fontSize: 13, cursor: "pointer" }}>
                 <input type="checkbox" checked={form.decl} onChange={(e) => setForm({ ...form, decl: e.target.checked })} />
-                No conflict of interest — signed electronically in my name
+                No conflict of interest, signed electronically in my name
               </label>
               {addenda.map((a) => (
                 <label key={a.id} style={{ display: "flex", gap: 9, alignItems: "center", padding: "6px 0", fontSize: 13, cursor: "pointer" }}>
@@ -374,7 +374,7 @@ export function BidRoom({ api, id }) {
           </div>
         </div>
       ) : (
-        <div className="notice" style={{ marginBottom: 14 }}>The deadline has passed — no further bids can be submitted.</div>
+        <div className="notice" style={{ marginBottom: 14 }}>The deadline has passed: no further bids can be submitted.</div>
       )}
 
       <div className="card">
@@ -401,7 +401,7 @@ export function BidRoom({ api, id }) {
 }
 
 
-const POLL_LIVE_MS = 2500;   // a live auction is a market — poll like one
+const POLL_LIVE_MS = 2500;   // a live auction is a market, so poll like one
 const POLL_IDLE_MS = 10000;
 
 export function AuctionRoom({ api, id }) {
@@ -422,7 +422,7 @@ export function AuctionRoom({ api, id }) {
       // the buyer never sees this, but the supplier should feel the room move
       if (prevDeadline.current && next.deadline > prevDeadline.current + 1000 && next.live) {
         setExtended(next.deadline);
-        toast.info("Close extended by two minutes", "A bid landed inside the final two minutes — anti-sniping pushed the deadline out.");
+        toast.info("Close extended by two minutes", "A bid landed inside the final two minutes, so anti-sniping pushed the deadline out.");
       }
       prevDeadline.current = next.deadline;
       setA(next);
@@ -435,16 +435,16 @@ export function AuctionRoom({ api, id }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, a?.live]);
 
-  /* Overtaken or back in front — announced in words, with a glyph, and only
+  /* Overtaken or back in front, announced in words, with a glyph, and only
      then in colour (see the CVD note in ui.jsx). */
   useEffect(() => {
     if (prevRank == null || a?.myRank == null || prevRank === a.myRank) return;
     if (a.myRank > prevRank) {
       cue.outbid();
-      toast.warn(`▼ Outbid — now position ${a.myRank}`, `You held position ${prevRank}. Undercut your own price by at least ${fmtCompact(a.minDecrement)} to take the lead back.`);
+      toast.warn(`▼ Outbid, now position ${a.myRank}`, `You held position ${prevRank}. Undercut your own price by at least ${fmtCompact(a.minDecrement)} to take the lead back.`);
     } else {
       cue.lead();
-      toast.ok(`▲ Position ${a.myRank}${a.myRank === 1 ? " — you lead" : ""}`, `Up from position ${prevRank}.`);
+      toast.ok(`▲ Position ${a.myRank}${a.myRank === 1 ? ", you lead" : ""}`, `Up from position ${prevRank}.`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [a?.myRank]);
@@ -469,9 +469,9 @@ export function AuctionRoom({ api, id }) {
       cue.tick();
       if (r.extended) {
         setExtended(r.deadline);
-        toast.info("Your bid extended the close by two minutes", "Bids inside the final two minutes push the deadline out — nobody can snipe this auction.");
+        toast.info("Your bid extended the close by two minutes", "Bids inside the final two minutes push the deadline out, so nobody can snipe this auction.");
       }
-      toast.ok(r.myRank === 1 ? "▲ Bid placed — you lead" : `Bid placed — position ${r.myRank}`,
+      toast.ok(r.myRank === 1 ? "▲ Bid placed, you lead" : `Bid placed, position ${r.myRank}`,
                "Binding until someone undercuts you.");
       prevDeadline.current = r.deadline;
       poll();
@@ -500,7 +500,7 @@ export function AuctionRoom({ api, id }) {
       <div className="grid2" style={{ alignItems: "start" }}>
         <div>
           <div className="card" style={{ marginBottom: 14 }}>
-            <div className="chead"><h3>Your position</h3><span className="mono faint" style={{ marginLeft: "auto" }}>rank only — competitor prices are never shown</span></div>
+            <div className="chead"><h3>Your position</h3><span className="mono faint" style={{ marginLeft: "auto" }}>rank only, competitor prices are never shown</span></div>
             <div className="cbody" style={{ textAlign: "center", padding: "20px 18px" }}>
               {a?.myRank
                 ? <>
@@ -515,7 +515,7 @@ export function AuctionRoom({ api, id }) {
                       of {a.bidders} bidder{a.bidders === 1 ? "" : "s"} · your price <Money n={myLast?.amount} />
                     </div>
                   </>
-                : <div className="muted" style={{ fontSize: 13.5 }}>No bid placed yet — {a?.bidders || 0} bidder(s) are already in. Your opening bid must be at or under the <b><Money n={a?.ceiling ?? t.budget} /></b> ceiling.</div>}
+                : <div className="muted" style={{ fontSize: 13.5 }}>No bid placed yet. {a?.bidders || 0} bidder(s) are already in. Your opening bid must be at or under the <b><Money n={a?.ceiling ?? t.budget} /></b> ceiling.</div>}
             </div>
           </div>
 
@@ -528,7 +528,7 @@ export function AuctionRoom({ api, id }) {
               </div>
               <div className="cbody">
                 <div className="frow" style={{ marginBottom: 9 }}>
-                  <label className="lbl" htmlFor="auc-amt">Your lump-sum price (₦) — must be ≤ <Money n={Math.max(0, floor)} /></label>
+                  <label className="lbl" htmlFor="auc-amt">Your lump-sum price (₦), must be ≤ <Money n={Math.max(0, floor)} /></label>
                   <input id="auc-amt" className="in" type="number" value={amount} onChange={(e) => setAmount(e.target.value)}
                          onKeyDown={(e) => e.key === "Enter" && Number(amount) && place()} placeholder={String(Math.max(0, floor))} />
                 </div>
@@ -548,13 +548,13 @@ export function AuctionRoom({ api, id }) {
             </div>
           )}
           {!a?.live && !a?.recorded && (
-            <div className="notice" style={{ marginBottom: 14 }}>The auction has closed. The buyer will record the results and any award follows the standard approval flow — you'll be notified either way.</div>
+            <div className="notice" style={{ marginBottom: 14 }}>The auction has closed. The buyer will record the results and any award follows the standard approval flow, and you'll be notified either way.</div>
           )}
         </div>
 
         <div className="card">
           <div className="chead"><h3>Your price movements</h3>
-            <span className="mono faint" style={{ marginLeft: "auto" }}>yours only — never a competitor's</span>
+            <span className="mono faint" style={{ marginLeft: "auto" }}>yours only, never a competitor's</span>
           </div>
           <div className="cbody" style={{ paddingTop: 12 }}>
             {myBids.length > 0 && (

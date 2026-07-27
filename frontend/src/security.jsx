@@ -52,7 +52,7 @@ export function SecurityPanel({ onClose, onLogoutAll, me, onRenamed }) {
             <div style={{ marginTop: 10 }}>
               <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.55, margin: "0 0 10px" }}>
                 Adds a 6-digit code from an authenticator app (Google Authenticator, Authy, 1Password)
-                to every sign-in. No phone number, no third party — the secret lives only here and on your device.
+                to every sign-in. No phone number, no third party: the secret lives only here and on your device.
               </p>
               <button className="btn pri" onClick={begin}>Set up two-factor</button>
             </div>
@@ -60,10 +60,10 @@ export function SecurityPanel({ onClose, onLogoutAll, me, onRenamed }) {
 
           {setup && (
             <div style={{ marginTop: 10 }}>
-              <p style={{ fontSize: 12.5, margin: "0 0 8px" }}>1 — Scan this with your authenticator app:</p>
+              <p style={{ fontSize: 12.5, margin: "0 0 8px" }}>1. Scan this with your authenticator app:</p>
               <img src={setup.qr} alt="TOTP enrollment QR code" style={{ width: 168, height: 168, border: "1px solid var(--line)", borderRadius: 6 }} />
               <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 12px" }}>Can't scan? Enter this key manually: <span className="mono">{setup.secret}</span></p>
-              <p style={{ fontSize: 12.5, margin: "0 0 6px" }}>2 — Enter the code it shows:</p>
+              <p style={{ fontSize: 12.5, margin: "0 0 6px" }}>2. Enter the code it shows:</p>
               <div style={{ display: "flex", gap: 8 }}>
                 <input className="in" style={{ maxWidth: 140 }} inputMode="numeric" placeholder="123456"
                        value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === "Enter" && enable()} />
@@ -88,7 +88,7 @@ export function SecurityPanel({ onClose, onLogoutAll, me, onRenamed }) {
           <div style={{ borderTop: "1px solid var(--line)", marginTop: 16, paddingTop: 12 }}>
             <div className="rowline">
               <span style={{ flex: 1 }}>Active sessions</span>
-              <span className="mono">{st?.sessions ?? "—"}</span>
+              <span className="mono">{st?.sessions ?? "-"}</span>
             </div>
             <button className="btn sm" style={{ marginTop: 6 }} onClick={onLogoutAll}>Sign out of all devices</button>
           </div>
@@ -107,8 +107,8 @@ function NameRow({ me, onRenamed }) {
     try {
       await raw("/me/", { method: "POST", body: { name } });
       setSaved(me?.role === "supplier"
-        ? "Saved — your company name is updated everywhere. Historical records keep the old name."
-        : "Saved — your display name is updated. Historical records keep the old name.");
+        ? "Saved. Your company name is updated everywhere. Historical records keep the old name."
+        : "Saved. Your display name is updated. Historical records keep the old name.");
       onRenamed && onRenamed();
     } catch (e) { setSaved(e.message); }
   };

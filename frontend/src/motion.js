@@ -1,11 +1,13 @@
 /* DOCKET motion + audio vocabulary.
 
    The house style is physical, not arcade: things press, settle, unfold and
-   stamp. Four durations and three easings — anything that needs a fifth is
+   stamp. Four durations and three easings: anything that needs a fifth is
    probably the wrong idea. Every animation here is skippable, interruptible and
    silent under `prefers-reduced-motion`; sound is opt-in and off until switched
    on from the top bar. */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+
+import { BP } from "./breakpoints";
 
 export const DUR = { quick: 120, base: 200, settle: 320, ceremony: 620 };
 export const EASE = {
@@ -35,7 +37,7 @@ export function useTicker(ms) {
   return Date.now();
 }
 
-/** Previous value of anything — the basis for "did my rank just get worse?". */
+/** Previous value of anything: the basis for "did my rank just get worse?". */
 export function usePrev(value) {
   const ref = useRef(undefined);
   useEffect(() => { ref.current = value; }, [value]);
@@ -97,7 +99,7 @@ export function useFlip(ref, signature) {
 /** Human time remaining. Coarse far out, exact when it matters:
     "4d 6h" · "6h 12m" · "12:04" · "0:41". */
 export function fmtRemaining(ms) {
-  if (ms == null || Number.isNaN(ms)) return "—";
+  if (ms == null || Number.isNaN(ms)) return "-";
   if (ms <= 0) return "closed";
   const s = Math.floor(ms / 1000);
   const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);
@@ -135,7 +137,7 @@ function audio() {
   }
 }
 
-/** One shaped tone. Gains stay low — these are cues, not notifications. */
+/** One shaped tone. Gains stay low: these are cues, not notifications. */
 function tone(freq, { to, dur = 0.14, type = "sine", gain = 0.14, delay = 0 } = {}) {
   const c = audio();
   if (!c) return;
@@ -153,7 +155,7 @@ function tone(freq, { to, dur = 0.14, type = "sine", gain = 0.14, delay = 0 } = 
   osc.stop(t0 + dur + 0.02);
 }
 
-/** Filtered noise — the paper/wax half of the vocabulary. */
+/** Filtered noise: the paper/wax half of the vocabulary. */
 function noise({ dur = 0.16, gain = 0.06, from = 1800, to = 400, q = 0.7, delay = 0 } = {}) {
   const c = audio();
   if (!c) return;
@@ -208,10 +210,14 @@ export const MOTION_CSS = `
 @keyframes dk-shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-3px)}40%{transform:translateX(3px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}
 @keyframes dk-sheen{0%{transform:translateX(-120%)}100%{transform:translateX(220%)}}
 @keyframes dk-shimmer{0%{background-position:-420px 0}100%{background-position:420px 0}}
+/* a sheet rises from the edge it is docked to */
+@keyframes dk-sheet{from{transform:translateY(16px);opacity:.4}to{transform:none;opacity:1}}
 
-/* ---- toasts ---- */
-.toasts{position:fixed;right:18px;bottom:18px;z-index:200;display:flex;flex-direction:column;gap:9px;
-  width:352px;max-width:calc(100vw - 36px);pointer-events:none}
+/* ---- toasts ----
+   Full width above the home bar on a phone (a 352px card pinned bottom-right
+   lands under the thumb that is scrolling), a stack in the corner on a desktop. */
+.toasts{position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));
+  z-index:200;display:flex;flex-direction:column;gap:9px;pointer-events:none}
 .toast{pointer-events:auto;background:var(--card);border:1px solid var(--line);border-left:3px solid var(--green);
   border-radius:var(--r-sm);box-shadow:var(--sh-3);padding:11px 13px;display:flex;gap:10px;align-items:flex-start;
   animation:dk-pop ${DUR.settle}ms ${EASE.out} both}
@@ -219,21 +225,31 @@ export const MOTION_CSS = `
 .toast.info{border-left-color:var(--brass)}
 .toast .tt{font-weight:600;font-size:13px;letter-spacing:-.004em}
 .toast .tb{color:var(--muted);font-size:12.5px;line-height:1.5;margin-top:2px}
-.toast .tx{background:none;border:0;color:var(--faint);font-size:14px;line-height:1;padding:2px 4px;cursor:pointer}
-.toast .tx:hover{color:var(--ink)}
+/* the dismiss target is finger-sized on a phone, small on a desktop */
+.toast .tx{background:none;border:0;color:var(--faint);font-size:14px;line-height:1;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;min-width:32px;min-height:32px;flex-shrink:0}
 .toast .tglyph{font-family:var(--font-mono);font-size:12px;font-weight:600;line-height:1.35;flex-shrink:0}
 
-/* ---- dialogs ---- */
+/* ---- dialogs ----
+   A phone gets a bottom sheet: docked to the edge the thumb reaches, its body
+   scrolling under a head and foot that stay put, and its actions full-width in
+   reading order. A desktop gets the centred card it always had. */
 .scrim{position:fixed;inset:0;z-index:150;background:var(--scrim);backdrop-filter:blur(2px);
-  display:flex;align-items:center;justify-content:center;padding:22px;animation:dk-in ${DUR.base}ms ${EASE.standard} both}
-.dlg{background:var(--card);border:1px solid var(--line2);border-radius:var(--r-lg);box-shadow:var(--sh-3);
-  width:100%;max-width:472px;animation:dk-pop ${DUR.settle}ms ${EASE.out} both}
-.dlg.wide{max-width:620px}
+  display:flex;align-items:flex-end;justify-content:center;padding:0;
+  animation:dk-in ${DUR.base}ms ${EASE.standard} both}
+.dlg{background:var(--card);border:1px solid var(--line2);border-bottom:0;
+  border-radius:var(--r-lg) var(--r-lg) 0 0;box-shadow:var(--sh-3);
+  width:100%;max-width:none;max-height:92dvh;display:flex;flex-direction:column;
+  animation:dk-sheet ${DUR.settle}ms ${EASE.out} both}
 .dlg h3{font-family:var(--font-serif);font-size:19px;font-weight:600;letter-spacing:-.016em;margin:0}
-.dlg .dhead{padding:16px 18px 0}
-.dlg .dbody{padding:10px 18px 4px;font-size:13.5px;line-height:1.6;color:var(--muted)}
+.dlg .dhead{flex-shrink:0;padding:16px var(--gutter) 0}
+.dlg .dbody{flex:1;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  padding:10px var(--gutter) 4px;font-size:13.5px;line-height:1.6;color:var(--muted)}
 .dlg .dbody b,.dlg .dbody strong{color:var(--ink)}
-.dlg .dfoot{display:flex;gap:9px;justify-content:flex-end;align-items:center;padding:16px 18px 18px;flex-wrap:wrap}
+.dlg .dfoot{flex-shrink:0;display:flex;gap:9px;justify-content:flex-end;align-items:center;flex-wrap:wrap;
+  padding:12px var(--gutter) calc(14px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--hair)}
+.dlg .dfoot .btn{flex:1 1 auto}
+.dlg .dfoot .holdhint{flex:1 1 100%;text-align:center}
 
 /* ---- hold-to-confirm ---- */
 .hold{position:relative;overflow:hidden;touch-action:none;user-select:none}
@@ -281,8 +297,29 @@ export const MOTION_CSS = `
 .skel{background:linear-gradient(90deg,var(--paper-2) 8%,var(--skel-hi) 18%,var(--paper-2) 33%);
   background-size:840px 100%;border-radius:var(--r-xs);animation:dk-shimmer 1.25s linear infinite}
 
+/* ---- the ladder ---- */
+@media(min-width:${BP.sm}px){
+  /* the sheet undocks and becomes a card */
+  .scrim{align-items:center;padding:22px}
+  .dlg{max-width:472px;max-height:88dvh;border:1px solid var(--line2);border-radius:var(--r-lg);
+    animation:dk-pop ${DUR.settle}ms ${EASE.out} both}
+  .dlg.wide{max-width:620px}
+  .dlg .dhead{padding:16px 18px 0}
+  .dlg .dbody{padding:10px 18px 4px}
+  .dlg .dfoot{padding:16px 18px 18px;border-top:0}
+  .dlg .dfoot .btn{flex:0 0 auto}
+  .dlg .dfoot .holdhint{flex:1 1 auto;text-align:left}
+}
+@media(min-width:${BP.tab}px){
+  .toasts{left:auto;right:18px;bottom:18px;width:352px;max-width:calc(100vw - 36px)}
+  .toast .tx{min-width:0;min-height:0;padding:2px 4px}
+}
+@media(hover:hover) and (pointer:fine){
+  .toast .tx:hover{color:var(--ink)}
+}
+
 @media(prefers-reduced-motion:reduce){
-  .toast,.dlg,.scrim,.rise,.stamped,.tickbump,.flash,.flash-wax,.extbadge{animation:none!important}
+  .toast,.dlg,.scrim,.panel,.panelwrap,.navscrim,.rise,.stamped,.tickbump,.flash,.flash-wax,.extbadge{animation:none!important}
   .roll .strip{transition:none!important}
   .clock.critical{animation:none!important}
   .sheen::after{display:none}
