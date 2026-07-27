@@ -224,7 +224,7 @@ export const MOTION_CSS = `
 .toast .tglyph{font-family:var(--font-mono);font-size:12px;font-weight:600;line-height:1.35;flex-shrink:0}
 
 /* ---- dialogs ---- */
-.scrim{position:fixed;inset:0;z-index:150;background:rgba(20,31,27,.42);backdrop-filter:blur(2px);
+.scrim{position:fixed;inset:0;z-index:150;background:var(--scrim);backdrop-filter:blur(2px);
   display:flex;align-items:center;justify-content:center;padding:22px;animation:dk-in ${DUR.base}ms ${EASE.standard} both}
 .dlg{background:var(--card);border:1px solid var(--line2);border-radius:var(--r-lg);box-shadow:var(--sh-3);
   width:100%;max-width:472px;animation:dk-pop ${DUR.settle}ms ${EASE.out} both}
@@ -248,7 +248,7 @@ export const MOTION_CSS = `
 .clock.soon{color:var(--wax)}
 .clock.critical{color:var(--wax);animation:dk-urgent 1s ${EASE.standard} infinite}
 .extbadge{display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10.5px;font-weight:600;
-  letter-spacing:.08em;text-transform:uppercase;color:var(--wax);background:var(--wax-tint);border:1px solid #E4B7AC;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--wax);background:var(--wax-tint);border:1px solid var(--chip-warn-line);
   border-radius:99px;padding:2.5px 9px;animation:dk-pop ${DUR.settle}ms ${EASE.press} both}
 
 /* ---- rolling digits (rank) ---- */
@@ -264,7 +264,7 @@ export const MOTION_CSS = `
 .spark .dot{stroke:var(--card);stroke-width:2}
 .spark .hit{fill:transparent;cursor:crosshair}
 .sparkwrap{position:relative}
-.sparktip{position:absolute;transform:translate(-50%,-118%);background:var(--side);color:#fff;border-radius:var(--r-xs);
+.sparktip{position:absolute;transform:translate(-50%,-118%);background:var(--tip-bg);color:var(--tip-ink);border-radius:var(--r-xs);
   padding:5px 8px;font-family:var(--font-mono);font-size:10.5px;white-space:nowrap;pointer-events:none;
   box-shadow:var(--sh-2);z-index:5}
 
@@ -276,9 +276,9 @@ export const MOTION_CSS = `
 .tickbump{display:inline-block;animation:dk-rise ${DUR.base}ms ${EASE.out} both}
 .sheen{position:relative;overflow:hidden}
 .sheen::after{content:"";position:absolute;top:0;bottom:0;width:38%;pointer-events:none;
-  background:linear-gradient(100deg,transparent,rgba(255,255,255,.55) 46%,rgba(242,235,214,.85) 54%,transparent);
+  background:linear-gradient(100deg,transparent,color-mix(in srgb,var(--card) 55%,transparent) 46%,color-mix(in srgb,var(--brass-tint) 85%,transparent) 54%,transparent);
   animation:dk-sheen 1.35s ${EASE.standard} .12s both}
-.skel{background:linear-gradient(90deg,var(--paper-2) 8%,#F7F6F0 18%,var(--paper-2) 33%);
+.skel{background:linear-gradient(90deg,var(--paper-2) 8%,var(--skel-hi) 18%,var(--paper-2) 33%);
   background-size:840px 100%;border-radius:var(--r-xs);animation:dk-shimmer 1.25s linear infinite}
 
 @media(prefers-reduced-motion:reduce){

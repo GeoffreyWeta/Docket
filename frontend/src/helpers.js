@@ -24,15 +24,16 @@ export const median = (a) => { const s = [...a].sort((x, y) => x - y); const m =
 export const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
 export const stdev = (a) => { if (a.length < 2) return 0; const m = mean(a); return Math.sqrt(mean(a.map((x) => (x - m) * (x - m)))); };
 
-/* Stamp colours. Foregrounds are darkened against their tint so the small
-   uppercase label clears WCAG AA on the badge background. */
+/* Status vocabulary. Only the wording lives here — the colours are per-theme
+   CSS (`.stamp.st-<key>` in styles.js), so a stamp restyles with the theme
+   instead of carrying a baked-in hex through the JSX. */
 export const STATUS = {
-  draft:      { label: "Draft",             fg: "#4E5852", bg: "#ECEBE3" },
-  approval:   { label: "Awaiting approval", fg: "#75590E", bg: "#F6EFDC" },
-  published:  { label: "Open for bids",     fg: "#1E5240", bg: "#E1EDE6" },
-  closed:     { label: "Sealed",            fg: "#962B19", bg: "#F8E8E2" },
-  evaluation: { label: "In evaluation",     fg: "#0E3527", bg: "#DBE8E0" },
-  awarded:    { label: "Awarded",           fg: "#6B5215", bg: "#F3ECD9" },
+  draft:      { label: "Draft" },
+  approval:   { label: "Awaiting approval" },
+  published:  { label: "Open for bids" },
+  closed:     { label: "Sealed" },
+  evaluation: { label: "In evaluation" },
+  awarded:    { label: "Awarded" },
 };
 
 export const effStatus = (t) => (t.status === "published" && t.deadline < nowMs() ? "closed" : t.status);

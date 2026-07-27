@@ -15,11 +15,11 @@ import {
 } from "./buyer";
 import { ICON_CSS } from "./icons";
 import { MOTION_CSS } from "./motion";
-import { CSS, EXTRA_CSS } from "./styles";
+import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
 import { AuctionRoom, BidRoom, PortalHome } from "./supplier";
 import { ConfirmDialog, Toasts, useToasts } from "./ui";
 
-const ALL_CSS = CSS + EXTRA_CSS + MOTION_CSS + ICON_CSS;
+const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS;
 
 const HOME = { procurement: "dashboard", evaluator: "evals", approver: "approvals", auditor: "audit", supplier: "portal" };
 

@@ -5,12 +5,12 @@ import React, { useEffect, useState } from "react";
 import { acceptInvite, forgotPassword, registerVendor, resetPassword, verifyVendor } from "./api";
 import { ICON_CSS } from "./icons";
 import { MOTION_CSS } from "./motion";
-import { CSS, EXTRA_CSS } from "./styles";
+import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
 
 function Shell({ title, sub, children }) {
   return (
     <div className="loginwrap">
-      <style>{CSS + EXTRA_CSS + MOTION_CSS + ICON_CSS}</style>
+      <style>{CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS}</style>
       <div className="logincard">
         <div className="loginlogo"><span className="seal" aria-hidden="true" /><b>DOCKET</b></div>
         <div className="card">

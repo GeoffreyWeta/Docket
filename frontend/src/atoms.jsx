@@ -9,8 +9,8 @@ import { fmtRemaining, tickRateFor, useTicker } from "./motion";
 const DAY_MS = 86400000;
 
 export const Stamp = ({ s }) => {
-  const m = STATUS[s] || STATUS.draft;
-  return <span className="stamp" style={{ color: m.fg, background: m.bg, borderColor: m.fg + "55" }}>{m.label}</span>;
+  const key = STATUS[s] ? s : "draft";
+  return <span className={"stamp st-" + key}>{STATUS[key].label}</span>;
 };
 
 export const Money = ({ n, strong }) => (

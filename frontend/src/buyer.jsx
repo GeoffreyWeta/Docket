@@ -8,7 +8,7 @@ import {
 } from "./helpers";
 import { Icon, SealMark } from "./icons";
 import { DUR, cue, useFlip } from "./motion";
-import { ConfirmDialog, Dialog, HoldButton, LiveCountdown, SoundToggle } from "./ui";
+import { ConfirmDialog, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwitch } from "./ui";
 
 /* ---------------- chrome ---------------- */
 
@@ -94,6 +94,7 @@ export function Topbar({ api, accounts, username, onSwitch, onLogout, onReset, o
       <button className="btn sm" onClick={onGuide} title="How to get started in your role"><Icon n="question" s={14} />Guide</button>
       <button className="btn sm" onClick={onSecurity} title="Two-factor authentication and sessions"><Icon n="shield" s={14} />Security</button>
       <Bell api={api} />
+      <ThemeSwitch />
       <SoundToggle />
       <button className="btn sm" onClick={onReset} title="Restore the original demo data"><Icon n="refresh" s={14} />Reset demo</button>
       <div className="whoami">

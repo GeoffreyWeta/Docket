@@ -78,15 +78,15 @@ export function SealMark({ s = 15, cracked = false, className = "", style }) {
     <svg width={s} height={s} viewBox="0 0 20 20" className={className} style={style} aria-hidden="true">
       <defs>
         <radialGradient id="dk-wax" cx="34%" cy="32%">
-          <stop offset="0%" stopColor="#E0674C" />
-          <stop offset="70%" stopColor="#A9331F" />
+          <stop offset="0%" stopColor="var(--seal-hi)" />
+          <stop offset="70%" stopColor="var(--seal-core)" />
         </radialGradient>
       </defs>
       <circle cx="10" cy="10" r="8.4" fill="url(#dk-wax)" />
       {cracked
-        ? <path d="M10 1.6 8.4 7 11.4 9.6 8 12l1.6 6.4" stroke="#7C2415" strokeWidth="1.2" fill="none" strokeLinejoin="round" />
-        : <><circle cx="10" cy="10" r="4.2" fill="none" stroke="rgba(255,255,255,.34)" strokeWidth="1.1" />
-            <circle cx="10" cy="10" r="1.5" fill="rgba(255,255,255,.28)" /></>}
+        ? <path d="M10 1.6 8.4 7 11.4 9.6 8 12l1.6 6.4" stroke="var(--seal-crack)" strokeWidth="1.2" fill="none" strokeLinejoin="round" />
+        : <><circle cx="10" cy="10" r="4.2" fill="none" stroke="color-mix(in srgb,#fff 34%,transparent)" strokeWidth="1.1" />
+            <circle cx="10" cy="10" r="1.5" fill="color-mix(in srgb,#fff 28%,transparent)" /></>}
     </svg>
   );
 }

@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { DUR, EASE, cue, fmtRemaining, reducedMotion, setSoundEnabled, soundEnabled, tickRateFor, useTicker } from "./motion";
 import { fmtDateTime, fmtMoney } from "./helpers";
 import { Icon } from "./icons";
+import { THEMES, getTheme, setTheme } from "./theme";
 
 /* ---------------- toasts ---------------- */
 
@@ -244,6 +245,24 @@ export function Sparkline({ points, w = 220, h = 46, color = "var(--green)", lab
 }
 
 /* ---------------- sound toggle ---------------- */
+
+/* ---------------- theme switch ---------------- */
+
+/** Cycles paper → material → night. One click, no menu: three themes is few
+    enough that a cycle beats a dropdown, and the label always says what you
+    get next. */
+export function ThemeSwitch() {
+  const [cur, setCur] = useState(getTheme);
+  const next = THEMES[(THEMES.findIndex((t) => t.id === cur) + 1) % THEMES.length];
+  const now = THEMES.find((t) => t.id === cur) || THEMES[0];
+  return (
+    <button className="btn sm" onClick={() => setCur(setTheme(next.id))}
+            title={`${now.hint} — click for ${next.label}`}>
+      <Icon n={cur === "night" ? "seal" : cur === "material" ? "dashboard" : "tender"} s={14} />
+      {now.label}
+    </button>
+  );
+}
 
 export function SoundToggle() {
   const [on, setOn] = useState(soundEnabled());
