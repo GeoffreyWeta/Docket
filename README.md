@@ -76,10 +76,22 @@ dispatch, and an idempotent background sweep — no worker dyno required.
 
 1. Push this folder to a Git repo (GitHub/GitLab).
 2. On Render: **New + → Blueprint**, select the repo. Render reads `render.yaml`,
-   creates the web service + free Postgres, wires `DATABASE_URL`, generates
-   `SECRET_KEY` and a `DEMO_PASSWORD`, builds, migrates and seeds automatically.
-   Health checks hit `/api/health/`.
-3. Optional env vars on the service:
+   creates the web service, generates `SECRET_KEY` and a `DEMO_PASSWORD`, builds,
+   migrates and seeds automatically. Health checks hit `/api/health/`.
+3. Set `DATABASE_URL` on the service to the **Internal Database URL** of your
+   Postgres instance, with a database dedicated to DOCKET. If that instance
+   already hosts another Django app, give DOCKET its own database first —
+   sharing one is not safe, because both apps have an app labelled `core` and
+   their migration histories collide on `core.0001_initial`:
+
+       -- connected to the instance as a role with CREATEDB
+       CREATE DATABASE docket_db;
+
+   Then point `DATABASE_URL` at `.../docket_db`. Use the internal hostname (no
+   `.<region>-postgres.render.com` suffix) when the web service sits in the same
+   region and account as the database; the external hostname requires
+   `?sslmode=require`.
+4. Optional env vars on the service:
    * `ANTHROPIC_API_KEY` — enables the six AI features (scope drafting, criteria
      suggestion, clarification answers, comparison brief, supplier bid review,
      portfolio insights). Without it those buttons return a friendly message.

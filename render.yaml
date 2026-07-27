@@ -8,16 +8,21 @@ services:
     startCommand: cd backend && gunicorn docket.wsgi:application --bind 0.0.0.0:$PORT
     healthCheckPath: /api/health/
     envVars:
+      # Sealed bid amounts, line prices and documents are encrypted with a key
+      # derived from SECRET_KEY. Never rotate it on a deployment holding sealed
+      # bids — the ciphertext becomes unreadable.
       - key: SECRET_KEY
         generateValue: true
       - key: PYTHON_VERSION
         value: 3.12.6
       - key: WEB_CONCURRENCY
         value: 2
+      # Set this in the dashboard to the Internal Database URL of the existing
+      # Postgres instance, pointing at the dedicated `docket_db` database (NOT
+      # the neighbouring app's database — DOCKET needs its own, since it has its
+      # own `core` app and would collide on migration names).
       - key: DATABASE_URL
-        fromDatabase:
-          name: docket-db
-          property: connectionString
+        sync: false
       # Demo one-click logins on the sign-in screen. Set to "0" to require
       # passwords for everyone. DEMO_PASSWORD is the seeded account password.
       - key: DEMO_LOGIN
@@ -39,6 +44,6 @@ services:
       - key: DEFAULT_FROM_EMAIL
         sync: false
 
-databases:
-  - name: docket-db
-    plan: free
+# No `databases:` block — DOCKET reuses an existing Postgres instance via the
+# DATABASE_URL above. Add one back only if you want Render to provision a
+# dedicated instance for this app (free tier allows one Postgres per account).
