@@ -252,7 +252,11 @@ export const CSS = `
   .newbtn{margin:0 8px}
   .g4,.g3{grid-template-columns:repeat(2,1fr)} .g2,.grid2{grid-template-columns:minmax(0,1fr)}
   .content{padding:18px 16px 32px}
-  .topbar{padding:10px 16px}
+  /* the action buttons plus the account switcher exceed a phone's width, so the
+     bar wraps and the switcher takes its own row rather than scrolling the page */
+  .topbar{padding:10px 16px;flex-wrap:wrap;row-gap:9px}
+  .whoami{flex:1 1 100%;min-width:0}
+  .whoami select{flex:1;min-width:0;max-width:none}
   .pagehead h1{font-size:23px}
   .stages{flex-wrap:wrap;gap:10px 0}
   .stg{flex:1 0 33%}
