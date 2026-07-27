@@ -1469,25 +1469,28 @@ export function SuppliersPage({ api }) {
         </Dialog>
       )}
       <div className="pagehead"><h1>Suppliers</h1><span className="sub">{visible.length} shown</span>
-        <input className="in" style={{ width: 200, marginLeft: 12 }} placeholder="Search suppliers…"
-               aria-label="Search suppliers" value={sq} onChange={(e) => setSq(e.target.value)} />
-        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5, marginLeft: 10, cursor: "pointer" }}>
-          <input type="checkbox" checked={preOnly} onChange={(e) => setPreOnly(e.target.checked)} /> Prequalified only
-        </label>
-        {canManage && (
-          <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-            <label className="btn sm"><Icon n="upload" /> Import CSV
-              <input type="file" accept=".csv" hidden onChange={async (e) => {
-                const f = e.target.files[0];
-                if (f && await act.upload("/suppliers/import/", f)) {
-                  toast.ok("Supplier book imported", "New vendors are in the register below; duplicates and blank rows were skipped.");
-                }
-                e.target.value = "";
-              }} />
-            </label>
-            <button className="btn sm" onClick={inviteVendor}><Icon n="mail" /> Invite a vendor to register</button>
-          </span>
-        )}
+        <div className="grow" />
+        <div className="pagetools">
+          <input className="in" placeholder="Search suppliers…"
+                 aria-label="Search suppliers" value={sq} onChange={(e) => setSq(e.target.value)} />
+          <label className="checkline">
+            <input type="checkbox" checked={preOnly} onChange={(e) => setPreOnly(e.target.checked)} /> Prequalified only
+          </label>
+          {canManage && (
+            <>
+              <label className="btn sm"><Icon n="upload" /> Import CSV
+                <input type="file" accept=".csv" hidden onChange={async (e) => {
+                  const f = e.target.files[0];
+                  if (f && await act.upload("/suppliers/import/", f)) {
+                    toast.ok("Supplier book imported", "New vendors are in the register below; duplicates and blank rows were skipped.");
+                  }
+                  e.target.value = "";
+                }} />
+              </label>
+              <button className="btn sm" onClick={inviteVendor}><Icon n="mail" /> Invite a vendor to register</button>
+            </>
+          )}
+        </div>
       </div>
       {canManage && <div className="muted" style={{ fontSize: 12, marginTop: -8, marginBottom: 12 }}>CSV columns: name, category, location, email, prequalified (yes/no). Duplicates are skipped.</div>}
       {canManage && queue.length > 0 && (
@@ -1669,14 +1672,16 @@ export function AuditPage({ api }) {
       <div className="pagehead">
         <h1>Audit trail</h1><span className="sub">hash-chained · every action, named and timestamped</span>
         <div className="grow" />
-        <input className="in" style={{ width: 200 }} placeholder="Search the trail…"
-               aria-label="Search audit trail" value={aq} onChange={(e) => setAq(e.target.value)} />
-        <button className="btn sm" onClick={verify}>Verify integrity</button>
-        <button className="btn sm" onClick={() => downloadUrl("/export/audit.csv", "docket-audit-trail.csv")}>Export CSV</button>
-        <select className="in" style={{ width: "auto" }} aria-label="Filter by tender" value={f} onChange={(e) => setF(e.target.value)}>
-          <option value="all">All tenders</option>
-          {state.tenders.map((t) => <option key={t.id} value={t.id}>{t.ref}</option>)}
-        </select>
+        <div className="pagetools">
+          <input className="in" placeholder="Search the trail…"
+                 aria-label="Search audit trail" value={aq} onChange={(e) => setAq(e.target.value)} />
+          <select className="in" aria-label="Filter by tender" value={f} onChange={(e) => setF(e.target.value)}>
+            <option value="all">All tenders</option>
+            {state.tenders.map((t) => <option key={t.id} value={t.id}>{t.ref}</option>)}
+          </select>
+          <button className="btn sm" onClick={verify}>Verify integrity</button>
+          <button className="btn sm" onClick={() => downloadUrl("/export/audit.csv", "docket-audit-trail.csv")}>Export CSV</button>
+        </div>
       </div>
       {(() => {
         const awarded = state.tenders.filter((t) => t.status === "awarded");
