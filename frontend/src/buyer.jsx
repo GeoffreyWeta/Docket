@@ -13,10 +13,10 @@ import { ConfirmDialog, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwi
 /* ---------------- chrome ---------------- */
 
 export const NAV = {
-  procurement: [["dashboard", "Dashboard"], ["tenders", "Tenders"], ["suppliers", "Suppliers"], ["team", "Team"], ["analytics", "Analytics"], ["audit", "Audit trail"]],
+  procurement: [["dashboard", "Dashboard"], ["tenders", "Tenders"], ["suppliers", "Suppliers"], ["scorecards", "Scorecards"], ["team", "Team"], ["analytics", "Analytics"], ["audit", "Audit trail"]],
   evaluator: [["evals", "My evaluations"], ["audit", "Audit trail"]],
-  approver: [["approvals", "Approvals"], ["tenders", "All tenders"], ["audit", "Audit trail"]],
-  auditor: [["audit", "Audit trail"], ["tenders", "All tenders"]],
+  approver: [["approvals", "Approvals"], ["tenders", "All tenders"], ["scorecards", "Scorecards"], ["audit", "Audit trail"]],
+  auditor: [["audit", "Audit trail"], ["tenders", "All tenders"], ["scorecards", "Scorecards"]],
   supplier: [["portal", "My invitations"]],
 };
 
@@ -24,6 +24,7 @@ export const NAV = {
 const NAV_ICON = {
   dashboard: "dashboard", tenders: "tender", suppliers: "suppliers", team: "team",
   analytics: "analytics", audit: "audit", evals: "scales", approvals: "stamp", portal: "portal",
+  scorecards: "trophy",
 };
 
 /** The workspace navigation: a permanent column on a desktop, an off-canvas
@@ -102,37 +103,167 @@ function Bell({ api }) {
     they render inline in the bar on a desktop and stacked in the drawer foot on
     a phone: one component either way, so there is never a second tabbable
     "Sign out" hidden off-screen. */
-function ChromeActions({ api, accounts, username, onSwitch, onLogout, onReset, onGuide, onSecurity, stacked }) {
+const initialsOf = (name) => name.split(" ").map((w) => w[0]).slice(0, 2).join("");
+
+/* The account menu.
+
+   Everything that is not a decision about a tender lives behind the avatar:
+   who you are, which account you are in, the guide, security, appearance and
+   the demo reset. The demo account switcher in particular is never furniture in
+   the bar. It is the widest control in the app (eight accounts, each with a
+   name and a role) and parking it in the top bar made the chrome read as busier
+   than the work. Here it is one click away and invisible until asked for. */
+function AccountMenu({ api, accounts, username, onSwitch, onLogout, onReset, onGuide, onSecurity }) {
   const { state, user } = api;
-  const initials = user.name.split(" ").map((w) => w[0]).slice(0, 2).join("");
-  const kit = (
-    <>
-      <button className="btn sm" onClick={onGuide} title="How to get started in your role"><Icon n="question" s={14} />Guide</button>
-      <button className="btn sm" onClick={onSecurity} title="Two-factor authentication and sessions"><Icon n="shield" s={14} />Security</button>
-      {/* the bell keeps its place in the bar on a phone: alerts are why you
-          glance at the top of the screen, not something to open a drawer for */}
-      {!stacked && <Bell api={api} />}
-      <ThemeSwitch />
-      <SoundToggle />
-      <button className="btn sm" onClick={onReset} title="Restore the original demo data"><Icon n="refresh" s={14} />Reset demo</button>
-      <div className="whoami">
-        {stacked
-          ? <div className="me"><div className="avatar" aria-hidden="true">{initials}</div>{user.name}</div>
-          : <div className="avatar" aria-hidden="true">{initials}</div>}
-        {state.demoLogin && accounts.length > 0 ? (
-          <select className={stacked ? "in" : undefined} aria-label="Switch demo account"
-                  value={username} onChange={(e) => onSwitch(e.target.value)}>
-            {accounts.map((a) => <option key={a.username} value={a.username}>{a.label}</option>)}
-          </select>
-        ) : !stacked ? (
-          <span style={{ fontSize: 13, fontWeight: 600 }}>{user.name}</span>
-        ) : null}
-        <button className="btn sm" onClick={onLogout}><Icon n="exit" s={14} />Sign out</button>
-      </div>
-    </>
+  const [open, setOpen] = useState(false);
+  const wrap = useRef(null);
+  const switchable = state.demoLogin && accounts.length > 0;
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (wrap.current && !wrap.current.contains(e.target)) setOpen(false); };
+    const key = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    window.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      window.removeEventListener("keydown", key);
+    };
+  }, [open]);
+
+  const run = (fn) => () => { setOpen(false); fn(); };
+
+  return (
+    <div className="acctwrap" ref={wrap}>
+      <button className={"acctbtn" + (open ? " on" : "")} onClick={() => setOpen(!open)}
+              aria-haspopup="menu" aria-expanded={open} aria-label={`Account: ${user.name}`}>
+        <span className="avatar" aria-hidden="true">{initialsOf(user.name)}</span>
+        <span className="acctname">{user.name}</span>
+        <Icon n="chev" s={14} className="acctchev" />
+      </button>
+      {open && (
+        <div className="menu" role="menu">
+          <div className="mhead">
+            <span className="avatar lg" aria-hidden="true">{initialsOf(user.name)}</span>
+            <span style={{ minWidth: 0 }}>
+              <b>{user.name}</b>
+              <div className="muted" style={{ fontSize: 12 }}>{user.title} · {state.org.short}</div>
+            </span>
+          </div>
+
+          {switchable && (
+            <>
+              <div className="msec">Switch account</div>
+              <div className="mscroll">
+                {accounts.map((a) => {
+                  const here = a.username === username;
+                  return (
+                    <button key={a.username} className={"mitem" + (here ? " on" : "")} role="menuitemradio"
+                            aria-checked={here} onClick={run(() => onSwitch(a.username))}>
+                      <Icon n={a.role === "supplier" ? "portal" : a.role === "approver" ? "stamp" : a.role === "auditor" ? "audit" : a.role === "evaluator" ? "scales" : "team"} s={15} />
+                      <span className="mlabel">{a.label}</span>
+                      {here && <Icon n="check" s={14} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          <div className="msec">Workspace</div>
+          <button className="mitem" role="menuitem" onClick={run(onGuide)}>
+            <Icon n="question" s={15} /><span className="mlabel">Guide for your role</span>
+          </button>
+          <button className="mitem" role="menuitem" onClick={run(onSecurity)}>
+            <Icon n="shield" s={15} /><span className="mlabel">Security and sessions</span>
+          </button>
+          <div className="mrow"><ThemeSwitch /><SoundToggle /></div>
+          <button className="mitem" role="menuitem" onClick={run(onReset)}>
+            <Icon n="refresh" s={15} /><span className="mlabel">Reset demo data</span>
+          </button>
+          <div className="msep" />
+          <button className="mitem danger" role="menuitem" onClick={run(onLogout)}>
+            <Icon n="exit" s={15} /><span className="mlabel">Sign out</span>
+          </button>
+        </div>
+      )}
+    </div>
   );
-  return stacked ? <div className="chromeacts">{kit}</div> : kit;
 }
+
+/* The phone drawer's foot. Same contents, laid out as rows rather than a
+   popover inside a drawer, and the account list is a list of buttons: a native
+   select of eight accounts is the messiest control on a small screen. */
+function ChromeActions({ api, accounts, username, onSwitch, onLogout, onReset, onGuide, onSecurity }) {
+  const { state, user } = api;
+  const switchable = state.demoLogin && accounts.length > 0;
+  return (
+    <div className="chromeacts">
+      <div className="me"><span className="avatar" aria-hidden="true">{initialsOf(user.name)}</span>{user.name}</div>
+      {switchable && (
+        <>
+          <div className="msec">Switch account</div>
+          <div className="mscroll">
+            {accounts.map((a) => {
+              const here = a.username === username;
+              return (
+                <button key={a.username} className={"mitem" + (here ? " on" : "")}
+                        aria-pressed={here} onClick={() => onSwitch(a.username)}>
+                  <span className="mlabel">{a.label}</span>
+                  {here && <Icon n="check" s={14} />}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+      <button className="btn sm" onClick={onGuide}><Icon n="question" s={14} />Guide</button>
+      <button className="btn sm" onClick={onSecurity}><Icon n="shield" s={14} />Security</button>
+      <div className="mrow"><ThemeSwitch /><SoundToggle /></div>
+      <button className="btn sm" onClick={onReset}><Icon n="refresh" s={14} />Reset demo</button>
+      <button className="btn sm" onClick={onLogout}><Icon n="exit" s={14} />Sign out</button>
+    </div>
+  );
+}
+
+export const MENU_CSS = `
+.acctwrap{position:relative;display:flex}
+.acctbtn{display:inline-flex;align-items:center;gap:9px;padding:5px 9px 5px 5px;border-radius:var(--r-btn);
+  border:1px solid transparent;background:transparent;color:var(--ink);font-weight:550;font-size:13px;
+  transition:background var(--t) var(--ease),border-color var(--t) var(--ease)}
+.acctbtn:hover{background:var(--paper-2)}
+.acctbtn.on{background:var(--paper-2);border-color:var(--line)}
+.acctbtn .acctname{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acctbtn .acctchev{color:var(--faint);margin:0;transition:transform var(--t) var(--ease)}
+.acctbtn.on .acctchev{transform:rotate(180deg)}
+.avatar.lg{width:38px;height:38px;font-size:13px}
+
+.menu{position:absolute;right:0;top:calc(100% + 8px);z-index:60;width:288px;max-width:calc(100vw - 24px);
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh-3);
+  padding:7px;animation:dk-pop 200ms var(--ease) both}
+.menu .mhead{display:flex;gap:11px;align-items:center;padding:9px 9px 11px;border-bottom:1px solid var(--hair);
+  margin-bottom:5px}
+.menu .mhead b{font-size:13.5px;display:block;letter-spacing:-.004em}
+.msec{font-family:var(--k-font);font-size:var(--k-size);font-weight:var(--k-weight);letter-spacing:var(--k-ls);
+  text-transform:var(--k-tt);color:var(--faint);padding:8px 9px 5px}
+.mscroll{max-height:210px;overflow-y:auto;margin-bottom:4px}
+.mitem{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:8px 9px;border:0;
+  border-radius:var(--r-sm);background:none;color:var(--ink);font-size:13px;font-weight:450;
+  transition:background var(--t) var(--ease)}
+.mitem:hover{background:var(--paper-2)}
+.mitem.on{background:var(--p-container);color:var(--on-p-container);font-weight:600}
+.mitem .mlabel{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mitem .ic{color:var(--faint);margin:0}
+.mitem.on .ic,.mitem:hover .ic{color:inherit}
+.mitem.danger{color:var(--wax);font-weight:550}
+.mitem.danger .ic{color:var(--wax)}
+.msep{height:1px;background:var(--hair);margin:5px 0}
+.mrow{display:flex;gap:6px;padding:5px 9px 8px}
+.mrow .btn{flex:1;justify-content:center}
+.chromeacts .mscroll{max-height:none}
+.chromeacts .mitem{background:var(--card);border:1px solid var(--line);margin-bottom:5px}
+.chromeacts .mitem.on{background:var(--p-container);border-color:transparent}
+`;
 
 export function Topbar({ api, chrome, desktop, onMenu, navOpen }) {
   const { state } = api;
@@ -146,7 +277,10 @@ export function Topbar({ api, chrome, desktop, onMenu, navOpen }) {
       )}
       <span className="crumb">{state.org.short.toUpperCase()} / PROCUREMENT</span>
       <div className="grow" />
-      {desktop ? <ChromeActions api={api} {...chrome} /> : <Bell api={api} />}
+      {/* The bar carries two things: what needs your attention, and who you are.
+          Everything else is behind the avatar. */}
+      <Bell api={api} />
+      {desktop && <AccountMenu api={api} {...chrome} />}
     </header>
   );
 }

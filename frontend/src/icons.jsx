@@ -49,6 +49,7 @@ const P = {
   question: <><circle cx="10" cy="10" r="7.2" /><path d="M7.9 7.8a2.1 2.1 0 1 1 3 1.9c-.6.4-.9.8-.9 1.6M10 14.6v.1" /></>,
   plus: <><path d="M10 4.2v11.6M4.2 10h11.6" /></>,
   close: <><path d="M5 5l10 10M15 5 5 15" /></>,
+  chev: <><path d="M5.5 8 10 12.4 14.5 8" /></>,
   /* the drawer handle: three rules, same 1.6 stroke as everything else */
   menu: <><path d="M3 5.5h14M3 10h14M3 14.5h14" /></>,
   mail: <><rect x="2.5" y="4.5" width="15" height="11" rx="1.2" /><path d="M2.5 6 10 11l7.5-5" /></>,

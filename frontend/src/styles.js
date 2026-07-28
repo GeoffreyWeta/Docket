@@ -101,7 +101,9 @@ export const CSS = `
      rather than a second layout. --tap is the minimum comfortable touch
      target (WCAG 2.5.5 asks 44px); the safe-area insets keep content clear
      of the notch and home bar now that the viewport is viewport-fit=cover. */
-  --gutter:14px; --tap:44px; --topbar-h:52px; --drawer-w:min(84vw,304px);
+  /* --topbar-h is the real height of the phone app bar (44px tap target plus
+     6px above and below), because the notification sheet hangs off it */
+  --gutter:14px; --tap:44px; --topbar-h:56px; --drawer-w:min(84vw,304px);
   --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
   --sal:env(safe-area-inset-left,0px); --sar:env(safe-area-inset-right,0px);
 
@@ -315,12 +317,14 @@ body.navopen{overflow:hidden}
    On a phone the secondary chrome (guide, security, theme, sound, the demo
    account switcher, sign out) moves into the foot of the drawer, stacked and
    full-width, instead of overflowing the app bar. */
-.chromeacts{display:flex;flex-direction:column;gap:8px;margin-top:12px;
+/* Two per row: five stacked full-width buttons pushed "Sign out" off the end
+   of a 844px-tall phone, and these are all short labels with an icon. */
+.chromeacts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;
   padding:12px var(--gutter) 0;border-top:1px solid var(--wordmark-rule)}
-.chromeacts .btn{width:100%;justify-content:flex-start;font-size:14px;
+.chromeacts .btn{width:100%;justify-content:flex-start;font-size:13.5px;
   background:var(--newbtn-bg);border:1px solid var(--newbtn-line);color:var(--side-ink);box-shadow:none}
 .chromeacts .btn:active{background:var(--newbtn-bg-h);color:var(--side-ink)}
-.chromeacts .whoami{flex-direction:column;align-items:stretch;gap:8px;width:100%}
+.chromeacts .whoami{grid-column:1 / -1;flex-direction:column;align-items:stretch;gap:8px;width:100%}
 .chromeacts .whoami select{width:100%;max-width:none;min-height:var(--tap)}
 .chromeacts .me{display:flex;align-items:center;gap:10px;color:var(--side-ink);font-size:13.5px;font-weight:550}
 
@@ -359,6 +363,9 @@ body.navopen{overflow:hidden}
   letter-spacing:var(--h1-ls);line-height:1.2;overflow-wrap:break-word}
 .pagehead .sub{color:var(--muted);font-size:13px;letter-spacing:0}
 .pagehead .grow{display:none}
+/* the head stretches its children so the tool row can fill the width, but a
+   status stamp or a countdown must still hug its own text */
+.pagehead>span{align-self:flex-start}
 /* search boxes, filters and page actions. Every child is free to fill the
    row on a phone; from ${BP.tab}px they shrink to their natural width. */
 .pagetools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;width:100%}
@@ -415,12 +422,16 @@ body.navopen{overflow:hidden}
 /* status vocabulary is always a stamp; the tone variants carry their own colour
    where there is no STATUS entry to read one from (e.g. award approval). */
 .stamp.gold{color:var(--gold-ink);background:var(--brass-tint);border-color:var(--chip-gold-line)}
-.chip{display:inline-flex;align-items:center;gap:5px;font-size:var(--badge-size,11.5px);font-weight:450;
+/* min-height applies to every chip, not just the clickable ones: a row that
+   mixes 24px labels with 34px buttons reads as a rendering fault, and half the
+   chips in the supplier register are downloads. 32px clears WCAG 2.5.8. */
+.chip{display:inline-flex;align-items:center;gap:5px;min-height:32px;font-size:var(--badge-size,11.5px);font-weight:450;
   padding:var(--badge-pad);border-radius:99px;border:1px solid var(--line);color:var(--muted);
   background:var(--card);white-space:nowrap;font-variant-numeric:tabular-nums}
 .chip.warn{color:var(--wax);border-color:var(--chip-warn-line);background:var(--wax-tint)}
 .chip.ok{color:var(--green);border-color:var(--chip-ok-line);background:var(--green-tint)}
 .chip.gold{color:var(--brass);border-color:var(--chip-gold-line);background:var(--brass-tint)}
+button.chip:active{background:var(--sunk)}
 
 /* Buttons are tap targets first: inline-flex so a label-wrapped file input
    centres like a real button, and min-height var(--tap) so nothing on a phone
@@ -453,15 +464,18 @@ label.btn{cursor:pointer}
   box-shadow:0 0 0 3px var(--green-ring),inset 0 1px 2px rgba(20,31,27,.03)}
 .in::placeholder,.dk textarea::placeholder{color:var(--faint)}
 .dk textarea{resize:vertical;min-height:96px;line-height:1.55}
-/* numeric fields (scores, weights, quantities) sized by their content
-   instead of the fixed pixel widths that used to overflow a narrow row */
-.in.numin{width:100%;max-width:120px;text-align:center}
+/* numeric fields (scores, weights, thresholds): wide enough to tap and centred
+   on a phone, a compact field again from the tablet rung. Never a percentage:
+   these sit in flex rows where 100% would swallow the label beside them. */
+.in.numin{width:118px;max-width:100%;text-align:center}
 .lbl{display:block;font-size:12px;font-weight:600;color:var(--muted);margin:0 0 6px;letter-spacing:.005em;line-height:1.4}
 .frow{margin-bottom:14px}
-/* stacked field rows that become columns on a wide screen: the line-item and
-   criterion editors, the workspace rename row */
+/* a row of fields that is a column on a phone: the workspace rename, the
+   supplier profile, the compliance-document uploader */
 .formrow{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
 .formrow>.frow{flex:1 1 100%;margin-bottom:0}
+.formrow>.in{flex:1 1 100%}
+.formrow>.btn,.formrow>label.btn{flex:1 1 auto;justify-content:center}
 /* line item: description on its own row, then qty · unit · remove */
 .lineedit{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;margin-bottom:10px}
 .lineedit>.desc{grid-column:1 / -1}
@@ -506,6 +520,11 @@ label.btn{cursor:pointer}
 /* horizontal scroll pane for the tables that stay tables */
 .tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
 .tscroll>.tbl.wide{min-width:620px}
+/* a table you scroll sideways should not also wrap its label column to four
+   lines: let it take its natural width and let the pane scroll. The breakrow
+   is exempt, its cell holds a whole nested table. */
+.tbl.wide>thead>tr>th:first-child,
+.tbl.wide>tbody>tr:not(.breakrow)>td:first-child{white-space:nowrap}
 
 /* ---- record-list mode (phones) ---- */
 .tbl:not(.wide){display:block}
@@ -647,6 +666,9 @@ label.btn{cursor:pointer}
   .g3{grid-template-columns:repeat(2,minmax(0,1fr))}
   .pagetools>.in,.pagetools>select.in{flex:1 1 200px}
   .pagetools .checkline{flex:0 0 auto}
+  .formrow>.frow{flex:1 1 180px}
+  .formrow>.in{flex:1 1 180px}
+  .formrow>.btn,.formrow>label.btn{flex:0 0 auto}
   .lineedit{grid-template-columns:1fr 100px 120px auto}
   .lineedit>.desc{grid-column:auto}
   .critedit{grid-template-columns:1fr 110px auto}
@@ -663,13 +685,16 @@ label.btn{cursor:pointer}
   .dk input[type="checkbox"],.dk input[type="radio"]{width:16px;height:16px}
   .dk input[type="range"]{height:auto}
   .in,.dk textarea,.dk select.in{min-height:0;padding:8px 11px}
-  .in.numin{max-width:none;text-align:left}
+  .in.numin{width:84px;text-align:left}
   .dk textarea{min-height:92px}
   .btn{min-height:0;padding:8px 14px;font-size:13px}
   .btn.sm{padding:5px 10px;font-size:12px}
-  .btn.iconly{min-width:0}
+  .btn.iconly{min-width:0;padding:5px 9px}
   .checkline{min-height:0;font-size:12.5px}
-  .whoami select{padding:6px 28px 6px 9px;font-size:13px}
+  .chip{min-height:0}
+  .pagehead>span{align-self:auto}
+  /* the cap that stops a long role label stretching the whole bar */
+  .whoami select{padding:6px 28px 6px 9px;font-size:13px;max-width:308px}
   .whoami .avatar{width:29px;height:29px;font-size:11px}
   .card .chead{gap:10px;padding:13px 16px}
   .card .chead h3{font-size:13px}
@@ -699,6 +724,9 @@ label.btn{cursor:pointer}
   .tbl:not(.wide)>tbody>tr>td:empty{display:table-cell;padding:10px 12px;font-size:13px;
     border-bottom:1px solid var(--hair)}
   .tbl:not(.wide)>tbody>tr>td[data-l]::before{content:none}
+  /* the lead cell is the more specific selector on a phone, so its padding has
+     to be undone at matching specificity or restored rows sit unevenly */
+  .tbl:not(.wide)>tbody>tr>td:not([data-l]){padding:10px 12px}
   .tbl:not(.wide)>tbody>tr:last-child>td{border-bottom:0}
   .tbl .num{text-align:right}
   .tscroll>.tbl.wide{min-width:0}
@@ -710,7 +738,6 @@ label.btn{cursor:pointer}
   .rowline{flex-wrap:nowrap}
   .ceremony{padding:28px}
   .ceremony h3{font-size:21px}
-  .ceremony .btn{white-space:nowrap}
   .receipt{padding:26px}
   .letter{padding:16px 18px;line-height:1.65}
   .aihint{padding:13px 15px}
@@ -735,7 +762,11 @@ label.btn{cursor:pointer}
   .newbtn{margin:14px 14px 0;min-height:0;padding:9px 12px;font-size:13px}
   .sidefoot{padding:14px 18px 0;font-size:10.5px}
   .main{flex:1;display:flex;flex-direction:column;min-width:0}
-  .topbar{position:relative;min-height:0;gap:14px;padding:11px 26px}
+  /* the bar carries eight controls plus an account switcher: let it take a
+     second row rather than ellipsing the workspace name or wrapping labels */
+  .topbar{position:relative;min-height:0;gap:14px;row-gap:8px;flex-wrap:wrap;padding:11px 26px}
+  .topbar .crumb{flex:0 0 auto;overflow:visible;text-overflow:clip}
+  .topbar .btn{white-space:nowrap}
   .content{flex:1;overflow-y:auto;padding:28px 26px 40px}
 }
 
@@ -884,10 +915,13 @@ export const EXTRA_CSS = `
 .docrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:9px 0;
   border-bottom:1px dashed var(--line);font-size:13px}
 .docrow:last-child{border-bottom:0}
-/* file names wrap rather than run past the card edge */
-.doclink{background:none;border:0;padding:2px 0;color:var(--green);font-weight:550;text-align:left;cursor:pointer;
+/* file names wrap rather than run past the card edge, and the vertical padding
+   takes the link past the 24px minimum target size (WCAG 2.5.8) */
+.doclink{background:none;border:0;padding:4px 0;color:var(--green);font-weight:550;text-align:left;cursor:pointer;
   font-size:13px;letter-spacing:-.004em;text-underline-offset:2px;white-space:normal;overflow-wrap:anywhere;
   transition:color var(--t) var(--ease)}
+/* the tap highlight is off across the app, so touch gets its feedback here */
+.doclink:active{color:var(--green-deep);text-decoration:underline}
 
 /* full-page loading state */
 .booting{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;

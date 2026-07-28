@@ -63,11 +63,10 @@ export function seenKey(username) {
 export function GuidePanel({ role, onClose }) {
   const g = G[role] || G.supplier;
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(18,36,29,.45)", zIndex: 100,
-                  display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-         onClick={onClose} role="dialog" aria-label="Getting started guide">
-      <div className="card" style={{ maxWidth: 640, width: "100%", maxHeight: "86vh", overflowY: "auto" }}
-           onClick={(e) => e.stopPropagation()}>
+    <div className="panelwrap" onClick={onClose} role="dialog" aria-label="Getting started guide">
+      {/* .panel is a bottom sheet on a phone and a centred card above that,
+          with the head (and its close button) pinned while the steps scroll */}
+      <div className="card panel" onClick={(e) => e.stopPropagation()}>
         <div className="chead">
           <h3>Getting started: {g.title}</h3>
           <button className="btn sm" style={{ marginLeft: "auto" }} onClick={onClose}>Close</button>

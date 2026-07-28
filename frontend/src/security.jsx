@@ -34,11 +34,8 @@ export function SecurityPanel({ onClose, onLogoutAll, me, onRenamed }) {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(18,36,29,.45)", zIndex: 100,
-                  display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-         onClick={onClose} role="dialog" aria-label="Account security">
-      <div className="card" style={{ maxWidth: 480, width: "100%", maxHeight: "86vh", overflowY: "auto" }}
-           onClick={(e) => e.stopPropagation()}>
+    <div className="panelwrap" onClick={onClose} role="dialog" aria-label="Account security">
+      <div className="card panel narrow" onClick={(e) => e.stopPropagation()}>
         <div className="chead"><h3>Account security</h3>
           <button className="btn sm" style={{ marginLeft: "auto" }} onClick={onClose}>Close</button></div>
         <div className="cbody">

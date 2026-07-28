@@ -278,6 +278,95 @@ export function Sparkline({ points, w = 220, h = 46, color = "var(--green)", lab
   );
 }
 
+/* ---------------- radar ----------------
+   Two series on five axes: the subject filled, the peer average as a dashed
+   outline. Two series means a legend is always present, and the dash pattern
+   carries the difference on its own, so neither series depends on colour to be
+   told apart. Rings and spokes stay recessive, every vertex has a hover
+   tooltip, and the caller pairs this with a table view of the same numbers. */
+export function Radar({ axes, series, size = 300, max = 100 }) {
+  const [hot, setHot] = useState(null);
+  const cx = size / 2, cy = size / 2;
+  const r = size / 2 - 42;                       // room for the axis labels
+  const n = axes.length;
+  const at = (i, v) => {
+    const a = (Math.PI * 2 * i) / n - Math.PI / 2;
+    const rad = (Math.max(0, Math.min(max, v ?? 0)) / max) * r;
+    return [cx + Math.cos(a) * rad, cy + Math.sin(a) * rad];
+  };
+  const poly = (vals) => vals.map((v, i) => at(i, v).map((x) => x.toFixed(1)).join(",")).join(" ");
+
+  return (
+    <div className="radarwrap">
+      <svg className="radar" viewBox={`0 0 ${size} ${size}`} width="100%" style={{ maxWidth: size }}
+           role="img" aria-label={`${axes.length} dimension scorecard, ${series.map((s) => s.label).join(" against ")}`}>
+        {[0.25, 0.5, 0.75, 1].map((f) => (
+          <polygon key={f} className="ring" points={poly(axes.map(() => max * f))} />
+        ))}
+        {axes.map((a, i) => {
+          const [x, y] = at(i, max);
+          return <line key={a.key} className="spoke" x1={cx} y1={cy} x2={x} y2={y} />;
+        })}
+        {series.map((s) => (
+          <polygon key={s.key} points={poly(axes.map((a) => s.values[a.key] ?? 0))}
+                   className={"plot " + (s.dashed ? "peer" : "subject")}
+                   style={{ stroke: s.color, fill: s.dashed ? "none" : s.color }} />
+        ))}
+        {axes.map((a, i) => {
+          const [x, y] = at(i, max * 1.185);
+          const v = series[0].values[a.key];
+          const imputed = (series[0].missing || []).includes(a.key);
+          return (
+            <g key={a.key} onMouseEnter={() => setHot(i)} onMouseLeave={() => setHot(null)}>
+              <text className="axlbl" x={x} y={y - 4} textAnchor={Math.abs(x - cx) < 8 ? "middle" : x > cx ? "start" : "end"}>
+                {a.label}
+              </text>
+              <text className={"axval" + (hot === i ? " hot" : "")} x={x} y={y + 9}
+                    textAnchor={Math.abs(x - cx) < 8 ? "middle" : x > cx ? "start" : "end"}>
+                {v == null ? "no data" : imputed ? "peer" : Math.round(v)}
+              </text>
+              {series.map((s) => {
+                const p = at(i, s.values[a.key] ?? 0);
+                return s.values[a.key] == null || ((s.missing || []).includes(a.key)) ? null : (
+                  <circle key={s.key} cx={p[0]} cy={p[1]} r={hot === i ? 5 : 3.2}
+                          className="vtx" style={{ fill: s.color }} />
+                );
+              })}
+            </g>
+          );
+        })}
+      </svg>
+      <div className="radarkey">
+        {series.map((s) => (
+          <span className="rk" key={s.key}>
+            <span className={"sw " + (s.dashed ? "peer" : "subject")} style={{ borderColor: s.color, background: s.dashed ? "transparent" : s.color }} />
+            {s.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export const RADAR_CSS = `
+.radarwrap{display:flex;flex-direction:column;align-items:center;gap:10px}
+.radar .ring{fill:none;stroke:var(--line);stroke-width:1}
+.radar .spoke{stroke:var(--line);stroke-width:1}
+.radar .plot{stroke-width:2;stroke-linejoin:round}
+.radar .plot.subject{fill-opacity:.16}
+.radar .plot.peer{stroke-dasharray:5 4}
+.radar .vtx{stroke:var(--card);stroke-width:2;transition:r var(--t) var(--ease)}
+.radar .axlbl{font-family:var(--k-font);font-size:11px;font-weight:var(--k-weight);
+  letter-spacing:var(--k-ls);text-transform:var(--k-tt);fill:var(--muted)}
+.radar .axval{font-family:var(--font-mono);font-size:12px;font-weight:600;fill:var(--ink);
+  font-variant-numeric:tabular-nums}
+.radar .axval.hot{fill:var(--green)}
+.radarkey{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;font-size:12px;color:var(--muted)}
+.radarkey .rk{display:inline-flex;align-items:center;gap:7px}
+.radarkey .sw{width:13px;height:13px;border-radius:3px;border:2px solid}
+.radarkey .sw.peer{border-style:dashed}
+`;
+
 /* ---------------- sound toggle ---------------- */
 
 /* ---------------- theme switch ---------------- */

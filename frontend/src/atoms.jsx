@@ -59,17 +59,19 @@ export const Empty = ({ children, icon }) => (
   </div>
 );
 
+/* Label, bar, figure. The widths live in .bar in the stylesheet so the label
+   column can shrink on a phone instead of pushing the bar off the card. */
 export function MiniBars({ data }) {
   const max = Math.max(...data.map((d) => d.value), 1);
   return (
-    <div>
+    <div className="bars">
       {data.map((d, i) => (
-        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-          <div className="mono" style={{ width: 110, fontSize: 11, color: "var(--muted)", textAlign: "right", flexShrink: 0 }}>{d.label}</div>
-          <div style={{ flex: 1, height: 16, background: "var(--line)", borderRadius: 3, overflow: "hidden" }}>
-            <div style={{ width: (d.value / max) * 100 + "%", height: "100%", background: d.color || "var(--green)", borderRadius: 3 }} />
+        <div className="bar" key={i}>
+          <div className="bl" title={d.label}>{d.label}</div>
+          <div className="bt">
+            <span style={{ width: (d.value / max) * 100 + "%", background: d.color || "var(--green)" }} />
           </div>
-          <div className="mono" style={{ width: 66, fontSize: 11.5, flexShrink: 0 }}>{fmtCompact(d.value)}</div>
+          <div className="bv">{fmtCompact(d.value)}</div>
         </div>
       ))}
     </div>

@@ -51,16 +51,16 @@ export function PortalHome({ api }) {
         <div className="chead"><h3>Company profile & compliance documents</h3>
           <span className="mono faint" style={{ marginLeft: "auto" }}>{supplier.category} · {supplier.location}</span></div>
         <div className="cbody">
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", borderBottom: "1px dashed var(--line)", paddingBottom: 12, marginBottom: 10 }}>
-            <div className="frow" style={{ flex: 2, minWidth: 200, marginBottom: 0 }}>
+          <div className="formrow" style={{ borderBottom: "1px dashed var(--line)", paddingBottom: 12, marginBottom: 10 }}>
+            <div className="frow">
               <label className="lbl">Company name</label>
               <input className="in" value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} />
             </div>
-            <div className="frow" style={{ flex: 1, minWidth: 130, marginBottom: 0 }}>
+            <div className="frow">
               <label className="lbl">Category</label>
               <input className="in" value={profileForm.category} onChange={(e) => setProfileForm({ ...profileForm, category: e.target.value })} />
             </div>
-            <div className="frow" style={{ flex: 1, minWidth: 120, marginBottom: 0 }}>
+            <div className="frow">
               <label className="lbl">Location</label>
               <input className="in" value={profileForm.location} onChange={(e) => setProfileForm({ ...profileForm, location: e.target.value })} />
             </div>
@@ -78,10 +78,10 @@ export function PortalHome({ api }) {
           {myComplianceDocs.length === 0 && (supplier.docs || []).map((d, i) => (
             <div className="docrow" key={"seeded" + i}><span>{d.name}</span><span className="mono faint">{d.expiry ? "expires " + fmtDate(d.expiry) : ""}</span></div>
           ))}
-          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <input className="in" style={{ maxWidth: 220 }} placeholder="Document name (e.g. Tax clearance 2026)"
+          <div className="formrow" style={{ marginTop: 10, alignItems: "center" }}>
+            <input className="in" placeholder="Document name (e.g. Tax clearance 2026)"
                    value={docForm.label} onChange={(e) => setDocForm({ ...docForm, label: e.target.value })} />
-            <input className="in" style={{ maxWidth: 160 }} type="date" aria-label="Expiry date"
+            <input className="in" type="date" aria-label="Expiry date"
                    value={docForm.expiry} onChange={(e) => setDocForm({ ...docForm, expiry: e.target.value })} />
             <label className="btn sm"><Icon n="upload" s={14} />Upload document<input type="file" hidden onChange={uploadCompliance} /></label>
           </div>
@@ -312,10 +312,12 @@ export function BidRoom({ api, id }) {
               <div className="frow">
                 <label className="lbl">Unit rates (₦, fixed for the term)</label>
                 {t.lines.map((l) => (
-                  <div key={l.id} style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 8 }}>
-                    <div style={{ flex: 1, fontSize: 13 }}>{l.desc}<div className="mono faint" style={{ fontSize: 11 }}>{l.qty.toLocaleString()} × {l.unit}</div></div>
-                    <input className="in" style={{ width: 150 }} type="number" min="0" placeholder={"per " + l.unit} aria-label={"Unit rate for " + l.desc} value={prices[l.id] ?? ""} onChange={(e) => setPrices((p) => ({ ...p, [l.id]: e.target.value }))} />
-                    <div className="money" style={{ width: 130, textAlign: "right", fontSize: 12.5, color: "var(--muted)" }}>{prices[l.id] ? fmtMoney(Number(prices[l.id]) * l.qty) : "-"}</div>
+                  /* .priceline stacks the line above its rate and running total
+                     on a phone, and lays all three out in a row from 600px up */
+                  <div key={l.id} className="priceline">
+                    <div className="pdesc">{l.desc}<div className="mono faint" style={{ fontSize: 11 }}>{l.qty.toLocaleString()} × {l.unit}</div></div>
+                    <input className="in" type="number" min="0" placeholder={"per " + l.unit} aria-label={"Unit rate for " + l.desc} value={prices[l.id] ?? ""} onChange={(e) => setPrices((p) => ({ ...p, [l.id]: e.target.value }))} />
+                    <div className="money ptotal">{prices[l.id] ? fmtMoney(Number(prices[l.id]) * l.qty) : "-"}</div>
                   </div>
                 ))}
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, borderTop: "1px solid var(--line)", paddingTop: 10, alignItems: "baseline" }}>

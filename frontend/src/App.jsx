@@ -11,23 +11,24 @@ import {
 } from "./onboarding";
 import {
   AnalyticsPage, ApprovalsPage, AuditPage, Dashboard, EvalsPage, NewTender,
-  Sidebar, SuppliersPage, TeamPage, TenderDetail, TendersPage, Topbar,
+  MENU_CSS, Sidebar, SuppliersPage, TeamPage, TenderDetail, TendersPage, Topbar,
 } from "./buyer";
 import { ICON_CSS } from "./icons";
 import { MOTION_CSS } from "./motion";
 import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
+import { SCORECARD_CSS, ScorecardsPage } from "./scorecards.jsx";
 import { AuctionRoom, BidRoom, PortalHome } from "./supplier";
-import { ConfirmDialog, Toasts, useIsDesktop, useToasts } from "./ui";
+import { ConfirmDialog, RADAR_CSS, Toasts, useIsDesktop, useToasts } from "./ui";
 
-const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS;
+const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS + SCORECARD_CSS + MENU_CSS;
 
 const HOME = { procurement: "dashboard", evaluator: "evals", approver: "approvals", auditor: "audit", supplier: "portal" };
 
 const ALLOWED = {
-  procurement: ["dashboard", "tenders", "suppliers", "team", "analytics", "audit", "new", "tender"],
+  procurement: ["dashboard", "tenders", "suppliers", "scorecards", "team", "analytics", "audit", "new", "tender"],
   evaluator: ["evals", "audit", "tender"],
-  approver: ["approvals", "tenders", "audit", "tender"],
-  auditor: ["audit", "tenders", "tender"],
+  approver: ["approvals", "tenders", "scorecards", "audit", "tender"],
+  auditor: ["audit", "tenders", "scorecards", "tender"],
   supplier: ["portal", "bidroom"],
 };
 
@@ -296,11 +297,14 @@ export default function App() {
   const page = allowed.includes(route.page) ? route.page : HOME[user.role];
 
   /* The secondary chrome, handed to whichever of the two can house it: the top
-     bar on a desktop, the drawer foot on a phone. */
+     bar on a desktop, the drawer foot on a phone. Anything that opens a panel
+     closes the drawer first, or the drawer is left sitting behind the dialog it
+     just opened. */
+  const fromDrawer = (fn) => (...args) => { setNav(false); return fn(...args); };
   const chrome = {
-    accounts, username: getUsername(), onSwitch,
-    onLogout: () => signOut(true), onReset: () => setAskReset(true),
-    onGuide: () => setGuide(true), onSecurity: () => setSecurity(true),
+    accounts, username: getUsername(), onSwitch: fromDrawer(onSwitch),
+    onLogout: () => signOut(true), onReset: fromDrawer(() => setAskReset(true)),
+    onGuide: fromDrawer(() => setGuide(true)), onSecurity: fromDrawer(() => setSecurity(true)),
   };
 
   return (
@@ -329,6 +333,7 @@ export default function App() {
           {page === "suppliers" && <SuppliersPage api={api} />}
           {page === "team" && <TeamPage api={api} />}
           {page === "analytics" && <AnalyticsPage api={api} />}
+          {page === "scorecards" && <ScorecardsPage api={api} />}
           {page === "audit" && <AuditPage api={api} />}
           {page === "approvals" && <ApprovalsPage api={api} />}
           {page === "evals" && <EvalsPage api={api} />}
