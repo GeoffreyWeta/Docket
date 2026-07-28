@@ -11,7 +11,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { DESKTOP_Q } from "./breakpoints";
-import { DUR, EASE, cue, fmtRemaining, reducedMotion, setSoundEnabled, soundEnabled, tickRateFor, useTicker } from "./motion";
+import { DUR, EASE, cue, fmtRemaining, reducedMotion, setSoundEnabled, soundEnabled, tickRateFor, useCountUp, useTicker } from "./motion";
 import { fmtDateTime, fmtMoney } from "./helpers";
 import { Icon } from "./icons";
 import { THEMES, getTheme, setTheme } from "./theme";
@@ -59,18 +59,21 @@ export function useToasts() {
   const [items, setItems] = useState([]);
   const seq = useRef(0);
   const drop = useCallback((id) => setItems((xs) => xs.filter((x) => x.id !== id)), []);
-  const push = useCallback((kind, title, body) => {
+  const push = useCallback((kind, title, body, action) => {
     const id = ++seq.current;
-    setItems((xs) => [...xs.slice(-3), { id, kind, title, body }]);
-    setTimeout(() => drop(id), LIFE[kind]);
+    setItems((xs) => [...xs.slice(-3), { id, kind, title, body, action }]);
+    /* an offer to undo needs longer on screen than a confirmation does */
+    setTimeout(() => drop(id), action ? LIFE.warn + 3000 : LIFE[kind]);
     return id;
   }, [drop]);
   const toast = useRef(null);
   if (!toast.current) {
     toast.current = {
-      ok: (t, b) => push("ok", t, b),
-      warn: (t, b) => push("warn", t, b),
-      info: (t, b) => push("info", t, b),
+      ok: (t, b, action) => push("ok", t, b, action),
+      warn: (t, b, action) => push("warn", t, b, action),
+      info: (t, b, action) => push("info", t, b, action),
+      /** A step the server can reverse. `undo` runs on click and the toast closes. */
+      undo: (title, body, undo) => push("info", title, body, { label: "Undo", run: undo }),
     };
   }
   return [toast.current, items, drop];
@@ -88,6 +91,11 @@ export function Toasts({ items, onDismiss }) {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="tt">{t.title}</div>
             {t.body ? <div className="tb">{t.body}</div> : null}
+            {t.action && (
+              <button className="tundo" onClick={() => { onDismiss(t.id); t.action.run(); }}>
+                <Icon n="refresh" s={13} />{t.action.label}
+              </button>
+            )}
           </div>
           <button className="tx" aria-label="Dismiss" onClick={() => onDismiss(t.id)}><Icon n="close" s={12} /></button>
         </div>
@@ -277,6 +285,104 @@ export function Sparkline({ points, w = 220, h = 46, color = "var(--green)", lab
     </div>
   );
 }
+
+/* ---------------- figures that arrive ---------------- */
+
+/** A number that counts up on arrival. `format` receives the running value, so
+    money stays money the whole way rather than switching format at the end. */
+export function CountUp({ n, format = (x) => Math.round(x).toLocaleString(), ms, from = 0 }) {
+  const v = useCountUp(Number(n) || 0, ms, from);
+  return <>{format(v)}</>;
+}
+
+/** Types a string out, one character at a time. Used for the receipt id on a
+    sealed bid: the number is issued by the server, and watching it print is the
+    difference between "a value appeared" and "a receipt was written". */
+export function TypeOut({ text, ms = 460, className }) {
+  const full = String(text ?? "");
+  const [n, setN] = useState(() => (reducedMotion() ? full.length : 0));
+  useEffect(() => {
+    if (reducedMotion()) { setN(full.length); return undefined; }
+    setN(0);
+    const step = Math.max(12, ms / Math.max(1, full.length));
+    const h = setInterval(() => setN((k) => {
+      if (k >= full.length) { clearInterval(h); return k; }
+      return k + 1;
+    }), step);
+    return () => clearInterval(h);
+  }, [full, ms]);
+  return <span className={className}>{full.slice(0, n)}</span>;
+}
+
+/** A figure emerging from ciphertext: random digits of the same width, then the
+    real number counts up. This is the only honest way to animate an opening,
+    because until the seal breaks the client genuinely does not have the value. */
+export function Decrypting({ n, format, ms = 620 }) {
+  const target = Number(n) || 0;
+  const width = String(Math.round(target)).length;
+  const [scrambling, setScrambling] = useState(() => !reducedMotion());
+  const [noise, setNoise] = useState("");
+  useEffect(() => {
+    if (reducedMotion()) { setScrambling(false); return undefined; }
+    setScrambling(true);
+    const h = setInterval(() => {
+      let out = "";
+      for (let i = 0; i < width; i++) out += Math.floor(Math.random() * 10);
+      setNoise(out);
+    }, 55);
+    const done = setTimeout(() => { clearInterval(h); setScrambling(false); }, ms);
+    return () => { clearInterval(h); clearTimeout(done); };
+  }, [target, width, ms]);
+  if (scrambling) return <span className="scramble">{format ? format(Number(noise) || 0) : noise}</span>;
+  return <CountUp n={target} format={format} ms={DUR.ceremony} />;
+}
+
+/* ---------------- boot ----------------
+   The shape of the app, drawn before the data lands, so the first paint is the
+   layout you are about to get rather than a spinner and a promise. */
+export function BootSkeleton() {
+  return (
+    <div className="bootsk" aria-busy="true" aria-label="Opening the docket">
+      <div className="bsside">
+        <div className="skel" style={{ height: 18, width: 108, margin: "2px 18px 20px" }} />
+        {[72, 60, 84, 66, 78, 54].map((w, i) => (
+          <div key={i} className="skel" style={{ height: 11, width: w + "%", margin: "0 18px 15px" }} />
+        ))}
+      </div>
+      <div className="bsmain">
+        <div className="bsbar"><div className="skel" style={{ height: 11, width: 148 }} />
+          <span style={{ flex: 1 }} />
+          <div className="skel" style={{ height: 26, width: 148, borderRadius: 999 }} />
+        </div>
+        <div className="bsbody">
+          <div className="skel" style={{ height: 26, width: 230, marginBottom: 20 }} />
+          <div className="bsgrid">
+            {[0, 1, 2, 3].map((i) => <div key={i} className="skel bstile" />)}
+          </div>
+          <div className="skel bscard" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export const BOOT_CSS = `
+.bootsk{display:flex;height:100vh;background:var(--paper)}
+.bootsk .bsside{width:224px;flex-shrink:0;background:var(--side);padding:20px 0}
+.bootsk .bsside .skel{background:linear-gradient(90deg,rgba(255,255,255,.06) 8%,rgba(255,255,255,.13) 18%,rgba(255,255,255,.06) 33%);
+  background-size:840px 100%}
+.bootsk .bsmain{flex:1;display:flex;flex-direction:column;min-width:0}
+.bootsk .bsbar{display:flex;align-items:center;gap:14px;padding:14px 26px;background:var(--card);
+  border-bottom:1px solid var(--line)}
+.bootsk .bsbody{padding:28px 26px}
+.bootsk .bsgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+.bootsk .bstile{height:96px;border-radius:var(--r)}
+.bootsk .bscard{height:260px;border-radius:var(--r)}
+@media(max-width:1023px){
+  .bootsk .bsside{display:none}
+  .bootsk .bsgrid{grid-template-columns:repeat(2,1fr)}
+}
+`;
 
 /* ---------------- radar ----------------
    Two series on five axes: the subject filled, the peer average as a dashed

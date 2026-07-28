@@ -45,10 +45,15 @@ export function usePrev(value) {
 }
 
 /** Count a number up to its target. Returns the target immediately when the
-    viewer prefers reduced motion, or when the jump is trivial. */
-export function useCountUp(target, ms = DUR.ceremony) {
-  const [v, setV] = useState(target);
-  const from = useRef(target);
+    viewer prefers reduced motion, or when the jump is trivial.
+
+    `mountFrom` is where the first render starts: pass 0 and the figure counts
+    up on arrival, which is what a stat tile wants. Omit it and the value only
+    animates when it later changes, which is what a live total wants. */
+export function useCountUp(target, ms = DUR.ceremony, mountFrom) {
+  const start0 = mountFrom == null ? target : mountFrom;
+  const [v, setV] = useState(start0);
+  const from = useRef(start0);
   useEffect(() => {
     const start = from.current;
     if (start === target || reducedMotion()) { from.current = target; setV(target); return; }
@@ -210,6 +215,13 @@ export const MOTION_CSS = `
 @keyframes dk-shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-3px)}40%{transform:translateX(3px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}
 @keyframes dk-sheen{0%{transform:translateX(-120%)}100%{transform:translateX(220%)}}
 @keyframes dk-shimmer{0%{background-position:-420px 0}100%{background-position:420px 0}}
+@keyframes dk-unfold{0%{opacity:0;transform:scaleY(.82) translateY(-6px);transform-origin:top}
+  100%{opacity:1;transform:none;transform-origin:top}}
+@keyframes dk-crack{0%{transform:scale(1) rotate(0)}
+  38%{transform:scale(1.16) rotate(-4deg)}
+  100%{transform:scale(1) rotate(2deg)}}
+@keyframes dk-shard{0%{opacity:.9;transform:translate(0,0) rotate(0);}
+  100%{opacity:0;transform:translate(var(--sx),var(--sy)) rotate(var(--sr));}}
 /* a sheet rises from the edge it is docked to */
 @keyframes dk-sheet{from{transform:translateY(16px);opacity:.4}to{transform:none;opacity:1}}
 
@@ -226,6 +238,11 @@ export const MOTION_CSS = `
 .toast .tt{font-weight:600;font-size:13px;letter-spacing:-.004em}
 .toast .tb{color:var(--muted);font-size:12.5px;line-height:1.5;margin-top:2px}
 /* the dismiss target is finger-sized on a phone, small on a desktop */
+.toast .tundo{display:inline-flex;align-items:center;gap:6px;margin-top:7px;padding:4px 10px;
+  border:1px solid var(--line2);border-radius:var(--r-btn);background:var(--card);color:var(--green);
+  font-size:12px;font-weight:600;cursor:pointer}
+.toast .tundo:hover{background:var(--green-tint);border-color:var(--green)}
+.toast .tundo .ic{margin:0}
 .toast .tx{background:none;border:0;color:var(--faint);font-size:14px;line-height:1;cursor:pointer;
   display:inline-flex;align-items:center;justify-content:center;min-width:32px;min-height:32px;flex-shrink:0}
 .toast .tglyph{font-family:var(--font-mono);font-size:12px;font-weight:600;line-height:1.35;flex-shrink:0}
@@ -285,6 +302,44 @@ export const MOTION_CSS = `
   box-shadow:var(--sh-2);z-index:5}
 
 /* ---- misc motion ---- */
+/* one entrance, in order, for a list that has just arrived. Deliberately not
+   applied to every table: a row you are scanning for a number should not move. */
+.stagger>*{animation:dk-rise 320ms var(--ease) both}
+.stagger>*:nth-child(1){animation-delay:0ms}
+.stagger>*:nth-child(2){animation-delay:45ms}
+.stagger>*:nth-child(3){animation-delay:90ms}
+.stagger>*:nth-child(4){animation-delay:135ms}
+.stagger>*:nth-child(5){animation-delay:180ms}
+.stagger>*:nth-child(6){animation-delay:225ms}
+.stagger>*:nth-child(7){animation-delay:270ms}
+.stagger>*:nth-child(8){animation-delay:315ms}
+.stagger>*:nth-child(n+9){animation-delay:360ms}
+
+/* the award letter unfolds; the wax cracks and throws two shards */
+.unfold{animation:dk-unfold 420ms var(--ease) both}
+.cracked{animation:dk-crack 520ms cubic-bezier(.34,1.56,.64,1) both}
+.shard{position:absolute;width:5px;height:5px;border-radius:1px;background:var(--seal-core);pointer-events:none;
+  animation:dk-shard 620ms var(--ease) both}
+.sealstage{position:relative;display:inline-flex}
+.scramble{font-variant-numeric:tabular-nums;color:var(--faint)}
+
+/* the scoring dial */
+.scorerow{display:flex;align-items:center;gap:14px;padding:11px 0;border-bottom:1px solid var(--hair);flex-wrap:wrap}
+.scorerow:last-of-type{border-bottom:0}
+.scorerow .scname{flex:1;min-width:150px;font-size:13px}
+.dial{display:inline-flex;align-items:center;gap:3px;border-radius:var(--r-btn);outline:0}
+.dial:focus-visible{box-shadow:0 0 0 3px var(--green-ring)}
+.dpip{width:30px;height:32px;border:1px solid var(--line);background:var(--card);color:var(--muted);
+  font-family:var(--font-mono);font-size:11.5px;font-weight:550;cursor:pointer;padding:0;
+  transition:background var(--t) var(--ease),color var(--t) var(--ease),transform var(--t) var(--ease)}
+.dpip:first-of-type{border-radius:var(--r-sm) 0 0 var(--r-sm)}
+.dpip:nth-of-type(10){border-radius:0 var(--r-sm) var(--r-sm) 0}
+.dpip+.dpip{border-left:0}
+.dpip:hover{background:var(--paper-2);color:var(--ink);transform:translateY(-1px)}
+.dpip.under{background:var(--green-tint);color:var(--green-deep)}
+.dpip.on{background:var(--green);border-color:var(--green);color:var(--on-brand);font-weight:700}
+.dval{width:74px;font-size:11.5px;color:var(--faint);text-align:right}
+
 .flash{animation:dk-flash ${DUR.ceremony}ms ${EASE.out} both}
 .flash-wax{animation:dk-flash-wax ${DUR.ceremony}ms ${EASE.out} both}
 .rise{animation:dk-rise ${DUR.settle}ms ${EASE.out} both}

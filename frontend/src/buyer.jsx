@@ -8,7 +8,7 @@ import {
 } from "./helpers";
 import { Icon, SealMark } from "./icons";
 import { DUR, cue, useFlip } from "./motion";
-import { ConfirmDialog, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwitch } from "./ui";
+import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwitch } from "./ui";
 
 /* ---------------- chrome ---------------- */
 
@@ -305,16 +305,16 @@ export function Dashboard({ api }) {
     <div>
       <div className="pagehead"><h1>Dashboard</h1><span className="sub">Everything that needs a decision, in one place.</span></div>
       <div className="grid g4" style={{ marginBottom: 16 }}>
-        <Stat k="Open for bids" v={open.length} d="live tenders with suppliers bidding" />
-        <Stat k="Sealed, awaiting opening" v={sealed.length} d="deadline passed, seals unbroken" tone={sealed.length ? "var(--wax)" : null} />
-        <Stat k="In evaluation" v={evaluating.length} d="panels scoring" />
-        <Stat k="Savings this year" v={fmtCompact(savings)} d="awarded vs. budget" tone="var(--green)" />
+        <Stat k="Open for bids" v={<CountUp n={open.length} />} d="live tenders with suppliers bidding" />
+        <Stat k="Sealed, awaiting opening" v={<CountUp n={sealed.length} />} d="deadline passed, seals unbroken" tone={sealed.length ? "var(--wax)" : null} />
+        <Stat k="In evaluation" v={<CountUp n={evaluating.length} />} d="panels scoring" />
+        <Stat k="Savings this year" v={<CountUp n={savings} format={fmtCompact} />} d="awarded vs. budget" tone="var(--green)" />
       </div>
 
       <div className="grid g2">
         <div className="card">
           <div className="chead"><h3>Action queue</h3></div>
-          <div className="cbody" style={{ paddingTop: 6 }}>
+          <div className="cbody stagger" style={{ paddingTop: 6 }}>
             {sealed.map((t) => (
               <div className="rowline" key={t.id}>
                 <span className="sealdot" style={{ width: 11, height: 11 }} />
@@ -717,12 +717,16 @@ export function BidsTab({ api, t }) {
   const { state, user, act, toast } = api;
   const st = effStatus(t);
   const bids = state.bids.filter((b) => b.tenderId === t.id);
+  /* True only for the render that follows the opening, so the ceremony plays
+     once for the person who broke the seals and never again on a revisit. */
+  const [justOpened, setJustOpened] = useState(false);
 
   /* The recorded opening. Held rather than clicked: it is irreversible, it is
      logged under the caller's name, and the hold is the ceremony. */
   const openBids = async () => {
     const ok = await act.openBids(t.id);
     if (ok) {
+      setJustOpened(true);
       cue.tear();
       toast.ok(t.twoStage && !t.techOpenedAt ? "Technical envelopes opened"
                                             : t.twoStage ? "Commercial envelopes opened"
@@ -753,7 +757,8 @@ export function BidsTab({ api, t }) {
             const scored = Object.keys(b.scores || {}).length;
             return (
               <div className="sealrow" key={b.id}>
-                <SealMark s={15} />
+                <SealMark s={15} cracked={justOpened} className={justOpened ? "cracked" : ""}
+                          style={justOpened ? { animationDelay: i * 90 + "ms" } : null} />
                 <div style={{ flex: 1 }}>
                   <b>{s.name}</b>
                   <div className="muted" style={{ fontSize: 12 }}>
@@ -789,11 +794,12 @@ export function BidsTab({ api, t }) {
     return (
       <div>
         <div className="grid" style={{ gridTemplateColumns: "1fr", gap: 10, marginBottom: 16 }}>
-          {bids.map((b) => {
+          {bids.map((b, i) => {
             const s = state.suppliers.find((x) => x.id === b.supplierId);
             return (
               <div className="sealrow" key={b.id}>
-                <SealMark s={15} />
+                <SealMark s={15} cracked={justOpened} className={justOpened ? "cracked" : ""}
+                          style={justOpened ? { animationDelay: i * 90 + "ms" } : null} />
                 <div style={{ flex: 1 }}><b>{s.name}</b><div className="muted" style={{ fontSize: 12 }}>Sealed bid received {fmtDateTime(b.submittedAt)}</div></div>
                 <span className="mono waxfg" style={{ fontSize: 11, letterSpacing: ".1em" }}>SEALED</span>
               </div>
@@ -841,7 +847,7 @@ export function BidsTab({ api, t }) {
         </div>
         <table className="tbl">
           <thead><tr><th>Supplier</th><th>Submitted</th><th className="num">Amount</th><th className="num">vs budget</th><th>Flags</th></tr></thead>
-          <tbody>
+          <tbody className={justOpened ? "stagger" : undefined}>
             {bids.map((b) => {
               const s = state.suppliers.find((x) => x.id === b.supplierId);
               const delta = ((b.amount - t.budget) / t.budget) * 100;
@@ -865,7 +871,11 @@ export function BidsTab({ api, t }) {
                     </>
                   ) : (
                     <>
-                      <td className="num" data-l="Amount"><Money n={b.amount} strong /></td>
+                      <td className="num" data-l="Amount">
+                        {justOpened
+                          ? <span className="money" style={{ fontWeight: 600 }}><Decrypting n={b.amount} format={fmtMoney} /></span>
+                          : <Money n={b.amount} strong />}
+                      </td>
                       <td className="num mono" data-l="vs budget" style={{ color: delta < 0 ? "var(--green)" : "var(--wax)" }}>{delta > 0 ? "+" : ""}{delta.toFixed(1)}%</td>
                       <td data-l="Flags">{low ? <span className="chip warn">Abnormally low: verify viability</span> : <span className="faint">-</span>}</td>
                     </>
@@ -908,6 +918,37 @@ export function BidsTab({ api, t }) {
   );
 }
 
+
+/* A 0 to 10 dial rather than a number field.
+
+   Scoring a panel is the longest sitting an evaluator does in this app, and a
+   number input asks for a keystroke, a tab and a glance to confirm. Ten targets
+   mean one click, and the keyboard still works: 1 to 9 and 0 for ten, arrows to
+   nudge, backspace to clear. The value is written on every change exactly as
+   before, so the audit trail sees no difference. */
+function Dial({ value, label, onPick }) {
+  const v = value === "" || value == null ? null : Number(value);
+  const key = (e) => {
+    if (e.key >= "1" && e.key <= "9") { onPick(Number(e.key)); }
+    else if (e.key === "0") { onPick(10); }
+    else if (e.key === "ArrowRight" || e.key === "ArrowUp") { onPick(Math.min(10, (v ?? 0) + 1)); }
+    else if (e.key === "ArrowLeft" || e.key === "ArrowDown") { onPick(Math.max(0, (v ?? 1) - 1)); }
+    else if (e.key === "Backspace" || e.key === "Delete") { onPick(""); }
+    else return;
+    e.preventDefault();
+  };
+  return (
+    <span className="dial" role="radiogroup" aria-label={`Score for ${label}`} tabIndex={0} onKeyDown={key}>
+      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+        <button key={n} type="button" role="radio" aria-checked={v === n}
+                className={"dpip" + (v === n ? " on" : "") + (v != null && n < v ? " under" : "")}
+                title={`${n} of 10`} onClick={() => onPick(v === n ? "" : n)}>{n}</button>
+      ))}
+      <span className="dval mono">{v == null ? "not scored" : v + "/10"}</span>
+    </span>
+  );
+}
+
 /* ---------------- evaluation ---------------- */
 
 export function EvalTab({ api, t }) {
@@ -940,8 +981,18 @@ export function EvalTab({ api, t }) {
   };
 
   const withdrawRec = async () => {
+    const bidId = t.awardRec?.bidId;
     const ok = await act.withdrawRec(t.id);
-    if (ok) api.toast.ok("Recommendation withdrawn", "It is back with the panel; the approver's queue is clear.");
+    if (ok) {
+      /* The server takes a recommendation back and accepts the same one again,
+         so this one is genuinely reversible. */
+      api.toast.undo("Recommendation withdrawn", "It is back with the panel; the approver's queue is clear.",
+                     async () => {
+                       if (bidId && await act.recommend(t.id, bidId)) {
+                         api.toast.ok("Recommendation restored", "It is with the approver again.");
+                       }
+                     });
+    }
   };
 
   const genBrief = async () => {
@@ -994,13 +1045,16 @@ export function EvalTab({ api, t }) {
                 </div>
               )}
               <div className="chead"><h3>{s.name}</h3><span className="mono faint">{b.amount != null ? <>bid <Money n={b.amount} /></> : b.disqualified ? "commercial returned unopened" : "commercial sealed"}</span>
-                <span className="mono" style={{ marginLeft: "auto" }}>{w ? "your technical score: " + (tot / w).toFixed(0) + "/100" : "not scored yet"}</span>
+                <span className="mono" style={{ marginLeft: "auto" }}>
+                  {w ? <>your technical score: <b><CountUp n={tot / w} format={(x) => Math.round(x)} ms={260} from={null} /></b>/100</>
+                     : "not scored yet"}
+                </span>
               </div>
               <div className="cbody" style={{ paddingTop: 6 }}>
                 {t.criteria.map((c) => (
-                  <div className="rowline" key={c.id}>
-                    <span style={{ flex: 1 }}>{c.name} <span className="mono faint">({c.weight}%)</span></span>
-                    <input className="in numin" type="number" min="0" max="10" aria-label={`Score for ${c.name}`} value={mine[c.id] ?? ""} placeholder="0–10" onChange={(e) => setScore(b.id, c.id, e.target.value)} />
+                  <div className="scorerow" key={c.id}>
+                    <span className="scname">{c.name} <span className="mono faint">({c.weight}%)</span></span>
+                    <Dial value={mine[c.id]} label={c.name} onPick={(v) => setScore(b.id, c.id, v)} />
                   </div>
                 ))}
                 <div style={{ marginTop: 12 }}>

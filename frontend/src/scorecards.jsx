@@ -18,7 +18,7 @@ import { Empty, Money } from "./atoms";
 import { daysLeft } from "./helpers";
 import { Icon } from "./icons";
 import { DIMENSIONS, WEIGHT_LINE, buildBoard, holdOutSummary } from "./scorecard-model";
-import { Radar } from "./ui";
+import { CountUp, Radar } from "./ui";
 
 const num = (v) => (v == null ? "-" : Math.round(v));
 
@@ -169,7 +169,7 @@ function SupplierCard({ row, peer, state, total, tableView, onTableView }) {
         <span style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           <span className={"chip " + (row.rank === 1 ? "ok" : "")}>Rank {row.rank} of {total}</span>
           <span className="mono" style={{ fontWeight: 600 }}>
-            {row.composite == null ? "-" : row.composite.toFixed(1)}
+            {row.composite == null ? "-" : <CountUp n={row.composite} format={(x) => x.toFixed(1)} />}
           </span>
           <button className="btn sm" onClick={() => onTableView(!tableView)}>
             <Icon n={tableView ? "analytics" : "audit"} s={14} />{tableView ? "Chart view" : "Table view"}

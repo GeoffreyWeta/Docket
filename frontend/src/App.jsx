@@ -16,11 +16,14 @@ import {
 import { ICON_CSS } from "./icons";
 import { MOTION_CSS } from "./motion";
 import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
+import { Keys, PALETTE_CSS, Palette, ShortcutSheet } from "./palette.jsx";
 import { SCORECARD_CSS, ScorecardsPage } from "./scorecards.jsx";
 import { AuctionRoom, BidRoom, PortalHome } from "./supplier";
-import { ConfirmDialog, RADAR_CSS, Toasts, useIsDesktop, useToasts } from "./ui";
+import {
+  BOOT_CSS, BootSkeleton, ConfirmDialog, RADAR_CSS, Toasts, useIsDesktop, useToasts,
+} from "./ui";
 
-const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS + SCORECARD_CSS + MENU_CSS;
+const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS + SCORECARD_CSS + MENU_CSS + BOOT_CSS + PALETTE_CSS;
 
 const HOME = { procurement: "dashboard", evaluator: "evals", approver: "approvals", auditor: "audit", supplier: "portal" };
 
@@ -130,6 +133,8 @@ export default function App() {
   const [guide, setGuide] = useState(false);
   const [security, setSecurity] = useState(false);
   const [askReset, setAskReset] = useState(false);
+  const [palette, setPalette] = useState(false);
+  const [keysheet, setKeysheet] = useState(false);
   const [toast, toasts, dropToast] = useToasts();
   const desktop = useIsDesktop();
   const [nav, setNav] = useState(false);   // navigation drawer, phones only
@@ -199,11 +204,10 @@ export default function App() {
   }
   if (!data || !route) {
     return (
-      <div className="booting">
+      <>
         <style>{ALL_CSS}</style>
-        <span className="seal" aria-hidden="true" />
-        Opening the docket…
-      </div>
+        <BootSkeleton />
+      </>
     );
   }
 
@@ -310,6 +314,9 @@ export default function App() {
   return (
     <div className="dk">
       <style>{ALL_CSS}</style>
+      <Keys allowed={allowed} go={go} onPalette={() => setPalette(true)} onSheet={() => setKeysheet(true)} />
+      {palette && <Palette api={api} allowed={allowed} chrome={chrome} onClose={() => setPalette(false)} />}
+      {keysheet && <ShortcutSheet allowed={allowed} onClose={() => setKeysheet(false)} />}
       <Sidebar api={api} chrome={chrome} open={drawerOpen} desktop={desktop} onClose={() => setNav(false)} />
       {drawerOpen && <div className="navscrim" onClick={() => setNav(false)} aria-hidden="true" />}
       <div className="main">

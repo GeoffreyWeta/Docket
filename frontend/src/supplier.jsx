@@ -5,7 +5,7 @@ import { Countdown, Empty, Money, Stat } from "./atoms";
 import { effStatus, fmtCompact, fmtDate, fmtDateTime, fmtMoney } from "./helpers";
 import { Icon, SealMark } from "./icons";
 import { cue, usePrev } from "./motion";
-import { ConfirmDialog, LiveCountdown, RollNumber, Sparkline } from "./ui";
+import { ConfirmDialog, CountUp, LiveCountdown, RollNumber, Sparkline, TypeOut } from "./ui";
 
 /* ---------------- supplier portal ---------------- */
 
@@ -100,12 +100,12 @@ export function PortalHome({ api }) {
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="chead"><h3>Your record here</h3><span className="mono faint" style={{ marginLeft: "auto" }}>with {state.org.name}</span></div>
             <div className="cbody" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
-              <Stat k="Invitations" v={invited.length} />
-              <Stat k="Bids submitted" v={bidsMade.length} />
-              <Stat k="Won" v={wins.length} />
-              <Stat k="Lost" v={losses} />
+              <Stat k="Invitations" v={<CountUp n={invited.length} />} />
+              <Stat k="Bids submitted" v={<CountUp n={bidsMade.length} />} />
+              <Stat k="Won" v={<CountUp n={wins.length} />} />
+              <Stat k="Lost" v={<CountUp n={losses} />} />
               <Stat k="Win rate" v={decided.length ? Math.round((wins.length / decided.length) * 100) + "%" : "-"} />
-              <Stat k="Awarded value" v={fmtCompact(value)} />
+              <Stat k="Awarded value" v={<CountUp n={value} format={fmtCompact} />} />
             </div>
           </div>
         );
@@ -153,7 +153,7 @@ export function PortalHome({ api }) {
                   {lost && <span className="chip">Not successful</span>}
                   {letter && <button className="btn sm" onClick={() => setOpenL((o) => ({ ...o, [t.id]: !o[t.id] }))}>{openL[t.id] ? "Hide letter" : "View letter"}</button>}
                 </div>
-                {letter && openL[t.id] && <div className="letter">{letter.text}</div>}
+                {letter && openL[t.id] && <div className={"letter unfold" + (won ? " sheen" : "")}>{letter.text}</div>}
               </div>
             );
           })}
@@ -207,9 +207,26 @@ export function BidRoom({ api, id }) {
     }
   };
   const withdraw = async () => {
+    /* Capture the figures before the bid goes: the server deletes it, and this
+       is the only copy the client has to re-seal from. */
+    const was = myBid ? { amount: myBid.amount, lines: { ...(myBid.lines || {}) } } : null;
+    const acksWere = addenda.map((a) => a.id);
     const ok = await act.withdrawBid(t.id);
     setAiFb("");
-    if (ok) toast.ok("Sealed bid withdrawn", "Your documents are unlocked. Submit a replacement any time before the deadline.");
+    if (ok) {
+      toast.undo("Sealed bid withdrawn", "Your documents are unlocked. Submit a replacement any time before the deadline.",
+                 async () => {
+                   const back = await act.submitBid(t.id, {
+                     amount: hasLines ? undefined : was?.amount,
+                     lines: hasLines ? was?.lines : undefined,
+                     acks: acksWere,
+                   });
+                   if (back) {
+                     cue.stamp();
+                     toast.ok("Bid re-sealed at the same figures", "Same prices, same documents, a new receipt.");
+                   }
+                 });
+    }
   };
   const ask = async () => {
     if (!q.trim()) return;
@@ -295,7 +312,9 @@ export function BidRoom({ api, id }) {
               Submitted {fmtDateTime(myBid.submittedAt)}. Your bid is cryptographically sealed: the buyer sees only that a bid exists.
               Contents are revealed to everyone at the recorded opening after the deadline.
             </p>
-            <div className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>RECEIPT {myBid.id.toUpperCase()} · {t.ref}</div>
+            <div className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>
+              RECEIPT <TypeOut text={myBid.id.toUpperCase()} /> · {t.ref}
+            </div>
             {st === "published" && <div style={{ marginTop: 14 }}><button className="btn sm" onClick={() => setAskWithdraw(true)}>Withdraw & replace before deadline</button></div>}
           </div>
         </div>
