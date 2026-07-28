@@ -99,6 +99,58 @@ export function useFlip(ref, signature) {
   }, [ref, signature]);
 }
 
+
+/* ---------------- view transitions ----------------
+   Where the browser has the View Transitions API, a route change cross-fades
+   the whole document in one call and no library. React has to commit
+   synchronously inside the callback for the browser to capture the "after"
+   state, which is what flushSync is for. Everywhere else this is a plain
+   state update, and the page gets a keyed enter animation instead. */
+
+export const hasViewTransitions = () => {
+  try {
+    return typeof document !== "undefined" && typeof document.startViewTransition === "function";
+  } catch (e) {
+    return false;
+  }
+};
+
+/** Runs `commit` inside a view transition when one is available and wanted. */
+export function withViewTransition(commit) {
+  if (!hasViewTransitions() || reducedMotion()) { commit(); return; }
+  try {
+    document.startViewTransition(commit);
+  } catch (e) {
+    commit();
+  }
+}
+
+/* ---------------- reveal on scroll ----------------
+   Anything below the fold arrives as you reach it, once. Elements opt in with
+   data-reveal; the observer disconnects after the last one has been seen, so a
+   long page does not keep an observer alive for the session. */
+export function useReveal(deps) {
+  useEffect(() => {
+    if (reducedMotion() || typeof IntersectionObserver === "undefined") {
+      document.querySelectorAll("[data-reveal]").forEach((el) => el.classList.add("seen"));
+      return undefined;
+    }
+    const targets = [...document.querySelectorAll("[data-reveal]:not(.seen)")];
+    if (!targets.length) return undefined;
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) {
+          e.target.classList.add("seen");
+          io.unobserve(e.target);
+        }
+      }
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.06 });
+    targets.forEach((t) => io.observe(t));
+    return () => io.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+}
+
 /* ---------------- clock formatting ---------------- */
 
 /** Human time remaining. Coarse far out, exact when it matters:
@@ -220,6 +272,12 @@ export const MOTION_CSS = `
 @keyframes dk-crack{0%{transform:scale(1) rotate(0)}
   38%{transform:scale(1.16) rotate(-4deg)}
   100%{transform:scale(1) rotate(2deg)}}
+@keyframes dk-page{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes dk-draw{from{stroke-dashoffset:var(--dash,1400)}to{stroke-dashoffset:0}}
+@keyframes dk-grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes dk-out{to{opacity:0;transform:translateX(14px) scale(.97)}}
+@keyframes dk-bar{0%{transform:translateX(-100%) scaleX(.35)}
+  50%{transform:translateX(20%) scaleX(.55)}100%{transform:translateX(110%) scaleX(.4)}}
 @keyframes dk-shard{0%{opacity:.9;transform:translate(0,0) rotate(0);}
   100%{opacity:0;transform:translate(var(--sx),var(--sy)) rotate(var(--sr));}}
 /* a sheet rises from the edge it is docked to */
@@ -314,6 +372,37 @@ export const MOTION_CSS = `
 .stagger>*:nth-child(7){animation-delay:270ms}
 .stagger>*:nth-child(8){animation-delay:315ms}
 .stagger>*:nth-child(n+9){animation-delay:360ms}
+
+/* a route change, where the browser has no view transition of its own */
+.pageenter{animation:dk-page 300ms var(--ease) both}
+
+/* view transitions: the old page leaves as the new one arrives, both lifted
+   slightly so the change reads as forward motion rather than a flicker */
+::view-transition-old(root){animation:dk-out 180ms var(--ease) both}
+::view-transition-new(root){animation:dk-page 280ms var(--ease) both}
+
+/* charts draw themselves rather than appearing complete */
+.drawin{stroke-dasharray:var(--dash,1400);animation:dk-draw 720ms var(--ease) both}
+.growin{transform-origin:left center;animation:dk-grow 560ms var(--ease) both}
+
+/* arrives when you reach it */
+[data-reveal]{opacity:0;transform:translateY(10px)}
+[data-reveal].seen{opacity:1;transform:none;
+  transition:opacity 420ms var(--ease),transform 420ms var(--ease)}
+
+/* the indeterminate bar under the top bar while something is in flight */
+.topprog{position:absolute;left:0;right:0;bottom:-1px;height:2px;overflow:hidden;pointer-events:none}
+.topprog>i{display:block;height:100%;width:100%;transform-origin:left center;
+  background:linear-gradient(90deg,transparent,var(--green),transparent);
+  animation:dk-bar 1.15s var(--ease) infinite}
+
+/* a toast that is going away */
+.toast.leaving{animation:dk-out 200ms var(--ease) both}
+
+/* the sliding navigation indicator */
+.navind{position:absolute;left:0;pointer-events:none;z-index:0;
+  transition:transform 320ms var(--ease),height 320ms var(--ease),opacity var(--t) var(--ease)}
+.navi{position:relative;z-index:1}
 
 /* the award letter unfolds; the wax cracks and throws two shards */
 .unfold{animation:dk-unfold 420ms var(--ease) both}

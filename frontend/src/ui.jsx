@@ -58,7 +58,12 @@ const LIFE = { ok: 4200, info: 5200, warn: 7000 };
 export function useToasts() {
   const [items, setItems] = useState([]);
   const seq = useRef(0);
-  const drop = useCallback((id) => setItems((xs) => xs.filter((x) => x.id !== id)), []);
+  /* Mark it leaving, let the exit animation run, then unmount. A toast that
+     simply disappears reads as a glitch. */
+  const drop = useCallback((id) => {
+    setItems((xs) => xs.map((x) => (x.id === id ? { ...x, leaving: true } : x)));
+    setTimeout(() => setItems((xs) => xs.filter((x) => x.id !== id)), 210);
+  }, []);
   const push = useCallback((kind, title, body, action) => {
     const id = ++seq.current;
     setItems((xs) => [...xs.slice(-3), { id, kind, title, body, action }]);
@@ -84,7 +89,7 @@ export function Toasts({ items, onDismiss }) {
   return (
     <div className="toasts" role="status" aria-live="polite">
       {items.map((t) => (
-        <div key={t.id} className={"toast " + t.kind}>
+        <div key={t.id} className={"toast " + t.kind + (t.leaving ? " leaving" : "")}>
           <span className={"tglyph " + (t.kind === "warn" ? "waxfg" : t.kind === "ok" ? "greenfg" : "brassfg")}>
             <Icon n={GLYPH[t.kind]} s={15} />
           </span>
@@ -268,7 +273,7 @@ export function Sparkline({ points, w = 220, h = 46, color = "var(--green)", lab
     <div className="sparkwrap" style={{ width: w }}>
       <svg className="spark" width={w} height={h} role="img"
            aria-label={label || `${points.length} price movements, latest ${fmtMoney(points[last].value)}`}>
-        {points.length > 1 && <path className="ln" d={path} stroke={color} />}
+        {points.length > 1 && <path className="ln drawin" d={path} stroke={color} style={{ "--dash": 900 }} />}
         {xs.map((x, i) => (
           <rect key={"h" + i} className="hit" x={x - (w / points.length) / 2} y={0}
                 width={w / points.length} height={h}
@@ -384,6 +389,13 @@ export const BOOT_CSS = `
 }
 `;
 
+/** An indeterminate bar for work in flight. Rendered by the shell, driven by a
+    count of open requests, so several overlapping actions show one bar. */
+export function TopProgress({ busy }) {
+  if (!busy) return null;
+  return <div className="topprog" aria-hidden="true"><i /></div>;
+}
+
 /* ---------------- radar ----------------
    Two series on five axes: the subject filled, the peer average as a dashed
    outline. Two series means a legend is always present, and the dash pattern
@@ -415,8 +427,10 @@ export function Radar({ axes, series, size = 300, max = 100 }) {
         })}
         {series.map((s) => (
           <polygon key={s.key} points={poly(axes.map((a) => s.values[a.key] ?? 0))}
-                   className={"plot " + (s.dashed ? "peer" : "subject")}
-                   style={{ stroke: s.color, fill: s.dashed ? "none" : s.color }} />
+                   className={"plot drawin " + (s.dashed ? "peer" : "subject")}
+                   style={{ stroke: s.color, fill: s.dashed ? "none" : s.color,
+                            /* the peer outline draws first, the subject over it */
+                            animationDelay: s.dashed ? "0ms" : "140ms" }} />
         ))}
         {axes.map((a, i) => {
           const [x, y] = at(i, max * 1.185);

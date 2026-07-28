@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 
 import {
   authConfig, clearAuth, demoLogin, fetchBootstrap, getToken, getUsername,
@@ -14,13 +15,13 @@ import {
   MENU_CSS, Sidebar, SuppliersPage, TeamPage, TenderDetail, TendersPage, Topbar,
 } from "./buyer";
 import { ICON_CSS } from "./icons";
-import { MOTION_CSS } from "./motion";
+import { MOTION_CSS, hasViewTransitions, useReveal, withViewTransition } from "./motion";
 import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
 import { Keys, PALETTE_CSS, Palette, ShortcutSheet } from "./palette.jsx";
 import { SCORECARD_CSS, ScorecardsPage } from "./scorecards.jsx";
 import { AuctionRoom, BidRoom, PortalHome } from "./supplier";
 import {
-  BOOT_CSS, BootSkeleton, ConfirmDialog, RADAR_CSS, Toasts, useIsDesktop, useToasts,
+  BOOT_CSS, BootSkeleton, ConfirmDialog, RADAR_CSS, Toasts, TopProgress, useIsDesktop, useToasts,
 } from "./ui";
 
 const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS + SCORECARD_CSS + MENU_CSS + BOOT_CSS + PALETTE_CSS;
@@ -133,6 +134,7 @@ export default function App() {
   const [guide, setGuide] = useState(false);
   const [security, setSecurity] = useState(false);
   const [askReset, setAskReset] = useState(false);
+  const [inFlight, setFlight] = useState(0);
   const [palette, setPalette] = useState(false);
   const [keysheet, setKeysheet] = useState(false);
   const [toast, toasts, dropToast] = useToasts();
@@ -191,6 +193,11 @@ export default function App() {
     };
   }, [drawerOpen]);
 
+  /* Hooks cannot sit below the early returns beneath this line: the loading
+     render would run fewer of them than the loaded one, which is React error
+     #310. route is null until the bootstrap lands, hence the optional read. */
+  useReveal([route?.page, data]);
+
   if (screen) {
     if (screen.name === "register") return <RegisterVendor onDone={toLogin} />;
     if (screen.name === "verify") return <VerifyVendor token={screen.token} onDone={toLogin} />;
@@ -217,6 +224,7 @@ export default function App() {
      copy; failures are surfaced here once, in the caller's words where the
      server gave us any. */
   const wrap = (fn, refreshAfter = true) => async (...args) => {
+    setFlight((n) => n + 1);
     try {
       await fn(...args);
       if (refreshAfter) await refresh();
@@ -225,6 +233,8 @@ export default function App() {
       if (e.status === 401) { signOut(false); return false; }
       toast.warn("That didn't go through", e.message || "Something went wrong.");
       return false;
+    } finally {
+      setFlight((n) => Math.max(0, n - 1));
     }
   };
 
@@ -266,8 +276,12 @@ export default function App() {
   };
 
   const go = (r) => {
-    setNav(false);   // a chosen destination closes the drawer over it
-    setRoute(r);
+    /* flushSync so the browser captures the new DOM inside the transition; the
+       refresh stays outside it, because a transition must not wait on a fetch. */
+    withViewTransition(() => flushSync(() => {
+      setNav(false);   // a chosen destination closes the drawer over it
+      setRoute(r);
+    }));
     refresh(); // silent: keeps the current view until fresh data lands
   };
 
@@ -297,6 +311,9 @@ export default function App() {
   };
 
   const api = { state: data, user, go, route, act, ai, toast };
+  /* Re-armed on every page: anything marked data-reveal below the fold arrives
+     as you reach it, once, then the observer lets it go. The call itself is
+     hoisted above the early returns, where hooks have to live. */
   const allowed = ALLOWED[user.role] || [];
   const page = allowed.includes(route.page) ? route.page : HOME[user.role];
 
@@ -321,6 +338,7 @@ export default function App() {
       {drawerOpen && <div className="navscrim" onClick={() => setNav(false)} aria-hidden="true" />}
       <div className="main">
         <Topbar api={api} chrome={chrome} desktop={desktop} navOpen={drawerOpen} onMenu={() => setNav(true)} />
+        <TopProgress busy={inFlight > 0} />
         {askReset && (
           <ConfirmDialog title="Reset all demo data?" confirmLabel="Hold to reset the demo" tone="wax"
                          hold holdHint="Wipes everything: hold to confirm"
@@ -332,7 +350,7 @@ export default function App() {
         {guide && <GuidePanel role={user.role} onClose={() => setGuide(false)} />}
         {security && <SecurityPanel me={user} onRenamed={refresh} onClose={() => setSecurity(false)}
           onLogoutAll={async () => { try { await raw("/auth/logout_all/", { method: "POST", body: {} }); } catch (e) {} signOut(false); }} />}
-        <main className="content">
+        <main className={"content" + (hasViewTransitions() ? "" : " pageenter")} key={page}>
           {page === "dashboard" && <Dashboard api={api} />}
           {page === "tenders" && <TendersPage api={api} />}
           {page === "tender" && <TenderDetail key={route.id + (route.tab || "")} api={api} id={route.id} initialTab={route.tab} />}

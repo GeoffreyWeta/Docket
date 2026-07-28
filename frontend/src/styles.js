@@ -14,21 +14,139 @@ import { BP } from "./breakpoints";
 
 export const CSS = `
 /* ============================================================ tokens
-   Four themes live here and nowhere else. Every colour, radius, shadow AND
+   Five themes live here and nowhere else. Every colour, radius, shadow AND
    type role below is a variable, so a theme is a token block rather than a
    fork of the stylesheet, which is what lets Material change the type
    system (sans display at weight 400, sentence-case labels, pill badges)
    and not just the palette.
 
+     studio         the default: cool neutrals, indigo primary  <- :root
      paper          the house look: legal stationery, wax seals, serif
      material       flat Material surface, ported from the DOCKET prototype
      material-dark  the same on M3 dark neutrals, tonal green inverted
      night          the editorial look after hours
 
-   Contrast (100 text/surface pairs) and CVD separation are measured, not
-   eyeballed: see the note in ui.jsx before touching a status hue.
+   THE DEFAULT THEME OWNS :root. theme.js removes the data-theme attribute for
+   whichever theme is the default, so the block on bare :root and DEFAULT_THEME
+   must name the same thing. The other four are attribute blocks, which beat
+   :root on specificity no matter what order they appear in.
+
+   :root is also the fallback for anything a theme does not declare, and the
+   attribute blocks lean on that: night declares no type roles, no radii and no
+   easing, material declares no seal colours. So the base carries paper's
+   STRUCTURE (serif display, mono micro-labels, the 5/7/10/14 radii) and only
+   its palette differs. Changing a structural token on :root changes night too.
+
+   Contrast and CVD separation are measured, not eyeballed: see the note in
+   ui.jsx before touching a status hue, then run node tools/palette-check.mjs.
+   It reads these blocks, resolves the var() chains the way the cascade
+   does, and reports every text-on-surface pair below WCAG AA plus the closest
+   status-stamp pair under protanopia and deuteranopia.
+
+   Two families, deliberately separate: --brand is the primary (buttons, focus
+   rings, links) and --green is positive state (sealed, leading, published).
+   They are the same green in every theme except studio, where the primary is
+   indigo and success stays emerald, so an "ok" chip never turns indigo.
    ============================================================ */
-:root,:root[data-theme="paper"]{
+:root{
+  /* typefaces (structure: shared with every theme that does not override) */
+  --font-sans:'Geist Variable',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-serif:'Source Serif 4 Variable',ui-serif,Charter,Georgia,serif;
+  --font-mono:'Geist Mono Variable',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-display:var(--font-serif);
+
+  /* ---- studio: cool neutral surfaces, one warm-free accent axis ----
+     Neutrals sit on a faint blue axis rather than the sepia of paper, the
+     primary is indigo, and the seal cools to rose so the whole palette reads
+     on one temperature. */
+  --paper:#F7F8FA; --paper-2:#EFF1F5; --card:#FFFFFF; --sunk:#F8FAFC;
+  --ink:#0F1115; --muted:#4B5563; --faint:#6B7280;
+  --line:#E5E7EB; --line2:#D2D6DC; --hair:rgba(15,17,21,.07);
+  --on-brand:#FFFFFF;
+  --btn-hover:#F9FAFB;
+  --topbar-bg:rgba(255,255,255,.88);
+  --scrim:rgba(15,17,21,.45);
+  --skel-hi:#F3F4F6;
+  --tip-bg:#111827; --tip-ink:#FFFFFF;
+
+  /* primary */
+  --brand:#4F46E5; --brand-2:#6366F1; --brand-deep:#3730A3;
+  --brand-tint:#EEF2FF; --brand-ring:rgba(79,70,229,.24);
+
+  /* positive state */
+  --green:#047857; --green-2:#059669; --green-deep:#065F46;
+  --green-tint:#ECFDF5; --green-ring:rgba(4,120,87,.2);
+  /* critical, and the seal: cool rose, not wax red */
+  --wax:#BE123C; --wax-tint:#FFF1F2;
+  /* awarded */
+  --brass:#B45309; --brass-tint:#FFFBEB; --gold-ink:#92400E;
+
+  /* filled buttons */
+  --pri-from:#4F46E5; --pri-to:#4338CA; --pri-from-h:#6366F1; --pri-to-h:#4F46E5; --pri-line:#3730A3;
+  --wax-from:#E11D48; --wax-to:#BE123C; --wax-from-h:#F43F5E; --wax-to-h:#E11D48; --wax-line:#9F1239;
+
+  /* chips + stamps */
+  --chip-ok-line:#A7F3D0; --chip-warn-line:#FECDD3; --chip-gold-line:#FDE68A;
+
+  /* paper objects: letters, memos, ceremonies, addenda */
+  --letter-bg:#F8FAFC; --ceremony-from:#FFF1F2; --ceremony-line:#FDA4AF;
+  --addm-line:#FDE68A; --unread-bg:#EEF2FF; --login-glow:#FFFFFF;
+
+  /* seal */
+  --seal-hi:#FB7185; --seal-core:#E11D48; --seal-crack:#881337;
+
+  /* sidebar: dark slate, indigo active state */
+  --side:#111827; --side-from:#1B2436; --side-to:#0B111C;
+  /* --side-sec is a 9.5px uppercase label, so it is small text as far as WCAG
+     is concerned and has to clear 4.5 rather than 3.0. Hierarchy against
+     --side-dim comes from the type role, not from dimming it below legible. */
+  --side-ink:#E5E7EB; --side-dim:#9CA3AF; --side-sec:#8A94A4;
+  --side-hover:rgba(255,255,255,.055);
+  --side-on-bg:linear-gradient(90deg,rgba(99,102,241,.24),rgba(255,255,255,.02) 70%);
+  --side-on-ink:#FFFFFF; --side-on-line:#818CF8;
+  --side-edge:inset -1px 0 0 rgba(0,0,0,.4),1px 0 0 rgba(255,255,255,.04);
+  --newbtn-bg:rgba(255,255,255,.07); --newbtn-line:rgba(229,231,235,.2);
+  --newbtn-bg-h:rgba(255,255,255,.13); --newbtn-line-h:rgba(229,231,235,.34);
+  --wordmark-ink:#FFFFFF; --wordmark-rule:rgba(229,231,235,.12);
+
+  /* ---- role tokens (structure) ---- */
+  --h1-size:27px; --h1-weight:600; --h1-ls:-.018em;
+  --th-font:var(--font-mono); --th-size:9.5px; --th-tt:uppercase; --th-ls:.13em; --th-weight:550;
+  --k-font:var(--font-mono); --k-size:9.5px; --k-tt:uppercase; --k-ls:.14em; --k-weight:550;
+  --badge-font:var(--font-mono); --badge-size:9.5px; --badge-tt:uppercase; --badge-ls:.11em;
+  --badge-r:var(--r-xs); --badge-bd:1px; --badge-pad:3.5px 8px;
+  --field-bg:var(--card); --field-bd:var(--line2); --field-r:var(--r-sm);
+  --field-shadow:inset 0 1px 2px rgba(15,17,21,.04);
+  --stat-v-font:var(--font-display); --stat-v-weight:600; --stat-v-size:29px;
+  --card-bd:1px;
+  --btn-bg:var(--card); --btn-ink:var(--ink); --btn-bd:1px solid var(--line2); --btn-fw:550;
+  --nav-r:0; --nav-mx:0;
+  /* tonal roles stay indirect, so a theme that only swaps --brand-* gets its
+     own tonal pill without redeclaring these */
+  --p-container:var(--brand-tint); --on-p-container:var(--brand-deep);
+
+  /* layout metrics */
+  --gutter:14px; --tap:44px; --topbar-h:56px; --drawer-w:min(84vw,304px);
+  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+  --sal:env(safe-area-inset-left,0px); --sar:env(safe-area-inset-right,0px);
+
+  /* radii */
+  --r-xs:5px; --r-sm:7px; --r:10px; --r-lg:14px; --r-btn:var(--r-sm);
+
+  /* elevation: neutral-cool, layered rather than a single drop */
+  --shadow:0 1px 2px rgba(15,17,21,.05),0 1px 3px rgba(15,17,21,.06);
+  --sh-2:0 2px 4px rgba(15,17,21,.05),0 6px 14px -3px rgba(15,17,21,.09);
+  --sh-3:0 4px 8px rgba(15,17,21,.06),0 18px 36px -10px rgba(15,17,21,.16);
+  --inset-hi:inset 0 1px 0 rgba(255,255,255,.12);
+  --btn-shadow:var(--shadow); --card-shadow:var(--shadow);
+
+  /* motion */
+  --ease:cubic-bezier(.4,0,.2,1); --t:150ms;
+}
+
+/* ---- paper: the house look, unchanged. A complete palette rather than a
+        delta, because it no longer owns :root. ---- */
+:root[data-theme="paper"]{
   /* typefaces */
   --font-sans:'Geist Variable',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
   --font-serif:'Source Serif 4 Variable',ui-serif,Charter,Georgia,serif;
@@ -46,9 +164,12 @@ export const CSS = `
   --skel-hi:#F7F6F0;
   --tip-bg:#12241D; --tip-ink:#FFFFFF;
 
-  /* brand */
+  /* brand: here the primary and positive state are the same green, which is
+     what makes an "ok" chip and a filled button agree in the editorial look */
   --green:#245C48; --green-2:#2E7259; --green-deep:#12362A;
   --green-tint:#E2EDE7; --green-ring:rgba(36,92,72,.16);
+  --brand:var(--green); --brand-2:var(--green-2); --brand-deep:var(--green-deep);
+  --brand-tint:var(--green-tint); --brand-ring:var(--green-ring);
   --wax:#A9331F; --wax-tint:#F7E7E1;
   --brass:#8A6A14; --brass-tint:#F2EBD6; --gold-ink:#6B5215;
 
@@ -143,6 +264,9 @@ export const CSS = `
   --btn-bg:var(--paper-2); --btn-ink:var(--ink); --btn-bd:0 solid transparent; --btn-fw:500;
   --nav-r:999px; --nav-mx:8px;
   --ease:cubic-bezier(.2,0,0,1); --t:180ms;   /* M3 emphasized easing */
+  /* Material's primary is its green, as before the primary/positive split */
+  --brand:var(--green); --brand-2:var(--green-2); --brand-deep:var(--green-deep);
+  --brand-tint:var(--green-tint); --brand-ring:var(--green-ring);
   --side-on-bg:var(--p-container); --side-on-ink:var(--on-p-container); --side-on-line:transparent;
   --newbtn-bg:var(--p-container); --newbtn-line:transparent; --newbtn-line-h:transparent;
   --wordmark-ink:var(--on-p-container);
@@ -157,6 +281,12 @@ export const CSS = `
   --skel-hi:#F8F7FB;
   --tip-bg:#2F2E33; --tip-ink:#FFFFFF;
   --p-container:#CDE8D9; --on-p-container:#04291B;
+  /* Pinned from the editorial palette. These four families used to arrive from
+     :root while paper was the base; studio owns :root now, so the Material
+     surface states them itself rather than inheriting indigo and rose. */
+  --green:#245C48; --green-2:#2E7259; --green-deep:#12362A;
+  --wax:#A9331F; --brass:#8A6A14;
+  --seal-hi:#E0674C; --seal-core:#A9331F; --seal-crack:#7C2415;
   --green-tint:#CDE8D9; --green-ring:rgba(36,92,72,.2);
   --wax-tint:#F9E7E2; --brass-tint:#F6EFDC; --gold-ink:#75590E;
   /* filled buttons are flat in Material: one tone, no gradient, no edge */
@@ -214,7 +344,10 @@ export const CSS = `
   --paper:#0F1613; --paper-2:#0B120F; --card:#16211C; --sunk:#121B17;
   --ink:#E4EBE6; --muted:#A3B0A8; --faint:#7C8A83;
   --line:#253029; --line2:#35443C; --hair:rgba(228,235,230,.09);
-  --on-brand:#08120D;
+  /* night's filled buttons are a dark green gradient, so the label on them has
+     to be white: the near-black this used to be measured 2.45:1, which is
+     unreadable and predates the studio palette. */
+  --on-brand:#FFFFFF;
   --btn-hover:#1C2822;
   --topbar-bg:rgba(15,22,19,.86);
   --scrim:rgba(4,8,6,.62);
@@ -222,6 +355,9 @@ export const CSS = `
   --tip-bg:#E4EBE6; --tip-ink:#0F1613;
   --green:#3FA97C; --green-2:#4FBE8C; --green-deep:#8FD9B6;
   --green-tint:rgba(63,169,124,.16); --green-ring:rgba(63,169,124,.26);
+  /* night's primary is its green, as before the primary/positive split */
+  --brand:var(--green); --brand-2:var(--green-2); --brand-deep:var(--green-deep);
+  --brand-tint:var(--green-tint); --brand-ring:var(--green-ring);
   --wax:#D8664C; --wax-tint:rgba(216,102,76,.16);
   --brass:#D9B863; --brass-tint:rgba(217,184,99,.15); --gold-ink:#E6CA84;
   --pri-from:#2E7259; --pri-to:#245C48; --pri-from-h:#37866A; --pri-to-h:#2A6A52; --pri-line:#4FBE8C;
@@ -265,9 +401,9 @@ body.navopen{overflow:hidden}
    The desktop rung takes fields back down to 13.5px. */
 .dk input,.dk select,.dk textarea{font-family:inherit;font-size:16px;line-height:1.5;
   letter-spacing:inherit;color:var(--ink)}
-.dk input[type="checkbox"],.dk input[type="radio"]{width:19px;height:19px;accent-color:var(--green);flex-shrink:0}
-.dk input[type="range"]{height:var(--tap);accent-color:var(--green)}
-.dk :focus-visible{outline:2px solid var(--green);outline-offset:2px;border-radius:var(--r-xs)}
+.dk input[type="checkbox"],.dk input[type="radio"]{width:19px;height:19px;accent-color:var(--brand);flex-shrink:0}
+.dk input[type="range"]{height:var(--tap);accent-color:var(--brand)}
+.dk :focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:var(--r-xs)}
 .dk h1,.dk h2,.dk h3{font-weight:600}
 .dk img,.dk svg{max-width:100%}
 
@@ -347,7 +483,7 @@ body.navopen{overflow:hidden}
 .whoami{display:flex;align-items:center;gap:10px}
 .whoami .avatar{width:32px;height:32px;border-radius:50%;flex-shrink:0;color:var(--on-brand);display:flex;align-items:center;
   justify-content:center;font-size:11.5px;font-weight:600;letter-spacing:.02em;
-  background:linear-gradient(155deg,var(--green) 0%,var(--pri-to) 100%);
+  background:linear-gradient(155deg,var(--brand) 0%,var(--pri-to) 100%);
   box-shadow:var(--shadow),var(--inset-hi)}
 /* padding-right clears the native chevron: long role labels ran under it */
 .whoami select{border:1px solid var(--line2);border-radius:var(--r-sm);padding:8px 30px 8px 10px;background:var(--card);
@@ -390,14 +526,31 @@ body.navopen{overflow:hidden}
   padding:var(--badge-pad);border-radius:var(--badge-r);
   border:var(--badge-bd) solid color-mix(in srgb,currentColor 33%,transparent);white-space:nowrap;
   background:var(--st-bg,transparent);color:var(--st-fg,var(--muted))}
-/* status stamps: foregrounds darkened against their own tint so the small
-   uppercase label clears WCAG AA on the badge, in every theme */
-.st-draft{--st-fg:#4E5852;--st-bg:#ECEBE3}
-.st-approval{--st-fg:#75590E;--st-bg:#F6EFDC}
-.st-published{--st-fg:#1E5240;--st-bg:#E1EDE6}
-.st-closed{--st-fg:#962B19;--st-bg:#F8E8E2}
-.st-evaluation{--st-fg:#0E3527;--st-bg:#DBE8E0}
-.st-awarded{--st-fg:#6B5215;--st-bg:#F3ECD9}
+/* Status stamps: foregrounds darkened against their own tint so the small
+   uppercase label clears WCAG AA on the badge, in every theme. The unprefixed
+   set belongs to whichever theme owns :root, so this one is studio.
+
+   Six stages on one colour axis is the hard part. Paper reuses gold for both
+   approval and awarded and green for both published and evaluation; studio
+   splits the green pair (emerald published / indigo evaluation) and keeps the
+   amber pair separated by tint depth, which measures better under both
+   protanopia and deuteranopia. */
+.st-draft{--st-fg:#52525B;--st-bg:#F4F4F5}
+.st-approval{--st-fg:#92400E;--st-bg:#FEF3C7}
+.st-published{--st-fg:#065F46;--st-bg:#D1FAE5}
+/* closed sits a step darker than published rather than only a hue away: under
+   deuteranopia emerald and rose both land on the same yellow, so the pair is
+   separated by lightness (measured deltaE 1.4 -> 8.0) */
+.st-closed{--st-fg:#9F1239;--st-bg:#FECDD3}
+.st-evaluation{--st-fg:#3730A3;--st-bg:#E0E7FF}
+.st-awarded{--st-fg:#78350F;--st-bg:#FDE68A}
+/* paper keeps the editorial set it always had */
+:root[data-theme="paper"] .st-draft{--st-fg:#4E5852;--st-bg:#ECEBE3}
+:root[data-theme="paper"] .st-approval{--st-fg:#75590E;--st-bg:#F6EFDC}
+:root[data-theme="paper"] .st-published{--st-fg:#1E5240;--st-bg:#E1EDE6}
+:root[data-theme="paper"] .st-closed{--st-fg:#962B19;--st-bg:#F8E8E2}
+:root[data-theme="paper"] .st-evaluation{--st-fg:#0E3527;--st-bg:#DBE8E0}
+:root[data-theme="paper"] .st-awarded{--st-fg:#6B5215;--st-bg:#F3ECD9}
 /* Material maps the lifecycle onto the prototype's reserved status roles:
    neutral / warn / ok / crit, plus a primary-tonal for evaluation and a
    deeper brass for the awarded terminal state so it never reads as "pending". */
@@ -460,8 +613,8 @@ label.btn{cursor:pointer}
   border:1px solid var(--field-bd);border-radius:var(--field-r);
   background:var(--field-bg);box-shadow:var(--field-shadow);
   transition:border-color var(--t) var(--ease),box-shadow var(--t) var(--ease)}
-.in:focus,.dk textarea:focus,.dk select.in:focus{outline:0;border-color:var(--green);
-  box-shadow:0 0 0 3px var(--green-ring),inset 0 1px 2px rgba(20,31,27,.03)}
+.in:focus,.dk textarea:focus,.dk select.in:focus{outline:0;border-color:var(--brand);
+  box-shadow:0 0 0 3px var(--brand-ring),inset 0 1px 2px rgba(20,31,27,.03)}
 .in::placeholder,.dk textarea::placeholder{color:var(--faint)}
 .dk textarea{resize:vertical;min-height:96px;line-height:1.55}
 /* numeric fields (scores, weights, thresholds): wide enough to tap and centred
@@ -651,7 +804,7 @@ label.btn{cursor:pointer}
 .bar .bl{flex:0 0 76px;font-family:var(--font-mono);font-size:10.5px;color:var(--muted);text-align:right;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bar .bt{flex:1;height:16px;background:var(--line);border-radius:3px;overflow:hidden;min-width:0}
-.bar .bt>span{display:block;height:100%;border-radius:3px;background:var(--green)}
+.bar .bt>span{display:block;height:100%;border-radius:3px;background:var(--brand)}
 .bar .bv{flex:0 0 auto;font-family:var(--font-mono);font-size:11.5px;font-variant-numeric:tabular-nums}
 
 /* ============================================================ the ladder
@@ -899,14 +1052,16 @@ export const EXTRA_CSS = `
   background:radial-gradient(1100px 620px at 50% -12%,var(--login-glow) 0%,var(--paper) 52%,var(--paper-2) 100%)}
 .loginwrap button{font:inherit;letter-spacing:inherit;cursor:pointer;touch-action:manipulation}
 .loginwrap input{font-family:inherit;font-size:16px;letter-spacing:inherit;color:var(--ink)}
-.loginwrap :focus-visible{outline:2px solid var(--green);outline-offset:2px;border-radius:var(--r-xs)}
+.loginwrap :focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:var(--r-xs)}
 .loginwrap .card{box-shadow:var(--sh-3)}
 .logincard{width:100%;max-width:428px}
 .loginlogo{display:flex;align-items:center;gap:11px;justify-content:center;margin-bottom:18px}
 .loginlogo .seal{width:15px;height:15px;border-radius:50%;flex-shrink:0;
   background:radial-gradient(circle at 34% 32%,var(--seal-hi),var(--seal-core) 70%);
   box-shadow:0 0 0 3px color-mix(in srgb,var(--seal-core) 22%,transparent),0 1px 3px color-mix(in srgb,var(--wax-line) 40%,transparent)}
-.loginlogo b{font-family:var(--font-display);font-size:24px;font-weight:600;letter-spacing:.17em;color:var(--green-deep)}
+/* the wordmark is brand, not positive state (identical in every theme whose
+   primary is its green, which is all of them except studio) */
+.loginlogo b{font-family:var(--font-display);font-size:24px;font-weight:600;letter-spacing:.17em;color:var(--brand-deep)}
 /* one demo account per row on a phone: the labels are names and roles, and
    two of them side by side at 360px wrap to three lines each */
 .demogrid{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
@@ -917,11 +1072,11 @@ export const EXTRA_CSS = `
 .docrow:last-child{border-bottom:0}
 /* file names wrap rather than run past the card edge, and the vertical padding
    takes the link past the 24px minimum target size (WCAG 2.5.8) */
-.doclink{background:none;border:0;padding:4px 0;color:var(--green);font-weight:550;text-align:left;cursor:pointer;
+.doclink{background:none;border:0;padding:4px 0;color:var(--brand);font-weight:550;text-align:left;cursor:pointer;
   font-size:13px;letter-spacing:-.004em;text-underline-offset:2px;white-space:normal;overflow-wrap:anywhere;
   transition:color var(--t) var(--ease)}
 /* the tap highlight is off across the app, so touch gets its feedback here */
-.doclink:active{color:var(--green-deep);text-decoration:underline}
+.doclink:active{color:var(--brand-deep);text-decoration:underline}
 
 /* full-page loading state */
 .booting{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;
@@ -952,6 +1107,6 @@ export const EXTRA_CSS = `
   .ndrop{position:absolute;left:auto;right:0;top:42px;width:368px;max-height:440px}
 }
 @media(hover:hover) and (pointer:fine){
-  .doclink:hover{color:var(--green-deep);text-decoration:underline}
+  .doclink:hover{color:var(--brand-deep);text-decoration:underline}
 }
 `;

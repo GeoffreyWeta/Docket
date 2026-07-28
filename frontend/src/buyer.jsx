@@ -40,6 +40,18 @@ export function Sidebar({ api, chrome, open, desktop, onClose }) {
     (route.page === "tender" && key === "tenders") ||
     (route.page === "bidroom" && key === "portal") ||
     (route.page === "new" && key === "tenders");
+
+  /* Measure the active item and move the indicator to it. Measured rather than
+     computed, because the items are text and their height follows the theme. */
+  const navRef = useRef(null);
+  const [ind, setInd] = useState({ y: 0, h: 0 });
+  useEffect(() => {
+    const box = navRef.current;
+    if (!box) return;
+    const on = box.querySelector(".navi.on");
+    if (!on) { setInd((i) => ({ ...i, h: 0 })); return; }
+    setInd({ y: on.offsetTop, h: on.offsetHeight });
+  }, [route.page, items.length, open, desktop]);
   return (
     <nav id="dk-nav" className={"side" + (open ? " open" : "")} aria-label="Main"
          aria-hidden={desktop ? undefined : !open}>
@@ -51,11 +63,20 @@ export function Sidebar({ api, chrome, open, desktop, onClose }) {
       </div>
       <div className="orgline">{api.state.org.name}<br />{api.state.org.note}</div>
       <div className="navsec">Workspace</div>
-      {items.map(([key, label]) => (
-        <button key={key} className={"navi" + (isOn(key) ? " on" : "")} onClick={() => go({ page: key })}>
-          <Icon n={NAV_ICON[key] || "tender"} s={16} />{label}
-        </button>
-      ))}
+      <div className="navlist" ref={navRef}>
+        {/* One indicator that slides between items rather than a marker that
+            blinks off one and on to the next. It is the left-edge rail in the
+            paper themes and the tonal pill in Material, styled per theme so
+            each look keeps its own idea of "current". */}
+        <span className="navind" aria-hidden="true"
+              style={{ transform: `translateY(${ind.y}px)`, height: ind.h, opacity: ind.h ? 1 : 0 }} />
+        {items.map(([key, label]) => (
+          <button key={key} className={"navi" + (isOn(key) ? " on" : "")} data-nav={key}
+                  onClick={() => go({ page: key })}>
+            <Icon n={NAV_ICON[key] || "tender"} s={16} />{label}
+          </button>
+        ))}
+      </div>
       {user.role === "procurement" && (
         <button className="newbtn" onClick={() => go({ page: "new" })}><Icon n="plus" s={15} />New tender</button>
       )}
@@ -227,6 +248,16 @@ function ChromeActions({ api, accounts, username, onSwitch, onLogout, onReset, o
 }
 
 export const MENU_CSS = `
+/* the in-flight bar hangs off the bottom edge of the bar it belongs to */
+.topbar{position:relative}
+/* the navigation indicator: a rail on paper, a tonal pill in Material */
+.navlist{position:relative}
+.navind{width:2.5px;background:var(--wax);border-radius:0 2px 2px 0}
+:root[data-theme^="material"] .navind{left:var(--nav-mx);right:var(--nav-mx);width:auto;
+  background:var(--p-container);border-radius:var(--nav-r)}
+:root[data-theme^="material"] .navi.on{background:transparent}
+.navi.on{border-left-color:transparent}
+
 .acctwrap{position:relative;display:flex}
 .acctbtn{display:inline-flex;align-items:center;gap:9px;padding:5px 9px 5px 5px;border-radius:var(--r-btn);
   border:1px solid transparent;background:transparent;color:var(--ink);font-weight:550;font-size:13px;
@@ -347,7 +378,7 @@ export function Dashboard({ api }) {
           </div>
         </div>
 
-        <div className="card">
+        <div className="card" data-reveal>
           <div className="chead"><h3>Deadline radar</h3></div>
           <div className="cbody" style={{ paddingTop: 6 }}>
             {open.sort((a, b) => a.deadline - b.deadline).map((t) => {

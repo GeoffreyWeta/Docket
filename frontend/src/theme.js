@@ -6,10 +6,16 @@
    by a tiny inline script in index.html before first paint, so a reload never
    flickers the previous theme.
 
-   `paper` is the default on purpose: the stationery look is the product's
-   identity, so a first-time visitor sees it even on a dark-mode machine. */
+   `studio` is the default: cool neutrals and an indigo primary, so a first-time
+   visitor meets a contemporary surface. `paper`, the stationery look the product
+   was drawn in, is one click away and unchanged.
+
+   DEFAULT_THEME and the block on bare :root in styles.js must name the same
+   theme, because applyTheme removes the attribute entirely for the default. */
 
 export const THEMES = [
+  { id: "studio", label: "Studio", icon: "stamp",
+    hint: "The default: cool neutral surfaces, indigo primary, emerald for state" },
   { id: "paper", label: "Paper", icon: "tender",
     hint: "The house look: legal stationery, wax seals, serif display" },
   { id: "material", label: "Material", icon: "dashboard",
@@ -23,7 +29,7 @@ export const DARK = new Set(["night", "material-dark"]);
 
 export const THEME_KEY = "docket.theme";
 const IDS = THEMES.map((t) => t.id);
-export const DEFAULT_THEME = "paper";
+export const DEFAULT_THEME = "studio";
 
 export function getTheme() {
   try {
@@ -37,7 +43,7 @@ export function getTheme() {
 export function applyTheme(id) {
   const theme = IDS.includes(id) ? id : DEFAULT_THEME;
   const root = document.documentElement;
-  if (theme === DEFAULT_THEME) delete root.dataset.theme;   // :root carries paper
+  if (theme === DEFAULT_THEME) delete root.dataset.theme;   // :root carries studio
   else root.dataset.theme = theme;
   // keep the tab chrome and the pre-paint background in step with the theme
   const meta = document.querySelector('meta[name="color-scheme"]');

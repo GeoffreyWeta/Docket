@@ -97,7 +97,7 @@ export function PortalHome({ api }) {
         const losses = decided.length - wins.length;
         const value = wins.reduce((s2, t) => s2 + (t.awardedAmount || 0), 0);
         return (
-          <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card" data-reveal style={{ marginBottom: 16 }}>
             <div className="chead"><h3>Your record here</h3><span className="mono faint" style={{ marginLeft: "auto" }}>with {state.org.name}</span></div>
             <div className="cbody" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
               <Stat k="Invitations" v={<CountUp n={invited.length} />} />
@@ -111,7 +111,7 @@ export function PortalHome({ api }) {
         );
       })()}
 
-      <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card" data-reveal style={{ marginBottom: 16 }}>
         <div className="chead"><h3>Open invitations</h3></div>
         <div className="cbody" style={{ paddingTop: 6 }}>
           {invitations.map((t) => {
@@ -137,7 +137,7 @@ export function PortalHome({ api }) {
         </div>
       </div>
 
-      <div className="card">
+      <div className="card" data-reveal>
         <div className="chead"><h3>Outcomes</h3></div>
         <div className="cbody" style={{ paddingTop: 6 }}>
           {outcomes.map((t) => {

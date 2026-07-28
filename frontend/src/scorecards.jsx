@@ -82,7 +82,7 @@ export function ScorecardsPage({ api }) {
       {selected && <SupplierCard row={selected} peer={peer} state={state} total={rows.length}
                                  tableView={tableView} onTableView={setTableView} />}
 
-      <div className="card" style={{ marginTop: 16 }}>
+      <div className="card" data-reveal style={{ marginTop: 16 }}>
         <div className="chead">
           <h3>Supplier ranking</h3>
           <span className="mono faint" style={{ marginLeft: "auto" }}>click to read a scorecard</span>
