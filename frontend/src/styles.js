@@ -108,6 +108,11 @@ export const CSS = `
   --newbtn-bg:rgba(255,255,255,.07); --newbtn-line:rgba(229,231,235,.2);
   --newbtn-bg-h:rgba(255,255,255,.13); --newbtn-line-h:rgba(229,231,235,.34);
   --wordmark-ink:#FFFFFF; --wordmark-rule:rgba(229,231,235,.12);
+  /* The wordmark is set, not drawn, so its face is a token. Studio sets DOCKET
+     in the sans at a tight track: wide-tracked serif caps are what reads as
+     stationery, and this theme is the one that does not want to. The other four
+     declare the editorial treatment themselves. */
+  --wordmark-font:var(--font-sans); --wordmark-weight:650; --wordmark-ls:.04em;
 
   /* ---- role tokens (structure) ---- */
   --h1-size:27px; --h1-weight:600; --h1-ls:-.018em;
@@ -195,6 +200,8 @@ export const CSS = `
   --newbtn-bg:rgba(255,255,255,.05); --newbtn-line:rgba(220,229,222,.22);
   --newbtn-bg-h:rgba(255,255,255,.11); --newbtn-line-h:rgba(220,229,222,.36);
   --wordmark-ink:#FFFFFF; --wordmark-rule:rgba(220,229,222,.11);
+  /* the editorial wordmark: serif caps, widely tracked */
+  --wordmark-font:var(--font-serif); --wordmark-weight:600; --wordmark-ls:.15em;
 
   /* ---- role tokens ----
      A theme is not just a palette: what makes the Material surface read as
@@ -270,6 +277,10 @@ export const CSS = `
   --side-on-bg:var(--p-container); --side-on-ink:var(--on-p-container); --side-on-line:transparent;
   --newbtn-bg:var(--p-container); --newbtn-line:transparent; --newbtn-line-h:transparent;
   --wordmark-ink:var(--on-p-container);
+  /* Material sets the wordmark in its own display face, which is the sans. The
+     sidebar used to use the serif while the login screen used the sans; both
+     now agree. */
+  --wordmark-font:var(--font-display); --wordmark-weight:500; --wordmark-ls:.08em;
 }
 :root[data-theme="material"]{
   --paper:#F6F5F9; --paper-2:#EDECF1; --card:#FFFFFF; --sunk:#F3F2F7;
@@ -372,6 +383,7 @@ export const CSS = `
   --side-on-ink:#FFFFFF; --side-on-line:var(--wax);
   --side-edge:inset -1px 0 0 rgba(0,0,0,.5);
   --wordmark-ink:#F2F7F4; --wordmark-rule:rgba(214,226,218,.13);
+  --wordmark-font:var(--font-serif); --wordmark-weight:600; --wordmark-ls:.15em;
   --newbtn-bg:rgba(255,255,255,.06); --newbtn-line:rgba(214,226,218,.2);
   --newbtn-bg-h:rgba(255,255,255,.12); --newbtn-line-h:rgba(214,226,218,.34);
   --shadow:0 1px 2px rgba(0,0,0,.4);
@@ -424,10 +436,18 @@ body.navopen{overflow:hidden}
   animation:dk-in 200ms var(--ease) both}
 .wordmark{display:flex;align-items:center;gap:10px;padding:0 var(--gutter) 15px;
   border-bottom:1px solid var(--wordmark-rule);margin-bottom:10px}
+/* The seal, in CSS rather than the SealMark component, because the wordmark
+   needs it at 13px next to type. Same three moves as the component: an inner
+   rim so it holds an edge on any surface, one off-centre specular, and a halo
+   that reads as a ring rather than a glow. */
 .wordmark .seal{width:13px;height:13px;border-radius:50%;flex-shrink:0;
-  background:radial-gradient(circle at 34% 32%,var(--seal-hi),var(--seal-core) 68%);
-  box-shadow:0 0 0 2.5px color-mix(in srgb,var(--seal-hi) 30%,transparent),0 1px 3px rgba(0,0,0,.4)}
-.wordmark b{font-family:var(--font-serif);font-weight:600;font-size:18px;letter-spacing:.15em;color:var(--wordmark-ink)}
+  background:
+    radial-gradient(circle at 30% 28%,color-mix(in srgb,#fff 30%,transparent) 0 18%,transparent 19%),
+    radial-gradient(circle at 33% 30%,var(--seal-hi),var(--seal-core) 62%);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--seal-crack) 34%,transparent),
+             0 0 0 2px color-mix(in srgb,var(--seal-core) 22%,transparent)}
+.wordmark b{font-family:var(--wordmark-font);font-weight:var(--wordmark-weight);font-size:18px;
+  letter-spacing:var(--wordmark-ls);color:var(--wordmark-ink)}
 /* closes the drawer from inside it: the scrim is not the only way out */
 .drawerx{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;
   min-width:var(--tap);min-height:var(--tap);margin-right:calc(var(--gutter) * -1 + 4px);
@@ -1056,12 +1076,17 @@ export const EXTRA_CSS = `
 .loginwrap .card{box-shadow:var(--sh-3)}
 .logincard{width:100%;max-width:428px}
 .loginlogo{display:flex;align-items:center;gap:11px;justify-content:center;margin-bottom:18px}
-.loginlogo .seal{width:15px;height:15px;border-radius:50%;flex-shrink:0;
-  background:radial-gradient(circle at 34% 32%,var(--seal-hi),var(--seal-core) 70%);
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--seal-core) 22%,transparent),0 1px 3px color-mix(in srgb,var(--wax-line) 40%,transparent)}
+.loginlogo .seal{width:16px;height:16px;border-radius:50%;flex-shrink:0;
+  background:
+    radial-gradient(circle at 30% 28%,color-mix(in srgb,#fff 32%,transparent) 0 18%,transparent 19%),
+    radial-gradient(circle at 33% 30%,var(--seal-hi),var(--seal-core) 62%);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--seal-crack) 34%,transparent),
+             0 0 0 3px color-mix(in srgb,var(--seal-core) 18%,transparent)}
 /* the wordmark is brand, not positive state (identical in every theme whose
-   primary is its green, which is all of them except studio) */
-.loginlogo b{font-family:var(--font-display);font-size:24px;font-weight:600;letter-spacing:.17em;color:var(--brand-deep)}
+   primary is its green, which is all of them except studio), and it takes the
+   same face and tracking as the one in the sidebar */
+.loginlogo b{font-family:var(--wordmark-font);font-size:24px;font-weight:var(--wordmark-weight);
+  letter-spacing:var(--wordmark-ls);color:var(--brand-deep)}
 /* one demo account per row on a phone: the labels are names and roles, and
    two of them side by side at 360px wrap to three lines each */
 .demogrid{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}

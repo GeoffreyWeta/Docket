@@ -74,22 +74,43 @@ export function Icon({ n, s, className = "", style, title }) {
   );
 }
 
-/** Wax seal: the one filled mark in the set, so it reads as an object rather
-    than an outline. Used wherever a bid is sealed. */
+/** The seal: the one filled mark in the set, so it reads as an object rather
+    than an outline. It is the product's mark and its state glyph at once, used
+    in the wordmark, on the login screen and against every sealed bid.
+
+    Restyled with the studio palette. Three changes from the original:
+
+    * a rim, drawn in --seal-crack at 40%. The old mark was a gradient disc with
+      no edge, so it dissolved into a white card at 13px; the rim gives it a
+      contour at every size and on every surface.
+    * the specular moved off-centre and tightened (a wax bead catches light in
+      one place), instead of a full concentric ring.
+    * geometry snapped to the half-pixel grid like the rest of the set, so the
+      13px wordmark instance renders crisp rather than soft.
+
+    Colour still comes entirely from --seal-hi / --seal-core / --seal-crack, so
+    it is rose in studio, wax red in paper and warm in night without a branch. */
 export function SealMark({ s = 15, cracked = false, className = "", style }) {
   return (
     <svg width={s} height={s} viewBox="0 0 20 20" className={className} style={style} aria-hidden="true">
       <defs>
-        <radialGradient id="dk-wax" cx="34%" cy="32%">
+        <radialGradient id="dk-wax" cx="33%" cy="30%" r="78%">
           <stop offset="0%" stopColor="var(--seal-hi)" />
-          <stop offset="70%" stopColor="var(--seal-core)" />
+          <stop offset="62%" stopColor="var(--seal-core)" />
+          <stop offset="100%" stopColor="var(--seal-core)" />
         </radialGradient>
       </defs>
-      <circle cx="10" cy="10" r="8.4" fill="url(#dk-wax)" />
+      <circle cx="10" cy="10" r="8.5" fill="url(#dk-wax)" />
+      <circle cx="10" cy="10" r="8.5" fill="none" strokeWidth="1"
+              stroke="color-mix(in srgb,var(--seal-crack) 40%,transparent)" />
       {cracked
         ? <path d="M10 1.6 8.4 7 11.4 9.6 8 12l1.6 6.4" stroke="var(--seal-crack)" strokeWidth="1.2" fill="none" strokeLinejoin="round" />
-        : <><circle cx="10" cy="10" r="4.2" fill="none" stroke="color-mix(in srgb,#fff 34%,transparent)" strokeWidth="1.1" />
-            <circle cx="10" cy="10" r="1.5" fill="color-mix(in srgb,#fff 28%,transparent)" /></>}
+        : <><circle cx="10" cy="10" r="4.4" fill="none" strokeWidth="1"
+                    stroke="color-mix(in srgb,#fff 26%,transparent)" />
+            {/* the specular sits between the ring's outer edge (4.9) and the
+                rim's inner edge (8.0), clear of both: overlapping the ring
+                reads as a notch cut out of it */}
+            <circle cx="5.6" cy="5.6" r="1.2" fill="color-mix(in srgb,#fff 40%,transparent)" /></>}
     </svg>
   );
 }

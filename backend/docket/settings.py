@@ -1,4 +1,5 @@
 """Django settings for DOCKET."""
+import mimetypes
 import os
 from pathlib import Path
 
@@ -50,6 +51,12 @@ DATABASES = {
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [FRONTEND_DIST] if FRONTEND_DIST.exists() else []
+
+# Python's mimetypes table predates .webmanifest, so the PWA manifest would go
+# out as application/octet-stream. WhiteNoise keeps its own media-type table and
+# does not consult the mimetypes registry, so it has to be told separately.
+mimetypes.add_type("application/manifest+json", ".webmanifest")
+WHITENOISE_MIMETYPES = {".webmanifest": "application/manifest+json"}
 
 STORAGES = {
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
