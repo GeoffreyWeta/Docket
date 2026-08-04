@@ -17,7 +17,7 @@ import React, { useMemo, useState } from "react";
 import { Empty, Money } from "./atoms";
 import { daysLeft } from "./helpers";
 import { Icon } from "./icons";
-import { DIMENSIONS, WEIGHT_LINE, buildBoard, holdOutSummary } from "./scorecard-model";
+import { DIMENSIONS, WEIGHT_LINE, buildBoard, holdOutGroups, holdOutSummary } from "./scorecard-model";
 import { CountUp, Radar } from "./ui";
 
 const num = (v) => (v == null ? "-" : Math.round(v));
@@ -54,7 +54,7 @@ export function ScorecardsPage({ api }) {
   }, [rows, sort]);
 
   const head = (key, label) => (
-    <th className="num sortable" onClick={() => setSort((s) => ({ key, dir: s.key === key ? -s.dir : -1 }))}
+    <th key={key} className="num sortable" onClick={() => setSort((s) => ({ key, dir: s.key === key ? -s.dir : -1 }))}
         aria-sort={sort.key === key ? (sort.dir === -1 ? "descending" : "ascending") : "none"}>
       {label}{sort.key === key ? (sort.dir === -1 ? " ↓" : " ↑") : ""}
     </th>
@@ -136,15 +136,55 @@ export function ScorecardsPage({ api }) {
               " An asterisk marks a supplier with no history on one or more dimensions: those are scored at the peer average, which is neutral, rather than dropped, which would reward a thin record."}
             {held.length ? " " + holdOutSummary(held) : ""}
           </div>
-          {held.length > 0 && (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
-              {held.map((h) => (
-                <span className="chip" key={h.id} title={h.reason}>{h.name}: {h.reason}</span>
-              ))}
-            </div>
-          )}
+          {held.length > 0 && <HeldOut held={held} />}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Who is not on the board, and why.
+
+    Naming every held-out supplier was right when there were twelve of them. On
+    a register of 1,400 it would print 1,400 chips and bury the two that a buyer
+    can actually do something about, so each reason is named with its count and
+    only the small groups open by default. Nothing is hidden: every group can be
+    expanded, because "held out" is a claim the reader is entitled to check. */
+const NAME_UP_TO = 24;
+
+function HeldOut({ held }) {
+  const groups = holdOutGroups(held);
+  const [open, setOpen] = useState(() => new Set(groups.filter((g) => g.members.length <= NAME_UP_TO).map((g) => g.reason)));
+  const toggle = (reason) => setOpen((prev) => {
+    const next = new Set(prev);
+    next.has(reason) ? next.delete(reason) : next.add(reason);
+    return next;
+  });
+  return (
+    <div style={{ marginTop: 12 }}>
+      {groups.map((g) => {
+        const isOpen = open.has(g.reason);
+        return (
+          <div key={g.reason} style={{ marginTop: 8 }}>
+            <button className="doclink" style={{ fontSize: 12 }} onClick={() => toggle(g.reason)}
+                    aria-expanded={isOpen}>
+              {g.members.length.toLocaleString()} {g.reason} {isOpen ? "−" : "+"}
+            </button>
+            {isOpen && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                {g.members.slice(0, 300).map((h) => (
+                  <span className="chip" key={h.id} title={h.category}>{h.name}</span>
+                ))}
+                {g.members.length > 300 && (
+                  <span className="muted" style={{ fontSize: 12, alignSelf: "center" }}>
+                    and {(g.members.length - 300).toLocaleString()} more on the register
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

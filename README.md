@@ -111,9 +111,13 @@ Seeded accounts (password = the `DEMO_PASSWORD` env var; locally `docket-demo`):
 | ngozi     | Ngozi Eze — Finance                | evaluator   |
 | mark      | Mark Iyer — CFO                    | approver    |
 | aisha     | Aisha Bello — Internal Audit       | auditor     |
-| coldline  | Coldline Logistics                 | supplier    |
-| harmattan | Harmattan Foods Ltd                | supplier    |
-| bluechip  | BlueChip POS Africa                | supplier    |
+| coldline  | Kennie O Cold Chain Logistics Ltd  | supplier    |
+| harmattan | Bigatton Trading Co. Ltd           | supplier    |
+| bluechip  | The Source Computers Limited       | supplier    |
+
+The three supplier logins point at real companies from the vendor register (see
+below). Their usernames are historical — they were seeded before the register
+was imported, and renaming them would break anyone's bookmarks for no gain.
 
 While `DEMO_LOGIN=1`, the sign-in screen shows one-click buttons for these accounts
 and the top bar has a quick account switcher. Sign-in issues an opaque bearer token;
@@ -154,6 +158,74 @@ plus an open sandbox tender so the vendor portal has a live bid room:
     cd backend && python test_org.py           # idempotent; never wipes data
     cd backend && python test_org.py --full    # reseeds, then tests everything
                                                # through those two accounts
+
+## The vendor register
+
+The Suppliers page is the real Eat'n'Go vendor master — about 1,400 companies,
+not demo data. To update it, export the register to JSON and re-run one command:
+
+    cd backend
+    python manage.py import_vendors                    # dry run: reports, writes nothing
+    python manage.py import_vendors --commit           # apply it
+    python manage.py import_vendors --file path/to/other.json --commit
+
+It reads `backend/data/vendors.json` by default. The export is a dict of sheet
+name → list of row dicts, exactly as an "all sheets to JSON" dump of the
+spreadsheet produces it; column names are matched case- and space-insensitively,
+so the sheet can be reordered or renamed without touching code.
+
+**It replaces, it does not append.** Vendor ids are slugs of the company name,
+so the same company lands on the same row every run: new companies are inserted,
+companies already here are refreshed in place, and a company you delete from the
+spreadsheet is deleted here too. Running it twice leaves you with one copy of
+everything, not two.
+
+Three things it deliberately will not do:
+
+* **It will not overwrite history with nothing.** Delivery performance, ratings
+  and documents uploaded through DOCKET are earned here, not in the spreadsheet.
+  A re-import refreshes the register's own columns and leaves the rest alone.
+* **It will not delete a vendor a tender invited.** If a company is dropped
+  from the spreadsheet but a tender invited it, a bid came from it, or someone
+  logs in as it, the record stays — a tender that invited a company is a fact
+  about what happened, and losing a spreadsheet row does not unhappen it. The
+  dry run names every such case.
+* **It will not touch suppliers that never came from the register** — the
+  self-registered test company, anything added through the UI.
+
+Read the dry run before committing. It reports, for that file:
+
+* how many rows became how many vendors, and which duplicates were merged
+  (the register lists some companies twice under different vendor codes);
+* how many are prequalified and how many are held out of tendering, which is
+  read from the register's own DOCUMENT / REG. FORM / REMARKS columns;
+* how many rows the register could not categorise or place, so the gaps are
+  visible rather than quietly filled in;
+* which registration dates were unparseable and therefore left unset;
+* how many vendors are new, refreshed, deleted, kept-because-referenced, and
+  untouched-because-not-from-the-register;
+* which demo supplier each seeded account is being repointed at.
+
+That last step matters. The demo tenders, bids, award letters and the three
+supplier logins all referred to the twelve seeded suppliers. Each is mapped
+(in `DEMO_MAP`, in the command) onto a real vendor in the same line of business,
+every reference is rewritten, the delivery history is carried across so the
+scorecards still have something to score, and only then are the seeded rows
+deleted. The demo keeps working end to end; the names in it become real.
+
+Two deliberate omissions, both in `core/vendor_import.py`:
+
+* **Bank account numbers are not imported** — only the last four digits, as
+  `******0225`. DOCKET awards tenders, it does not pay invoices, so a register
+  of 1,400 account numbers has no reason to be in this database or to reach a
+  browser.
+* **The register's own wording is kept** alongside the normalised category, in
+  `classification` and in the `registry` JSON, because a 612-value column
+  collapsed to 23 buckets by rules nobody can audit is a mapping nobody should
+  trust. Every original cell survives the import.
+
+`backend/data/vendors*.json` is gitignored: the export carries real emails,
+phone numbers, TINs and bank details for 1,400 companies.
 
 ## Background jobs
 

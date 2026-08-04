@@ -236,9 +236,26 @@ export function buildBoard(state, now = nowMs()) {
   return { rows, held, peer };
 }
 
+/** Held out, grouped by reason, commonest first.
+
+    The register runs to about 1,400 vendors and all but a handful have never
+    delivered against a tender here, so the reasons need counts: "1,424 for no
+    operating history yet" is a fact about the register, while "1 for
+    prequalification declined" is a decision somebody made and can revisit. */
+export function holdOutGroups(held) {
+  const m = new Map();
+  for (const h of held) {
+    if (!m.has(h.reason)) m.set(h.reason, []);
+    m.get(h.reason).push(h);
+  }
+  return [...m.entries()]
+    .map(([reason, members]) => ({ reason, members }))
+    .sort((a, b) => b.members.length - a.members.length);
+}
+
 /** Held-out reasons, collapsed for the footnote under the table. */
 export function holdOutSummary(held) {
   if (!held.length) return "";
-  const kinds = [...new Set(held.map((h) => h.reason))];
-  return `${held.length} supplier${held.length === 1 ? "" : "s"} held out: ${kinds.join(", ")}.`;
+  const parts = holdOutGroups(held).map((g) => `${g.members.length.toLocaleString()} for ${g.reason}`);
+  return `${held.length.toLocaleString()} supplier${held.length === 1 ? "" : "s"} held out: ${parts.join(", ")}.`;
 }

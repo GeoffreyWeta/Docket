@@ -6,3 +6,8 @@ frontend/node_modules/
 frontend/dist/
 .env
 .venv/
+
+# The vendor master export. Real company bank details, TINs and contacts:
+# the importer reads it locally, the database keeps a masked copy, and it
+# never belongs in version control.
+backend/data/vendors*.json

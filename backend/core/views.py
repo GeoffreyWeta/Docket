@@ -94,13 +94,33 @@ def log(persona, action, detail, tender_id=None):
 
 # ---------------- serialization (sealing enforced here) ----------------
 
-def supplier_view(s):
-    return {
+def supplier_view(s, full=False):
+    """The register runs to about 1,400 vendors, so the default is the light
+    record: what a list, a filter and a scorecard hold-out decision need. The
+    document list alone is half the weight of the whole payload and is only
+    read when someone actually opens a vendor, so it travels on request (see
+    supplier_detail) rather than on every refresh.
+
+    `full` is used for the handful of vendors attached to a tender the caller
+    can see: those need their documents for compliance scoring, and for the
+    vendor's own record when a supplier signs in."""
+    d = {
         "id": s.id, "name": s.name, "category": s.category, "location": s.location,
-        "rating": s.rating, "prequalified": s.prequalified, "docs": s.docs, "perf": s.perf,
+        "rating": s.rating, "prequalified": s.prequalified, "perf": s.perf,
         "contactEmail": s.contact_email, "registeredAt": s.registered_at,
         "rejectedReason": s.rejected_reason,
+        "code": s.code, "docCount": len(s.docs or []),
     }
+    if not full:
+        d["docs"] = []
+        return d
+    d.update({
+        "docs": s.docs,
+        "classification": s.classification, "contactPerson": s.contact_person,
+        "phone": s.phone, "address": s.address, "paymentTerms": s.payment_terms,
+        "registry": s.registry,
+    })
+    return d
 
 
 def tender_view(t, p):
@@ -210,10 +230,19 @@ def bootstrap(request, p, body):
              if c.tender_id in visible_ids and (cv := clar_view(c, p))]
 
     if p["role"] == "supplier":
-        suppliers = [supplier_view(Supplier.objects.get(pk=p["supplierId"]))]
+        suppliers = [supplier_view(Supplier.objects.get(pk=p["supplierId"]), full=True)]
         events = []
     else:
-        suppliers = [supplier_view(s) for s in Supplier.objects.all().order_by("id")]
+        # every vendor attached to a visible tender, so evaluation and the
+        # scorecards have the documents they score on
+        deep = set()
+        for t in Tender.objects.filter(id__in=visible_ids):
+            deep.update(t.invited or [])
+            if t.awarded_to:
+                deep.add(t.awarded_to)
+        deep.update(Bid.objects.filter(tender_id__in=visible_ids).values_list("supplier_id", flat=True))
+        suppliers = [supplier_view(s, full=s.id in deep)
+                     for s in Supplier.objects.all().order_by("name")]
         events = [{"id": e.id, "at": e.at, "actor": e.actor, "role": e.role, "action": e.action,
                    "tenderId": e.tender_id, "detail": e.detail} for e in Event.objects.all()[:400]]
 
@@ -845,6 +874,22 @@ def answer_clarification(request, p, body, cid):
 
 
 # ---------------- suppliers ----------------
+
+@route(["GET"])
+def supplier_detail(request, p, body, sid):
+    """The full register record for one vendor: documents, contact, address,
+    payment terms, TIN, bank name and the masked account. Fetched when someone
+    opens a vendor rather than shipped for all 1,400 on every refresh.
+
+    A supplier may read their own record and nothing else, which is the same
+    rule the bootstrap payload follows."""
+    if p["role"] == "supplier" and p["supplierId"] != sid:
+        return err("Not yours to read.", 403)
+    s = Supplier.objects.filter(pk=sid).first()
+    if not s:
+        return err("Supplier not found.", 404)
+    return JsonResponse(supplier_view(s, full=True))
+
 
 @route(["POST"], roles={"procurement"})
 def prequalify(request, p, body, sid):

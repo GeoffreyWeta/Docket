@@ -58,6 +58,7 @@ urlpatterns = [
 
     path("bids/<str:bid_id>/scores/", views.save_scores),
     path("clarifications/<str:cid>/answer/", views.answer_clarification),
+    path("suppliers/<str:sid>/", views.supplier_detail),
     path("suppliers/<str:sid>/prequalify/", views.prequalify),
 
     path("ai/scope/", views.ai_scope),

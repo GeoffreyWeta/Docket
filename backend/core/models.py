@@ -31,6 +31,22 @@ class Supplier(models.Model):
     docs = models.JSONField(default=list)   # [{name, expiry(ms)}]
     perf = models.JSONField(default=dict)   # {onTime, quality}
 
+    # --- the vendor master ------------------------------------------------
+    # Filled by `manage.py import_vendors` from the register export. `category`
+    # above is the normalised bucket the app filters on; `classification` keeps
+    # the register's own words, because a mapping nobody can audit is a mapping
+    # nobody should trust.
+    code = models.CharField(max_length=24, blank=True, default="")   # NAV / RP code
+    classification = models.CharField(max_length=140, blank=True, default="")
+    contact_person = models.CharField(max_length=140, blank=True, default="")
+    phone = models.CharField(max_length=120, blank=True, default="")
+    address = models.CharField(max_length=300, blank=True, default="")
+    payment_terms = models.CharField(max_length=80, blank=True, default="")
+    # TIN, bank name, masked account, remarks, any code the vendor was
+    # previously registered under, and the original cell behind every
+    # normalisation. Never the full account number: see vendor_import.py.
+    registry = models.JSONField(default=dict, blank=True)
+
     def __str__(self):
         return self.name
 

@@ -10,6 +10,10 @@ import { Icon, SealMark } from "./icons";
 import { DUR, cue, useFlip } from "./motion";
 import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwitch } from "./ui";
 
+/* How many register rows reach the DOM before the reader asks for more. The
+   register runs to about 1,400 vendors and nobody reads that in one scroll. */
+const PAGE = 60;
+
 /* ---------------- chrome ---------------- */
 
 export const NAV = {
@@ -248,6 +252,9 @@ function ChromeActions({ api, accounts, username, onSwitch, onLogout, onReset, o
 }
 
 export const MENU_CSS = `
+/* a register row opens its record */
+.vrow{cursor:pointer}
+.vrow:hover{background:var(--paper-2)}
 /* the in-flight bar hangs off the bottom edge of the bar it belongs to */
 .topbar{position:relative}
 /* the navigation indicator: a rail on paper, a tonal pill in Material */
@@ -1632,12 +1639,42 @@ export function SuppliersPage({ api }) {
   const complianceDocs = (sid) => (state.documents || []).filter((x) => x.kind === "supplier" && x.supplierId === sid);
   const [sq, setSq] = useState("");
   const [preOnly, setPreOnly] = useState(false);
+  const [cat, setCat] = useState("");
+  const [loc, setLoc] = useState("");
+  const [shown, setShown] = useState(PAGE);
+  /* The full register record (contact, address, payment terms, TIN, bank) is
+     not in the bootstrap payload: 1,400 of them would be a megabyte refetched
+     after every action. It is fetched when a vendor is opened. */
+  const [openId, setOpenId] = useState(null);
+  const [detail, setDetail] = useState(null);
+  useEffect(() => {
+    if (!openId) { setDetail(null); return; }
+    let live = true;
+    raw("/suppliers/" + openId + "/").then((d) => { if (live) setDetail(d); }).catch(() => {});
+    return () => { live = false; };
+  }, [openId]);
+
+  const tally = (key) => {
+    const m = new Map();
+    for (const s of state.suppliers) {
+      const v = s[key] || "";
+      if (v) m.set(v, (m.get(v) || 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  };
+  const categories = tally("category");
+  const locations = tally("location");
+
   const visible = state.suppliers.filter((s) => {
     if (preOnly && !s.prequalified) return false;
+    if (cat && s.category !== cat) return false;
+    if (loc && s.location !== loc) return false;
     if (!sq.trim()) return true;
     const n = sq.trim().toLowerCase();
-    return [s.name, s.category, s.location].some((x) => (x || "").toLowerCase().includes(n));
+    return [s.name, s.category, s.location, s.code].some((x) => (x || "").toLowerCase().includes(n));
   });
+  useEffect(() => { setShown(PAGE); }, [sq, cat, loc, preOnly]);
+  const page = visible.slice(0, shown);
   return (
     <div>
       {preS && (
@@ -1687,11 +1724,24 @@ export function SuppliersPage({ api }) {
                  value={email} onChange={(e) => setEmail(e.target.value)} />
         </Dialog>
       )}
-      <div className="pagehead"><h1>Suppliers</h1><span className="sub">{visible.length} shown</span>
+      <div className="pagehead"><h1>Suppliers</h1>
+        <span className="sub">
+          {visible.length === state.suppliers.length
+            ? `${state.suppliers.length.toLocaleString()} on the register`
+            : `${visible.length.toLocaleString()} of ${state.suppliers.length.toLocaleString()}`}
+        </span>
         <div className="grow" />
         <div className="pagetools">
-          <input className="in" placeholder="Search suppliers…"
+          <input className="in" placeholder="Name or vendor code…"
                  aria-label="Search suppliers" value={sq} onChange={(e) => setSq(e.target.value)} />
+          <select className="in" aria-label="Filter by category" value={cat} onChange={(e) => setCat(e.target.value)}>
+            <option value="">All categories</option>
+            {categories.map(([c, n]) => <option key={c} value={c}>{c} ({n})</option>)}
+          </select>
+          <select className="in" aria-label="Filter by location" value={loc} onChange={(e) => setLoc(e.target.value)}>
+            <option value="">Everywhere</option>
+            {locations.map(([l, n]) => <option key={l} value={l}>{l} ({n})</option>)}
+          </select>
           <label className="checkline">
             <input type="checkbox" checked={preOnly} onChange={(e) => setPreOnly(e.target.checked)} /> Prequalified only
           </label>
@@ -1738,38 +1788,143 @@ export function SuppliersPage({ api }) {
       <div className="card">
         <div className="tscroll">
           <table className="tbl">
-            <thead><tr><th>Supplier</th><th>Category</th><th>Prequalified</th><th>Compliance documents</th><th className="num">On-time</th><th className="num">Quality</th></tr></thead>
+            <thead><tr><th>Supplier</th><th>Category</th><th>Prequalified</th><th>Paperwork</th><th className="num">On-time</th><th className="num">Quality</th></tr></thead>
             <tbody>
-              {visible.map((s) => (
-                <tr key={s.id}>
-                  <td><b>{s.name}</b><div className="muted" style={{ fontSize: 11.5 }}>{s.location}</div></td>
+              {page.map((s) => (
+                <tr key={s.id} className="vrow" onClick={() => setOpenId(s.id)} title="Open the register record">
+                  <td>
+                    <b>{s.name}</b>
+                    <div className="muted" style={{ fontSize: 11.5 }}>
+                      {s.code ? <span className="mono">{s.code}</span> : null}
+                      {s.code && s.location ? " · " : ""}{s.location}
+                    </div>
+                  </td>
                   <td className="muted" data-l="Category">{s.category}</td>
                   <td data-l="Prequalified">
                     {s.prequalified
                       ? <span className="chip ok">Prequalified</span>
                       : <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                           <span className="chip warn">Pending review</span>
-                          {user.role === "procurement" && <button className="btn sm" onClick={() => prequalify(s)}>Approve</button>}
+                          {user.role === "procurement" && <button className="btn sm" onClick={(e) => { e.stopPropagation(); prequalify(s); }}>Approve</button>}
                         </span>}
                   </td>
-                  <td data-l="Documents">
-                    {s.docs.map((d, i) => {
-                      const dl = d.expiry ? daysLeft(d.expiry) : null;
-                      const label = `${d.name}${dl !== null ? (dl <= 60 ? ` · ${dl}d left` : " · valid") : ""}`;
-                      return d.docId
-                        ? <button key={i} className={"chip " + (dl !== null && dl <= 60 ? "warn" : "")} style={{ marginRight: 5, marginBottom: 3, cursor: "pointer" }} onClick={() => downloadDoc(d.docId, d.name)}>{label}</button>
-                        : <span key={i} className={"chip " + (dl !== null && dl <= 60 ? "warn" : "")} style={{ marginRight: 5, marginBottom: 3 }}>{label}</span>;
-                    })}
+                  <td data-l="Paperwork">
+                    {/* tender-linked vendors carry dated documents and keep
+                        their expiry chip; the rest of the register records that
+                        paperwork exists, not when it lapses, so it reads as a
+                        count rather than five identical chips */}
+                    {s.docs.length > 0
+                      ? s.docs.map((d, i) => {
+                          const dl = d.expiry ? daysLeft(d.expiry) : null;
+                          const label = `${d.name}${dl !== null ? (dl <= 60 ? ` · ${dl}d left` : " · valid") : ""}`;
+                          return d.docId
+                            ? <button key={i} className={"chip " + (dl !== null && dl <= 60 ? "warn" : "")} style={{ marginRight: 5, marginBottom: 3, cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); downloadDoc(d.docId, d.name); }}>{label}</button>
+                            : <span key={i} className={"chip " + (dl !== null && dl <= 60 ? "warn" : "")} style={{ marginRight: 5, marginBottom: 3 }}>{label}</span>;
+                        })
+                      : s.docCount
+                        ? <span className="muted" style={{ fontSize: 12 }}>{s.docCount} item(s) on file</span>
+                        : <span className="faint" style={{ fontSize: 12 }}>nothing on file</span>}
                   </td>
-                  <td className="num mono" data-l="On-time">{s.perf.onTime}%</td>
-                  <td className="num mono" data-l="Quality">{s.perf.quality}%</td>
+                  <td className="num mono" data-l="On-time">{s.perf.onTime != null ? s.perf.onTime + "%" : <span className="faint">-</span>}</td>
+                  <td className="num mono" data-l="Quality">{s.perf.quality != null ? s.perf.quality + "%" : <span className="faint">-</span>}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        {visible.length > page.length && (
+          <div className="cbody" style={{ display: "flex", alignItems: "center", gap: 12, borderTop: "1px solid var(--hair)" }}>
+            <span className="muted" style={{ fontSize: 12 }}>
+              Showing {page.length.toLocaleString()} of {visible.length.toLocaleString()}
+            </span>
+            <button className="btn sm" onClick={() => setShown(shown + PAGE)}>Show {PAGE} more</button>
+            <button className="btn sm" onClick={() => setShown(visible.length)}>Show all {visible.length.toLocaleString()}</button>
+          </div>
+        )}
+        {visible.length === 0 && <div className="cbody"><Empty icon="suppliers">Nothing on the register matches that.</Empty></div>}
       </div>
+      {openId && <VendorRecord row={state.suppliers.find((x) => x.id === openId)}
+                               detail={detail} onClose={() => setOpenId(null)} />}
     </div>
+  );
+}
+
+/** The register record behind one vendor.
+
+    Everything here comes from the vendor master: who to call, the agreed
+    payment terms, the tax identity, and which bank account is on file. The
+    account number is the last four digits only, on purpose. DOCKET awards
+    tenders, it does not pay invoices, so a full account number has no reason to
+    reach a browser, and 1,400 of them have no reason to sit in this database.
+    See vendor_import.py. */
+function VendorRecord({ row, detail, onClose }) {
+  const d = detail || {};
+  const reg = d.registry || {};
+  /* label left, value right: the register is read by eye, one field at a time */
+  const line = (label, value, mono) => (
+    <div style={{ display: "flex", gap: 10, alignItems: "baseline", marginBottom: 9 }}>
+      <span className="lbl" style={{ flex: "0 0 118px", margin: 0 }}>{label}</span>
+      <span className={mono ? "mono" : ""} style={{ fontSize: 13, minWidth: 0, wordBreak: "break-word" }}>
+        {value || <span className="faint">not recorded</span>}
+      </span>
+    </div>
+  );
+  return (
+    <Dialog title={row ? row.name : "Vendor"} onClose={onClose} wide
+            footer={<button className="btn pri" onClick={onClose}>Close</button>}>
+      {!detail && <div className="muted" style={{ fontSize: 13 }}>Reading the register…</div>}
+      {detail && (
+        <>
+          <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+            {d.prequalified
+              ? <span className="chip ok">Prequalified</span>
+              : <span className="chip warn">Held out of tendering</span>}
+            {d.code ? <span className="chip">{d.code}</span> : null}
+            <span className="chip">{d.category}</span>
+            {reg.source === "international" ? <span className="chip">International</span> : null}
+          </div>
+          {!d.prequalified && d.rejectedReason
+            ? <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 14 }}>{d.rejectedReason}</div>
+            : null}
+          <div className="grid g2">
+            <div>
+              <div className="msec" style={{ padding: "0 0 8px" }}>Who to call</div>
+              {line("Contact", d.contactPerson)}
+              {line("Email", d.contactEmail)}
+              {line("Phone", d.phone, true)}
+              {line("Address", d.address)}
+            </div>
+            <div>
+              <div className="msec" style={{ padding: "0 0 8px" }}>Commercial</div>
+              {line("Payment terms", d.paymentTerms)}
+              {line("Register category", d.classification)}
+              {line("TIN", reg.tin, true)}
+              {line("Bank", reg.bankName)}
+              {line("Account on file", reg.accountMasked, true)}
+              {line("State payer ID", reg.statePayerId, true)}
+            </div>
+          </div>
+          <div className="msec" style={{ padding: "14px 0 8px" }}>Paperwork the register records</div>
+          {(d.docs || []).length === 0
+            ? <div className="muted" style={{ fontSize: 12.5 }}>Nothing on file.</div>
+            : (d.docs || []).map((x, i) => <span key={i} className="chip" style={{ marginRight: 6, marginBottom: 4 }}>{x.name}</span>)}
+          {(reg.alsoRegisteredAs || []).length > 0
+            ? <>
+                <div className="msec" style={{ padding: "14px 0 8px" }}>Also registered as</div>
+                <div className="muted" style={{ fontSize: 12.5 }}>
+                  {reg.alsoRegisteredAs.map((a) => a.name + (a.code ? " (" + a.code + ")" : "")).join(", ")}
+                  . Merged into this record on import.
+                </div>
+              </>
+            : null}
+          <div className="muted" style={{ fontSize: 11.5, marginTop: 16 }}>
+            Register reference {reg.regRef || "-"}
+            {reg.regDateRaw ? ", registered " + reg.regDateRaw : ""}
+            {reg.remarks ? ". Remarks: " + reg.remarks : ""}
+          </div>
+        </>
+      )}
+    </Dialog>
   );
 }
 

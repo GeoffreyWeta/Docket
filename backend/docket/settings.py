@@ -25,6 +25,11 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # The bootstrap payload carries the vendor register, about 1,400 rows of
+    # highly repetitive JSON: 434 KB raw, 61 KB gzipped, and it is refetched
+    # after every action. Compression is the difference between an app that
+    # feels instant and one that does not.
+    "django.middleware.gzip.GZipMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.middleware.common.CommonMiddleware",
 ]
