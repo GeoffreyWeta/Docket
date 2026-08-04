@@ -55,6 +55,9 @@ class Command(BaseCommand):
                             help="Register export as JSON (default: %s)" % DEFAULT_FILE)
         parser.add_argument("--commit", action="store_true",
                             help="Write to the database. Without it, this only reports.")
+        parser.add_argument("--shrink-ok", action="store_true",
+                            help="Allow a run that would delete a large part of the register. "
+                                 "Needed only when the spreadsheet genuinely got much smaller.")
 
     def handle(self, *args, **opts):
         path = opts["file"]
@@ -64,6 +67,14 @@ class Command(BaseCommand):
 
         vendors, report = build(path)
         w = self.stdout.write
+
+        # This runs unattended in build.sh, so a truncated download or the wrong
+        # file must not be allowed to empty the register. A file that yields no
+        # vendors is never a legitimate update.
+        if not vendors:
+            self.stderr.write("That file yielded no vendors. Refusing to touch the register.")
+            self.stderr.write("Check it is the register export and not a partial download.")
+            return
 
         w("")
         w("register: %s" % path)
@@ -153,6 +164,22 @@ class Command(BaseCommand):
             w("  %d gone from the spreadsheet but KEPT, still referenced by a tender, "
               "bid or login: %s" % (len(stale_held),
                                     ", ".join(existing[s].name[:34] for s in stale_held[:5])))
+
+        # A spreadsheet does not normally lose a fifth of its rows between
+        # exports. When it looks like it has, the likelier explanation is a
+        # partial download or the wrong sheet, and this runs unattended in a
+        # deploy, so it stops and says so rather than deleting the register.
+        from_register = sum(1 for s in existing.values() if s.registry)
+        if from_register and len(stale_drop) > max(20, from_register // 5) and not opts["shrink_ok"]:
+            self.stderr.write("")
+            self.stderr.write(
+                "STOPPING: this file would delete %d of the %d vendors on the register."
+                % (len(stale_drop), from_register))
+            self.stderr.write(
+                "That usually means a partial download or the wrong file rather than %d "
+                "companies closing. Check the file, then pass --shrink-ok if it really is "
+                "correct." % len(stale_drop))
+            return
 
         if not opts["commit"]:
             w("")

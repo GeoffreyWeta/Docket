@@ -29,6 +29,13 @@ services:
         value: "1"
       - key: DEMO_PASSWORD
         generateValue: true
+      # Optional — a private, time-limited link to the vendor register JSON
+      # export. Set it in the dashboard and every deploy refreshes the register
+      # from it; leave it unset and the deployment keeps the seeded demo
+      # suppliers. The register is never committed: it holds real bank details,
+      # TINs, emails and phone numbers for about 1,400 companies.
+      - key: VENDORS_URL
+        sync: false
       # Optional — powers the six AI features. Without it they degrade
       # gracefully to a "not configured" message; everything else works.
       - key: ANTHROPIC_API_KEY

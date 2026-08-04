@@ -224,8 +224,27 @@ Two deliberate omissions, both in `core/vendor_import.py`:
   collapsed to 23 buckets by rules nobody can audit is a mapping nobody should
   trust. Every original cell survives the import.
 
+It also refuses two things outright, because it runs unattended in the deploy
+build: a file that yields **no** vendors, and a file that would delete more than
+a fifth of the register. Both are far likelier to be a partial download or the
+wrong sheet than 1,400 companies closing. If the register really did shrink that
+much, pass `--shrink-ok`.
+
+### Getting it onto a deployment
+
 `backend/data/vendors*.json` is gitignored: the export carries real emails,
-phone numbers, TINs and bank details for 1,400 companies.
+phone numbers, TINs and bank details for 1,400 companies, and git history is
+forever. So the register reaches a deployment without passing through the repo.
+`build.sh` looks for it two ways, and does nothing if it finds neither:
+
+* **`VENDORS_URL`** — set it in the Render dashboard to a private, time-limited
+  link to the JSON export. Each deploy fetches it, imports it, and the file goes
+  with the build container. The link lives in an env var, not in git. A broken
+  link fails the build rather than quietly deploying stale data.
+* **a mounted disk** holding `backend/data/vendors.json`, uploaded out of band.
+
+With neither, the deployment keeps its seeded demo suppliers — the right default
+for a build that was handed no register.
 
 ## Background jobs
 
