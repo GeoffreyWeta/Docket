@@ -56,12 +56,44 @@ const G = {
   },
 };
 
+/* A workspace can invent its own roles, and an invented role has no written
+   guide. Assemble one from what the person can actually do, in the order the
+   work happens. Falling through to another role's guide would be worse than
+   saying nothing: it would describe someone else's job. */
+const CAP_STEPS = [
+  ["tender.create", "Draft tenders", "New tender → scope, criteria and line items, then invite prequalified vendors."],
+  ["tender.submit", "Put them forward", "Below the approval threshold a tender publishes directly; at or above it routes to whoever approves publications."],
+  ["tender.publish_decision", "Approve publications", "Your queue holds tenders waiting to go out. Approve and the invitations email themselves."],
+  ["clarification.answer", "Answer questions", "Vendor questions are answered once and published to every bidder, anonymised."],
+  ["bid.open", "Open the bids", "After the deadline, break the seals in a recorded opening. Nobody sees a price before that, including you."],
+  ["bid.score", "Score", "Sign the conflict-of-interest declaration, then score each criterion and say why in writing."],
+  ["bid.see_all_scores", "Read the panel", "You see the whole panel's marks and the consensus matrix, not just your own."],
+  ["award.recommend", "Recommend a winner", "The memo writes itself from the scores and goes to whoever signs awards off."],
+  ["award.decide", "Sign awards off", "Approve and the award and regret letters issue instantly. Return it and the panel gets your questions."],
+  ["supplier.prequalify", "Keep the register clean", "Review registrations and expiring compliance documents from the Vendors page."],
+  ["settings.threshold", "Set the approval matrix", "You decide the value above which publication needs a sign-off."],
+  ["audit.integrity", "Verify the trail", "One click recomputes the hash chain and names the first altered entry, if there is one."],
+  ["audit.export", "Pull the evidence", "The full event chain as CSV, hashes included."],
+];
+
+function fromCapabilities(user) {
+  const perms = user?.perms || [];
+  const steps = CAP_STEPS.filter(([k]) => perms.includes(k)).map(([, t, d]) => [t, d]);
+  return {
+    title: user?.title ? `You are ${user.title}` : "Your workspace",
+    steps: steps.length ? steps : [[
+      "Nothing assigned yet",
+      "Your account exists but carries no capabilities. Ask whoever administers this workspace to give you the access your job needs.",
+    ]],
+  };
+}
+
 export function seenKey(username) {
   return `docket_guide_seen_${username || "anon"}`;
 }
 
-export function GuidePanel({ role, onClose }) {
-  const g = G[role] || G.supplier;
+export function GuidePanel({ role, user, onClose }) {
+  const g = G[role] || fromCapabilities(user);
   return (
     <div className="panelwrap" onClick={onClose} role="dialog" aria-label="Getting started guide">
       {/* .panel is a bottom sheet on a phone and a centred card above that,

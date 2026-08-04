@@ -55,6 +55,13 @@ def get_persona(request):
            .filter(key=auth[7:]).first())
     if not tok or not hasattr(tok.user, "profile") or not tok.user.is_active:
         return None
+    prof = tok.user.profile
+    if not prof.persona_id and not prof.supplier_id:
+        # An administration-console account has no domain identity, so there is
+        # nobody for it to act as here. Changing who may do a thing and doing it
+        # are different acts, and this is the line between them: a console token
+        # cannot publish, award or score, whatever else it can reach.
+        return None
     if now_ms() - tok.last_used > 60_000:
         tok.last_used = now_ms()
         tok.save(update_fields=["last_used"])

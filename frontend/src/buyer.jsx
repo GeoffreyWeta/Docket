@@ -1633,6 +1633,7 @@ export function SuppliersPage({ api }) {
   const { state, user, act, toast } = api;
   const canImport = can(user, "supplier.import");
   const canPrequalify = can(user, "supplier.prequalify");
+  const canInvite = can(user, "supplier.invite");
   const [preS, setPreS] = useState(null);        // vendor queued for approval
   const [declineS, setDeclineS] = useState(null); // vendor queued for decline
   const [reason, setReason] = useState("");
@@ -1767,8 +1768,12 @@ export function SuppliersPage({ api }) {
                   e.target.value = "";
                 }} />
               </label>
-              <button className="btn sm" onClick={inviteVendor}><Icon n="mail" /> Invite a vendor to register</button>
             </>
+          )}
+          {/* inviting a vendor is its own capability: someone may be trusted to
+              email an invitation without being trusted to replace the register */}
+          {canInvite && (
+            <button className="btn sm" onClick={inviteVendor}><Icon n="mail" /> Invite a vendor to register</button>
           )}
         </div>
       </div>
@@ -2309,8 +2314,9 @@ export function TeamPage({ api }) {
     } catch (e) { setMsg(e.message); }
   };
 
-  const ROLES = [["procurement", "Procurement: runs tenders"], ["evaluator", "Evaluator: scores blind"],
-                 ["approver", "Approver: signs publications & awards"], ["auditor", "Auditor: read-only oversight"]];
+  /* The four built-ins plus whatever roles this workspace has invented — the
+     server is the one that knows, so the list comes from it. */
+  const ROLES = (team?.roles || []).map((r) => [r.value, r.label]);
   return (
     <div>
       <div className="pagehead"><h1>Team</h1><span className="sub">who can do what in this workspace</span></div>
@@ -2320,13 +2326,18 @@ export function TeamPage({ api }) {
           <div className="chead"><h3>Members</h3></div>
           <div className="tscroll">
             <table className="tbl">
-              <thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>
+              <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Access</th></tr></thead>
               <tbody>
                 {(team?.members || []).map((m) => (
                   <tr key={m.username}>
                     <td><b>{m.name}</b><div className="muted" style={{ fontSize: 11.5 }}>{m.title}</div></td>
                     <td className="muted" data-l="Email">{m.email}</td>
-                    <td data-l="Role"><span className="chip">{m.role}</span></td>
+                    <td data-l="Role"><span className="chip">{m.roleLabel || m.role}</span></td>
+                    <td data-l="Access">
+                      {!m.active
+                        ? <span className="chip warn">disabled</span>
+                        : m.custom ? <span className="chip">adjusted</span> : <span className="muted" style={{ fontSize: 11.5 }}>role defaults</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -2336,7 +2347,7 @@ export function TeamPage({ api }) {
             <div className="cbody" style={{ borderTop: "1px solid var(--line)" }}>
               <div className="lbl" style={{ marginBottom: 6 }}>Invitations awaiting acceptance</div>
               {team.invites.map((i, k) => (
-                <div key={k} className="docrow"><span>{i.email}</span><span className="chip">{i.role}</span><span className="mono faint">{fmtDate(i.at)}</span></div>
+                <div key={k} className="docrow"><span>{i.email}</span><span className="chip">{i.roleLabel || i.role}</span><span className="mono faint">{fmtDate(i.at)}</span></div>
               ))}
             </div>
           )}

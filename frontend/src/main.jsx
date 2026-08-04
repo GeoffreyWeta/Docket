@@ -11,5 +11,12 @@ import "@fontsource-variable/geist-mono";
 import "@fontsource-variable/source-serif-4/wght.css";
 
 import App from "./App";
+import SuperAdmin from "./superadmin";
 
-createRoot(document.getElementById("root")).render(<App />);
+/* /superadmin is the administration console: accounts, roles and permissions.
+   It is a separate application with a separate sign-in and a separate token, and
+   nothing in the workspace links to it. The server does not trust this decision —
+   every endpoint behind it re-checks that the caller is an administrator. */
+const admin = /^\/superadmin\/?$/i.test(window.location.pathname);
+
+createRoot(document.getElementById("root")).render(admin ? <SuperAdmin /> : <App />);

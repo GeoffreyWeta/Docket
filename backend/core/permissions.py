@@ -209,7 +209,12 @@ def defaults_for(role, custom=None):
 def resolve(role, extra=(), revoked=(), superadmin=False, custom=None):
     """The effective capability set for one person."""
     if superadmin:
-        return set(ALL_KEYS)
+        # Everything on the buyer side. Not the vendor portal: that belongs to
+        # accounts with a vendor record behind them, and there is nothing for it
+        # to show anyone else.
+        if role == SUPPLIER_ROLE:
+            return set(SUPPLIER_ALLOWED)
+        return set(ALL_KEYS) - {"page.portal"}
     keys = defaults_for(role, custom) | (set(extra or ()) & ALL_KEYS)
     keys -= set(revoked or ())
     if role == SUPPLIER_ROLE:

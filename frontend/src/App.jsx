@@ -346,7 +346,7 @@ export default function App() {
             including anything you created in this session. <b>This cannot be undone.</b>
           </ConfirmDialog>
         )}
-        {guide && <GuidePanel role={user.role} onClose={() => setGuide(false)} />}
+        {guide && <GuidePanel role={user.role} user={user} onClose={() => setGuide(false)} />}
         {security && <SecurityPanel me={user} onRenamed={refresh} onClose={() => setSecurity(false)}
           onLogoutAll={async () => { try { await raw("/auth/logout_all/", { method: "POST", body: {} }); } catch (e) {} signOut(false); }} />}
         <main className={"content" + (hasViewTransitions() ? "" : " pageenter")} key={page}>
