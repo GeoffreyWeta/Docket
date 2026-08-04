@@ -1,8 +1,10 @@
 """DOCKET API.
 
-Access model: the client sends an X-Persona header ("u1".."u5" for buyer-side
-roles, "s2"/"s3"/"s7" for supplier demo personas). Sealing and blind scoring
-are enforced HERE, at serialization time — not in the client:
+Access model: the caller presents a bearer token, which resolves to a domain
+identity carrying a set of capabilities — the role's defaults plus or minus
+whatever an administrator has changed for that person (see permissions.py).
+Endpoints declare the capability they need; sealing and blind scoring are
+enforced HERE, at serialization time — not in the client:
 
   * before the recorded opening, buyer roles see only that a bid exists;
   * evaluators only ever receive their own scores;
@@ -24,7 +26,8 @@ from . import ai
 from .models import (ActionToken as ActionTokenModel, AuctionBid, AuthToken, Bid,
                      Clarification, Document, Event,
                      Notification, Persona, Supplier, Tender)
-from .notify import notify_role, notify_supplier, notify_suppliers
+from .notify import notify_perm, notify_supplier, notify_suppliers
+from .permissions import has
 from .seed import ORG, seed_all
 from .tasks import maybe_sweep
 from .util import (record_event, seal_bytes, seal_json, unseal_bytes,
@@ -33,8 +36,6 @@ from .util import (abnormally_low, award_letter, comm_score, eff_status,
                    fmt_compact, fmt_money, now_ms, regret_letter, rid,
                    tech_score, total_score, variance_flags)
 
-BUYER_ROLES = {"procurement", "evaluator", "approver", "auditor"}
-CHAIR_ROLES = {"procurement", "approver", "auditor"}   # see all scores post-opening
 PERSONA_SUPPLIERS = ["s2", "s3", "s7"]                 # supplier personas exposed in the demo switcher
 
 
@@ -52,7 +53,7 @@ def get_persona(request):
     tok = (AuthToken.objects
            .select_related("user__profile__persona", "user__profile__supplier")
            .filter(key=auth[7:]).first())
-    if not tok or not hasattr(tok.user, "profile"):
+    if not tok or not hasattr(tok.user, "profile") or not tok.user.is_active:
         return None
     if now_ms() - tok.last_used > 60_000:
         tok.last_used = now_ms()
@@ -62,8 +63,15 @@ def get_persona(request):
     return identity
 
 
-def route(methods, roles=None):
-    """Small view decorator: method check, persona resolution, role check, JSON body."""
+def route(methods, roles=None, perm=None):
+    """Small view decorator: method check, persona resolution, authorisation, JSON body.
+
+    `perm` is the capability the endpoint needs (see permissions.py) and is the
+    normal case: it respects both the role's defaults and anything an
+    administrator has granted or withdrawn for this person. `roles` remains for
+    the handful of endpoints where the distinction is structural rather than a
+    capability — a vendor's own bid room is not something a buyer can be granted.
+    """
     def deco(fn):
         @csrf_exempt
         def wrap(request, *args, **kwargs):
@@ -74,6 +82,8 @@ def route(methods, roles=None):
                 return err("Not signed in.", 401)
             if roles and persona["role"] not in roles:
                 return err("Not allowed for this role.", 403)
+            if perm and not has(persona, perm):
+                return err("You don't have permission to do that.", 403)
             body = {}
             if request.content_type and request.content_type.startswith("multipart/"):
                 pass  # uploads: use request.FILES / request.POST in the view
@@ -137,12 +147,12 @@ def tender_view(t, p):
         "twoStage": t.two_stage, "techOpenedAt": t.tech_opened_at, "techThreshold": t.tech_threshold,
         "minDecrement": t.auction_min_decrement,
     }
-    if p["role"] in CHAIR_ROLES:
+    if has(p, "award.see_recommendation"):
         d["awardRec"] = t.award_rec
         d["awardMemo"] = t.award_memo or None
         d["letters"] = t.letters
         d["coi"] = t.coi or {}
-    elif p["role"] == "evaluator":
+    elif p["role"] != "supplier":
         d["awardMemo"] = t.award_memo or None
         d["coi"] = t.coi or {}
     else:  # supplier: own letter only
@@ -165,9 +175,10 @@ def bid_view(b, t, p):
         return {**base, "amount": b.amount, "lines": b.lines, "sealed": not opened, "scores": {}}
     if not opened and not tech_open:
         return {**base, "sealed": True}
-    if p["role"] in CHAIR_ROLES:
+    if has(p, "bid.see_all_scores"):
         scores, notes = b.scores, (b.notes or {})
     else:
+        # blind by default: a scorer receives their own marks and nobody else's
         scores = {p["id"]: (b.scores or {}).get(p["id"], {})}
         notes = {p["id"]: (b.notes or {}).get(p["id"], "")}
     if not opened:  # two-stage, technical phase: scores flow, prices stay sealed
@@ -300,7 +311,7 @@ def settings_view(request, p, body):
         return JsonResponse(org_settings())
     changes = {}
     if "approvalThreshold" in body:
-        if p["role"] != "approver":
+        if not has(p, "settings.threshold"):
             return err("Only the approver can change the approval matrix.", 403)
         try:
             threshold = int(body.get("approvalThreshold"))
@@ -310,7 +321,7 @@ def settings_view(request, p, body):
             return err("Enter a valid threshold amount.")
         changes["approvalThreshold"] = threshold
     if "name" in body or "short" in body:
-        if p["role"] not in ("procurement", "approver"):
+        if not has(p, "settings.rename"):
             return err("Only procurement or the approver can rename the workspace.", 403)
         name = str(body.get("name", "")).strip()[:120]
         if "name" in body and len(name) < 2:
@@ -354,7 +365,7 @@ def _route_submission(t, p):
         t.save()
         log(p, "Submitted for approval",
             f"Routed to the approver under the approval matrix (\u2265{fmt_compact(threshold)}).", t.id)
-        notify_role("approver", f"Publication approval needed: {t.title}",
+        notify_perm("tender.publish_decision", f"Publication approval needed: {t.title}",
                     f"{t.ref} at {fmt_compact(t.budget)} needs your sign-off before invitations go out.", t.id)
     else:
         _publish(t, p)
@@ -417,7 +428,7 @@ def _validate_tender(t, submitting):
     return None
 
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="tender.create")
 def tender_create(request, p, body):
     submitting = bool(body.get("submit"))
     t = Tender(id=rid("t"), status="draft", published_at=None, addenda=[])
@@ -435,7 +446,7 @@ def tender_create(request, p, body):
     return JsonResponse({"id": t.id})
 
 
-@route(["PATCH", "POST"], roles={"procurement"})
+@route(["PATCH", "POST"], perm="tender.edit")
 def tender_update(request, p, body, tid):
     t = Tender.objects.filter(pk=tid).first()
     if not t:
@@ -457,7 +468,7 @@ def tender_update(request, p, body, tid):
     return JsonResponse({"ok": True})
 
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="tender.submit")
 def tender_submit(request, p, body, tid):
     t = Tender.objects.filter(pk=tid).first()
     if not t:
@@ -471,7 +482,7 @@ def tender_submit(request, p, body, tid):
     return JsonResponse({"ok": True})
 
 
-@route(["POST"], roles={"approver"})
+@route(["POST"], perm="tender.publish_decision")
 def publish_decision(request, p, body, tid):
     t = Tender.objects.filter(pk=tid).first()
     if not t:
@@ -487,7 +498,7 @@ def publish_decision(request, p, body, tid):
     return JsonResponse({"ok": True})
 
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="tender.addendum")
 def add_addendum(request, p, body, tid):
     t = Tender.objects.filter(pk=tid).first()
     if not t:
@@ -509,7 +520,7 @@ def add_addendum(request, p, body, tid):
     return JsonResponse({"ok": True})
 
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="bid.open")
 def open_bids(request, p, body, tid):
     """The recorded opening. Three shapes:
     - reverse auction (ttype AUC): close the auction and materialise final standings as bids
@@ -544,7 +555,7 @@ def open_bids(request, p, body, tid):
         log(p, "Auction closed — results recorded",
             f"{len(standings)} bidder(s); best price {fmt_compact(standings[0]['amount'])} after "
             f"{t.auction_bids.count()} price movements.", t.id)
-        notify_role("approver", f"Auction concluded: {t.title}",
+        notify_perm("award.recommend", f"Auction concluded: {t.title}",
                     "Final standings are recorded and ready for an award recommendation.", t.id)
         return JsonResponse({"ok": True})
 
@@ -568,7 +579,7 @@ def open_bids(request, p, body, tid):
         log(p, "Technical envelopes opened",
             f"{n} technical proposals opened for blind scoring. Commercial envelopes remain sealed "
             f"until technical evaluation concludes (threshold {t.tech_threshold}/100).", t.id)
-        notify_role("evaluator", f"Technical scoring open: {t.title}",
+        notify_perm("bid.score", f"Technical scoring open: {t.title}",
                     "Technical envelopes are open. Sign your conflict-of-interest declaration and score "
                     "the technical proposals — prices stay sealed until you're done.", t.id)
         return JsonResponse({"ok": True})
@@ -629,13 +640,13 @@ def open_bids(request, p, body, tid):
         t.status = "evaluation"
         t.save()
     log(p, "Bid opening — seals broken", f"{n} bids opened before the evaluation panel; amounts recorded.", t.id)
-    notify_role("evaluator", f"Scoring open: {t.title}",
+    notify_perm("bid.score", f"Scoring open: {t.title}",
                 f"The seals on {t.ref} were broken in a recorded opening. Sign your conflict-of-interest "
                 f"declaration and score independently.", t.id)
     return JsonResponse({"ok": True})
 
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="award.recommend")
 def recommend_award(request, p, body, tid):
     t = Tender.objects.filter(pk=tid).first()
     if not t:
@@ -672,13 +683,13 @@ def recommend_award(request, p, body, tid):
                    "by": p["name"], "at": now_ms(), "memo": memo}
     t.save()
     log(p, "Award recommended", f"Panel recommendation for {s.name} routed to the approver.", t.id)
-    notify_role("approver", f"Award approval needed: {t.title}",
+    notify_perm("award.decide", f"Award approval needed: {t.title}",
                 f"The panel recommends {s.name} at {fmt_compact(bid.amount)} for {t.ref}. "
                 f"The memo is waiting in your approvals queue.", t.id)
     return JsonResponse({"ok": True})
 
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="award.recommend")
 def withdraw_recommendation(request, p, body, tid):
     t = Tender.objects.filter(pk=tid).first()
     if not t or not t.award_rec:
@@ -689,7 +700,7 @@ def withdraw_recommendation(request, p, body, tid):
     return JsonResponse({"ok": True})
 
 
-@route(["POST"], roles={"approver"})
+@route(["POST"], perm="award.decide")
 def award_decision(request, p, body, tid):
     t = Tender.objects.filter(pk=tid).first()
     if not t:
@@ -719,7 +730,7 @@ def award_decision(request, p, body, tid):
         log(p, "Award approved",
             f"Awarded to {winner.name} at {fmt_compact(t.awarded_amount)} — {under:.1f}% under budget. "
             f"Award and regret letters issued.", t.id)
-        notify_role("procurement", f"Award approved: {t.title}",
+        notify_perm("award.recommend", f"Award approved: {t.title}",
                     f"The award to {winner.name} was approved. Letters have been issued to all bidders.", t.id)
         for sid in letters:
             notify_supplier(sid, f"Outcome available: {t.title}",
@@ -729,7 +740,7 @@ def award_decision(request, p, body, tid):
         t.award_rec = None
         t.save()
         log(p, "Award recommendation returned", "Approver returned the recommendation to the panel with questions.", t.id)
-        notify_role("procurement", f"Recommendation returned: {t.title}",
+        notify_perm("award.recommend", f"Recommendation returned: {t.title}",
                     "The approver returned the award recommendation to the panel with questions.", t.id)
     return JsonResponse({"ok": True})
 
@@ -789,12 +800,12 @@ def bid_collection(request, p, body, tid):
                        amount=None, lines={}, scores={},
                        sealed_blob=seal_json({"amount": amount, "lines": clean_lines}))
     log(p, "Sealed bid received", "Contents sealed until the opening is logged.", t.id)
-    notify_role("procurement", f"Sealed bid received: {t.title}",
+    notify_perm("bid.open", f"Sealed bid received: {t.title}",
                 f"A sealed bid was received on {t.ref}. Contents stay sealed until the recorded opening.", t.id)
     return JsonResponse({"ok": True})
 
 
-@route(["POST"], roles={"evaluator"})
+@route(["POST"], perm="bid.score")
 def save_scores(request, p, body, bid_id):
     b = Bid.objects.select_related("tender").filter(pk=bid_id).first()
     if not b:
@@ -850,12 +861,12 @@ def ask_clarification(request, p, body, tid):
     Clarification.objects.create(id=rid("q"), tender=t, supplier_id=p["supplierId"],
                                  q=q, asked_at=now_ms())
     log(p, "Clarification asked", "Question submitted to the buyer.", t.id)
-    notify_role("procurement", f"New clarification: {t.title}",
+    notify_perm("clarification.answer", f"New clarification: {t.title}",
                 f"A supplier asked a question on {t.ref}. Answers are published to all invited suppliers.", t.id)
     return JsonResponse({"ok": True})
 
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="clarification.answer")
 def answer_clarification(request, p, body, cid):
     c = Clarification.objects.filter(pk=cid).first()
     if not c:
@@ -891,7 +902,7 @@ def supplier_detail(request, p, body, sid):
     return JsonResponse(supplier_view(s, full=True))
 
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="supplier.prequalify")
 def prequalify(request, p, body, sid):
     s = Supplier.objects.filter(pk=sid).first()
     if not s:
@@ -926,8 +937,10 @@ def reset_demo(request, p, body):
     from django.contrib.auth.models import User
     username = User.objects.get(pk=p["userId"]).username
     seed_all()
-    user = User.objects.filter(username=username).first()
-    if not user:  # caller's account isn't part of the seed — they must sign in again
+    user = User.objects.filter(username=username).select_related("profile").first()
+    # Not part of the seed, or left without a domain identity by it (an
+    # administrator's persona goes with the reset): sign in again.
+    if not user or not hasattr(user, "profile") or not (user.profile.persona_id or user.profile.supplier_id):
         return JsonResponse({"ok": True, "token": None})
     tok = AuthToken.objects.create(key=secrets.token_hex(32), user=user, created=now_ms())
     return JsonResponse({"ok": True, "token": tok.key, "me": user.profile.identity})
@@ -946,7 +959,7 @@ def _ai_guard(fn):
     return wrap
 
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="ai.use")
 @_ai_guard
 def ai_scope(request, p, body):
     title = str(body.get("title", "")).strip() or "supply tender"
@@ -961,7 +974,7 @@ def ai_scope(request, p, body):
     return JsonResponse({"text": text})
 
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="ai.use")
 @_ai_guard
 def ai_criteria(request, p, body):
     title = str(body.get("title", "")).strip() or "supply tender"
@@ -980,7 +993,7 @@ def ai_criteria(request, p, body):
     return JsonResponse({"criteria": [{"name": str(c["name"]), "weight": int(c["weight"])} for c in arr]})
 
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="ai.use")
 @_ai_guard
 def ai_clar_answer(request, p, body, cid):
     c = Clarification.objects.select_related("tender").filter(pk=cid).first()
@@ -997,7 +1010,7 @@ def ai_clar_answer(request, p, body, cid):
     return JsonResponse({"text": text})
 
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="ai.use")
 @_ai_guard
 def ai_brief(request, p, body, tid):
     t = Tender.objects.filter(pk=tid).first()
@@ -1066,7 +1079,7 @@ def ai_bid_review(request, p, body, tid):
     return JsonResponse({"text": text})
 
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="ai.use")
 @_ai_guard
 def ai_insights(request, p, body):
     tenders = list(Tender.objects.all())
@@ -1111,7 +1124,7 @@ def ai_insights(request, p, body):
 
 # ---------------- conflict-of-interest ----------------
 
-@route(["POST"], roles={"evaluator"})
+@route(["POST"], perm="coi.declare")
 def declare_coi(request, p, body, tid):
     t = Tender.objects.filter(pk=tid).first()
     if not t:
@@ -1144,7 +1157,7 @@ def _read_upload(request):
             "size": f.size, "data": f.read()}, None
 
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="tender.docs")
 def upload_tender_doc(request, p, body, tid):
     t = Tender.objects.filter(pk=tid).first()
     if not t:
@@ -1190,7 +1203,7 @@ def delete_doc(request, p, body, doc_id):
         return err("Compliance documents are managed from your company profile.", 403)
     t = d.tender
     if d.kind == "tender":
-        if p["role"] != "procurement" or t.status == "awarded":
+        if not has(p, "tender.docs") or t.status == "awarded":
             return err("Not allowed.", 403)
     else:
         if p["role"] != "supplier" or d.supplier_id != p["supplierId"] or eff_status(t) != "published":
@@ -1283,44 +1296,58 @@ def delete_supplier_doc(request, p, body, doc_id):
 
 # ---------------- team management ----------------
 
-@route(["GET"], roles={"procurement"})
+@route(["GET"], perm="team.view")
 def team(request, p, body):
     from django.contrib.auth.models import User
+
+    from .permissions import custom_roles, role_label
+    custom = custom_roles()
     members = []
     for u in User.objects.filter(profile__persona__isnull=False).select_related("profile__persona"):
         per = u.profile.persona
+        prof = u.profile
         members.append({"username": u.username, "email": u.email, "name": per.name,
-                        "role": per.role, "title": per.title})
-    pending = [{"email": t.email, "role": t.payload.get("role", ""), "at": t.created}
+                        "role": per.role, "roleLabel": role_label(per.role, custom).split("—")[0].strip(),
+                        "title": per.title, "active": u.is_active,
+                        # so the Team page tells the truth when someone has been
+                        # moved off their role in the administration console
+                        "custom": bool(prof.perm_extra or prof.perm_revoked)})
+    pending = [{"email": t.email, "role": t.payload.get("role", ""),
+                "roleLabel": role_label(t.payload.get("role", ""), custom).split("—")[0].strip(),
+                "at": t.created}
                for t in ActionTokenModel.objects.filter(kind="team_invite", used_at__isnull=True)]
-    return JsonResponse({"members": members, "invites": pending})
+    from .permissions import assignable_roles
+    roles = [{"value": r["key"], "label": r["label"]} for r in assignable_roles(custom)]
+    return JsonResponse({"members": members, "invites": pending, "roles": roles})
 
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="team.invite")
 def invite_team(request, p, body):
     from .account_views import EMAIL_RE, _link, _mail, _mint
+    from .permissions import assignable_roles, role_label
     email = str(body.get("email", "")).strip().lower()
     role = body.get("role")
     if not EMAIL_RE.match(email):
         return err("Enter a valid email address.")
-    if role not in ("procurement", "evaluator", "approver", "auditor"):
-        return err("Role must be procurement, evaluator, approver or auditor.")
+    # the built-in four plus any role invented in the administration console
+    if role not in {r["key"] for r in assignable_roles()}:
+        return err("Pick a role that exists in this workspace.")
     from django.contrib.auth.models import User
     if User.objects.filter(username=email).exists():
         return err("That email already has an account.", 409)
     tok = _mint("team_invite", email, {"role": role, "title": str(body.get("title", "")).strip(),
                                        "name": str(body.get("name", "")).strip()})
     _mail(email, f"You're invited to {org_name()}'s DOCKET workspace",
-          f"{p['name']} invited you as {role}. Set your password here:\n\n{_link(request, 'itoken', tok.token)}\n\n"
-          "The link is valid for 3 days.")
-    log(p, "Team member invited", f"{email} invited as {role}.")
+          f"{p['name']} invited you as {role_label(role)}. Set your password here:\n\n"
+          f"{_link(request, 'itoken', tok.token)}\n\nThe link is valid for 3 days.")
+    log(p, "Team member invited", f"{email} invited as {role_label(role)}.")
     resp = {"ok": True}
     if settings.DEMO_LOGIN:  # demo convenience: surface the link so the flow is testable without a mailbox
         resp["inviteLink"] = _link(request, "itoken", tok.token)
     return JsonResponse(resp)
 
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="supplier.invite")
 def invite_vendor(request, p, body):
     from .account_views import EMAIL_RE, _link, _mail, _mint
     email = str(body.get("email", "")).strip().lower()
@@ -1336,7 +1363,7 @@ def invite_vendor(request, p, body):
 
 # ---------------- audit-chain verification ----------------
 
-@route(["GET"], roles={"auditor", "procurement", "approver"})
+@route(["GET"], perm="audit.integrity")
 def chain_integrity(request, p, body):
     ok, count, broken = verify_chain()
     return JsonResponse({"ok": ok, "count": count, "brokenAt": broken})
@@ -1425,7 +1452,7 @@ def auction_bid(request, p, body, tid):
 
 # ---------------- supplier CSV import ----------------
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="supplier.import")
 def import_suppliers(request, p, body):
     """CSV columns (header required, order free): name, category, location, email,
     prequalified (yes/no). Duplicate names are skipped, not overwritten."""
@@ -1465,9 +1492,89 @@ def import_suppliers(request, p, body):
     return JsonResponse({"created": len(created), "skipped": skipped})
 
 
+@route(["POST"], perm="supplier.import")
+def import_register(request, p, body):
+    """Replace the vendor register from an uploaded register export.
+
+    Two calls, deliberately. The first uploads the file and gets back what it
+    would do — how many vendors, how many new, what would be deleted. Nothing is
+    written. The second sends the same file with confirm=1 and applies it.
+
+    Replacing 1,400 vendors is not an action anyone should be able to take by
+    misclicking a file picker, and the numbers in that preview are the only way
+    to notice you picked last year's export.
+
+    Same decisions and the same guards as `manage.py import_vendors`: both go
+    through core.vendor_sync.
+    """
+    import json as _json
+
+    from core.vendor_import import build_book
+    from core import vendor_sync
+
+    f = request.FILES.get("file")
+    if not f:
+        return err("Attach the register export (a .json file).")
+    if f.size > settings.MAX_UPLOAD_BYTES:
+        return err("Register imports are capped at %d MB." % (settings.MAX_UPLOAD_BYTES // (1024 * 1024)))
+    try:
+        book = _json.loads(f.read().decode("utf-8-sig"))
+    except Exception:
+        return err("Could not read that file. It needs to be the register exported as JSON.")
+    if not isinstance(book, dict):
+        return err("That JSON is not a register export. Expected one entry per "
+                   "spreadsheet sheet, each holding a list of vendor rows.")
+
+    vendors, report = build_book(book)
+    plan = vendor_sync.plan(vendors)
+
+    preview = {
+        "rows": report["rows"],
+        "vendors": plan["vendors"],
+        "merged": len(report["merged"]),
+        "prequalified": report["vendors"] - report["not_prequalified"],
+        "heldOut": report["not_prequalified"],
+        "uncategorised": len(report["uncategorised"]),
+        "noLocation": len(report["no_location"]),
+        "unparsedDates": len(report["unparsed_dates"]),
+        "onRegisterNow": plan["from_register"],
+        "new": len(plan["new"]),
+        "refresh": len(plan["refresh"]),
+        "untouched": len(plan["outside"]),
+        "willDelete": len(plan["drop"]),
+        "keptBecauseUsed": len(plan["held"]),
+        "deleteNames": [plan["names"][s] for s in plan["drop"][:6]],
+        "keptNames": [plan["names"][s] for s in plan["held"][:6]],
+        "blocked": plan["blocked"],
+        "needsConfirm": plan["needs_confirm"],
+    }
+    if plan["blocked"]:
+        return JsonResponse({"applied": False, "preview": preview, "error": plan["blocked"]}, status=400)
+
+    confirmed = str(body.get("confirm") or request.POST.get("confirm") or "") in ("1", "true", "yes")
+    if not confirmed:
+        return JsonResponse({"applied": False, "preview": preview})
+    # The shrink guard is not a warning to click past blindly: applying it needs
+    # its own acknowledgement, separate from confirming the upload.
+    if plan["needs_confirm"] and str(request.POST.get("shrinkOk") or "") not in ("1", "true", "yes"):
+        return JsonResponse({"applied": False, "preview": preview,
+                             "error": plan["needs_confirm"]}, status=409)
+
+    out = vendor_sync.apply(vendors, plan)
+    log(p, "Vendor register replaced",
+        "%d vendors from an uploaded register export: %d new, %d refreshed, %d removed. "
+        "Register now holds %d suppliers."
+        % (plan["vendors"], out["created"], out["refreshed"],
+           out["seeded_removed"] + out["dropped"], out["total"]))
+    return JsonResponse({"applied": True, "preview": preview, "result": {
+        "created": out["created"], "refreshed": out["refreshed"],
+        "removed": out["seeded_removed"] + out["dropped"], "total": out["total"],
+    }})
+
+
 # ---------------- tender duplication (templates) ----------------
 
-@route(["POST"], roles={"procurement"})
+@route(["POST"], perm="tender.create")
 def duplicate_tender(request, p, body, tid):
     src = Tender.objects.filter(pk=tid).first()
     if not src or tender_view(src, p) is None:
@@ -1490,7 +1597,7 @@ def duplicate_tender(request, p, body, tid):
 
 # ---------------- compliance report (per-tender, PDF) ----------------
 
-@route(["GET"], roles={"auditor", "procurement", "approver"})
+@route(["GET"], perm="export.compliance")
 def export_compliance(request, p, body, tid):
     t = Tender.objects.filter(pk=tid).first()
     if not t:

@@ -6,7 +6,7 @@ from django.http import HttpResponse
 
 from .models import Bid, Event, Supplier, Tender
 from .util import fmt_date_ms, total_score
-from .views import CHAIR_ROLES, err, route
+from .views import err, route
 
 
 def _file(data, name, ctype):
@@ -15,7 +15,7 @@ def _file(data, name, ctype):
     return r
 
 
-@route(["GET"], roles=CHAIR_ROLES)
+@route(["GET"], perm="export.comparison")
 def export_comparison(request, p, body, tid):
     t = Tender.objects.filter(pk=tid).first()
     if not t:
@@ -57,7 +57,7 @@ def export_comparison(request, p, body, tid):
                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
-@route(["GET"], roles=CHAIR_ROLES)
+@route(["GET"], perm="export.memo")
 def export_memo(request, p, body, tid):
     t = Tender.objects.filter(pk=tid).first()
     if not t:
@@ -83,7 +83,7 @@ def export_memo(request, p, body, tid):
     return _file(buf.getvalue(), f"{t.ref}-award-memo.pdf", "application/pdf")
 
 
-@route(["GET"], roles={"auditor", "procurement", "approver"})
+@route(["GET"], perm="audit.export")
 def export_audit(request, p, body):
     buf = io.StringIO()
     w = csv.writer(buf)

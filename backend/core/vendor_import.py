@@ -263,15 +263,25 @@ def slug_id(name, taken):
 
 # ----------------------------------------------------------------------- read
 
+def rows_from_book(book):
+    """Flatten {sheet name: [row, ...]} into (source, row) pairs.
+
+    Which sheet a row came from is the only signal that a vendor is
+    international, and the register does not record it in any column."""
+    rows = []
+    for sheet, records in (book or {}).items():
+        if not isinstance(records, list):
+            continue
+        source = "international" if "INTERNATIONAL" in str(sheet).upper() else "domestic"
+        for r in records:
+            if isinstance(r, dict):
+                rows.append((source, r))
+    return rows
+
+
 def read_rows(path):
     with open(path, encoding="utf-8") as fh:
-        book = json.load(fh)
-    rows = []
-    for sheet, records in book.items():
-        source = "international" if "INTERNATIONAL" in sheet.upper() else "domestic"
-        for r in records:
-            rows.append((source, r))
-    return rows
+        return rows_from_book(json.load(fh))
 
 
 def completeness(row):
@@ -281,9 +291,18 @@ def completeness(row):
 
 
 def build(path):
+    """Normalise the export at `path` into records ready for Supplier.objects."""
+    return build_rows(read_rows(path))
+
+
+def build_book(book):
+    """Same, from an already-parsed export — an upload, with no temp file."""
+    return build_rows(rows_from_book(book))
+
+
+def build_rows(rows):
     """Normalise the export into records ready for Supplier.objects, plus a
     report of every decision that changed or dropped a row."""
-    rows = read_rows(path)
     report = {"rows": len(rows), "merged": [], "uncategorised": [], "no_location": [],
               "unparsed_dates": [], "not_prequalified": 0}
 

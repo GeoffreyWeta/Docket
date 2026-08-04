@@ -6,7 +6,7 @@ anything that can hit a shell). Every effect is keyed in TaskMark so repeated
 runs never double-send.
 """
 from .models import Bid, Supplier, TaskMark, Tender
-from .notify import notify_role, notify_supplier
+from .notify import notify_perm, notify_supplier
 from .util import DAY_MS, fmt_date_ms, now_ms, record_event
 
 SWEEP_INTERVAL_MS = 10 * 60 * 1000  # at most every 10 minutes when triggered by traffic
@@ -40,7 +40,7 @@ def run_sweep():
             record_event(actor="System", role="system", at=t.deadline,
                          action="Deadline passed — bids sealed", tender_id=t.id,
                          detail=f"{n} sealed bid(s) held for formal opening.")
-            notify_role("procurement", f"Bids sealed: {t.title}",
+            notify_perm("bid.open", f"Bids sealed: {t.title}",
                         f"The deadline for {t.ref} has passed. {n} sealed bid(s) are ready for a recorded opening.",
                         t.id)
 
@@ -72,7 +72,7 @@ def run_sweep():
                                         f"Your {doc['name']} expires on {fmt_date_ms(exp)}. Upload a renewal from "
                                         f"your company profile to stay eligible for invitations.")
                     else:
-                        notify_role("procurement", f"Compliance document expiring: {s.name}",
+                        notify_perm("supplier.prequalify", f"Compliance document expiring: {s.name}",
                                     f"{doc['name']} for {s.name} expires on {fmt_date_ms(exp)}. "
                                     f"Request a renewal before inviting them to new tenders.")
 
@@ -97,13 +97,13 @@ def run_sweep():
     for t in Tender.objects.filter(status="evaluation"):
         rec = t.award_rec
         if rec and now - rec.get("at", now) >= 2 * DAY_MS and _once(f"recnudge:{t.id}"):
-            notify_role("approver", f"Approval waiting: {t.title}",
+            notify_perm("tender.publish_decision", f"Approval waiting: {t.title}",
                         f"The award recommendation on {t.ref} has been in your queue since "
                         f"{fmt_date_ms(rec['at'])}. Suppliers hear nothing until you decide.", t.id)
 
     # 6) Vendor registrations unreviewed for 3+ days.
     for s in Supplier.objects.filter(prequalified=False, registered_at__isnull=False, rejected_reason=""):
         if now - s.registered_at >= 3 * DAY_MS and _once(f"regnudge:{s.id}"):
-            notify_role("procurement", f"Registration awaiting review: {s.name}",
+            notify_perm("supplier.prequalify", f"Registration awaiting review: {s.name}",
                         f"{s.name} registered on {fmt_date_ms(s.registered_at)} and is still waiting for a "
                         f"prequalification decision. Vendors who hear nothing stop responding to invitations.")

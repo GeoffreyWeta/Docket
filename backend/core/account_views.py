@@ -13,7 +13,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from .models import ActionToken, Persona, Profile, Supplier
-from .notify import notify_role
+from .notify import notify_perm
 from .util import now_ms, record_event, rid
 
 TOKEN_TTL_MS = 3 * 24 * 60 * 60 * 1000  # 3 days
@@ -73,7 +73,7 @@ def _finish_vendor(payload):
     Profile.objects.create(user=user, supplier=sup)
     record_event(actor=sup.name, role="supplier", action="Vendor registered",
                  detail="Self-service registration completed; awaiting prequalification review.")
-    notify_role("procurement", f"New vendor registration: {sup.name}",
+    notify_perm("supplier.prequalify", f"New vendor registration: {sup.name}",
                 "A vendor completed registration. Review their compliance documents and "
                 "prequalify (or decline) them from the Suppliers page.")
     return sup, None

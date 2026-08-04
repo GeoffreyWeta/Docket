@@ -1,8 +1,27 @@
 from django.urls import path
 
-from . import account_views, auth_views, export_views, views
+from . import account_views, admin_views, auth_views, export_views, views
 
-urlpatterns = [
+# The administration console. Its own sign-in, its own token check (superuser or
+# nothing), and no link to it anywhere in the tendering UI.
+admin_urlpatterns = [
+    path("admin/login/", admin_views.admin_login),
+    path("admin/logout/", admin_views.admin_logout),
+    path("admin/state/", admin_views.admin_state),
+    path("admin/log/", admin_views.admin_log),
+    path("admin/roles/", admin_views.admin_create_role),
+    path("admin/roles/<str:key>/", admin_views.admin_update_role),
+    path("admin/roles/<str:key>/delete/", admin_views.admin_delete_role),
+    path("admin/users/", admin_views.admin_create_user),
+    path("admin/users/perms/", admin_views.admin_set_perms),
+    path("admin/users/<int:uid>/", admin_views.admin_update_user),
+    path("admin/users/<int:uid>/password/", admin_views.admin_reset_password),
+    path("admin/users/<int:uid>/sessions/", admin_views.admin_sessions),
+    path("admin/users/<int:uid>/mfa_reset/", admin_views.admin_reset_mfa),
+    path("admin/users/<int:uid>/delete/", admin_views.admin_delete_user),
+]
+
+urlpatterns = admin_urlpatterns + [
     path("health/", views.health),
     path("auth/config/", auth_views.auth_config),
     path("auth/login/", auth_views.login),
@@ -47,6 +66,7 @@ urlpatterns = [
     path("team/invite/", views.invite_team),
     path("suppliers/invite/", views.invite_vendor),
     path("suppliers/import/", views.import_suppliers),
+    path("suppliers/import_register/", views.import_register),
     path("settings/", views.settings_view),
     path("tenders/<str:tid>/duplicate/", views.duplicate_tender),
     path("tenders/<str:tid>/export/compliance.pdf", views.export_compliance),

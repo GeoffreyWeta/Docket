@@ -47,11 +47,18 @@ def _body(request):
 
 
 def _demo_accounts():
+    """One-click demo logins. Administrator accounts are excluded on purpose: a
+    passwordless door into an account that can change everyone's permissions is
+    not a demo convenience, it is a hole."""
     out = []
-    for u in User.objects.filter(profile__persona__isnull=False).select_related("profile__persona").order_by("profile__persona__id"):
+    for u in (User.objects.filter(profile__persona__isnull=False, is_active=True)
+              .exclude(is_superuser=True)
+              .select_related("profile__persona").order_by("profile__persona__id")):
         p = u.profile.persona
         out.append({"username": u.username, "label": f"{p.name} — {p.title}", "role": p.role})
-    for u in User.objects.filter(profile__supplier__isnull=False).select_related("profile__supplier").order_by("profile__supplier__id"):
+    for u in (User.objects.filter(profile__supplier__isnull=False, is_active=True)
+              .exclude(is_superuser=True)
+              .select_related("profile__supplier").order_by("profile__supplier__id")):
         s = u.profile.supplier
         out.append({"username": u.username, "label": f"{s.name} — Supplier", "role": "supplier"})
     return out
@@ -78,6 +85,10 @@ def login(request):
         _fail(username)
         return _err("Wrong username or password.", 401)
     prof = user.profile
+    if not prof.persona_id and not prof.supplier_id:
+        # No domain identity, so nothing to be in the workspace as. Deliberately
+        # says nothing about where such an account does sign in.
+        return _err("This account has no workspace access.", 403)
     if prof.totp_confirmed:
         import pyotp
         code = str(body.get("code", "")).strip()
@@ -97,9 +108,10 @@ def demo_login(request):
     if not settings.DEMO_LOGIN:
         return _err("Demo logins are disabled on this deployment.", 403)
     body = _body(request)
-    user = User.objects.filter(username=str(body.get("username", "")).strip().lower(),
-                               profile__isnull=False).first()
-    if not user:
+    user = (User.objects.filter(username=str(body.get("username", "")).strip().lower(),
+                                profile__isnull=False, is_active=True)
+            .exclude(is_superuser=True).first())
+    if not user or (not user.profile.persona_id and not user.profile.supplier_id):
         return _err("Unknown demo account.", 404)
     return JsonResponse(_issue(user))
 
@@ -120,7 +132,9 @@ def _current_user(request):
     if not auth.startswith("Bearer "):
         return None
     tok = AuthToken.objects.select_related("user__profile").filter(key=auth[7:]).first()
-    return tok.user if tok and hasattr(tok.user, "profile") else None
+    if not tok or not hasattr(tok.user, "profile") or not tok.user.is_active:
+        return None
+    return tok.user
 
 
 @csrf_exempt

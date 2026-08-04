@@ -14,6 +14,7 @@ import {
   AnalyticsPage, ApprovalsPage, AuditPage, Dashboard, EvalsPage, NewTender,
   MENU_CSS, Sidebar, SuppliersPage, TeamPage, TenderDetail, TendersPage, Topbar,
 } from "./buyer";
+import { allowedPages, homePage } from "./perms";
 import { ICON_CSS } from "./icons";
 import { MOTION_CSS, hasViewTransitions, useReveal, withViewTransition } from "./motion";
 import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
@@ -26,15 +27,9 @@ import {
 
 const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS + SCORECARD_CSS + MENU_CSS + BOOT_CSS + PALETTE_CSS;
 
-const HOME = { procurement: "dashboard", evaluator: "evals", approver: "approvals", auditor: "audit", supplier: "portal" };
-
-const ALLOWED = {
-  procurement: ["dashboard", "tenders", "suppliers", "scorecards", "team", "analytics", "audit", "new", "tender"],
-  evaluator: ["evals", "audit", "tender"],
-  approver: ["approvals", "tenders", "scorecards", "audit", "tender"],
-  auditor: ["audit", "tenders", "scorecards", "tender"],
-  supplier: ["portal", "bidroom"],
-};
+/* Where you land and where you may go are both read off the capabilities the
+   server sent with the bootstrap payload — see perms.js. Nothing here enumerates
+   roles, so a role invented in the administration console routes correctly. */
 
 function Login({ onLoggedIn, onScreen }) {
   const [cfg, setCfg] = useState(null);
@@ -166,7 +161,7 @@ export default function App() {
     (async () => {
       const d = await refresh();
       if (d) {
-        setRoute({ page: HOME[d.me.role] });
+        setRoute({ page: homePage(d.me) });
         if (!localStorage.getItem(seenKey(getUsername()))) {
           localStorage.setItem(seenKey(getUsername()), "1");
           setGuide(true);
@@ -264,6 +259,10 @@ export default function App() {
     rename: wrap((b) => raw(`/me/`, { method: "POST", body: b })),
     saveScores: wrap((bidId, scores, note) =>
       raw(`/bids/${bidId}/scores/`, { method: "POST", body: note === undefined ? { scores } : { scores, note } }), false),
+    /* Not wrapped: the register upload is a two-step flow — preview, then
+       apply — so the caller needs the response body, not a true/false, and
+       shows the errors itself inside the dialog rather than as a toast. */
+    importRegister: (file, extra) => uploadFile("/suppliers/import_register/", file, extra),
   };
 
   const ai = {
@@ -310,12 +309,12 @@ export default function App() {
     }
   };
 
-  const api = { state: data, user, go, route, act, ai, toast };
+  const api = { state: data, user, go, route, act, ai, toast, refresh };
   /* Re-armed on every page: anything marked data-reveal below the fold arrives
      as you reach it, once, then the observer lets it go. The call itself is
      hoisted above the early returns, where hooks have to live. */
-  const allowed = ALLOWED[user.role] || [];
-  const page = allowed.includes(route.page) ? route.page : HOME[user.role];
+  const allowed = allowedPages(user);
+  const page = allowed.includes(route.page) ? route.page : homePage(user);
 
   /* The secondary chrome, handed to whichever of the two can house it: the top
      bar on a desktop, the drawer foot on a phone. Anything that opens a panel

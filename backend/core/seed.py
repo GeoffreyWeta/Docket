@@ -25,10 +25,22 @@ ORG = {"name": "Kestrel Hospitality Group", "short": "Kestrel", "note": "Demo wo
 
 
 def wipe():
-    User.objects.all().delete()  # cascades profiles, tokens, notifications
-    for m in (Notification, AuthToken, ActionToken, Document, TaskMark, Event,
+    """Reset the workspace to the seed.
+
+    Administrator accounts survive it, and so do their sessions: a demo reset is
+    a statement about tendering data, not a way to lock the operator out of the
+    console that governs it. Custom roles (AccessRole) survive for the same
+    reason — they are configuration, not demo content.
+    """
+    User.objects.filter(is_superuser=False).delete()  # cascades profiles, tokens, notifications
+    AuthToken.objects.exclude(user__is_superuser=True).delete()
+    for m in (Notification, ActionToken, Document, TaskMark, Event,
               ChainHead, Clarification, Bid, Tender, Supplier, Persona, OrgSetting):
         m.objects.all().delete()
+    # An administrator who also held a persona loses it with the Persona table,
+    # and the cascade takes the profile with it. Give it back, admin-only.
+    for u in User.objects.filter(is_superuser=True):
+        Profile.objects.get_or_create(user=u)
 
 
 def seed_all():

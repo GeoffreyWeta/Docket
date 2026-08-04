@@ -132,20 +132,37 @@ class Event(models.Model):
 
 
 class Profile(models.Model):
-    """Maps a real Django auth user to a domain identity (buyer persona or supplier)."""
+    """Maps a real Django auth user to a domain identity (buyer persona or supplier).
+
+    A profile with neither persona nor supplier belongs to an administrator: an
+    account that manages people and permissions and takes no part in tendering.
+    """
     user = models.OneToOneField("auth.User", on_delete=models.CASCADE, related_name="profile")
     persona = models.ForeignKey(Persona, null=True, blank=True, on_delete=models.CASCADE)
     supplier = models.ForeignKey(Supplier, null=True, blank=True, on_delete=models.CASCADE)
     totp_secret = models.CharField(max_length=64, blank=True, default="")
     totp_confirmed = models.BooleanField(default=False)
+    # Deviations from this person's role defaults — see permissions.py. Empty on
+    # every account until an administrator moves someone off their role.
+    perm_extra = models.JSONField(default=list, blank=True)     # granted on top of the role
+    perm_revoked = models.JSONField(default=list, blank=True)   # taken away from the role
 
     @property
     def identity(self):
+        from .permissions import ADMIN_ROLE, resolve
         if self.persona_id:
             p = self.persona
-            return {"id": p.id, "name": p.name, "role": p.role, "title": p.title, "supplierId": None}
-        s = self.supplier
-        return {"id": s.id, "name": s.name, "role": "supplier", "title": "Supplier", "supplierId": s.id}
+            base = {"id": p.id, "name": p.name, "role": p.role, "title": p.title, "supplierId": None}
+        elif self.supplier_id:
+            s = self.supplier
+            base = {"id": s.id, "name": s.name, "role": "supplier", "title": "Supplier", "supplierId": s.id}
+        else:
+            base = {"id": f"a{self.user_id}", "name": self.user.get_full_name() or self.user.username,
+                    "role": ADMIN_ROLE, "title": "System administrator", "supplierId": None}
+        admin = bool(self.user.is_superuser)
+        base["perms"] = sorted(resolve(base["role"], self.perm_extra, self.perm_revoked, superadmin=admin))
+        base["isAdmin"] = admin
+        return base
 
 
 class AuthToken(models.Model):
@@ -237,3 +254,48 @@ class FailedLogin(models.Model):
     """Brute-force lockout: too many failures in a window locks the username."""
     username = models.CharField(max_length=200, db_index=True)
     at = models.BigIntegerField()
+
+
+class AccessRole(models.Model):
+    """A role invented in the administration console — "CEO", "Legal", "Board".
+
+    The four built-in roles (procurement / evaluator / approver / auditor) are
+    code, because separation of duties is the product. These are configuration:
+    a name, a job title, and a set of capability keys from permissions.py. A
+    person on a custom role can still be moved off it individually, exactly like
+    anyone else.
+    """
+    key = models.CharField(primary_key=True, max_length=20)   # slug; lands in Persona.role
+    label = models.CharField(max_length=80)
+    title = models.CharField(max_length=80, blank=True, default="")  # default job title
+    note = models.CharField(max_length=200, blank=True, default="")
+    perms = models.JSONField(default=list)
+    created = models.BigIntegerField(default=0)
+    created_by = models.CharField(max_length=200, blank=True, default="")
+
+    class Meta:
+        ordering = ["label"]
+
+    def __str__(self):
+        return self.label
+
+
+class AdminAudit(models.Model):
+    """Administration console log: every act of the console, in its own ledger.
+
+    Separate from Event because these are acts *on* the workspace rather than
+    acts *within* it, and because the console is the only place they are read.
+    Changes to who can do what are additionally mirrored into the main audit
+    chain — a permission that moved during a live tender is exactly the kind of
+    thing an auditor is there to find.
+    """
+    id = models.CharField(primary_key=True, max_length=16)
+    at = models.BigIntegerField()
+    actor = models.CharField(max_length=200)          # administrator's username
+    action = models.CharField(max_length=140)
+    target = models.CharField(max_length=200, blank=True, default="")
+    detail = models.TextField(blank=True, default="")
+    ip = models.CharField(max_length=64, blank=True, default="")
+
+    class Meta:
+        ordering = ["-at"]

@@ -7,6 +7,7 @@ import {
   fmtMoney, mean, median, stdev, techScore, totalScore, uid, varianceFlags,
 } from "./helpers";
 import { Icon, SealMark } from "./icons";
+import { can, homePage, navPages } from "./perms";
 import { DUR, cue, useFlip } from "./motion";
 import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwitch } from "./ui";
 
@@ -16,12 +17,14 @@ const PAGE = 60;
 
 /* ---------------- chrome ---------------- */
 
-export const NAV = {
-  procurement: [["dashboard", "Dashboard"], ["tenders", "Tenders"], ["suppliers", "Suppliers"], ["scorecards", "Scorecards"], ["team", "Team"], ["analytics", "Analytics"], ["audit", "Audit trail"]],
-  evaluator: [["evals", "My evaluations"], ["audit", "Audit trail"]],
-  approver: [["approvals", "Approvals"], ["tenders", "All tenders"], ["scorecards", "Scorecards"], ["audit", "Audit trail"]],
-  auditor: [["audit", "Audit trail"], ["tenders", "All tenders"], ["scorecards", "Scorecards"]],
-  supplier: [["portal", "My invitations"]],
+/* One label per destination. Which of them a person sees is decided by their
+   capabilities (perms.js), so a role invented in the administration console gets
+   a working sidebar without a change here. */
+export const NAV_LABEL = {
+  dashboard: "Dashboard", approvals: "Approvals", evals: "My evaluations",
+  tenders: "Tenders", suppliers: "Suppliers", scorecards: "Scorecards",
+  team: "Team", analytics: "Analytics", audit: "Audit trail",
+  portal: "My invitations",
 };
 
 /* One icon per destination: the sidebar is scanned by shape before it is read. */
@@ -38,7 +41,7 @@ const NAV_ICON = {
     sitting over the answer. */
 export function Sidebar({ api, chrome, open, desktop, onClose }) {
   const { user, route, go } = api;
-  const items = NAV[user.role] || [];
+  const items = navPages(user).map((key) => [key, NAV_LABEL[key] || key]);
   const isOn = (key) =>
     route.page === key ||
     (route.page === "tender" && key === "tenders") ||
@@ -81,7 +84,7 @@ export function Sidebar({ api, chrome, open, desktop, onClose }) {
           </button>
         ))}
       </div>
-      {user.role === "procurement" && (
+      {can(user, "tender.create") && (
         <button className="newbtn" onClick={() => go({ page: "new" })}><Icon n="plus" s={15} />New tender</button>
       )}
       <div className="spacer" />
@@ -368,7 +371,7 @@ export function Dashboard({ api }) {
             ))}
             {approvals.map((t) => (
               <div className="rowline" key={t.id}>
-                <div style={{ flex: 1 }}><b>{t.title}</b><div className="muted" style={{ fontSize: 12 }}>With {state.users.find((u) => u.role === "approver").name} for approval</div></div>
+                <div style={{ flex: 1 }}><b>{t.title}</b><div className="muted" style={{ fontSize: 12 }}>With {state.users.find((u) => u.role === "approver")?.name || "the approver"} for approval</div></div>
                 <Stamp s="approval" />
               </div>
             ))}
@@ -469,7 +472,7 @@ export function TendersPage({ api }) {
             <option value="evaluation">In evaluation</option>
             <option value="awarded">Awarded</option>
           </select>
-          {user.role === "procurement" && <button className="btn pri" onClick={() => go({ page: "new" })}>New tender</button>}
+          {can(user, "tender.create") && <button className="btn pri" onClick={() => go({ page: "new" })}>New tender</button>}
         </div>
       </div>
       <div className="card">
@@ -477,7 +480,7 @@ export function TendersPage({ api }) {
             a list of records. The title and the status stamp carry the record
             rather than a field, so they stay unlabelled. */}
         <table className="tbl">
-          <thead><tr><th>Ref</th><th>Title</th><th>Category</th><th className="num">Budget</th><th>Deadline</th><th>Bids</th><th>Status</th>{user.role === "procurement" && <th />}</tr></thead>
+          <thead><tr><th>Ref</th><th>Title</th><th>Category</th><th className="num">Budget</th><th>Deadline</th><th>Bids</th><th>Status</th>{can(user, "tender.edit") && <th />}</tr></thead>
           <tbody>
             {rows.map((t) => {
               const st = effStatus(t);
@@ -491,7 +494,7 @@ export function TendersPage({ api }) {
                   <td data-l="Deadline">{t.status === "approval" || t.status === "draft" ? <span className="faint">-</span> : <Countdown t={t.deadline} />}</td>
                   <td className="mono" data-l="Bids">{st === "published" || st === "closed" ? nBids + " sealed" : nBids || "-"}</td>
                   <td><Stamp s={st} /></td>
-                  {user.role === "procurement" && (
+                  {can(user, "tender.edit") && (
                     <td onClick={(e) => e.stopPropagation()}>
                       <button className="btn sm" title="Create a draft copy: dates cleared, structure carried over"
                               onClick={async () => { if (await act.duplicate(t.id)) go({ page: "tenders" }); }}>Duplicate</button>
@@ -511,25 +514,26 @@ export function TendersPage({ api }) {
 
 export function TenderDetail({ api, id, initialTab }) {
   const { state, user, go } = api;
-  const tabsByRole = {
-    procurement: ["overview", "clar", "bids", "eval", "audit"],
-    evaluator: ["overview", "eval"],
-    approver: ["overview", "audit"],
-    auditor: ["overview", "audit"],
-  };
+  /* Which tabs exist follows what this person can actually do here: whoever
+     answers clarifications gets the clarifications tab, whoever scores or reads
+     the panel gets evaluation, and everyone gets the overview. */
   const labels = { overview: "Overview", clar: "Clarifications", bids: "Bids", eval: "Evaluation", audit: "Audit" };
   const t = state.tenders.find((x) => x.id === id);
-  let tabs = tabsByRole[user.role] || ["overview"];
+  let tabs = ["overview"];
+  if (can(user, "clarification.answer")) tabs.push("clar");
+  if (can(user, "bid.open") || can(user, "award.recommend")) tabs.push("bids");
+  if (can(user, "bid.score") || can(user, "bid.see_all_scores")) tabs.push("eval");
+  if (can(user, "page.audit")) tabs.push("audit");
   if (t && t.type === "AUC") tabs = tabs.filter((x) => x !== "eval");  // price-only: nothing to score
   const [tab, setTab] = useState(initialTab && tabs.includes(initialTab) ? initialTab : tabs[0]);
   if (!t) return <Empty>Tender not found.</Empty>;
-  const oversight = ["auditor", "approver", "procurement"].includes(user.role);
+  const oversight = can(user, "bid.see_all_scores");
   const st = effStatus(t);
   const unansweredN = state.clarifications.filter((c) => c.tenderId === id && !c.a).length;
 
   return (
     <div>
-      <button className="btn sm" style={{ marginBottom: 14 }} onClick={() => go({ page: user.role === "evaluator" ? "evals" : "tenders" })}>← Back</button>
+      <button className="btn sm" style={{ marginBottom: 14 }} onClick={() => go({ page: can(user, "page.tenders") ? "tenders" : homePage(user) })}>← Back</button>
       <div className="pagehead" style={{ marginBottom: 12 }}>
         <div>
           <div className="mono muted" style={{ marginBottom: 3 }}>{t.ref} · {t.type} · {t.category}</div>
@@ -566,7 +570,9 @@ export function OverviewTab({ api, t }) {
   const { state, user, act, go } = api;
   const st = effStatus(t);
   const [ad, setAd] = useState({ title: "", note: "" });
-  const canManage = user.role === "procurement";
+  const canEdit = can(user, "tender.edit");
+  const canDocs = can(user, "tender.docs");
+  const canAddendum = can(user, "tender.addendum");
 
   const submitForApproval = () => act.submitTender(t.id);
   const issueAddendum = async () => {
@@ -577,7 +583,7 @@ export function OverviewTab({ api, t }) {
 
   return (
     <div className="grid g2">
-      {t.status === "draft" && canManage && (
+      {t.status === "draft" && canEdit && (
         <div className="notice" style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ flex: 1 }}>This tender is a draft. Suppliers can't see it until it's approved and published.</span>
           <button className="btn sm" onClick={() => go({ page: "new", editId: t.id })}>Edit draft</button>
@@ -590,7 +596,7 @@ export function OverviewTab({ api, t }) {
       </div>
       <div className="card" style={{ gridColumn: "1 / -1" }}>
         <div className="chead"><h3>Tender documents</h3>
-          {canManage && t.status !== "awarded" && (
+          {canDocs && t.status !== "awarded" && (
             <label className="btn sm" style={{ marginLeft: "auto" }}>
               Upload document
               <input type="file" hidden onChange={(e) => { const f = e.target.files[0]; if (f) act.upload(`/tenders/${t.id}/docs/`, f); e.target.value = ""; }} />
@@ -603,7 +609,7 @@ export function OverviewTab({ api, t }) {
               <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}><Icon n="file" s={13} />{x.name}</button>
               <span className="mono faint">{Math.max(1, Math.round(x.size / 1024))} KB · {fmtDate(x.uploadedAt)}</span>
               <span style={{ flex: 1 }} />
-              {canManage && t.status !== "awarded" && <button className="btn sm" aria-label="Remove document" onClick={() => act.deleteDoc(x.id)}>✕</button>}
+              {canDocs && t.status !== "awarded" && <button className="btn sm" aria-label="Remove document" onClick={() => act.deleteDoc(x.id)}>✕</button>}
             </div>
           ))}
           {!(state.documents || []).some((x) => x.kind === "tender" && x.tenderId === t.id) && (
@@ -656,8 +662,8 @@ export function OverviewTab({ api, t }) {
               {a.note && <div className="muted" style={{ marginTop: 4, fontSize: 12.5 }}>{a.note}</div>}
             </div>
           ))}
-          {!(t.addenda || []).length && <div className="muted" style={{ fontSize: 13, marginBottom: (canManage && st === "published") ? 12 : 0 }}>No addenda issued.</div>}
-          {canManage && st === "published" && (
+          {!(t.addenda || []).length && <div className="muted" style={{ fontSize: 13, marginBottom: (canAddendum && st === "published") ? 12 : 0 }}>No addenda issued.</div>}
+          {canAddendum && st === "published" && (
             <div style={{ borderTop: (t.addenda || []).length ? "1px solid var(--line)" : "none", paddingTop: (t.addenda || []).length ? 12 : 0 }}>
               <div className="grid g2" style={{ marginBottom: 8 }}>
                 <input className="in" placeholder="Addendum title, e.g. Delivery window revised" aria-label="Addendum title" value={ad.title} onChange={(e) => setAd({ ...ad, title: e.target.value })} />
@@ -729,7 +735,7 @@ export function ClarTab({ api, t }) {
                 <div style={{ borderLeft: "3px solid var(--green)", paddingLeft: 10, fontSize: 13 }}>
                   <span className="mono faint">Answered {fmtDateTime(c.answeredAt)}</span><br />{c.a}
                 </div>
-              ) : user.role === "procurement" ? (
+              ) : can(user, "clarification.answer") ? (
                 <div>
                   <textarea className="in" placeholder="Write the answer that all invited suppliers will see…" value={drafts[c.id] || ""} onChange={(e) => setDrafts((d) => ({ ...d, [c.id]: e.target.value }))} />
                   <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
@@ -812,7 +818,7 @@ export function BidsTab({ api, t }) {
             );
           })}
         </div>
-        {user.role === "procurement" && (
+        {can(user, "bid.open") && (
           <div className="ceremony">
             <SealMark s={26} className="stamped" />
             <h3>Open commercial envelopes</h3>
@@ -845,7 +851,7 @@ export function BidsTab({ api, t }) {
           })}
           {!bids.length && <Empty>No bids received yet.</Empty>}
         </div>
-        {st === "closed" && user.role === "procurement" && bids.length > 0 && (
+        {st === "closed" && can(user, "bid.open") && bids.length > 0 && (
           <div className="ceremony">
             <SealMark s={26} className="stamped" />
             <h3>Bid opening</h3>
@@ -880,7 +886,7 @@ export function BidsTab({ api, t }) {
     <div>
       <div className="card" style={{ marginBottom: hasLines ? 14 : 0 }}>
         <div className="chead"><h3>Opened bids</h3><span className="mono faint" style={{ marginLeft: "auto" }}>seals broken {fmtDateTime(t.openedAt)}</span>
-          {["procurement", "approver", "auditor"].includes(user.role) &&
+          {can(user, "export.comparison") &&
             <button className="btn sm" style={{ marginLeft: 10 }} onClick={() => downloadUrl(`/tenders/${t.id}/export/comparison.xlsx`, `${t.ref}-comparison.xlsx`)}>Export to Excel</button>}
         </div>
         <table className="tbl">
@@ -1045,7 +1051,7 @@ export function EvalTab({ api, t }) {
   };
 
   /* ---- evaluator: blind scoring ---- */
-  if (user.role === "evaluator") {
+  if (can(user, "bid.score") && !can(user, "bid.see_all_scores")) {
     if (!((t.coi || {})[user.id]) && t.status !== "awarded") {
       return (
         <div className="card" style={{ maxWidth: 620 }}>
@@ -1135,7 +1141,7 @@ export function EvalTab({ api, t }) {
           <span style={{ flex: 1 }}>
             <b>Recommended for award:</b> {state.suppliers.find((s) => s.id === rec.supplierId).name} at <Money n={rec.amount} />, with the approver since {fmtDateTime(rec.at)}.
           </span>
-          {user.role === "procurement" && <button className="btn sm" onClick={withdrawRec}>Withdraw recommendation</button>}
+          {can(user, "award.recommend") && <button className="btn sm" onClick={withdrawRec}>Withdraw recommendation</button>}
         </div>
       )}
       <div className="card" style={{ marginBottom: 14 }}>
@@ -1173,7 +1179,7 @@ export function EvalTab({ api, t }) {
                         </td>
                         <td style={{ whiteSpace: "nowrap" }}>
                           <button className="btn sm" onClick={() => setOpenRows((o) => ({ ...o, [b.id]: !o[b.id] }))}>{isOpen ? "Hide scores" : "Scores"}</button>
-                          {user.role === "procurement" && t.status !== "awarded" && !rec && <button className="btn sm" style={{ marginLeft: 6 }} onClick={() => setRecBid(b)}>Recommend award…</button>}
+                          {can(user, "award.recommend") && t.status !== "awarded" && !rec && <button className="btn sm" style={{ marginLeft: 6 }} onClick={() => setRecBid(b)}>Recommend award…</button>}
                         </td>
                       </tr>
                       {isOpen && (
@@ -1215,7 +1221,7 @@ export function EvalTab({ api, t }) {
           </table>
         </div>
       </div>
-      {user.role === "procurement" && (
+      {can(user, "ai.use") && (
         <div className="card">
           <div className="chead"><h3>Comparison brief</h3>
             <button className="btn sm" style={{ marginLeft: "auto" }} onClick={genBrief} disabled={busy}>{busy ? "Drafting…" : "Draft with AI"}</button>
@@ -1625,11 +1631,13 @@ export function NewTender({ api, editId }) {
 
 export function SuppliersPage({ api }) {
   const { state, user, act, toast } = api;
-  const canManage = user.role === "procurement";
+  const canImport = can(user, "supplier.import");
+  const canPrequalify = can(user, "supplier.prequalify");
   const [preS, setPreS] = useState(null);        // vendor queued for approval
   const [declineS, setDeclineS] = useState(null); // vendor queued for decline
   const [reason, setReason] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [regOpen, setRegOpen] = useState(false);   // the register upload
   const [email, setEmail] = useState("");
 
   const prequalify = (s) => setPreS(s);
@@ -1745,9 +1753,12 @@ export function SuppliersPage({ api }) {
           <label className="checkline">
             <input type="checkbox" checked={preOnly} onChange={(e) => setPreOnly(e.target.checked)} /> Prequalified only
           </label>
-          {canManage && (
+          {canImport && (
             <>
-              <label className="btn sm"><Icon n="upload" /> Import CSV
+              <button className="btn sm" onClick={() => setRegOpen(true)}>
+                <Icon n="upload" /> Update the register
+              </button>
+              <label className="btn sm"><Icon n="upload" /> Add from CSV
                 <input type="file" accept=".csv" hidden onChange={async (e) => {
                   const f = e.target.files[0];
                   if (f && await act.upload("/suppliers/import/", f)) {
@@ -1761,8 +1772,15 @@ export function SuppliersPage({ api }) {
           )}
         </div>
       </div>
-      {canManage && <div className="muted" style={{ fontSize: 12, marginTop: -8, marginBottom: 12 }}>CSV columns: name, category, location, email, prequalified (yes/no). Duplicates are skipped.</div>}
-      {canManage && queue.length > 0 && (
+      {canImport && (
+        <div className="muted" style={{ fontSize: 12, marginTop: -8, marginBottom: 12 }}>
+          <b>Update the register</b> replaces the whole register from the vendor master export (JSON);
+          it shows you what would change before writing anything.
+          {" "}<b>Add from CSV</b> appends a few vendors — columns: name, category, location, email,
+          prequalified (yes/no); duplicates are skipped.
+        </div>
+      )}
+      {canPrequalify && queue.length > 0 && (
         <div className="card" style={{ marginBottom: 14, borderLeft: "3px solid var(--brass)" }}>
           <div className="chead"><h3>Registration queue</h3><span className="mono faint" style={{ marginLeft: "auto" }}>{queue.length} awaiting review</span></div>
           <div className="cbody">
@@ -1805,7 +1823,7 @@ export function SuppliersPage({ api }) {
                       ? <span className="chip ok">Prequalified</span>
                       : <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                           <span className="chip warn">Pending review</span>
-                          {user.role === "procurement" && <button className="btn sm" onClick={(e) => { e.stopPropagation(); prequalify(s); }}>Approve</button>}
+                          {canPrequalify && <button className="btn sm" onClick={(e) => { e.stopPropagation(); prequalify(s); }}>Approve</button>}
                         </span>}
                   </td>
                   <td data-l="Paperwork">
@@ -1845,7 +1863,168 @@ export function SuppliersPage({ api }) {
       </div>
       {openId && <VendorRecord row={state.suppliers.find((x) => x.id === openId)}
                                detail={detail} onClose={() => setOpenId(null)} />}
+      {regOpen && <RegisterImport api={api} onClose={() => setRegOpen(false)} />}
     </div>
+  );
+}
+
+/** Upload the vendor master export and replace the register with it.
+
+    Two steps on purpose. Picking the file shows what it would do — how many
+    vendors, how many new, what would be deleted and what would be kept because
+    a tender used it — and writes nothing. Only the second click applies it.
+    Replacing 1,400 vendors should not be reachable by misclicking a file
+    picker, and those numbers are the only way to notice you picked last year's
+    export. Same decisions and guards as the command line: both go through
+    core/vendor_sync.py. */
+function RegisterImport({ api, onClose }) {
+  const { act, toast, refresh } = api;
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [shrinkOk, setShrinkOk] = useState(false);
+  const [done, setDone] = useState(null);
+
+  const send = async (f, extra) => {
+    setBusy(true);
+    setError("");
+    try {
+      return await act.importRegister(f, extra);
+    } catch (e) {
+      setError(e.message || "That upload did not go through.");
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pick = async (f) => {
+    setFile(f);
+    setPreview(null);
+    setDone(null);
+    setShrinkOk(false);
+    const r = await send(f, {});
+    if (r) {
+      setPreview(r.preview);
+      if (r.error) setError(r.error);
+    }
+  };
+
+  const apply = async () => {
+    const r = await send(file, { confirm: "1", ...(shrinkOk ? { shrinkOk: "1" } : {}) });
+    if (!r) return;
+    if (!r.applied) {
+      setPreview(r.preview);
+      setError(r.error || "Not applied.");
+      return;
+    }
+    setDone(r.result);
+    await refresh();
+    toast.ok("Register updated",
+             `${r.result.total.toLocaleString()} suppliers on the register: ` +
+             `${r.result.created.toLocaleString()} added, ${r.result.refreshed.toLocaleString()} refreshed, ` +
+             `${r.result.removed.toLocaleString()} removed.`);
+  };
+
+  const p = preview;
+  const num = (n) => (n || 0).toLocaleString();
+  const stat = (label, value, tone) => (
+    <div style={{ flex: "1 1 96px" }}>
+      <div className="mono" style={{ fontSize: 19, color: tone ? "var(--" + tone + ")" : "inherit" }}>{num(value)}</div>
+      <div className="muted" style={{ fontSize: 11.5 }}>{label}</div>
+    </div>
+  );
+
+  return (
+    <Dialog title="Update the vendor register" onClose={onClose} wide footer={
+      <>
+        <button className="btn" onClick={onClose}>{done ? "Close" : "Cancel"}</button>
+        {!done && p && !p.blocked && (
+          <button className="btn pri" disabled={busy || (p.needsConfirm && !shrinkOk)} onClick={apply}>
+            {busy ? "Working…" : `Replace the register with these ${num(p.vendors)} vendors`}
+          </button>
+        )}
+      </>
+    }>
+      {done ? (
+        <div>
+          <div style={{ marginBottom: 12 }}><span className="chip ok">Done</span></div>
+          <p style={{ marginTop: 0 }}>
+            The register now holds <b>{num(done.total)}</b> suppliers: {num(done.created)} added,
+            {" "}{num(done.refreshed)} refreshed, {num(done.removed)} removed. It is recorded in the audit
+            trail under your name.
+          </p>
+        </div>
+      ) : (
+        <>
+          <p style={{ marginTop: 0, fontSize: 13.5 }}>
+            Export the vendor master to JSON — one entry per sheet, each a list of rows — and pick it
+            here. Nothing is written until you have seen what it would do.
+          </p>
+          <label className="btn" style={{ marginBottom: 12 }}>
+            <Icon n="upload" /> {file ? "Pick a different file" : "Choose the register export"}
+            <input type="file" accept=".json,application/json" hidden
+                   onChange={(e) => { const f = e.target.files[0]; e.target.value = ""; if (f) pick(f); }} />
+          </label>
+          {file && <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
+            {file.name} · {(file.size / 1024 / 1024).toFixed(1)} MB
+          </div>}
+          {busy && !p && <div className="muted" style={{ fontSize: 13 }}>Reading the register…</div>}
+          {error && (
+            <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 12 }}>{error}</div>
+          )}
+          {p && (
+            <>
+              <div className="msec" style={{ padding: "6px 0 10px" }}>In the file</div>
+              <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
+                {stat("rows", p.rows)}
+                {stat("vendors", p.vendors)}
+                {stat("duplicates merged", p.merged)}
+                {stat("prequalified", p.prequalified)}
+                {stat("held out", p.heldOut)}
+              </div>
+              <div className="msec" style={{ padding: "6px 0 10px" }}>What it would change</div>
+              <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 10 }}>
+                {stat("new", p.new, "green")}
+                {stat("refreshed in place", p.refresh)}
+                {stat("deleted", p.willDelete, p.willDelete ? "wax" : null)}
+                {stat("kept, still in use", p.keptBecauseUsed)}
+                {stat("left alone", p.untouched)}
+              </div>
+              {p.willDelete > 0 && (
+                <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+                  Gone from the spreadsheet, so deleted here: {p.deleteNames.join(", ")}
+                  {p.willDelete > p.deleteNames.length ? `, and ${num(p.willDelete - p.deleteNames.length)} more` : ""}.
+                </div>
+              )}
+              {p.keptBecauseUsed > 0 && (
+                <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+                  Gone from the spreadsheet but kept, because a tender, bid or login still points at
+                  them: {p.keptNames.join(", ")}.
+                </div>
+              )}
+              {(p.uncategorised > 0 || p.noLocation > 0 || p.unparsedDates > 0) && (
+                <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
+                  Gaps left as gaps rather than guessed: {p.uncategorised} with no category,
+                  {" "}{p.noLocation} with no recognisable place, {p.unparsedDates} with an unreadable
+                  registration date.
+                </div>
+              )}
+              {p.needsConfirm && (
+                <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginTop: 14 }}>
+                  <b>Check this before continuing.</b> {p.needsConfirm}
+                  <label className="checkline" style={{ marginTop: 8 }}>
+                    <input type="checkbox" checked={shrinkOk} onChange={(e) => setShrinkOk(e.target.checked)} />
+                    {" "}I have checked the file. Delete those {num(p.willDelete)} vendors.
+                  </label>
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
+    </Dialog>
   );
 }
 
@@ -2276,7 +2455,7 @@ function AuctionBoard({ api, t }) {
           </tbody>
         </table>
       </div>
-      {!live && a && user.role === "procurement" && board.length > 0 && (
+      {!live && a && can(user, "award.recommend") && board.length > 0 && (
         <div className="ceremony">
           <SealMark s={26} className="stamped" />
           <h3>Auction closed</h3>
