@@ -57,6 +57,106 @@ function generatePassword(n = 20) {
 
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 20);
 
+/* ---------------- talking about people like people ---------------- */
+
+/** "Amara Okafor" → "AO"; falls back to the first letters of an email. */
+function initials(name = "") {
+  const words = name.replace(/[^\p{L}\p{N} .@-]/gu, " ").split(/[ .@-]+/).filter(Boolean);
+  if (!words.length) return "?";
+  return (words[0][0] + (words.length > 1 ? words[words.length - 1][0] : "")).toUpperCase();
+}
+
+/* A stable colour per person, so the same face keeps the same badge between
+   visits. Fixed saturation and lightness: it has to carry white text and read
+   the same in all five themes. */
+function avatarHue(seed = "") {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) % 360;
+  return h;
+}
+
+/** "3 hours ago" beats a timestamp when the question is "are they using this?" */
+function ago(ms) {
+  if (!ms) return "never signed in";
+  const s = Math.max(0, Date.now() - ms) / 1000;
+  if (s < 90) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} minute${m === 1 ? "" : "s"} ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} hour${h === 1 ? "" : "s"} ago`;
+  const d = Math.round(h / 24);
+  if (d === 1) return "yesterday";
+  if (d < 30) return `${d} days ago`;
+  const mo = Math.round(d / 30);
+  if (mo < 18) return `${mo} month${mo === 1 ? "" : "s"} ago`;
+  return `${Math.round(mo / 12)} years ago`;
+}
+
+/* What this person does, in the words someone would actually use. Ordered by
+   how much the capability defines the job, so the first three tell the story.
+   The permission catalogue is the precise answer and lives one click away; this
+   is the answer you can read down a list of forty people. */
+const IN_PLAIN_WORDS = [
+  ["award.decide", "signs off awards"],
+  ["tender.publish_decision", "approves publications"],
+  ["tender.create", "runs tenders"],
+  ["bid.open", "opens sealed bids"],
+  ["award.recommend", "recommends winners"],
+  ["bid.score", "scores bids"],
+  ["supplier.prequalify", "looks after the vendor register"],
+  ["team.invite", "brings people in"],
+  ["settings.threshold", "sets the approval matrix"],
+  ["audit.integrity", "watches the audit trail"],
+  ["clarification.answer", "answers vendor questions"],
+];
+
+/* Read-only access says almost nothing when someone also does real work — every
+   buyer-side role can see the audit trail — so these only speak when there is
+   nothing louder to say. */
+const IF_NOTHING_ELSE = [
+  ["page.portal", "bids for work here"],
+  ["audit.integrity", "watches the audit trail"],
+  ["page.audit", "reads the audit trail"],
+  ["page.scorecards", "reads the vendor scorecards"],
+  ["page.tenders", "reads the tenders"],
+];
+
+function inPlainWords(user) {
+  if (user.isAdmin && user.role === "superadmin") return "Looks after accounts and permissions.";
+  const perms = new Set(user.perms || []);
+  let bits = IN_PLAIN_WORDS.filter(([k]) => perms.has(k)).map(([, phrase]) => phrase).slice(0, 3);
+  if (!bits.length) {
+    const fallback = IF_NOTHING_ELSE.find(([k]) => perms.has(k));
+    bits = fallback ? [fallback[1]] : [];
+  }
+  if (!bits.length) return "Nothing assigned yet.";
+  const joined = bits.length === 1 ? bits[0] : `${bits.slice(0, -1).join(", ")} and ${bits[bits.length - 1]}`;
+  return joined.charAt(0).toUpperCase() + joined.slice(1) + ".";
+}
+
+/** The pills beside a name, without saying "administrator" twice. */
+function Pills({ user: u }) {
+  const consoleOnly = u.role === "superadmin";
+  return (
+    <>
+      {!consoleOnly && <span className="chip soft">{u.roleLabel.split("—")[0].trim()}</span>}
+      {u.isAdmin && <span className="chip gold">administrator</span>}
+      {consoleOnly && <span className="chip soft">no workspace access</span>}
+    </>
+  );
+}
+
+function Avatar({ name, seed, size = 40, dim }) {
+  const h = avatarHue(seed || name || "");
+  return (
+    <span className={"avatar" + (dim ? " dim" : "")} aria-hidden="true"
+          style={{ width: size, height: size, fontSize: Math.round(size * 0.36),
+                   background: `hsl(${h} 44% 42%)` }}>
+      {initials(name)}
+    </span>
+  );
+}
+
 /* ---------------- sign in ---------------- */
 
 export function AdminLogin({ onIn }) {
@@ -242,8 +342,8 @@ export function UserPanel({ state, user, onClose, onSaved, toast }) {
 
   const footer = (
     <>
-      <span className="mono faint" style={{ marginRight: "auto", fontSize: 11 }}>
-        {u.username} · {u.sessions} session(s) · last seen {fmtWhen(u.lastSeen)}
+      <span className="faint" style={{ marginRight: "auto", fontSize: 11.5 }}>
+        {u.username} · {u.sessions === 0 ? "no devices signed in" : `${u.sessions} device${u.sessions === 1 ? "" : "s"} signed in`} · last seen {ago(u.lastSeen)}
       </span>
       <button className="btn" onClick={onClose} disabled={busy}>Close</button>
     </>
@@ -251,9 +351,22 @@ export function UserPanel({ state, user, onClose, onSaved, toast }) {
 
   return (
     <Dialog title={u.name} onClose={onClose} footer={footer} wide>
+      {/* Who you are looking at, said once at the top, so the two columns of
+          controls below never have to re-establish it. */}
+      <div className="phead">
+        <Avatar name={u.name} seed={u.username} size={46} dim={!u.active} />
+        <div>
+          <div className="pline">
+            <b className="pn">{u.name}</b>
+            <Pills user={u} />
+            {!u.active && <span className="chip warn">disabled</span>}
+          </div>
+          <div className="pdoes">{inPlainWords(u)}</div>
+        </div>
+      </div>
       <div className="admincols">
         <div>
-          <div className="lbl">Identity</div>
+          <div className="lbl">Who they are</div>
           {isVendor ? (
             <div className="notice">
               This is a vendor account: {u.name} registered themselves and is prequalified in the
@@ -278,15 +391,15 @@ export function UserPanel({ state, user, onClose, onSaved, toast }) {
                   this person individually is kept and re-applied on top.
                 </div>
               </div>
-              <button className="btn pri sm" onClick={saveIdentity} disabled={busy || !dirtyIdentity}>Save identity</button>
+              <button className="btn pri sm" onClick={saveIdentity} disabled={busy || !dirtyIdentity}>Save these details</button>
             </>
           )}
 
-          <div className="lbl" style={{ marginTop: 22 }}>Access</div>
-          <div className="kv"><span>Status</span><b>{u.active ? "Active" : "Disabled"}</b></div>
-          <div className="kv"><span>Administrator</span><b>{u.isAdmin ? "Yes — full access to this console" : "No"}</b></div>
-          <div className="kv"><span>Two-factor</span><b>{u.mfa ? "Enabled" : "Not enrolled"}</b></div>
-          <div className="kv"><span>Joined</span><b>{fmtDate(u.joined)}</b></div>
+          <div className="lbl" style={{ marginTop: 22 }}>How their account stands</div>
+          <div className="kv"><span>Can sign in</span><b>{u.active ? "Yes" : "No — disabled"}</b></div>
+          <div className="kv"><span>This console</span><b>{u.isAdmin ? "Yes — full access" : "No"}</b></div>
+          <div className="kv"><span>Two-factor</span><b>{u.mfa ? "On" : "Not set up yet"}</b></div>
+          <div className="kv"><span>With you since</span><b>{fmtDate(u.joined)}</b></div>
 
           <div className="btnrow">
             <button className="btn sm" disabled={busy || isSelf}
@@ -317,7 +430,7 @@ export function UserPanel({ state, user, onClose, onSaved, toast }) {
             )}
           </div>
 
-          <div className="lbl" style={{ marginTop: 22 }}>Set a new password</div>
+          <div className="lbl" style={{ marginTop: 22 }}>Give them a new password</div>
           <div className="pwrow">
             <input className="in" value={pw} placeholder="At least 10 characters"
                    onChange={(e) => setPw(e.target.value)} />
@@ -334,7 +447,7 @@ export function UserPanel({ state, user, onClose, onSaved, toast }) {
 
           {!isVendor && (
             <>
-              <div className="lbl" style={{ marginTop: 22 }}>Remove</div>
+              <div className="lbl" style={{ marginTop: 22 }}>Remove them</div>
               {confirmDelete ? (
                 <div className="notice" style={{ borderLeft: "3px solid var(--wax)" }}>
                   Delete <b>{u.name}</b>? Their sign-in and notifications go; audit events already
@@ -465,64 +578,110 @@ export function NewUserDialog({ state, onClose, onSaved, toast }) {
 
 /* ---------------- people ---------------- */
 
+/** One person, as a person: a face, their name, what they do here in a sentence,
+    and how their access stands. The precise capability list is one click away —
+    this is what you read when you are scanning for the right human. */
+function PersonRow({ user: u, onOpen }) {
+  const adjusted = u.extra.length + u.revoked.length;
+  const nothing = !u.isAdmin && !u.perms.length;
+  const flag = !u.active ? "off" : nothing ? "empty" : "";
+  return (
+    <div className={"person" + (flag ? " " + flag : "")} role="button" tabIndex={0}
+         onClick={() => onOpen(u.id)}
+         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(u.id); } }}>
+      <Avatar name={u.name} seed={u.username} dim={!u.active} />
+      <div className="pinfo">
+        <div className="pline">
+          <b className="pn">{u.name}</b>
+          <Pills user={u} />
+          {!u.active && <span className="chip warn">disabled</span>}
+        </div>
+        <div className="pdoes">{inPlainWords(u)}</div>
+        <div className="pmeta">
+          <span>{u.username}</span>
+          <span>{ago(u.lastSeen)}</span>
+          {u.sessions > 0 && <span>{u.sessions} device{u.sessions === 1 ? "" : "s"}</span>}
+          {u.mfa && <span className="good">two-factor on</span>}
+          {adjusted > 0 && (
+            <span className="tweak">
+              {u.extra.length > 0 && `${u.extra.length} extra${u.extra.length === 1 ? "" : "s"}`}
+              {u.extra.length > 0 && u.revoked.length > 0 && ", "}
+              {u.revoked.length > 0 && `${u.revoked.length} withdrawn`}
+            </span>
+          )}
+        </div>
+      </div>
+      <button className="btn sm pmanage" onClick={(e) => { e.stopPropagation(); onOpen(u.id); }}>
+        Open
+      </button>
+    </div>
+  );
+}
+
+const FILTERS = [
+  ["team", "The team", (u) => u.role !== "supplier"],
+  ["vendors", "Vendors", (u) => u.role === "supplier"],
+  ["admins", "Administrators", (u) => u.isAdmin],
+  ["attention", "Needs a look", (u) => !u.active || (!u.isAdmin && !u.perms.length)],
+  ["all", "Everyone", () => true],
+];
+
 export function PeopleTab({ state, reload, toast }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(null);
   const [creating, setCreating] = useState(false);
-  const [showVendors, setShowVendors] = useState(false);
+  const [filter, setFilter] = useState("team");
 
+  const test = (FILTERS.find(([k]) => k === filter) || FILTERS[0])[2];
+  const counts = Object.fromEntries(FILTERS.map(([k, , fn]) => [k, state.users.filter(fn).length]));
+  const search = q.trim().toLowerCase();
   const rows = state.users.filter((u) => {
-    if (!showVendors && u.role === "supplier") return false;
-    const s = q.trim().toLowerCase();
-    if (!s) return true;
-    return [u.name, u.username, u.email, u.roleLabel].some((v) => (v || "").toLowerCase().includes(s));
+    if (!test(u)) return false;
+    if (!search) return true;
+    return [u.name, u.username, u.email, u.roleLabel].some((v) => (v || "").toLowerCase().includes(search));
   });
   const current = open ? state.users.find((u) => u.id === open) : null;
+  const needing = state.users.filter(FILTERS[3][2]).length;
 
   return (
     <>
       <div className="toolrow">
-        <input className="in" placeholder="Search name, email or role…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <label className="checkline">
-          <input type="checkbox" checked={showVendors} onChange={(e) => setShowVendors(e.target.checked)} /> Include vendors
-        </label>
-        <button className="btn pri sm" onClick={() => setCreating(true)}><Icon n="plus" s={14} /> New account</button>
+        <input className="in" placeholder="Search by name, email or role…" value={q}
+               onChange={(e) => setQ(e.target.value)} />
+        <button className="btn pri sm" onClick={() => setCreating(true)}>
+          <Icon n="plus" s={14} /> Add someone
+        </button>
       </div>
 
-      <div className="card">
-        <div className="tscroll">
-          <table className="tbl">
-            <thead><tr><th>Person</th><th>Role</th><th>Access</th><th>Status</th><th>Last seen</th><th /></tr></thead>
-            <tbody>
-              {rows.map((u) => {
-                const adj = u.extra.length + u.revoked.length;
-                return (
-                  <tr key={u.id} className="click" onClick={() => setOpen(u.id)}>
-                    <td><b>{u.name}</b><div className="muted" style={{ fontSize: 11.5 }}>{u.username}</div></td>
-                    <td data-l="Role">
-                      <span className="chip">{u.roleLabel.split("—")[0].trim()}</span>
-                      {u.isAdmin && <span className="chip gold" style={{ marginLeft: 5 }}>admin</span>}
-                    </td>
-                    <td data-l="Access">
-                      {u.isAdmin
-                        ? <span className="mono faint">everything</span>
-                        : adj
-                          ? <span className="chip">{u.extra.length ? `+${u.extra.length}` : ""}{u.extra.length && u.revoked.length ? " / " : ""}{u.revoked.length ? `−${u.revoked.length}` : ""} adjusted</span>
-                          : <span className="muted" style={{ fontSize: 11.5 }}>role defaults</span>}
-                    </td>
-                    <td data-l="Status">
-                      {u.active ? <span className="chip ok">active</span> : <span className="chip warn">disabled</span>}
-                      {u.mfa && <span className="chip" style={{ marginLeft: 5 }}>2fa</span>}
-                    </td>
-                    <td data-l="Last seen" className="mono faint">{fmtWhen(u.lastSeen)}</td>
-                    <td><button className="btn sm" onClick={(e) => { e.stopPropagation(); setOpen(u.id); }}>Manage</button></td>
-                  </tr>
-                );
-              })}
-              {!rows.length && <tr><td colSpan={6} className="muted" style={{ padding: 18 }}>Nobody matches that.</td></tr>}
-            </tbody>
-          </table>
+      <div className="filterchips">
+        {FILTERS.map(([key, label]) => (
+          <button key={key} className={"fchip" + (filter === key ? " on" : "")} onClick={() => setFilter(key)}>
+            {label}<span className="n">{counts[key]}</span>
+          </button>
+        ))}
+      </div>
+
+      {filter !== "attention" && needing > 0 && (
+        <div className="notice friendly">
+          {needing === 1 ? "One account needs a look" : `${needing} accounts need a look`} — disabled,
+          or signed in with nothing assigned yet.{" "}
+          <button className="doclink" onClick={() => setFilter("attention")}>Show them</button>
         </div>
+      )}
+
+      <div className="people">
+        {rows.map((u) => <PersonRow key={u.id} user={u} onOpen={setOpen} />)}
+        {!rows.length && (
+          <div className="emptyfriendly">
+            <Avatar name="?" seed={q || filter} size={44} dim />
+            <b>{search ? `Nobody here matches “${q.trim()}”` : "Nobody in this group yet"}</b>
+            <span>
+              {search
+                ? "Try part of a name or an email address, or switch group above."
+                : "Add someone with the button above, or pick another group."}
+            </span>
+          </div>
+        )}
       </div>
 
       {current && <UserPanel state={state} user={current} toast={toast}
@@ -662,8 +821,8 @@ export function RolesTab({ state, reload, toast }) {
               <div className="muted" style={{ fontSize: 12.5, minHeight: 34 }}>
                 {r.note || (r.builtin ? r.label.split("—")[1]?.trim() || "" : "No note.")}
               </div>
-              <div className="kv"><span>Capabilities</span><b>{r.perms.length}</b></div>
-              <div className="kv"><span>People on it</span><b>{r.people}</b></div>
+              <div className="kv"><span>Can do</span><b>{r.perms.length} thing{r.perms.length === 1 ? "" : "s"}</b></div>
+              <div className="kv"><span>People on it</span><b>{r.people === 0 ? "nobody yet" : r.people}</b></div>
               <div className="kv"><span>Id</span><b className="mono">{r.key}</b></div>
               <div className="btnrow" style={{ marginTop: 10 }}>
                 <button className="btn sm" onClick={() => setOpen(r)}>{r.builtin ? "View" : "Edit"}</button>
@@ -695,16 +854,16 @@ export function LogTab() {
 
   return (
     <div className="card">
-      <div className="chead"><h3>Console log</h3>
-        <span className="mono faint" style={{ marginLeft: "auto" }}>every act of this console</span></div>
+      <div className="chead"><h3>What has changed</h3>
+        <span className="faint" style={{ marginLeft: "auto", fontSize: 11.5 }}>everything done in this console, newest first</span></div>
       {err && <div className="cbody"><div className="notice">{err}</div></div>}
       <div className="tscroll">
         <table className="tbl">
-          <thead><tr><th>When</th><th>Administrator</th><th>Action</th><th>Who it was about</th><th>Detail</th><th>From</th></tr></thead>
+          <thead><tr><th>When</th><th>Who did it</th><th>What they did</th><th>Who it was about</th><th>Detail</th><th>From</th></tr></thead>
           <tbody>
             {(rows || []).map((e) => (
               <tr key={e.id}>
-                <td data-l="When" className="mono faint">{fmtWhen(e.at)}</td>
+                <td data-l="When" className="faint" title={fmtWhen(e.at)}>{ago(e.at)}</td>
                 <td data-l="Administrator">{e.actor}</td>
                 <td data-l="Action"><b>{e.action}</b></td>
                 <td data-l="Target">{e.target || "—"}</td>
@@ -712,7 +871,7 @@ export function LogTab() {
                 <td data-l="From" className="mono faint">{e.ip || "—"}</td>
               </tr>
             ))}
-            {rows && !rows.length && <tr><td colSpan={6} className="muted" style={{ padding: 18 }}>Nothing yet.</td></tr>}
+            {rows && !rows.length && <tr><td colSpan={6} className="muted" style={{ padding: 18 }}>Nothing has been changed here yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -729,7 +888,16 @@ export function LogTab() {
 
 /* ---------------- shell ---------------- */
 
-const TABS = [["people", "People"], ["roles", "Roles"], ["log", "Console log"]];
+/* A greeting is a small thing, but this console is where you arrive to deal
+   with people, and it costs nothing to open like a person. */
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+const TABS = [["people", "People"], ["roles", "Roles"], ["log", "What has changed"]];
 
 export default function SuperAdmin() {
   const [signedIn, setSignedIn] = useState(!!token());
@@ -791,20 +959,23 @@ export default function SuperAdmin() {
 
         <main className="content adminmain">
           <div className="pagehead">
-            <h1>People &amp; permissions</h1>
-            <span className="sub">who exists, what they may do, and who changed it</span>
+            <h1>{greeting()}, {state.admin.name.split(" ")[0]}</h1>
+            <span className="sub">
+              {state.counts.team} on the team · {state.counts.suppliers} vendors ·{" "}
+              {state.counts.customRoles === 0 ? "no roles of your own yet" : `${state.counts.customRoles} role${state.counts.customRoles === 1 ? "" : "s"} you made`}
+            </span>
           </div>
 
           {err && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 14 }}>{err}</div>}
 
           <div className="statrow">
-            {[["Accounts", c.total, "sign-ins that exist"],
-              ["Team", c.team, "buyer-side people"],
-              ["Vendors", c.suppliers, "registered suppliers"],
+            {[["Everyone", c.total, "accounts that can sign in"],
+              ["Your team", c.team, "people who run the tendering"],
+              ["Vendors", c.suppliers, "suppliers with a login"],
               ["Administrators", c.admins, "can open this console"],
-              ["Custom roles", c.customRoles, "invented here"],
-              ["Adjusted access", c.customised, "moved off their role"],
-              ["Disabled", c.disabled, "cannot sign in"]].map(([k, v, d]) => (
+              ["Your own roles", c.customRoles, "beyond the built-in four"],
+              ["Tailored access", c.customised, "moved off their role"],
+              ["Switched off", c.disabled, "cannot sign in"]].map(([k, v, d]) => (
                 <div className="stat" key={k}><div className="k">{k}</div><div className="v">{v}</div><div className="d">{d}</div></div>
               ))}
           </div>
@@ -852,6 +1023,54 @@ export const ADMIN_CSS = `
 .admintab.on{color:var(--brand);border-bottom-color:var(--brand)}
 .toolrow{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px}
 .toolrow .in{flex:1 1 220px;min-width:180px}
+
+/* ---- people, as people ----
+   A row per person rather than a grid of cells: a face, a name, one sentence of
+   what they do, and the housekeeping in small type underneath. It has to stay
+   scannable at forty rows, so the sentence is capped at three capabilities and
+   everything precise lives in the panel. */
+.avatar{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;
+  border-radius:50%;color:#fff;font-weight:600;letter-spacing:.02em;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.16),var(--shadow)}
+.avatar.dim{filter:saturate(.25) opacity(.6)}
+.people{display:flex;flex-direction:column;gap:8px}
+.person{display:flex;align-items:center;gap:13px;padding:12px 14px;background:var(--card);
+  border:var(--card-bd) solid var(--line);border-radius:var(--r);cursor:pointer;
+  transition:border-color var(--t) var(--ease),box-shadow var(--t) var(--ease),transform var(--t) var(--ease)}
+.person:hover{border-color:var(--line2);box-shadow:var(--shadow-lg,var(--shadow))}
+.person:active{transform:translateY(.5px)}
+.person:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.person.off{background:var(--sunk)}
+.person.off .pn{text-decoration:line-through;text-decoration-color:var(--line2)}
+.person.empty{border-left:3px solid var(--brass)}
+.pinfo{flex:1;min-width:0}
+.pline{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.pn{font-family:var(--font-display);font-size:15.5px;font-weight:600;letter-spacing:-.01em}
+.pdoes{font-size:12.5px;color:var(--ink);opacity:.82;margin-top:2px;line-height:1.45}
+.pmeta{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:5px;font-size:11.5px;color:var(--faint)}
+.pmeta .good{color:var(--green)}
+.pmeta .tweak{color:var(--brand)}
+/* The whole row is the button on a phone, where the sentence needs the width;
+   the explicit control returns once there is room for it. */
+.pmanage{display:none;flex:0 0 auto}
+/* the role pill in a quieter register than the status chips beside it */
+.chip.soft{background:var(--sunk);border-color:var(--line);color:var(--muted)}
+.filterchips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px}
+.fchip{display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:999px;
+  border:1px solid var(--line2);background:var(--card);color:var(--muted);
+  font:inherit;font-size:12.5px;font-weight:550;cursor:pointer;min-height:36px;
+  transition:all var(--t) var(--ease)}
+.fchip:hover{border-color:var(--brand-ring);color:var(--ink)}
+.fchip .n{font-family:var(--font-mono);font-size:10.5px;opacity:.75}
+.fchip.on{background:var(--p-container);border-color:var(--brand-ring);color:var(--on-p-container)}
+.notice.friendly{border-left:3px solid var(--brass);background:var(--brass-tint);color:var(--gold-ink);margin-bottom:14px}
+.notice.friendly .doclink{color:inherit;font-weight:600}
+.emptyfriendly{display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center;
+  padding:38px 20px;background:var(--card);border:1px dashed var(--line2);border-radius:var(--r)}
+.emptyfriendly b{font-family:var(--font-display);font-size:15px}
+.emptyfriendly span{font-size:12.5px;color:var(--muted);max-width:330px;line-height:1.5}
+.phead{display:flex;align-items:center;gap:13px;padding-bottom:14px;margin-bottom:16px;
+  border-bottom:1px solid var(--line)}
 .admincols{display:grid;grid-template-columns:minmax(0,1fr);gap:22px}
 .kv{display:flex;align-items:baseline;gap:10px;font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--hair)}
 .kv span{color:var(--muted);flex:1}
@@ -880,6 +1099,10 @@ export const ADMIN_CSS = `
 .ptag.revoke{color:var(--wax);border-color:var(--chip-warn-line);background:var(--wax-tint)}
 .rolegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
 .rolecard .cbody{display:flex;flex-direction:column}
+@media (min-width:700px){
+  .pmanage{display:inline-flex}
+  .person{padding:13px 16px}
+}
 @media (min-width:900px){
   .admincols{grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:26px}
 }
