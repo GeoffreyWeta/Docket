@@ -288,6 +288,12 @@ export const MOTION_CSS = `
    lands under the thumb that is scrolling), a stack in the corner on a desktop. */
 .toasts{position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));
   z-index:200;display:flex;flex-direction:column;gap:9px;pointer-events:none}
+/* Toasts sit above everything, which means above the action row of an open
+   dialog or panel — both are anchored to the same bottom edge, and a phone has
+   no room for two. While an overlay is up, the stack moves to the top of the
+   screen: the sheet is a dialog, so the space above it is empty. A browser
+   without :has() drops this rule and keeps the old behaviour. */
+body:has(.scrim,.panelwrap) .toasts{top:calc(10px + env(safe-area-inset-top,0px));bottom:auto}
 .toast{pointer-events:auto;background:var(--card);border:1px solid var(--line);border-left:3px solid var(--green);
   border-radius:var(--r-sm);box-shadow:var(--sh-3);padding:11px 13px;display:flex;gap:10px;align-items:flex-start;
   animation:dk-pop ${DUR.settle}ms ${EASE.out} both}

@@ -101,9 +101,64 @@ def run_sweep():
                         f"The award recommendation on {t.ref} has been in your queue since "
                         f"{fmt_date_ms(rec['at'])}. Suppliers hear nothing until you decide.", t.id)
 
-    # 6) Vendor registrations unreviewed for 3+ days.
+    # 6) The registration drive, a bounded batch at a time. Placed last because
+    #    it is the slowest step by an order of magnitude and everything above it
+    #    is time-sensitive: a sealing notice must not wait behind 40 SMTP round
+    #    trips. Does nothing at all unless a drive has been armed.
+    from . import campaign
+    if campaign.is_running():
+        from .util import base_url, org_name
+        sent, failed = campaign.send_batch(base_url(), org_name())
+        if sent or failed:
+            record_event(actor="System", role="system", at=now,
+                         action="Registration invitations sent",
+                         detail=f"{sent} sent, {failed} failed. "
+                                f"{campaign.eligible().count()} still queued.")
+
+    # 7) Vendor registrations unreviewed for 3+ days.
     for s in Supplier.objects.filter(prequalified=False, registered_at__isnull=False, rejected_reason=""):
         if now - s.registered_at >= 3 * DAY_MS and _once(f"regnudge:{s.id}"):
             notify_perm("supplier.prequalify", f"Registration awaiting review: {s.name}",
                         f"{s.name} registered on {fmt_date_ms(s.registered_at)} and is still waiting for a "
                         f"prequalification decision. Vendors who hear nothing stop responding to invitations.")
+
+    # 8) The finance exceptions. Same eight rules the Finance page lists, run
+    #    here so an overdue payment or a duplicate invoice reaches somebody
+    #    without anyone having to open the page and look.
+    sweep_finance(now)
+
+
+# The severities worth interrupting somebody for. "watch" findings are real and
+# are listed on the page, but a notification per expiring contract ninety days
+# out would train everyone to ignore the channel that also carries the
+# duplicate invoices.
+NOTIFY_SEVERITIES = ("warn",)
+
+
+def sweep_finance(now=None):
+    """Raise a notification for each new finance exception, once.
+
+    The idempotence key is the rule's own `key`, which is built from the records
+    involved rather than from the time — so the same overdue invoice does not
+    notify twice, but an invoice that crosses into a new thirty-day band does,
+    because that is a new fact.
+    """
+    from . import finance
+    now = now or now_ms()
+    try:
+        found = finance.exceptions(now)
+    except Exception:                                             # noqa: BLE001
+        # A malformed ledger row must not take the whole sweep down with it —
+        # the deadline sealing above it is time-critical and this is not.
+        return 0
+
+    sent = 0
+    for ex in found:
+        if ex["severity"] not in NOTIFY_SEVERITIES:
+            continue
+        if not _once(f"fin:{ex['key']}"):
+            continue
+        notify_perm("page.finance", ex["subject"], ex["detail"],
+                    ex["ref"]["id"] if (ex["ref"] or {}).get("page") == "tender" else None)
+        sent += 1
+    return sent

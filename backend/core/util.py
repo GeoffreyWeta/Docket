@@ -192,3 +192,24 @@ def verify_chain():
         prev = ev.hash
         n += 1
     return True, n, None
+
+
+def base_url():
+    """The workspace's public address, for links in mail sent without a request.
+
+    Views build links from the request they are answering, which is always
+    right. The background sweep has no request, so it reads the one place that
+    can still be right: configuration.
+    """
+    from django.conf import settings
+    return settings.PUBLIC_BASE_URL
+
+
+def org_name():
+    """The organisation's name. Duplicated from views.org_name deliberately —
+    tasks.py cannot import views.py, which imports tasks.py."""
+    from .models import OrgSetting
+    from .seed import ORG
+    row = OrgSetting.objects.filter(pk=1).first()
+    data = {**ORG, **((row.data if row else {}) or {})}
+    return data.get("name") or "DOCKET"

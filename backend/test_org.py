@@ -1032,6 +1032,330 @@ def sec_ai(ctx):
         yes("the supplier-side review is guarded the same way", "AI is not configured" in r["error"])
 
 
+def sec_taxonomy(ctx):
+    section("M. spend taxonomy")
+    from core.taxonomy import ALL_CATEGORIES, _check, canonical, subcategory_for
+
+    gaps = _check()
+    yes("every importer category has a home in exactly one family",
+        not gaps["missing"] and not gaps["extra"] and not gaps["duplicated"], repr(gaps))
+
+    b = call("GET", "/api/bootstrap/", TU)
+    tree = b["taxonomy"]
+    eq("the taxonomy travels with the bootstrap", len(tree), 8)
+    flat = [c["key"] for f in tree for c in f["categories"]]
+    eq("every category appears once in the tree", sorted(flat), sorted(ALL_CATEGORIES))
+    yes("families carry a vendor count", all("count" in f for f in tree))
+    yes("categories carry their subcategory leaves",
+        any(c["subs"] for f in tree for c in f["categories"]))
+
+    eq("a legacy tender word maps onto the register's vocabulary",
+       canonical("IT hardware"), "IT & telecoms")
+    eq("a real category passes through untouched",
+       canonical("Food & ingredients"), "Food & ingredients")
+    eq("an unknown word lands in Uncategorised rather than inventing a category",
+       canonical(""), "Uncategorised")
+    eq("subcategories come off the register's own wording",
+       subcategory_for("Fuel, diesel & gas", "DIESEL SUPPLY"), "Diesel & AGO")
+    eq("a category with no second layer says so with a blank, not a guess",
+       subcategory_for("Legal", "LAW FIRM"), "")
+
+    yes("every tender carries its family for rollups",
+        all(t.get("family") for t in b["tenders"]))
+    yes("every vendor carries its family", all(s.get("family") for s in b["suppliers"]))
+
+    # A tender created through the API is stored canonically, whichever word it arrives as.
+    t = call("POST", "/api/tenders/", TU, {
+        "title": "Taxonomy check", "type": "RFQ", "category": "IT hardware",
+        "budget": 1_000_000, "deadline": now_ms() + 20 * DAY, "invited": [ctx["sid"]],
+        "criteria": [{"name": "Quality", "weight": 100}], "techWeight": 70})
+    made = tender_of(TU, t["id"])
+    eq("a legacy category posted to the API is stored canonically",
+       made["category"], "IT & telecoms")
+    eq("and its family resolves", made["family"], "tech")
+
+
+def sec_savings(ctx):
+    section("N. savings baseline")
+    t = call("POST", "/api/tenders/", TU, {
+        "title": "Baseline check", "type": "RFQ", "category": "Food & ingredients",
+        "budget": 100_000_000, "baseline": 120_000_000,
+        "baselineSource": "2025 contract, annualised",
+        "deadline": now_ms() + 20 * DAY, "invited": [ctx["sid"]],
+        "criteria": [{"name": "Quality", "weight": 100}], "techWeight": 70})
+    made = tender_of(TU, t["id"])
+    eq("a baseline is stored", made["baseline"], 120_000_000)
+    eq("and so is where it came from", made["baselineSource"], "2025 contract, annualised")
+
+    # No baseline means null, never the budget: a baseline silently equal to the
+    # ceiling would make every saving read as zero.
+    t2 = call("POST", "/api/tenders/", TU, {
+        "title": "No baseline", "type": "RFQ", "category": "Food & ingredients",
+        "budget": 100_000_000, "deadline": now_ms() + 20 * DAY, "invited": [ctx["sid"]],
+        "criteria": [{"name": "Quality", "weight": 100}], "techWeight": 70})
+    made2 = tender_of(TU, t2["id"])
+    yes("no baseline stays null rather than defaulting to the budget",
+        made2["baseline"] is None)
+    yes("and the source is dropped with it", not made2["baselineSource"])
+
+    # A bidder must never be told what the buyer paid before, or who is running it.
+    sandbox = Tender.objects.filter(title=SANDBOX_TENDER).first()
+    sup_view = tender_of(CO, sandbox.id)
+    yes("a supplier is never shown the baseline", sup_view["baseline"] is None)
+    yes("a supplier is never shown the owner", sup_view["ownerId"] is None)
+
+    buyer_view = tender_of(TU, sup_view["id"])
+    yes("the buyer side does see the owner", buyer_view["ownerId"] is not None)
+    eq("a tender is owned by whoever drafted it", made["ownerId"], buyer_view["ownerId"])
+
+
+def sec_reporting(ctx):
+    section("O. reporting lines")
+    from core.models import Persona
+
+    b = call("GET", "/api/bootstrap/", TU)
+    yes("the org chart travels with the bootstrap",
+        all("managerId" in u for u in b["users"]))
+
+    signin("amara")
+    amara = "amara"
+    line = lambda body, expect=200: call("POST", "/api/team/org/", amara, body, expect=expect)
+
+    r = line({"personId": "u1", "managerId": "u1"}, expect=400)
+    yes("somebody cannot report to themselves", "themselves" in r["error"])
+    r = line({"personId": "u4", "managerId": "u2"}, expect=400)
+    yes("a loop in the reporting line is refused", "loop" in r["error"])
+    r = line({"personId": "u1", "managerId": "nope"}, expect=404)
+    ok("an unknown manager is a 404, not a silent no-op")
+
+    line({"personId": "u2", "managerId": "u4"})
+    eq("a valid move is applied", Persona.objects.get(pk="u2").manager_id, "u4")
+    line({"personId": "u2", "managerId": "u1"})
+    eq("and can be moved back", Persona.objects.get(pk="u2").manager_id, "u1")
+
+    line({"personId": "u5", "managerId": None})
+    yes("somebody can be detached to the top of the chart",
+        Persona.objects.get(pk="u5").manager_id is None)
+    line({"personId": "u5", "managerId": "u0"})
+
+    call("POST", "/api/team/org/", "deji",
+         {"personId": "u2", "managerId": "u0"}, expect=403,
+         label="an evaluator cannot rewire the org chart")
+
+    # Whose desk rolls up to whom is computed server-side, from the line.
+    signin("mark")
+    mark = call("GET", "/api/bootstrap/", "mark")
+    yes("a manager is told who reports to them", "u1" in mark["reports"])
+    yes("and it follows the line at any depth, not just direct reports",
+        "u2" in mark["reports"] and "u3" in mark["reports"])
+    signin("deji")
+    deji = call("GET", "/api/bootstrap/", "deji")
+    eq("somebody with no reports and no capability is told nothing", deji["reports"], [])
+
+
+def sec_executive(ctx):
+    section("P. the executive role")
+    signin("tunde")
+    tunde = "tunde"
+    me = call("GET", "/api/bootstrap/", tunde)
+
+    yes("an executive sees the whole org", len(me["reports"]) >= 4)
+    yes("and can read the analytics", "page.analytics" in me["me"]["perms"])
+    yes("and the whole panel's scores", "bid.see_all_scores" in me["me"]["perms"])
+
+    # Oversight is read-only on purpose: an executive who can push a tender
+    # through is an executive nobody can escalate to.
+    yes("but holds no power to publish", "tender.submit" not in me["me"]["perms"])
+    yes("nor to score", "bid.score" not in me["me"]["perms"])
+    yes("nor to award", "award.decide" not in me["me"]["perms"])
+    call("POST", "/api/tenders/", tunde, {"title": "x"}, expect=403,
+         label="and the server refuses the attempt, not just the button")
+    sandbox = Tender.objects.filter(title=SANDBOX_TENDER).first()
+    call("POST", f"/api/tenders/{sandbox.id}/award_decision/", tunde, {"ok": True}, expect=403,
+         label="including signing off an award")
+
+
+def sec_campaign(ctx):
+    section("Q. vendor registration drive")
+    from core import campaign
+    from core.models import ActionToken, Profile, Supplier
+
+    pre = call("GET", "/api/suppliers/campaign/", TU)
+    yes("the preview counts who would be emailed", pre["toSend"] >= 0)
+    yes("and accounts for everyone it skips", set(pre["skipped"]) == {
+        "noEmail", "alreadyInvited", "alreadyRegistered", "heldOut"})
+    yes("and states whether mail actually leaves the building", "live" in pre)
+
+    # The confirmation is the count itself: a stale preview cannot be confirmed.
+    r = call("POST", "/api/suppliers/campaign/", TU, {"action": "start"}, expect=400)
+    yes("starting without confirming the count is refused", "Confirm" in r["error"])
+    r = call("POST", "/api/suppliers/campaign/", TU,
+             {"action": "start", "confirm": pre["toSend"] + 999}, expect=400)
+    yes("confirming the wrong count is refused too", "Confirm" in r["error"])
+
+    from core.campaign import is_live
+    yes("a non-delivering mail backend is never reported as live",
+        is_live() is False, f"backend={settings.EMAIL_BACKEND}")
+    call("POST", "/api/suppliers/campaign/", CO, {"action": "start", "confirm": pre["toSend"]},
+         expect=403, label="a supplier cannot start a drive against the register")
+
+    if pre["toSend"]:
+        r = call("POST", "/api/suppliers/campaign/", TU,
+                 {"action": "start", "confirm": pre["toSend"]})
+        yes("confirming the exact count arms the drive", r["state"]["running"])
+
+        # Sending is bounded per sweep — a request that mails 1,300 vendors is a
+        # request that times out halfway with no record of who was reached.
+        sent, failed = campaign.send_batch("https://example.test", "Test Org", limit=3)
+        yes("a batch is bounded", sent + failed <= 3)
+        yes("every send is marked on the vendor",
+            Supplier.objects.filter(invited_at__isnull=False).count() >= sent)
+        before = Supplier.objects.filter(invited_at__isnull=False).count()
+        campaign.send_batch("https://example.test", "Test Org", limit=3)
+        after = Supplier.objects.filter(invited_at__isnull=False).count()
+        yes("and nobody is picked up twice", after > before or not campaign.eligible().exists())
+
+        r = call("POST", "/api/suppliers/campaign/", TU, {"action": "stop"})
+        yes("the drive can be paused", not r["state"]["running"])
+
+        # The claim link attaches to the record the buyer already holds.
+        tok = ActionToken.objects.filter(kind="vendor_claim", used_at__isnull=True).first()
+        if tok:
+            sid = tok.payload["supplierId"]
+            look = c.get(f"/api/register/claim/?token={tok.token}").json()
+            eq("the link names the vendor it was minted for",
+               look["supplier"]["name"], Supplier.objects.get(pk=sid).name)
+            n_before = Supplier.objects.count()
+            r = c.post("/api/register/claim/",
+                       json.dumps({"token": tok.token, "password": "ClaimTest!2026"}),
+                       content_type=J)
+            eq("claiming succeeds", r.status_code, 200)
+            eq("and creates no duplicate vendor record", Supplier.objects.count(), n_before)
+            yes("the login attaches to the existing register row",
+                Profile.objects.filter(supplier_id=sid).exists())
+            r = c.post("/api/register/claim/",
+                       json.dumps({"token": tok.token, "password": "ClaimTest!2026"}),
+                       content_type=J)
+            eq("and the link is single-use", r.status_code, 410)
+
+    campaign.stop()
+    Supplier.objects.all().update(invited_at=None, invite_error="")
+
+
+def sec_history(ctx):
+    """Baselines derived from the ledger the organisation arrived with.
+
+    The migration case: a company moving onto DOCKET has years of contracts
+    behind it, and those contracts are what its first awards should be measured
+    against. Everything here is about that derivation being defensible rather
+    than merely present.
+    """
+    section("R. baselines from ledger history")
+    from core import pricehistory as ph
+    from core.models import Contract, Supplier, Tender
+    from core.util import DAY_MS, now_ms
+
+    T = now_ms()
+
+    def legacy(sid, name, cat, prior, award, budget, *, term_days=365, signed_days=400):
+        """A vendor with one pre-DOCKET contract, then a tender awarded to them."""
+        s = Supplier.objects.create(id=sid, name=name, category=cat, location="Lagos",
+                                    prequalified=True, docs=[], perf={})
+        Contract.objects.create(
+            id="c" + sid, source="nav", external_id="EXT" + sid, ref="NAV-" + sid,
+            title=f"{name} prior term", supplier=s, tender=None,
+            amount=prior, original_value=prior, currency="NGN", amount_src=prior,
+            signed_at=T - signed_days * DAY_MS, starts_at=T - signed_days * DAY_MS,
+            ends_at=T - (signed_days - term_days) * DAY_MS, status="expired", synced_at=T)
+        t = Tender.objects.create(
+            id="t" + sid, ref="HIST-" + sid, title=f"{name} retender", ttype="RFQ",
+            category=cat, budget=budget, status="awarded", published_at=T - 60 * DAY_MS,
+            deadline=T - 40 * DAY_MS, opened_at=T - 39 * DAY_MS, awarded_at=T - 30 * DAY_MS,
+            awarded_to=s.id, awarded_amount=award, criteria=[], lines=[], addenda=[],
+            invited=[s.id])
+        return s, t
+
+    # Three outcomes that must be told apart.
+    legacy("hA", "Alpha Uniforms", "Uniforms & workwear", 180_000_000, 154_000_000, 200_000_000)
+    legacy("hB", "Beta Chemicals", "Chemicals", 90_000_000, 118_000_000, 130_000_000)
+    legacy("hC", "Gamma Legal", "Legal", 60_000_000, 42_000_000, 95_000_000)
+
+    rows = {r["id"]: r for r in ph.backfill_candidates()}
+    a, b = rows["thA"], rows["thB"]
+
+    yes("a pre-DOCKET contract becomes a baseline proposal", a["suggestion"] is not None)
+    eq("and the proposal is the contract, not a category average",
+       a["suggestion"]["basis"], "incumbent")
+    eq("valued at what that contract cost", a["suggestion"]["amount"], 180_000_000)
+    yes("the proposal names the contract it came from",
+        "NAV-hA" in a["suggestion"]["source"])
+
+    # The distinction the whole screen turns on.
+    yes("a smaller-but-honest figure is not flagged as a problem",
+        a["smaller"] and not a["worsens"])
+    yes("an award that cost more than what it replaced is flagged as a loss",
+        b["worsens"] and b["proposedSaving"] < 0)
+
+    # Only what came before.
+    eq("a contract signed after the award is never used as its baseline",
+       len(ph.prior_contracts("Uniforms & workwear",
+                              before=T - 500 * DAY_MS)), 0)
+
+    # Annualisation.
+    legacy("hD", "Delta Fleet", "Fleet & automotive", 900_000_000, 250_000_000, 400_000_000,
+           term_days=1095, signed_days=1200)
+    d = {r["id"]: r for r in ph.backfill_candidates()}["thD"]
+    eq("a three-year contract is annualised, not taken whole",
+       d["suggestion"]["amount"], 300_000_000)
+    yes("and says so", "annualised" in d["suggestion"]["evidence"][0]["how"])
+
+    # Adopting.
+    usable = [r for r in ph.backfill_candidates()
+              if r["suggestion"] and not r.get("worsens")]
+    picks = [{"id": r["id"], "amount": r["suggestion"]["amount"],
+              "source": r["suggestion"]["source"]} for r in usable]
+    before = ph.coverage()["withBaseline"]
+    applied, skipped = ph.apply_baselines(picks, "Test User")
+    yes("adopting a batch applies every clean row", len(applied) == len(picks))
+    eq("and coverage rises by exactly that many",
+       ph.coverage()["withBaseline"], before + len(applied))
+
+    t = Tender.objects.get(pk="thA")
+    eq("the tender now measures against the prior price", t.savings_basis()[1], "baseline")
+    yes("and keeps the sentence a reviewer can check it against",
+        "NAV-hA" in t.baseline_source)
+    ev = Event.objects.filter(tender_id="thA", action="Savings baseline recorded").first()
+    yes("the adoption is written to the audit trail", ev is not None)
+    yes("naming the evidence, not just the number", ev and "NAV-hA" in ev.detail)
+
+    # Refusals.
+    _, again = ph.apply_baselines([{"id": "thA", "amount": 1, "source": "x"}], "Test User")
+    yes("an existing baseline is never overwritten by a backfill",
+        again and "already has a baseline" in again[0]["why"])
+    _, loss = ph.apply_baselines(
+        [{"id": "thB", "amount": rows["thB"]["suggestion"]["amount"], "source": "x"}], "Test User")
+    yes("a baseline at or below the award is refused in bulk",
+        loss and "loss, not a saving" in loss[0]["why"])
+
+    # The endpoints, and who may reach them.
+    r = call("GET", "/api/finance/baseline/?category=Uniforms%20%26%20workwear", TU)
+    yes("the tender form can ask what a category used to cost",
+        r["suggestion"] and r["suggestion"]["amount"] > 0)
+    call("GET", "/api/finance/baseline/", TU, expect=400,
+         label="asking with no category is refused")
+    call("GET", "/api/finance/baseline/?category=Legal", CO, expect=403,
+         label="a supplier cannot read what the buyer used to pay")
+    call("GET", "/api/finance/baselines/", CO, expect=403,
+         label="nor the backfill")
+    call("POST", "/api/finance/baselines/", TU, {"picks": []}, expect=400,
+         label="adopting nothing is refused rather than silently succeeding")
+
+    # A category nobody has bought in yields nothing, rather than a guess.
+    r = call("GET", "/api/finance/baseline/?category=Travel%20%26%20hospitality", TU)
+    yes("an unknown category returns no suggestion at all",
+        r["suggestion"] is None or r["suggestion"]["n"] > 0)
+
+
 # ---------------------------------------------------------------- main
 
 def print_credentials():
@@ -1067,7 +1391,9 @@ def main():
         ok("demo cast signed in (evaluators, approver, auditor, rival suppliers)")
         for fn in (sec_accounts, sec_tenders, sec_bidding, sec_opening_award, sec_exports_audit,
                    sec_two_stage, sec_auction, sec_vendor_admin, sec_security, sec_org_admin,
-                   sec_sweep, sec_ai):
+                   sec_sweep, sec_ai,
+                   sec_taxonomy, sec_savings, sec_reporting, sec_executive, sec_campaign,
+                   sec_history):
             fn(ctx)
         print(f"\n{len(CHECKS)} checks passed in {time.time() - started:.1f}s "
               f"across {len({s for s, _ in CHECKS})} sections.")

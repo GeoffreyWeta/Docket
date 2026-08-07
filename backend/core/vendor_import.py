@@ -19,6 +19,8 @@ import json
 import re
 from datetime import datetime
 
+from .taxonomy import subcategory_for
+
 # ---------------------------------------------------------------- categories
 
 # Ordered rules: the first pattern that matches a row's CLASSIFICATION wins, so
@@ -353,6 +355,9 @@ def build_rows(rows):
             "id": slug_id(name, taken),
             "name": name,
             "category": category,
+            # Second taxonomy layer, from the same cell the category came from.
+            # Blank where the rules cannot place it — see taxonomy.py.
+            "subcategory": subcategory_for(category, raw_class, name),
             "location": location,
             "prequalified": prequalified,
             "rejected_reason": reason,

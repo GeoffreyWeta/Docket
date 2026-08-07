@@ -43,7 +43,7 @@ DEMO_MAP = [
 # not in the spreadsheet, so a re-import must not touch it. The register has no
 # delivery history to offer; overwriting one with nothing would blank every
 # scorecard and look like an import bug.
-FROM_FILE = ("name", "category", "location", "prequalified", "rejected_reason",
+FROM_FILE = ("name", "category", "subcategory", "location", "prequalified", "rejected_reason",
              "contact_email", "code", "classification", "contact_person",
              "phone", "address", "payment_terms", "registry")
 

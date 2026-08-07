@@ -2,9 +2,10 @@
 from django.conf import settings
 from django.contrib.auth.models import User
 
-from .models import (ActionToken, AuctionBid, AuthToken, Bid, ChainHead, Clarification,
-                     Document, Event, Notification, OrgSetting, Persona, Profile,
-                     Supplier, TaskMark, Tender)
+from .models import (AccessRole, ActionToken, AuctionBid, AuthToken, Bid, ChainHead,
+                     Clarification, Contract, Document, Event, FxRate, GoodsReceipt,
+                     Invoice, Notification, OrgSetting, Payment, Persona, Profile,
+                     PurchaseOrder, SourceSync, Supplier, TaskMark, Tender)
 from .util import (DAY_MS, award_letter, now_ms, record_event, regret_letter,
                    rid, seal_bytes, seal_json)
 
@@ -16,10 +17,26 @@ TINY_PDF = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
 
 DEMO_USERS = [
     # (username, persona_id, supplier_id)
+    ("tunde", "u0", None),
     ("amara", "u1", None), ("deji", "u2", None), ("ngozi", "u3", None),
     ("mark", "u4", None), ("aisha", "u5", None),
     ("coldline", None, "s2"), ("harmattan", None, "s3"), ("bluechip", None, "s7"),
 ]
+
+# The executive role, as configuration. Everything an oversight account needs to
+# read and nothing it needs to act: no tender.*, no bid.score, no award.decide.
+# Reading the whole organisation is a real power and this is where it is granted;
+# it is not a shortcut to holding every other one.
+EXEC_ROLE = "exec"
+EXEC_PERMS = {
+    "page.dashboard", "page.tenders", "page.suppliers", "page.scorecards",
+    "page.analytics", "page.audit", "page.team", "page.finance",
+    "team.view", "desk.see_reports",
+    "bid.see_all_scores", "award.see_recommendation",
+    "audit.integrity", "audit.export",
+    "export.comparison", "export.memo", "export.compliance",
+    "finance.payables",
+}
 
 ORG = {"name": "Kestrel Hospitality Group", "short": "Kestrel", "note": "Demo workspace"}
 
@@ -34,6 +51,11 @@ def wipe():
     """
     User.objects.filter(is_superuser=False).delete()  # cascades profiles, tokens, notifications
     AuthToken.objects.exclude(user__is_superuser=True).delete()
+    # Ledger first: payments reference invoices reference orders reference
+    # contracts reference tenders, and SET_NULL would otherwise leave a mirror
+    # of orphaned rows behind a reset that claims to have removed everything.
+    for m in (Payment, Invoice, GoodsReceipt, PurchaseOrder, Contract, FxRate, SourceSync):
+        m.objects.all().delete()
     for m in (Notification, ActionToken, Document, TaskMark, Event,
               ChainHead, Clarification, Bid, Tender, Supplier, Persona, OrgSetting):
         m.objects.all().delete()
@@ -48,7 +70,20 @@ def seed_all():
     T = now_ms()
     d = lambda n: int(n * DAY_MS)
 
+    # The executive role is configuration rather than code — it is created here
+    # the same way an administrator would create it in the console, so the demo
+    # shows a real custom role rather than a sixth hardcoded one.
+    AccessRole.objects.update_or_create(
+        key=EXEC_ROLE,
+        defaults={"label": "Executive — sees everything, signs nothing",
+                  "title": "Chief Executive",
+                  "note": "Oversight across the whole organisation. Deliberately holds no "
+                          "power to publish, score or award: an executive who can sign a "
+                          "tender through is an executive nobody can escalate to.",
+                  "perms": sorted(EXEC_PERMS), "created": T, "created_by": "seed"})
+
     Persona.objects.bulk_create([
+        Persona(id="u0", name="Tunde Adeyemi", role=EXEC_ROLE, title="Chief Executive"),
         Persona(id="u1", name="Amara Okafor", role="procurement", title="Head of Procurement"),
         Persona(id="u2", name="Deji Balogun", role="evaluator", title="Supply Quality Evaluator"),
         Persona(id="u3", name="Ngozi Eze", role="evaluator", title="Finance Evaluator"),
@@ -56,38 +91,57 @@ def seed_all():
         Persona(id="u5", name="Aisha Bello", role="auditor", title="Internal Audit"),
     ])
 
+    # Reporting lines, set after the rows exist so the self-reference resolves.
+    #
+    #                      Tunde Adeyemi (CEO)
+    #                       │            │
+    #            Mark Iyer (CFO)      Aisha Bello (Internal Audit)
+    #                       │
+    #            Amara Okafor (Head of Procurement)
+    #                       │
+    #          Deji Balogun ─┴─ Ngozi Eze (evaluators)
+    #
+    # Audit reports to the chief executive and not to the CFO on purpose. An
+    # internal auditor whose appraisal is written by the person whose awards
+    # they review is not an independent auditor, and the reporting line is
+    # where that independence is either real or decorative.
+    for pid, mid in (("u4", "u0"), ("u5", "u0"), ("u1", "u4"), ("u2", "u1"), ("u3", "u1")):
+        Persona.objects.filter(pk=pid).update(manager_id=mid)
+
     sup = lambda **kw: Supplier(**kw)
     Supplier.objects.bulk_create([
-        sup(id="s1", name="Lagos Fresh Produce Co.", category="Food & Produce", location="Lagos", rating=4.1, prequalified=True,
+        sup(id="s1", name="Lagos Fresh Produce Co.", category="Food & ingredients", location="Lagos", rating=4.1, prequalified=True,
             docs=[{"name": "NAFDAC registration", "expiry": T + d(38)}, {"name": "Tax clearance 2026", "expiry": T + d(210)}],
             perf={"onTime": 91, "quality": 88}),
-        sup(id="s2", name="Coldline Logistics", category="Logistics", location="Lagos", rating=4.6, prequalified=True,
+        sup(id="s2", name="Coldline Logistics", category="Logistics & freight", location="Lagos", rating=4.6, prequalified=True,
             docs=[{"name": "Fleet insurance", "expiry": T + d(190)}, {"name": "Tax clearance 2026", "expiry": T + d(240)}],
             perf={"onTime": 97, "quality": 95}),
-        sup(id="s3", name="Harmattan Foods Ltd", category="Dairy & Imports", location="Lagos", rating=4.4, prequalified=True,
+        sup(id="s3", name="Harmattan Foods Ltd", category="Food & ingredients", location="Lagos", rating=4.4, prequalified=True,
             docs=[{"name": "HACCP certification", "expiry": T + d(24)}, {"name": "Import licence", "expiry": T + d(300)}],
             perf={"onTime": 94, "quality": 96}),
-        sup(id="s4", name="Zenith Kitchen Systems", category="Equipment", location="Abuja", rating=4.3, prequalified=True,
+        sup(id="s4", name="Zenith Kitchen Systems", category="Equipment & assets", location="Abuja", rating=4.3, prequalified=True,
             docs=[{"name": "SON product certification", "expiry": T + d(400)}], perf={"onTime": 89, "quality": 93}),
-        sup(id="s5", name="PackRight Industries", category="Packaging", location="Ogun", rating=4.5, prequalified=True,
+        sup(id="s5", name="PackRight Industries", category="Printing & packaging", location="Ogun", rating=4.5, prequalified=True,
             docs=[{"name": "Food-contact compliance", "expiry": T + d(150)}], perf={"onTime": 96, "quality": 94}),
-        sup(id="s6", name="Meridian Pest Solutions", category="Facilities services", location="Lagos", rating=4.0, prequalified=True,
+        sup(id="s6", name="Meridian Pest Solutions", category="Cleaning, pest & waste", location="Lagos", rating=4.0, prequalified=True,
             docs=[{"name": "Operator licence", "expiry": T + d(120)}], perf={"onTime": 92, "quality": 90}),
-        sup(id="s7", name="BlueChip POS Africa", category="IT hardware", location="Lagos", rating=4.2, prequalified=True,
+        sup(id="s7", name="BlueChip POS Africa", category="IT & telecoms", location="Lagos", rating=4.2, prequalified=True,
             docs=[{"name": "OEM partner certificate", "expiry": T + d(500)}], perf={"onTime": 90, "quality": 92}),
-        sup(id="s8", name="Savanna Dairy Imports", category="Dairy & Imports", location="Kano", rating=4.0, prequalified=True,
+        sup(id="s8", name="Savanna Dairy Imports", category="Food & ingredients", location="Kano", rating=4.0, prequalified=True,
             docs=[{"name": "HACCP certification", "expiry": T + d(260)}, {"name": "Tax clearance 2026", "expiry": T + d(51)}],
             perf={"onTime": 87, "quality": 91}),
-        sup(id="s9", name="Okoye Catering Equipment", category="Equipment", location="Onitsha", rating=3.9, prequalified=True,
+        sup(id="s9", name="Okoye Catering Equipment", category="Equipment & assets", location="Onitsha", rating=3.9, prequalified=True,
             docs=[{"name": "SON product certification", "expiry": T + d(330)}], perf={"onTime": 85, "quality": 88}),
-        sup(id="s10", name="FrostLine Refrigeration", category="Equipment", location="Port Harcourt", rating=3.7, prequalified=False,
+        sup(id="s10", name="FrostLine Refrigeration", category="Equipment & assets", location="Port Harcourt", rating=3.7, prequalified=False,
             docs=[{"name": "Tax clearance 2026", "expiry": T + d(90)}], perf={"onTime": 82, "quality": 86}),
-        sup(id="s11", name="Crestpack Nigeria", category="Packaging", location="Lagos", rating=4.1, prequalified=True,
+        sup(id="s11", name="Crestpack Nigeria", category="Printing & packaging", location="Lagos", rating=4.1, prequalified=True,
             docs=[{"name": "Food-contact compliance", "expiry": T + d(210)}], perf={"onTime": 90, "quality": 89}),
     ])
 
     t1 = Tender(
-        id="t1", ref="KST-RFP-2026-014", title="Annual supply of mozzarella & dairy inputs", ttype="RFP", category="Dairy",
+        id="t1", ref="KST-RFP-2026-014", title="Annual supply of mozzarella & dairy inputs", ttype="RFP",
+        category="Food & ingredients", owner_id="u1",
+        baseline=505_000_000, baseline_source="2025 contract with Harmattan Foods, annualised",
         budget=480_000_000, status="evaluation", published_at=T - d(21), deadline=T - d(6), opened_at=T - d(5),
         invited=["s3", "s8", "s1"], tech_weight=70, comm_weight=30, lines=[], addenda=[],
         criteria=[
@@ -101,7 +155,9 @@ def seed_all():
                "traceability are mandatory. Volumes indexed quarterly to store count."),
     )
     t2 = Tender(
-        id="t2", ref="KST-RFQ-2026-021", title="Nationwide cold-chain distribution partner", ttype="RFQ", category="Logistics",
+        id="t2", ref="KST-RFQ-2026-021", title="Nationwide cold-chain distribution partner", ttype="RFQ",
+        category="Logistics & freight", owner_id="u1",
+        baseline=655_000_000, baseline_source="Incumbent renewal quote, Jan 2026",
         budget=620_000_000, status="published", published_at=T - d(9), deadline=T + d(5),
         invited=["s2", "s10", "s1"], tech_weight=65, comm_weight=35, addenda=[],
         lines=[
@@ -120,7 +176,9 @@ def seed_all():
                "Price each line as a fixed unit rate for the full term."),
     )
     t3 = Tender(
-        id="t3", ref="KST-RFQ-2026-019", title="Kitchen equipment for 12 new stores", ttype="RFQ", category="Equipment",
+        id="t3", ref="KST-RFQ-2026-019", title="Kitchen equipment for 12 new stores", ttype="RFQ",
+        category="Equipment & assets", owner_id="u1",
+        baseline=372_000_000, baseline_source="2025 store fit-out actuals, per-store × 12",
         budget=350_000_000, status="published", published_at=T - d(18), deadline=T - d(1),
         invited=["s4", "s9", "s10"], tech_weight=60, comm_weight=40, addenda=[],
         lines=[
@@ -139,7 +197,9 @@ def seed_all():
                "Unit rates fixed for the programme."),
     )
     t4 = Tender(
-        id="t4", ref="KST-RFQ-2026-008", title="Pizza boxes, cups & consumables — annual supply", ttype="RFQ", category="Packaging",
+        id="t4", ref="KST-RFQ-2026-008", title="Pizza boxes, cups & consumables — annual supply", ttype="RFQ",
+        category="Printing & packaging", owner_id="u1",
+        baseline=228_000_000, baseline_source="2025 annual spend with Crestpack",
         budget=210_000_000, status="awarded", published_at=T - d(60), deadline=T - d(40), opened_at=T - d(39),
         awarded_at=T - d(31), awarded_to="s5", awarded_amount=183_000_000,
         award_memo=("Panel recommends PackRight Industries at \u20a6183m — 12.9% under the \u20a6210m ceiling. Highest technical "
@@ -159,7 +219,8 @@ def seed_all():
         "s11": {"type": "regret", "text": regret_letter(ORG["name"], t4, "Crestpack Nigeria")},
     }
     t5 = Tender(
-        id="t5", ref="KST-RFP-2026-027", title="Integrated pest management — 128 stores", ttype="RFP", category="Facilities",
+        id="t5", ref="KST-RFP-2026-027", title="Integrated pest management — 128 stores", ttype="RFP",
+        category="Cleaning, pest & waste", owner_id="u1",
         budget=96_000_000, status="approval", published_at=None, deadline=T + d(20),
         invited=["s6"], tech_weight=70, comm_weight=30, lines=[], addenda=[], two_stage=True, tech_threshold=70,
         criteria=[
@@ -172,7 +233,9 @@ def seed_all():
                "protocols only."),
     )
     t6 = Tender(
-        id="t6", ref="KST-RFP-2026-025", title="POS hardware refresh across 3 brands", ttype="RFP", category="IT hardware",
+        id="t6", ref="KST-RFP-2026-025", title="POS hardware refresh across 3 brands", ttype="RFP",
+        category="IT & telecoms", owner_id="u4",
+        baseline=268_000_000, baseline_source="OEM list price at 2025 volumes",
         budget=240_000_000, status="published", published_at=T - d(6), deadline=T + d(9),
         invited=["s7"], tech_weight=65, comm_weight=35,
         addenda=[{"id": "a1", "at": T - d(2), "title": "Addendum 01 — store list revised to 132 stores",
@@ -194,7 +257,8 @@ def seed_all():
     )
     t7 = Tender(
         id="t7", ref="KST-AUC-2026-030", title="Diesel supply for store generators — reverse auction", ttype="AUC",
-        category="Energy", budget=90_000_000, status="published", published_at=T - d(1), deadline=T + d(0.085),
+        category="Fuel, diesel & gas", owner_id="u4",
+        baseline=97_500_000, baseline_source="Trailing 90-day average pump price × volume", budget=90_000_000, status="published", published_at=T - d(1), deadline=T + d(0.085),
         invited=["s2", "s3", "s7", "s6"], tech_weight=0, comm_weight=100, lines=[], addenda=[], criteria=[],
         auction_min_decrement=500_000,
         scope=("12-month supply of AGO (diesel) to 128 store generators nationwide, delivered to site on a "
@@ -301,3 +365,11 @@ def seed_all():
         Profile.objects.create(user=u,
                                persona=Persona.objects.get(pk=pid) if pid else None,
                                supplier=Supplier.objects.get(pk=sid) if sid else None)
+
+    # The spend dimensions this workspace codes to, and two years of ledger
+    # behind the awards. Last, because the ledger references the tenders and
+    # vendors above it. See seed_finance.py.
+    from .seed_finance import DIMENSIONS, seed_finance
+    OrgSetting.objects.update_or_create(
+        pk=1, defaults={"data": {"dimensions": DIMENSIONS}})
+    seed_finance(T)

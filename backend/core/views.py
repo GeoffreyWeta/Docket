@@ -30,6 +30,8 @@ from .notify import notify_perm, notify_supplier, notify_suppliers
 from .permissions import has
 from .seed import ORG, seed_all
 from .tasks import maybe_sweep
+from .taxonomy import ALL_CATEGORIES, canonical, family_for
+from .taxonomy import tree as taxonomy_tree
 from .util import (record_event, seal_bytes, seal_json, unseal_bytes,
                    unseal_json, verify_chain)
 from .util import (abnormally_low, award_letter, comm_score, eff_status,
@@ -122,10 +124,11 @@ def supplier_view(s, full=False):
     can see: those need their documents for compliance scoring, and for the
     vendor's own record when a supplier signs in."""
     d = {
-        "id": s.id, "name": s.name, "category": s.category, "location": s.location,
+        "id": s.id, "name": s.name, "category": s.category, "subcategory": s.subcategory,
+        "family": family_for(s.category), "location": s.location,
         "rating": s.rating, "prequalified": s.prequalified, "perf": s.perf,
         "contactEmail": s.contact_email, "registeredAt": s.registered_at,
-        "rejectedReason": s.rejected_reason,
+        "rejectedReason": s.rejected_reason, "invitedAt": s.invited_at,
         "code": s.code, "docCount": len(s.docs or []),
     }
     if not full:
@@ -146,6 +149,7 @@ def tender_view(t, p):
             return None
     d = {
         "id": t.id, "ref": t.ref, "title": t.title, "type": t.ttype, "category": t.category,
+        "family": family_for(t.category),
         "budget": t.budget, "status": t.status, "publishedAt": t.published_at, "deadline": t.deadline,
         "openedAt": t.opened_at, "awardedAt": t.awarded_at, "awardedTo": t.awarded_to,
         "awardedAmount": t.awarded_amount, "techWeight": t.tech_weight, "commWeight": t.comm_weight,
@@ -153,7 +157,20 @@ def tender_view(t, p):
         "invited": t.invited, "awardRec": None, "awardMemo": None, "letters": None,
         "twoStage": t.two_stage, "techOpenedAt": t.tech_opened_at, "techThreshold": t.tech_threshold,
         "minDecrement": t.auction_min_decrement,
+        # Ownership and the savings basis. A supplier is told neither: which
+        # buyer is carrying a tender, and what the organisation was paying
+        # before it went to market, are both facts a bidder could price against.
+        "ownerId": None, "baseline": None, "baselineSource": None,
     }
+    if p["role"] != "supplier":
+        d["ownerId"] = t.owner_id
+        d["baseline"] = t.baseline
+        d["baselineSource"] = t.baseline_source or None
+        # How this spend is coded for finance reporting. Withheld from suppliers
+        # with everything else on this branch: which cost centre is funding a
+        # purchase is an internal fact, and a bidder who knows a project has its
+        # own budget line prices against that budget line.
+        d["dimensions"] = t.dims()
     if has(p, "award.see_recommendation"):
         d["awardRec"] = t.award_rec
         d["awardMemo"] = t.award_memo or None
@@ -264,8 +281,23 @@ def bootstrap(request, p, body):
         events = [{"id": e.id, "at": e.at, "actor": e.actor, "role": e.role, "action": e.action,
                    "tenderId": e.tender_id, "detail": e.detail} for e in Event.objects.all()[:400]]
 
-    users = [{"id": u.id, "name": u.name, "role": u.role, "title": u.title}
-             for u in Persona.objects.all().order_by("id")]
+    # The org chart travels with the payload: reporting lines change rarely and
+    # every desk rollup needs them, so fetching them separately would be a round
+    # trip per dashboard render for data that fits in a few hundred bytes.
+    people = list(Persona.objects.select_related("manager").order_by("id"))
+    users = [{"id": u.id, "name": u.name, "role": u.role, "title": u.title,
+              "managerId": u.manager_id}
+             for u in people]
+
+    # Whose work this person may see rolled up. Derived server-side rather than
+    # left to the client to walk: "who reports to me" decides what numbers a
+    # manager is shown, and a client-side answer to that is a client-side
+    # decision about visibility.
+    me = Persona.objects.filter(pk=p["id"]).first()
+    if me and has(p, "desk.see_reports"):
+        reports = [x.id for x in me.descendants()]
+    else:
+        reports = []
 
     docs = []
     tmap = {t["id"]: Tender.objects.get(pk=t["id"]) for t in tenders}
@@ -282,7 +314,8 @@ def bootstrap(request, p, body):
               for n in Notification.objects.filter(user_id=p["userId"])[:50]]
 
     return JsonResponse({
-        "org": org_settings(), "me": p, "users": users,
+        "org": org_settings(), "me": p, "users": users, "reports": reports,
+        "taxonomy": taxonomy_tree(vendor_leaf_counts()) if p["role"] != "supplier" else [],
         "suppliers": suppliers, "tenders": tenders, "bids": bids,
         "clarifications": clars, "events": events, "documents": docs,
         "notifications": notifs,
@@ -290,9 +323,28 @@ def bootstrap(request, p, body):
     })
 
 
+def vendor_leaf_counts():
+    """{(category, subcategory): n} across the register — one grouped query, so
+    the taxonomy can show how many vendors sit under each leaf without the
+    client counting 1,400 records it was never sent."""
+    from django.db.models import Count
+    rows = (Supplier.objects.values("category", "subcategory")
+            .annotate(n=Count("id")))
+    return {(r["category"], r["subcategory"]): r["n"] for r in rows}
+
+
 # ---------------- org settings ----------------
 
-DEFAULT_SETTINGS = {"approvalThreshold": 50_000_000}
+# The values a tender can be coded to for finance reporting. Configuration
+# rather than code: a company reorganises its departments and opens a region
+# more often than it deploys, and a spend-by-department chart that needs a
+# release to learn about a new department is a chart that goes stale quietly.
+# An empty list means the dimension is not in use and the tender form omits it.
+DEFAULT_DIMENSIONS = {
+    "department": [], "cost_centre": [], "project": [], "region": [], "funding_source": [],
+}
+
+DEFAULT_SETTINGS = {"approvalThreshold": 50_000_000, "dimensions": DEFAULT_DIMENSIONS}
 
 
 def org_settings():
@@ -340,6 +392,27 @@ def settings_view(request, p, body):
             changes["short"] = short
         elif name:
             changes["short"] = name.split()[0][:24]
+    if "dimensions" in body:
+        if not has(p, "finance.dimensions"):
+            return err("You don't have permission to change the spend dimensions.", 403)
+        given = body.get("dimensions")
+        if not isinstance(given, dict):
+            return err("Dimensions must be a map of dimension key to allowed values.")
+        cleaned = {}
+        for key in DEFAULT_DIMENSIONS:
+            vals = given.get(key, (org_settings().get("dimensions") or {}).get(key) or [])
+            if not isinstance(vals, list):
+                return err(f"The {key} list must be a list of values.")
+            # Deduplicated, trimmed, order preserved — the order is the order
+            # they appear in the tender form, and somebody chose it.
+            seen, out = set(), []
+            for v in vals:
+                s = str(v).strip()[:80]
+                if s and s.lower() not in seen:
+                    seen.add(s.lower())
+                    out.append(s)
+            cleaned[key] = out[:200]
+        changes["dimensions"] = cleaned
     if not changes:
         return err("Nothing to change.")
     row, _ = OrgSetting.objects.get_or_create(pk=1)
@@ -351,6 +424,10 @@ def settings_view(request, p, body):
     if "name" in changes or "short" in changes:
         log(p, "Workspace renamed",
             f"The organisation is now \"{org_name()}\". New tender references use the {ref_prefix()}- prefix; existing references are unchanged.")
+    if "dimensions" in changes:
+        log(p, "Spend dimensions changed",
+            ", ".join(f"{k}: {len(v)} value(s)" for k, v in changes["dimensions"].items())
+            + ". Tenders already coded to a removed value keep it — the code is what was true when it was raised.")
     return JsonResponse(org_settings())
 
 
@@ -395,8 +472,20 @@ def _apply_tender_payload(t, body):
     except (TypeError, ValueError):
         t.auction_min_decrement = 0
 
-    t.category = body.get("category", "")
+    # `canonical` accepts the seven words the old dropdown offered, so a draft
+    # saved in a browser tab before this shipped still lands in a real category
+    # instead of creating a twenty-fourth one nothing else counts.
+    t.category = canonical(body.get("category", ""))
     t.budget = int(body.get("budget", 0) or 0)
+    # What this was costing before. Optional, and left null rather than defaulted
+    # to the budget: a baseline that quietly equals the ceiling would make every
+    # saving read as zero and look like a calculation bug.
+    try:
+        base = int(body.get("baseline") or 0)
+    except (TypeError, ValueError):
+        base = 0
+    t.baseline = base if base > 0 else None
+    t.baseline_source = str(body.get("baselineSource", "")).strip()[:200] if t.baseline else ""
     t.deadline = int(body.get("deadline", 0) or 0)
     t.tech_weight = int(body.get("techWeight", 70))
     t.comm_weight = 100 - t.tech_weight
@@ -407,6 +496,17 @@ def _apply_tender_payload(t, body):
                 "qty": int(l.get("qty", 0) or 0), "unit": str(l.get("unit", "unit")).strip() or "unit"}
                for l in body.get("lines", []) if str(l.get("desc", "")).strip()]
     t.invited = [sid for sid in body.get("invited", []) if Supplier.objects.filter(pk=sid).exists()]
+
+    # Finance coding. Free text against a configured list rather than a foreign
+    # key: the value recorded is what the department was called when the tender
+    # was raised, and reorganising the list next year must not silently re-badge
+    # last year's spend. Values outside the list are kept, not rejected — the
+    # list is guidance for the form, and a tender blocked at submission because
+    # somebody opened a new region on Monday helps nobody.
+    dims = body.get("dimensions") or {}
+    for key, _ in Tender.DIMENSIONS:
+        setattr(t, key, str(dims.get(key, getattr(t, key, "")) or "").strip()[:120])
+
     if t.ttype == "AUC":  # price-only competition
         t.two_stage = False
         t.tech_weight, t.comm_weight = 0, 100
@@ -439,6 +539,10 @@ def _validate_tender(t, submitting):
 def tender_create(request, p, body):
     submitting = bool(body.get("submit"))
     t = Tender(id=rid("t"), status="draft", published_at=None, addenda=[])
+    # Whoever drafts it owns it. Recorded at creation rather than inferred from
+    # the audit chain later, because the person who first touches a tender and
+    # the person carrying it are the same person exactly once — here.
+    t.owner_id = p["id"] if p["role"] != "supplier" else None
     _apply_tender_payload(t, body)
     msg = _validate_tender(t, submitting)
     if msg:
@@ -1314,6 +1418,7 @@ def team(request, p, body):
         per = u.profile.persona
         prof = u.profile
         members.append({"username": u.username, "email": u.email, "name": per.name,
+                        "id": per.id, "managerId": per.manager_id,
                         "role": per.role, "roleLabel": role_label(per.role, custom).split("—")[0].strip(),
                         "title": per.title, "active": u.is_active,
                         # so the Team page tells the truth when someone has been
@@ -1326,6 +1431,40 @@ def team(request, p, body):
     from .permissions import assignable_roles
     roles = [{"value": r["key"], "label": r["label"]} for r in assignable_roles(custom)]
     return JsonResponse({"members": members, "invites": pending, "roles": roles})
+
+
+@route(["POST"], perm="team.org")
+def set_reporting_line(request, p, body):
+    """Move one person under another, or to the top of the chart.
+
+    Two refusals, both structural rather than stylistic. You cannot be your own
+    manager, and you cannot be placed under one of your own reports — either
+    would create a cycle, and a cycle in a reporting line is not a strange org
+    chart, it is a rollup that never terminates and a manager who can see their
+    own manager's desk. `Persona.chain()` is cycle-safe as a second line of
+    defence, but the place to refuse a loop is where it would be created.
+    """
+    pid = str(body.get("personId", ""))
+    mid = body.get("managerId") or None
+    person = Persona.objects.filter(pk=pid).first()
+    if not person:
+        return err("No such person.", 404)
+    if mid:
+        manager = Persona.objects.filter(pk=str(mid)).first()
+        if not manager:
+            return err("No such manager.", 404)
+        if manager.id == person.id:
+            return err("Somebody cannot report to themselves.")
+        if any(x.id == manager.id for x in person.descendants()):
+            return err(f"{manager.name} already reports to {person.name}, directly or "
+                       f"through someone else. That would make a loop.")
+    was = person.manager.name if person.manager else "nobody"
+    person.manager_id = str(mid) if mid else None
+    person.save(update_fields=["manager"])
+    now = Persona.objects.get(pk=person.id).manager
+    log(p, "Reporting line changed",
+        f"{person.name} now reports to {now.name if now else 'nobody'} (was {was}).")
+    return JsonResponse({"ok": True})
 
 
 @route(["POST"], perm="team.invite")
@@ -1497,6 +1636,53 @@ def import_suppliers(request, p, body):
         created.append(name)
     log(p, "Suppliers imported", f"{len(created)} supplier(s) imported from CSV; {skipped} duplicate/blank row(s) skipped.")
     return JsonResponse({"created": len(created), "skipped": skipped})
+
+
+@route(["GET", "POST"], perm="supplier.invite")
+def vendor_campaign(request, p, body):
+    """The registration drive: ask the imported register to come and sign up.
+
+    GET previews — exactly who would be contacted and who would be skipped, with
+    the reason for each skip. POST with {action:"start"} arms it; the sending
+    itself happens in the background sweep, a bounded batch at a time.
+
+    A preview is not a formality here. This is the one action in the workspace
+    that reaches 1,300 companies outside it, and it cannot be recalled. The
+    caller has to have seen the number before they can send it: `start` refuses
+    unless the body echoes back the count the preview returned.
+    """
+    from . import campaign
+    if request.method == "GET":
+        return JsonResponse(campaign.preview())
+
+    action = str(body.get("action", ""))
+    if action == "stop":
+        campaign.stop()
+        log(p, "Registration drive paused", "No further invitations will be sent.")
+        return JsonResponse(campaign.preview())
+    if action != "start":
+        return err("Unknown action.")
+
+    pre = campaign.preview()
+    if not pre["toSend"]:
+        return err("There is nobody left to invite. Every vendor with an address on "
+                   "file has already been contacted or already has an account.")
+    # The confirmation is the count itself, so a stale preview cannot be
+    # confirmed: if the register changed under the operator, the numbers no
+    # longer match and they are sent back to look again.
+    try:
+        confirmed = int(body.get("confirm", -1))
+    except (TypeError, ValueError):
+        confirmed = -1
+    if confirmed != pre["toSend"]:
+        return err(f"This would email {pre['toSend']} vendors. Confirm that number to "
+                   f"send. (You confirmed {confirmed if confirmed >= 0 else 'nothing'}.)")
+
+    campaign.start(p["name"])
+    log(p, "Registration drive started",
+        f"{pre['toSend']} vendor(s) queued for a registration invitation, "
+        f"{pre['distinctAddresses']} distinct address(es), {campaign.BATCH} per sweep.")
+    return JsonResponse(campaign.preview())
 
 
 @route(["POST"], perm="supplier.import")

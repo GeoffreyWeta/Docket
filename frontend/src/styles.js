@@ -85,6 +85,19 @@ export const CSS = `
   --pri-from:#4F46E5; --pri-to:#4338CA; --pri-from-h:#6366F1; --pri-to-h:#4F46E5; --pri-line:#3730A3;
   --wax-from:#E11D48; --wax-to:#BE123C; --wax-from-h:#F43F5E; --wax-to-h:#E11D48; --wax-line:#9F1239;
 
+  /* ---- categorical series slots (charts) ----
+     Eight hues in a fixed order, assigned by identity and never by rank. The
+     order is the colour-blindness safety mechanism, not a preference: this set
+     clears the adjacent-pair separation gate under protanopia and deuteranopia
+     in both light and dark, and re-ordering it silently breaks that.
+
+     Three of the light slots (aqua, yellow, magenta) sit just under 3:1 against
+     a white card. That is permitted only where the values are legible by some
+     other route, which is why every Figure in charts.jsx carries a table view
+     and why direct labels ride the marks. Do not use these as text colours. */
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+
   /* chips + stamps */
   --chip-ok-line:#A7F3D0; --chip-warn-line:#FECDD3; --chip-gold-line:#FDE68A;
 
@@ -321,6 +334,11 @@ export const CSS = `
   --paper:#121216; --paper-2:#28272D; --card:#1C1B1F; --sunk:#1F1E23;
   --ink:#E5E1E6; --muted:#C6C4CD; --faint:#918F99;
   --line:#35343A; --line2:#2C2B31; --hair:#2C2B31;
+  /* Series slots stepped for a dark surface — the same eight hues, not a
+     different palette, so a category keeps its identity when the theme flips.
+     All eight clear 3:1 here, so the light mode's relief caveat does not apply. */
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+  --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
   --on-brand:#06371F;
   --btn-hover:#33323A;
   --topbar-bg:rgba(18,18,22,.9);
@@ -355,6 +373,11 @@ export const CSS = `
   --paper:#0F1613; --paper-2:#0B120F; --card:#16211C; --sunk:#121B17;
   --ink:#E4EBE6; --muted:#A3B0A8; --faint:#7C8A83;
   --line:#253029; --line2:#35443C; --hair:rgba(228,235,230,.09);
+  /* Series slots stepped for a dark surface — the same eight hues, not a
+     different palette, so a category keeps its identity when the theme flips.
+     All eight clear 3:1 here, so the light mode's relief caveat does not apply. */
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+  --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
   /* night's filled buttons are a dark green gradient, so the label on them has
      to be white: the near-black this used to be measured 2.45:1, which is
      unreadable and predates the studio palette. */
@@ -642,6 +665,11 @@ label.btn{cursor:pointer}
    these sit in flex rows where 100% would swallow the label beside them. */
 .in.numin{width:118px;max-width:100%;text-align:center}
 .lbl{display:block;font-size:12px;font-weight:600;color:var(--muted);margin:0 0 6px;letter-spacing:.005em;line-height:1.4}
+/* The sentence under a field that explains what it is for. Distinct from a
+   validation message: this is always present and never red. */
+.hint{font-size:11.5px;color:var(--faint);line-height:1.5;margin-top:5px}
+.lbl .faint{font-weight:400;text-transform:none;letter-spacing:0}
+.in:disabled{opacity:.55;cursor:not-allowed}
 .frow{margin-bottom:14px}
 /* a row of fields that is a column on a phone: the workspace rename, the
    supplier profile, the compliance-document uploader */
@@ -735,6 +763,31 @@ label.btn{cursor:pointer}
 .stat .v{font-family:var(--stat-v-font);font-size:24px;font-weight:var(--stat-v-weight);margin-top:4px;
   letter-spacing:var(--h1-ls);line-height:1.1;font-variant-numeric:tabular-nums;overflow-wrap:break-word}
 .stat .d{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.45}
+/* A figure you can walk through to what it counts. The arrow only appears on
+   approach, so a wall of stats stays quiet until you reach for one. */
+.statlink{position:relative;display:block;width:100%;text-align:left;cursor:pointer;font:inherit;color:inherit}
+.statlink:hover{border-color:var(--line-strong,var(--line2));box-shadow:var(--card-shadow-hi,var(--card-shadow))}
+.statlink:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+.statlink .statgo{position:absolute;top:11px;right:12px;font-size:13px;color:var(--faint);
+  opacity:0;transform:translateX(-3px);transition:opacity var(--t) var(--ease),transform var(--t) var(--ease)}
+.statlink:hover .statgo,.statlink:focus-visible .statgo{opacity:1;transform:none}
+
+/* ---- the dashboard's work queue ----
+   One row per thing that is waiting, with how long it has been waiting said
+   plainly. A .mine row is something this person can act on; a .theirs row is
+   somebody else's move and is deliberately quieter. */
+.wq{display:flex;align-items:flex-start;gap:11px;padding:11px 0;border-bottom:1px solid var(--line2)}
+.wq:last-child{border-bottom:0}
+.wq .wqmain{flex:1;min-width:0}
+.wq .wqtitle{font-weight:600;line-height:1.35}
+.wq .wqwhy{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.45}
+.wq .wqage{font-family:var(--font-mono);font-size:11px;color:var(--faint);white-space:nowrap;
+  font-variant-numeric:tabular-nums;padding-top:2px}
+.wq.late .wqage{color:var(--wax)}
+.wq.theirs{opacity:.72}
+.wqmark{width:9px;height:9px;border-radius:50%;flex:0 0 auto;margin-top:6px;background:var(--line2)}
+.wq.mine .wqmark{background:var(--brass)}
+.wq.late .wqmark{background:var(--wax)}
 
 /* ---- tabs ----
    A phone scrolls them sideways rather than wrapping them into a second row

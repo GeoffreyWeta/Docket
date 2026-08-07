@@ -51,6 +51,7 @@ GROUPS = [
     ("award", "Award", "Recommending a winner and signing the award off."),
     ("suppliers", "Vendors", "The vendor register and prequalification."),
     ("workspace", "Workspace & people", "Team management and the approval matrix."),
+    ("finance", "Finance", "Savings, contracts, payables and the ledger feed."),
     ("oversight", "Oversight & exports", "The audit chain and everything that leaves as a file."),
     ("ai", "Drafting assistant", "The optional AI drafting and review endpoints."),
 ]
@@ -65,6 +66,7 @@ PERMISSIONS = [
     ("page.scorecards", "pages", "Scorecards", "Vendor performance scorecards."),
     ("page.team", "pages", "Team", "The workspace's people and invitations."),
     ("page.analytics", "pages", "Analytics", "Spend, cycle time and competition analytics."),
+    ("page.finance", "pages", "Finance", "Savings, contract monitoring, payment performance and the finance risk register."),
     ("page.audit", "pages", "Audit trail", "The tamper-evident event chain."),
     ("page.portal", "pages", "Vendor portal", "The supplier's own invitations and bid rooms."),
 
@@ -91,8 +93,15 @@ PERMISSIONS = [
 
     ("team.view", "workspace", "See the team", "The member list and pending invitations."),
     ("team.invite", "workspace", "Invite team members", "Issue an invitation with a role attached."),
+    ("desk.see_reports", "workspace", "See your reports' desks", "Whose workload rolls up to you. Follows the reporting line, not the role: this shows the work of everyone below you on the org chart and nobody else."),
+    ("team.org", "workspace", "Set reporting lines", "Change who reports to whom. Separate from inviting people, because moving a reporting line changes what a manager can see."),
     ("settings.rename", "workspace", "Rename the workspace", "The organisation name and the tender reference prefix."),
     ("settings.threshold", "workspace", "Set the approval matrix", "The value above which publication needs approver sign-off."),
+
+    ("finance.payables", "finance", "See payables and vendor exposure", "Invoice, payment and exposure detail down to the individual vendor. Separate from the Finance page itself, so a category manager can be shown savings and spend without being shown what every vendor is owed."),
+    ("finance.sync", "finance", "Import the finance ledger", "Load a contract, order, receipt, invoice or payment export from NAV or Business Central."),
+    ("finance.baseline", "finance", "Adopt baselines from ledger history", "Give historical awards a prior price derived from imported contracts, so savings can be measured across the years before DOCKET. Separate from importing the ledger: reading history is one thing, deciding it is the number savings are reported against is another."),
+    ("finance.dimensions", "finance", "Set the spend dimensions", "The departments, cost centres, projects, regions and funding sources a tender can be coded to."),
 
     ("audit.integrity", "oversight", "Verify the audit chain", "Recompute every hash and report the first break."),
     ("audit.export", "oversight", "Export the audit trail", "The full event chain as CSV."),
@@ -108,33 +117,41 @@ ALL_KEYS = frozenset(p["key"] for p in CATALOGUE)
 
 _PROCUREMENT = {
     "page.dashboard", "page.tenders", "page.suppliers", "page.scorecards",
-    "page.team", "page.analytics", "page.audit",
+    "page.team", "page.analytics", "page.audit", "page.finance",
     "tender.create", "tender.edit", "tender.submit", "tender.addendum", "tender.docs",
     "bid.open", "bid.see_all_scores", "clarification.answer",
     "award.recommend", "award.see_recommendation",
     "supplier.prequalify", "supplier.invite", "supplier.import",
-    "team.view", "team.invite", "settings.rename",
+    "team.view", "team.invite", "team.org", "desk.see_reports", "settings.rename",
     "audit.integrity", "audit.export",
     "export.comparison", "export.memo", "export.compliance",
+    "finance.payables", "finance.sync", "finance.dimensions", "finance.baseline",
     "ai.use",
 }
 
 _EVALUATOR = {"page.evals", "page.audit", "bid.score", "coi.declare"}
 
 _APPROVER = {
-    "page.approvals", "page.tenders", "page.scorecards", "page.audit",
+    "page.approvals", "page.tenders", "page.scorecards", "page.audit", "page.finance",
     "tender.publish_decision", "award.decide",
     "bid.see_all_scores", "award.see_recommendation",
     "settings.rename", "settings.threshold",
+    "team.view", "desk.see_reports",
     "audit.integrity", "audit.export",
     "export.comparison", "export.memo", "export.compliance",
+    "finance.payables",
 }
 
+# Read-only oversight, and that now includes the money. An auditor who can see
+# the award but not the invoice paid against it cannot follow the transaction
+# to its end, which is the one thing the role exists to do. No finance.sync:
+# reading the ledger is oversight, loading it is an operation.
 _AUDITOR = {
-    "page.audit", "page.tenders", "page.scorecards",
+    "page.audit", "page.tenders", "page.scorecards", "page.finance",
     "bid.see_all_scores", "award.see_recommendation",
     "audit.integrity", "audit.export",
     "export.comparison", "export.memo", "export.compliance",
+    "finance.payables",
 }
 
 BUILTIN_DEFAULTS = {

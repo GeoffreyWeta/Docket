@@ -1,7 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 
 import { downloadDoc, downloadUrl, raw } from "./api";
+import { orgIndex, savingsSplit } from "./analytics-model";
 import { Countdown, Empty, MiniBars, Money, Stamp, Stat, StageTracker } from "./atoms";
+import { BaselineHint } from "./baselines";
+import { CampaignDialog } from "./campaign";
+import { MyDesk } from "./mydesk";
 import {
   DAY, abnormallyLow, commScore, daysLeft, effStatus, fmtCompact, fmtDate, fmtDateTime,
   fmtMoney, mean, median, stdev, techScore, totalScore, uid, varianceFlags,
@@ -9,7 +13,7 @@ import {
 import { Icon, SealMark } from "./icons";
 import { can, homePage, navPages } from "./perms";
 import { DUR, cue, useFlip } from "./motion";
-import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwitch } from "./ui";
+import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwitch, TopProgress } from "./ui";
 
 /* How many register rows reach the DOM before the reader asks for more. The
    register runs to about 1,400 vendors and nobody reads that in one scroll. */
@@ -23,15 +27,15 @@ const PAGE = 60;
 export const NAV_LABEL = {
   dashboard: "Dashboard", approvals: "Approvals", evals: "My evaluations",
   tenders: "Tenders", suppliers: "Suppliers", scorecards: "Scorecards",
-  team: "Team", analytics: "Analytics", audit: "Audit trail",
+  team: "Team", analytics: "Analytics", finance: "Finance", audit: "Audit trail",
   portal: "My invitations",
 };
 
 /* One icon per destination: the sidebar is scanned by shape before it is read. */
 const NAV_ICON = {
   dashboard: "dashboard", tenders: "tender", suppliers: "suppliers", team: "team",
-  analytics: "analytics", audit: "audit", evals: "scales", approvals: "stamp", portal: "portal",
-  scorecards: "trophy",
+  analytics: "analytics", finance: "finance", audit: "audit", evals: "scales",
+  approvals: "stamp", portal: "portal", scorecards: "trophy",
 };
 
 /** The workspace navigation: a permanent column on a desktop, an off-canvas
@@ -258,8 +262,14 @@ export const MENU_CSS = `
 /* a register row opens its record */
 .vrow{cursor:pointer}
 .vrow:hover{background:var(--paper-2)}
-/* the in-flight bar hangs off the bottom edge of the bar it belongs to */
-.topbar{position:relative}
+/* The in-flight bar hangs off the bottom edge of the bar it belongs to, so it
+   renders INSIDE .topbar (see Topbar below) and takes its containing block from
+   it. Nothing is declared here on purpose: .topbar is sticky on a phone and
+   relative at the desktop breakpoint, and both of those are positioned
+   ancestors. Setting position:relative here would win on the cascade (MENU_CSS
+   is concatenated after CSS) and quietly unstick
+   the app bar on phones — which also unmoors the notification sheet, since that
+   is placed a fixed distance below a bar it assumes is pinned. */
 /* the navigation indicator: a rail on paper, a tonal pill in Material */
 .navlist{position:relative}
 .navind{width:2.5px;background:var(--wax);border-radius:0 2px 2px 0}
@@ -306,9 +316,11 @@ export const MENU_CSS = `
 .chromeacts .mitem.on{background:var(--p-container);border-color:transparent}
 `;
 
-export function Topbar({ api, chrome, desktop, onMenu, navOpen }) {
+export function Topbar({ api, chrome, desktop, onMenu, navOpen, busy }) {
   const { state } = api;
   return (
+    /* The in-flight bar is a child, not a sibling: it is positioned against
+       this header's bottom edge, and .main is not a positioned ancestor. */
     <header className="topbar">
       {!desktop && (
         <button className="iconbtn" onClick={onMenu} aria-label="Open navigation"
@@ -322,72 +334,187 @@ export function Topbar({ api, chrome, desktop, onMenu, navOpen }) {
           Everything else is behind the avatar. */}
       <Bell api={api} />
       {desktop && <AccountMenu api={api} {...chrome} />}
+      <TopProgress busy={busy} />
     </header>
   );
 }
 
 /* ---------------- buyer: dashboard ---------------- */
 
+/** How long something has been sitting, said the way a person would say it. */
+function waitedFor(since) {
+  if (!since) return "";
+  const mins = Math.max(0, Math.round((Date.now() - since) / 60000));
+  if (mins < 60) return mins <= 1 ? "just now" : `${mins}m`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return `${hrs}h`;
+  return `${Math.round(hrs / 24)}d`;
+}
+
+/* Anything older than this has been waiting long enough to be called out. */
+const LATE_MS = 2 * DAY;
+
+/** Everything in the workspace that is mid-flight, as one list.
+
+    The old dashboard had a single "Action queue" holding both the tenders whose
+    seals you can break and the ones sitting with the approver — so it showed
+    you work that was not yours and offered buttons for decisions you were not
+    allowed to make. Each item now names the capability needed to act on it, and
+    the dashboard splits the list on exactly that: what is yours to move, and
+    what you are waiting on somebody else for. Ordering is by how long the thing
+    has been waiting, because that is what makes something urgent — not what
+    kind of thing it is. */
+function workItems(state, tenders) {
+  const items = [];
+  const lastMoved = (tid) => {
+    const e = state.events.find((x) => x.tenderId === tid);
+    return e ? e.at : 0;
+  };
+
+  for (const t of tenders) {
+    if (effStatus(t) === "closed") {
+      items.push({ key: "seal-" + t.id, cap: "bid.open", since: t.deadline,
+                   title: t.title, why: "Deadline passed. The seals are unbroken.",
+                   verb: "Open the bids", to: { page: "tender", id: t.id, tab: "bids" },
+                   tone: "wax", waiting: "an opening" });
+    }
+    if (t.status === "approval") {
+      items.push({ key: "appr-" + t.id, cap: "tender.publish_decision", since: lastMoved(t.id),
+                   title: t.title, why: "Waiting to be approved for publication.",
+                   verb: "Review it", to: { page: "approvals" }, waiting: "approval to publish" });
+    }
+    if (t.status === "evaluation" && t.awardRec) {
+      items.push({ key: "rec-" + t.id, cap: "award.decide", since: t.awardRec.at,
+                   title: t.title, why: "An award has been recommended and needs a decision.",
+                   verb: "Decide", to: { page: "tender", id: t.id, tab: "bids" },
+                   waiting: "an award decision" });
+    }
+  }
+  for (const c of state.clarifications) {
+    if (c.a) continue;
+    const t = tenders.find((x) => x.id === c.tenderId);
+    if (!t) continue;
+    items.push({ key: "clar-" + c.id, cap: "clarification.answer", since: c.askedAt,
+                 title: "Question from a bidder", why: t.title,
+                 verb: "Answer it", to: { page: "tender", id: t.id, tab: "clar" },
+                 waiting: "an answer" });
+  }
+  for (const s of state.suppliers) {
+    if (s.prequalified || !s.registeredAt) continue;
+    items.push({ key: "vend-" + s.id, cap: "supplier.prequalify", since: s.registeredAt,
+                 title: s.name, why: "Registered and waiting to be prequalified.",
+                 verb: "Review", to: { page: "suppliers" }, waiting: "prequalification" });
+  }
+  return items.sort((a, b) => (a.since || Infinity) - (b.since || Infinity));
+}
+
+function WorkRow({ it, mine, go }) {
+  const late = it.since && Date.now() - it.since > LATE_MS;
+  return (
+    <div className={"wq " + (mine ? "mine" : "theirs") + (late ? " late" : "")}>
+      <span className="wqmark" />
+      <div className="wqmain">
+        <div className="wqtitle">{it.title}</div>
+        <div className="wqwhy">{mine ? it.why : `With someone else for ${it.waiting}.`}</div>
+      </div>
+      <span className="wqage" title={it.since ? new Date(it.since).toLocaleString("en-GB") : ""}>
+        {waitedFor(it.since)}
+      </span>
+      {mine && (
+        <button className={"btn sm" + (it.tone === "wax" ? " wax" : "")} onClick={() => go(it.to)}>
+          {it.verb}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function Dashboard({ api }) {
-  const { state, go } = api;
+  const { state, go, user } = api;
   const tenders = state.tenders;
   const open = tenders.filter((t) => effStatus(t) === "published");
   const sealed = tenders.filter((t) => effStatus(t) === "closed");
   const evaluating = tenders.filter((t) => t.status === "evaluation");
-  const approvals = tenders.filter((t) => t.status === "approval");
-  const awardRecs = tenders.filter((t) => t.status === "evaluation" && t.awardRec);
-  const savings = tenders.filter((t) => t.status === "awarded").reduce((s, t) => s + (t.budget - t.awardedAmount), 0);
-  const unanswered = state.clarifications.filter((c) => !c.a);
+
+  /* "This year" has to mean this year. The old figure summed every award ever
+     made and called it the year's savings, which flattered the number the
+     longer the workspace ran. */
+  const yearStart = new Date(new Date().getFullYear(), 0, 1).getTime();
+  const awardedThisYear = tenders.filter(
+    (t) => t.status === "awarded" && t.awardedAmount != null && (t.awardedAt || 0) >= yearStart);
+  /* Split by what each saving was measured against. The headline is the
+     verified figure — awards compared to a recorded prior price — because that
+     is the one that survives being asked "compared to what?". The budget-only
+     number is real too, but it measures the estimate as much as the buying, so
+     it rides underneath rather than being added in. */
+  const sav = savingsSplit(awardedThisYear);
+
+  const items = workItems(state, tenders);
+  const mine = items.filter((it) => can(user, it.cap));
+  const theirs = items.filter((it) => !can(user, it.cap));
+
+  const register = state.suppliers.length;
+  const held = state.suppliers.filter((s) => !s.prequalified).length;
+
   const expiring = [];
   state.suppliers.forEach((s) => s.docs.forEach((d) => { const dl = daysLeft(d.expiry); if (dl <= 60) expiring.push({ s, d, dl }); }));
   expiring.sort((a, b) => a.dl - b.dl);
 
   return (
     <div>
-      <div className="pagehead"><h1>Dashboard</h1><span className="sub">Everything that needs a decision, in one place.</span></div>
+      <div className="pagehead">
+        <h1>Dashboard</h1>
+        <span className="sub">
+          {mine.length
+            ? `${mine.length} ${mine.length === 1 ? "thing needs" : "things need"} you`
+            : "Nothing needs you right now."}
+        </span>
+      </div>
+
+      {/* What you can act on, before anything you can only look at. */}
+      <div className="card" style={{ marginBottom: 16, borderLeft: mine.length ? "3px solid var(--brass)" : undefined }}>
+        <div className="chead">
+          <h3>Needs you</h3>
+          {mine.length > 0 && <span className="mono faint" style={{ marginLeft: "auto" }}>oldest first</span>}
+        </div>
+        <div className="cbody stagger" style={{ paddingTop: 2 }}>
+          {mine.map((it) => <WorkRow key={it.key} it={it} mine go={go} />)}
+          {!mine.length && (
+            <Empty icon="seal">
+              Nothing is waiting on you. {theirs.length > 0
+                ? `${theirs.length} ${theirs.length === 1 ? "item is" : "items are"} with other people.`
+                : "The workspace is clear."}
+            </Empty>
+          )}
+        </div>
+      </div>
+
       <div className="grid g4" style={{ marginBottom: 16 }}>
-        <Stat k="Open for bids" v={<CountUp n={open.length} />} d="live tenders with suppliers bidding" />
-        <Stat k="Sealed, awaiting opening" v={<CountUp n={sealed.length} />} d="deadline passed, seals unbroken" tone={sealed.length ? "var(--wax)" : null} />
-        <Stat k="In evaluation" v={<CountUp n={evaluating.length} />} d="panels scoring" />
-        <Stat k="Savings this year" v={<CountUp n={savings} format={fmtCompact} />} d="awarded vs. budget" tone="var(--green)" />
+        <Stat k="Open for bids" v={<CountUp n={open.length} />} d="live tenders with suppliers bidding"
+              onClick={() => go({ page: "tenders", filter: "live" })} hint="Show live tenders" />
+        <Stat k="Sealed, awaiting opening" v={<CountUp n={sealed.length} />} d="deadline passed, seals unbroken"
+              tone={sealed.length ? "var(--wax)" : null}
+              onClick={() => go({ page: "tenders", filter: "live" })} hint="Show tenders past their deadline" />
+        <Stat k="In evaluation" v={<CountUp n={evaluating.length} />} d="panels scoring"
+              onClick={() => go({ page: "tenders", filter: "evaluation" })} hint="Show tenders in evaluation" />
+        <Stat k="Verified savings" v={<CountUp n={sav.hardTotal} format={fmtCompact} />}
+              d={sav.hard.length
+                   ? `${sav.hard.length} award${sav.hard.length === 1 ? "" : "s"} vs a prior price`
+                   + (sav.softTotal ? ` · ${fmtCompact(sav.softTotal)} more vs budget` : "")
+                   : awardedThisYear.length
+                     ? `no prior prices on file · ${fmtCompact(sav.softTotal)} vs budget`
+                     : "no awards yet this year"}
+              tone={sav.hardTotal > 0 ? "var(--green)" : null}
+              onClick={() => go({ page: "analytics" })} hint="Open the savings analysis" />
+      </div>
+
+      {/* Everything you are carrying, before the ambient radars. "Needs you" is
+          about this minute; this is about the week. */}
+      <div style={{ marginBottom: 16 }}>
+        <MyDesk api={api} />
       </div>
 
       <div className="grid g2">
-        <div className="card">
-          <div className="chead"><h3>Action queue</h3></div>
-          <div className="cbody stagger" style={{ paddingTop: 6 }}>
-            {sealed.map((t) => (
-              <div className="rowline" key={t.id}>
-                <span className="sealdot" style={{ width: 11, height: 11 }} />
-                <div style={{ flex: 1 }}><b>{t.title}</b><div className="muted" style={{ fontSize: 12 }}>Deadline passed: sealed bids ready to open</div></div>
-                <button className="btn sm wax" onClick={() => go({ page: "tender", id: t.id, tab: "bids" })}>Open bids</button>
-              </div>
-            ))}
-            {awardRecs.map((t) => (
-              <div className="rowline" key={"ar" + t.id}>
-                <div style={{ flex: 1 }}><b>{t.title}</b><div className="muted" style={{ fontSize: 12 }}>Award recommendation with the approver</div></div>
-                <span className="stamp gold">Awaiting award approval</span>
-              </div>
-            ))}
-            {approvals.map((t) => (
-              <div className="rowline" key={t.id}>
-                <div style={{ flex: 1 }}><b>{t.title}</b><div className="muted" style={{ fontSize: 12 }}>With {state.users.find((u) => u.role === "approver")?.name || "the approver"} for approval</div></div>
-                <Stamp s="approval" />
-              </div>
-            ))}
-            {unanswered.map((c) => {
-              const t = tenders.find((x) => x.id === c.tenderId);
-              return (
-                <div className="rowline" key={c.id}>
-                  <div style={{ flex: 1 }}><b>Unanswered clarification</b><div className="muted" style={{ fontSize: 12 }}>{t.title}</div></div>
-                  <button className="btn sm" onClick={() => go({ page: "tender", id: t.id, tab: "clar" })}>Answer</button>
-                </div>
-              );
-            })}
-            {!sealed.length && !approvals.length && !unanswered.length && !awardRecs.length && <Empty>Nothing waiting on you.</Empty>}
-          </div>
-        </div>
-
         <div className="card" data-reveal>
           <div className="chead"><h3>Deadline radar</h3></div>
           <div className="cbody" style={{ paddingTop: 6 }}>
@@ -407,8 +534,15 @@ export function Dashboard({ api }) {
           </div>
         </div>
 
-        <div className="card">
-          <div className="chead"><h3>Compliance radar</h3><span className="mono faint" style={{ marginLeft: "auto" }}>next 60 days</span></div>
+        <div className="card" data-reveal>
+          <div className="chead">
+            <h3>Compliance radar</h3>
+            <span className="mono faint" style={{ marginLeft: "auto" }}>
+              {can(user, "page.suppliers") && register
+                ? `${register.toLocaleString()} on the register · ${held.toLocaleString()} held out`
+                : "next 60 days"}
+            </span>
+          </div>
           <div className="cbody" style={{ paddingTop: 6 }}>
             {expiring.map((x, i) => (
               <div className="rowline" key={i}>
@@ -416,21 +550,51 @@ export function Dashboard({ api }) {
                 <span className={"chip " + (x.dl <= 30 ? "warn" : "")}>{x.dl} days to expiry</span>
               </div>
             ))}
-            {!expiring.length && <Empty>All supplier documents current.</Empty>}
+            {!expiring.length && <Empty icon="shield">No compliance document expires in the next 60 days.</Empty>}
           </div>
         </div>
 
-        <div className="card">
-          <div className="chead"><h3>Recent activity</h3></div>
+        {/* Deliberately quieter than "Needs you": these are somebody else's move,
+            and the reason to show them is so nobody chases a decision twice. */}
+        <div className="card" data-reveal>
+          <div className="chead">
+            <h3>Waiting on others</h3>
+            {theirs.length > 0 && <span className="mono faint" style={{ marginLeft: "auto" }}>{theirs.length}</span>}
+          </div>
+          <div className="cbody" style={{ paddingTop: 2 }}>
+            {theirs.slice(0, 6).map((it) => <WorkRow key={it.key} it={it} mine={false} go={go} />)}
+            {theirs.length > 6 && (
+              <div className="muted" style={{ fontSize: 12, paddingTop: 10 }}>
+                and {theirs.length - 6} more.
+              </div>
+            )}
+            {!theirs.length && <Empty>Nothing is sitting with anyone else.</Empty>}
+          </div>
+        </div>
+
+        <div className="card" data-reveal>
+          <div className="chead">
+            <h3>Recent activity</h3>
+            {can(user, "page.audit") && (
+              <button className="doclink" style={{ marginLeft: "auto", fontSize: 12 }}
+                      onClick={() => go({ page: "audit" })}>The full trail</button>
+            )}
+          </div>
           <div className="cbody">
             <ul className="tline">
               {state.events.slice(0, 6).map((e) => (
                 <li key={e.id} className={/seal/i.test(e.action) ? "waxdot" : ""}>
                   <div className="when">{fmtDateTime(e.at)}</div>
-                  <div className="what">{e.action}</div>
-                  <div className="who">{e.actor} · {e.detail}</div>
+                  <div className="what">
+                    {/* an event about a tender is a way into that tender */}
+                    {e.tenderId && tenders.some((t) => t.id === e.tenderId)
+                      ? <button className="doclink" onClick={() => go({ page: "tender", id: e.tenderId })}>{e.action}</button>
+                      : e.action}
+                  </div>
+                  <div className="who">{e.actor}{e.detail ? " · " + e.detail : ""}</div>
                 </li>
               ))}
+              {!state.events.length && <Empty>Nothing has happened yet.</Empty>}
             </ul>
           </div>
         </div>
@@ -442,9 +606,14 @@ export function Dashboard({ api }) {
 /* ---------------- buyer: tender list ---------------- */
 
 export function TendersPage({ api }) {
-  const { state, go, user, act } = api;
+  const { state, go, user, act, route } = api;
   const [q, setQ] = useState("");
-  const [statusF, setStatusF] = useState("all");
+  /* The dashboard's figures are click-throughs, and each arrives carrying the
+     filter it counted — landing on an unfiltered list would make the reader
+     find the same rows again by hand. */
+  const [statusF, setStatusF] = useState((route && route.filter) || "all");
+  const routeFilter = route && route.filter;
+  useEffect(() => { if (routeFilter) setStatusF(routeFilter); }, [routeFilter]);
   const match = (t) => {
     const st = effStatus(t);
     if (statusF === "live" && !["published", "closed"].includes(st)) return false;
@@ -1458,12 +1627,15 @@ export function NewTender({ api, editId }) {
     lines: (editing.lines || []).map((l) => ({ ...l, qty: String(l.qty) })),
     twoStage: !!editing.twoStage, techThreshold: editing.techThreshold ?? 70,
     minDecrement: String(editing.minDecrement || ""),
+    baseline: editing.baseline ? String(editing.baseline) : "",
+    baselineSource: editing.baselineSource || "",
   } : {
-    title: "", type: "RFQ", category: "Food & Produce", budget: "", deadline: "",
+    title: "", type: "RFQ", category: "", budget: "", deadline: "",
     techWeight: 70, scope: "",
     criteria: [{ id: uid(), name: "Quality & compliance", weight: 40 }, { id: uid(), name: "Capacity & reliability", weight: 35 }, { id: uid(), name: "Commercial terms", weight: 25 }],
     invited: [], lines: [],
     twoStage: false, techThreshold: 70, minDecrement: "",
+    baseline: "", baselineSource: "",
   });
   const [busy, setBusy] = useState(false);
   const [busyC, setBusyC] = useState(false);
@@ -1471,7 +1643,7 @@ export function NewTender({ api, editId }) {
   const weightSum = f.criteria.reduce((s, c) => s + Number(c.weight || 0), 0);
   const linesOk = f.lines.length === 0 || f.lines.every((l) => l.desc.trim() && Number(l.qty) > 0);
   const isAuction = f.type === "AUC";
-  const ready = f.title.trim() && Number(f.budget) > 0 && f.deadline && f.invited.length > 0 && linesOk
+  const ready = f.title.trim() && f.category && Number(f.budget) > 0 && f.deadline && f.invited.length > 0 && linesOk
     && (isAuction ? Number(f.minDecrement) > 0 && f.lines.length === 0 : weightSum === 100);
 
   const draftScope = async () => {
@@ -1504,6 +1676,8 @@ export function NewTender({ api, editId }) {
       lines: isAuction ? [] : f.lines.filter((l) => l.desc.trim()).map((l) => ({ id: l.id, desc: l.desc.trim(), qty: Number(l.qty), unit: l.unit.trim() || "unit" })),
       twoStage: f.twoStage, techThreshold: Number(f.techThreshold) || 70,
       minDecrement: Number(f.minDecrement) || 0,
+      baseline: Number(f.baseline) || 0,
+      baselineSource: f.baselineSource.trim(),
       submit,
     };
     const ok = editing ? await act.updateTender(editId, payload) : await act.createTender(payload);
@@ -1549,12 +1723,56 @@ export function NewTender({ api, editId }) {
                 <div className="muted" style={{ fontSize: 12, marginTop: 5 }}>Failed bidders' pricing is never decrypted: their commercial envelope is returned unopened. Standard in public-sector procurement.</div>
               </div>
             )}
+            {/* Grouped by family, and driven by the register's own taxonomy
+                rather than a list typed into this file — the seven words that
+                used to live here matched nothing the vendor register knew, so
+                spend by category could never be checked against the vendors
+                that make it up. */}
             <div className="frow"><label className="lbl">Category</label>
               <select className="in" value={f.category} onChange={(e) => set("category", e.target.value)}>
-                {["Food & Produce", "Dairy", "Packaging", "Logistics", "Equipment", "IT hardware", "Facilities"].map((c) => <option key={c}>{c}</option>)}
+                <option value="">Choose a category…</option>
+                {(state.taxonomy || []).map((fam) => (
+                  <optgroup key={fam.key} label={fam.label}>
+                    {fam.categories.map((c) => (
+                      <option key={c.key} value={c.key}>
+                        {c.label}{c.count ? ` (${c.count} vendors)` : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
               </select></div>
             <div className="frow"><label className="lbl">Budget ceiling (₦)</label>
               <input className="in" type="number" min="0" placeholder="120000000" value={f.budget} onChange={(e) => set("budget", e.target.value)} /></div>
+          </div>
+
+          {/* The baseline is what makes a saving on this tender defensible.
+              Optional, and deliberately not pre-filled from the budget: a
+              baseline that quietly equals the ceiling turns every saving into
+              zero and reads as a bug. */}
+          <div className="grid g2">
+            <div className="frow"><label className="lbl" htmlFor="nt-base">
+              What we pay now (₦) <span className="faint">optional</span></label>
+              <input id="nt-base" className="in" type="number" min="0" placeholder="e.g. 505000000"
+                     value={f.baseline} onChange={(e) => set("baseline", e.target.value)} />
+              <div className="hint">
+                Last year's contract, the incumbent's renewal quote, or the current price.
+                With it, the saving on this tender is measured against what the business
+                actually pays — without it, only against the budget above.
+              </div>
+              {/* If the finance ledger already knows what this category cost,
+                  offer it rather than making somebody look it up in NAV. The
+                  suggestion fills the source line too, so the comparison stays
+                  checkable by whoever reviews the saving later. */}
+              <BaselineHint api={api} category={f.category} current={f.baseline}
+                            onAdopt={(amount, source) => {
+                              set("baseline", String(amount));
+                              set("baselineSource", source);
+                            }} /></div>
+            <div className="frow"><label className="lbl" htmlFor="nt-basesrc">Where that figure comes from</label>
+              <input id="nt-basesrc" className="in" placeholder="e.g. 2025 contract with Harmattan Foods, annualised"
+                     value={f.baselineSource} disabled={!Number(f.baseline)}
+                     onChange={(e) => set("baselineSource", e.target.value)} />
+              <div className="hint">Recorded with the saving, so anyone reviewing it can check the comparison.</div></div>
           </div>
           <div className="grid g2">
             <div className="frow"><label className="lbl">Submission deadline</label>
@@ -1639,6 +1857,7 @@ export function SuppliersPage({ api }) {
   const [reason, setReason] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [regOpen, setRegOpen] = useState(false);   // the register upload
+  const [campaign, setCampaign] = useState(false); // the registration drive
   const [email, setEmail] = useState("");
 
   const prequalify = (s) => setPreS(s);
@@ -1733,6 +1952,7 @@ export function SuppliersPage({ api }) {
                  value={email} onChange={(e) => setEmail(e.target.value)} />
         </Dialog>
       )}
+      {campaign && <CampaignDialog api={api} onClose={() => setCampaign(false)} />}
       <div className="pagehead"><h1>Suppliers</h1>
         <span className="sub">
           {visible.length === state.suppliers.length
@@ -1773,7 +1993,16 @@ export function SuppliersPage({ api }) {
           {/* inviting a vendor is its own capability: someone may be trusted to
               email an invitation without being trusted to replace the register */}
           {canInvite && (
-            <button className="btn sm" onClick={inviteVendor}><Icon n="mail" /> Invite a vendor to register</button>
+            <>
+              <button className="btn sm" onClick={inviteVendor}><Icon n="mail" /> Invite a vendor</button>
+              {/* The bulk drive is deliberately a separate button from the
+                  single invite above: one emails a company, the other emails
+                  the register, and they should never be one click apart in the
+                  reader's mind. */}
+              <button className="btn sm" onClick={() => setCampaign(true)}>
+                <Icon n="team" /> Invite the register…
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -2112,100 +2341,11 @@ function VendorRecord({ row, detail, onClose }) {
   );
 }
 
-/* ---------------- analytics ---------------- */
-
-export function AnalyticsPage({ api }) {
-  const { state, ai } = api;
-  const [insight, setInsight] = useState("");
-  const [busy, setBusy] = useState(false);
-  const awarded = state.tenders.filter((t) => t.status === "awarded");
-  const savings = awarded.reduce((s, t) => s + (t.budget - t.awardedAmount), 0);
-  const byCat = {};
-  awarded.forEach((t) => { byCat[t.category] = (byCat[t.category] || 0) + t.awardedAmount; });
-  state.tenders.filter((t) => t.status === "evaluation").forEach((t) => {
-    const bids = state.bids.filter((b) => b.tenderId === t.id);
-    if (bids.length) byCat[t.category] = (byCat[t.category] || 0) + median(bids.map((b) => b.amount));
-  });
-  const catData = Object.entries(byCat).map(([label, value]) => ({ label, value }));
-  const cycle = awarded.map((t) => (t.awardedAt - t.publishedAt) / DAY);
-  const outliers = [];
-  state.tenders.filter((t) => t.openedAt).forEach((t) => {
-    const bids = state.bids.filter((b) => b.tenderId === t.id);
-    bids.forEach((b) => { if (abnormallyLow(b, bids)) outliers.push({ t, b }); });
-  });
-  const splits = [];
-  state.tenders.filter((t) => t.openedAt).forEach((t) => {
-    state.bids.filter((b) => b.tenderId === t.id).forEach((b) => {
-      varianceFlags(t, b).forEach((c) => splits.push({ t, b, c }));
-    });
-  });
-  const expiringN = state.suppliers.reduce((n, s) => n + s.docs.filter((d) => daysLeft(d.expiry) <= 60).length, 0);
-
-  const genInsight = async () => {
-    setBusy(true); setInsight("");
-    try {
-      const out = await ai.insights();
-      setInsight(out || "No response, try again.");
-    } catch (e) {
-      setInsight(e.message || "The insight service is unreachable right now. Try again in a moment.");
-    }
-    setBusy(false);
-  };
-
-  return (
-    <div>
-      <div className="pagehead"><h1>Analytics</h1><span className="sub">where the money and the risk actually are</span></div>
-      <div className="grid g4" style={{ marginBottom: 16 }}>
-        <Stat k="Savings vs budget" v={fmtCompact(savings)} d={awarded.length + " awarded tenders"} tone="var(--green)" />
-        <Stat k="Avg award cycle" v={cycle.length ? Math.round(mean(cycle)) + "d" : "-"} d="publish → award" />
-        <Stat k="Price anomalies" v={outliers.length} d="abnormally low bids flagged" tone={outliers.length ? "var(--wax)" : null} />
-        <Stat k="Panel splits" v={splits.length} d="criteria where evaluators disagree" tone={splits.length ? "var(--wax)" : null} />
-      </div>
-      <div className="card" style={{ marginBottom: 14 }}>
-        <div className="chead"><h3>This week's read</h3>
-          <button className="btn sm" style={{ marginLeft: "auto" }} onClick={genInsight} disabled={busy}>{busy ? "Analysing…" : "Generate with AI"}</button>
-        </div>
-        <div className="cbody">
-          {insight ? <div className="aihint">{insight}</div> : <span className="muted" style={{ fontSize: 13 }}>A short written read of the live portfolio: what's on track, which risks deserve attention this week, and what to do about each. Advisory only.</span>}
-        </div>
-      </div>
-      <div className="grid g2">
-        <div className="card">
-          <div className="chead"><h3>Committed spend by category</h3><span className="mono faint" style={{ marginLeft: "auto" }}>awarded + evaluation-stage medians</span></div>
-          <div className="cbody">{catData.length ? <MiniBars data={catData} /> : <Empty>No spend committed yet.</Empty>}</div>
-        </div>
-        <div className="card">
-          <div className="chead"><h3>Risk flags</h3></div>
-          <div className="cbody" style={{ paddingTop: 6 }}>
-            {outliers.map((x, i) => (
-              <div className="rowline" key={"o" + i}>
-                <div style={{ flex: 1 }}><b>{state.suppliers.find((s) => s.id === x.b.supplierId).name}</b>
-                  <div className="muted" style={{ fontSize: 12 }}>{x.t.title}</div></div>
-                <span className="chip warn">Bid 35%+ below median</span>
-              </div>
-            ))}
-            {splits.map((x, i) => (
-              <div className="rowline" key={"s" + i}>
-                <div style={{ flex: 1 }}><b>{x.c.name}</b>
-                  <div className="muted" style={{ fontSize: 12 }}>{state.suppliers.find((s) => s.id === x.b.supplierId).name} · {x.t.title}</div></div>
-                <span className="chip warn">Evaluators split ≥2 pts</span>
-              </div>
-            ))}
-            {!outliers.length && !splits.length && <Empty>No open risk flags.</Empty>}
-          </div>
-        </div>
-        <div className="card" style={{ gridColumn: "1 / -1" }}>
-          <div className="chead"><h3>Savings by tender</h3></div>
-          <div className="cbody">
-            {awarded.length ? (
-              <MiniBars data={awarded.map((t) => ({ label: t.category, value: t.budget - t.awardedAmount, color: "var(--brass)" }))} />
-            ) : <Empty>No awards yet this year.</Empty>}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+/* Analytics moved to analytics.jsx when it grew from four cards into five
+   tabs with its own arithmetic. Re-exported here so App.jsx and anything else
+   importing it from this module keeps working. */
+export { AnalyticsPage } from "./analytics";
+import { OrgChart } from "./analytics";
 
 
 /* ---------------- audit page ---------------- */
@@ -2378,6 +2518,88 @@ export function TeamPage({ api }) {
             </div>
           </div>
         </div>
+
+        {can(user, "team.view") && <ReportingLines api={api} team={team} />}
+      </div>
+    </div>
+  );
+}
+
+/* Who reports to whom.
+
+   A separate concern from roles, and shown separately for that reason. A role
+   says what somebody may do; a reporting line says whose work rolls up to them
+   on their desk and in Analytics. The same person can hold the approver role
+   and report to the chief executive, and neither fact implies the other.
+
+   Changing a line is guarded server-side against cycles — see
+   views.set_reporting_line — because a loop here is not a strange-looking chart,
+   it is a rollup that never terminates. */
+function ReportingLines({ api, team }) {
+  const { state, user, act, toast, refresh } = api;
+  const members = (team && team.members) || [];
+  const editable = can(user, "team.org");
+  const org = React.useMemo(() => orgIndex(state.users || []), [state.users]);
+  const [busy, setBusy] = useState("");
+
+  const change = async (personId, managerId) => {
+    setBusy(personId);
+    const ok = await act.setReportingLine(personId, managerId || null);
+    if (ok) {
+      const who = (state.users || []).find((u) => u.id === personId);
+      const to = (state.users || []).find((u) => u.id === managerId);
+      toast.ok("Reporting line updated",
+               `${who ? who.name : "They"} now report${to ? "s to " + to.name : "s to nobody"}.`);
+      refresh();
+    }
+    setBusy("");
+  };
+
+  if (!members.length) return null;
+
+  return (
+    <div className="card" style={{ gridColumn: "1 / -1" }}>
+      <div className="chead">
+        <h3>Reporting lines</h3>
+        <span className="mono faint" style={{ marginLeft: "auto" }}>
+          {editable ? "who sees whose desk" : "read-only"}
+        </span>
+      </div>
+      <div className="cbody">
+        <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 14 }}>
+          A manager with <b>See your reports' desks</b> can see the workload and savings of
+          everyone below them here — directly or at any depth. This is separate from their
+          role: it decides <i>whose</i> work they see, not <i>what</i> they may do.
+        </div>
+
+        <OrgChart users={state.users || []} org={org} me={user.id} />
+
+        {editable && (
+          <div className="orgedit">
+            <div className="lbl" style={{ marginBottom: 8 }}>Change a reporting line</div>
+            {members.map((m) => (
+              <div className="orgeditrow" key={m.username}>
+                <span className="oename">
+                  <b>{m.name}</b>
+                  <span className="muted">{m.title || m.roleLabel}</span>
+                </span>
+                <span className="oearrow">reports to</span>
+                <select className="in" value={m.managerId || ""} disabled={busy === m.id}
+                        aria-label={`Who ${m.name} reports to`}
+                        onChange={(e) => change(m.id, e.target.value)}>
+                  <option value="">— nobody (top of the chart) —</option>
+                  {(state.users || [])
+                    .filter((u) => u.id !== m.id)
+                    .map((u) => <option key={u.id} value={u.id}>{u.name} · {u.title}</option>)}
+                </select>
+              </div>
+            ))}
+            <div className="muted" style={{ fontSize: 11.5, marginTop: 10, lineHeight: 1.55 }}>
+              A loop is refused: somebody cannot report to a person who already reports to
+              them. Every change is recorded in the audit trail.
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

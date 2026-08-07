@@ -12,6 +12,13 @@ django.setup()
 from django.test import Client  # noqa: E402
 
 from core.seed import seed_all  # noqa: E402
+from core.seed_finance import HISTORY  # noqa: E402
+
+# The seven hand-written competitions, plus the 2025 awards that sit behind the
+# imported ledger (seed_finance.HISTORY). Derived rather than hardcoded: this
+# assertion is about the buyer seeing everything, and a magic number turns that
+# into a test that fails whenever the demo gains a tender.
+SEEDED_TENDERS = 7 + len(HISTORY)
 
 seed_all()  # every run starts from the pristine demo state
 
@@ -50,8 +57,9 @@ assert r.status_code == 401, "unauthenticated bootstrap must 401"
 r = c.post("/api/auth/login/", json.dumps({"username": "amara", "password": "wrong"}), content_type=J)
 assert r.status_code == 401
 cfg = c.get("/api/auth/config/").json()
-assert cfg["demoLogin"] and len(cfg["accounts"]) == 8
-for u in ["amara", "deji", "ngozi", "mark", "aisha", "coldline", "harmattan", "bluechip"]:
+# nine: five buyer personas, the executive, and three vendors
+assert cfg["demoLogin"] and len(cfg["accounts"]) == 9, cfg["accounts"]
+for u in ["tunde", "amara", "deji", "ngozi", "mark", "aisha", "coldline", "harmattan", "bluechip"]:
     login(u)
 # demo one-click login works while enabled
 r = c.post("/api/auth/demo/", json.dumps({"username": "mark"}), content_type=J)
@@ -59,7 +67,7 @@ assert r.status_code == 200
 
 # --- sealing & blindness (now behind real identities) ---
 d = call("GET", "/api/bootstrap/", "amara")
-assert d["me"]["role"] == "procurement" and len(d["tenders"]) == 7
+assert d["me"]["role"] == "procurement" and len(d["tenders"]) == SEEDED_TENDERS
 t3bids = [b for b in d["bids"] if b["tenderId"] == "t3"]
 assert all(b.get("sealed") and "amount" not in b for b in t3bids), "SEAL LEAK"
 d2 = call("GET", "/api/bootstrap/", "deji")
@@ -133,7 +141,8 @@ r = call("POST", "/api/reset/", "amara", {})
 assert r["token"]
 TOK["amara"] = r["token"]
 d = call("GET", "/api/bootstrap/", "amara")
-assert len(d["tenders"]) == 7 and [t for t in d["tenders"] if t["id"] == "t1"][0]["status"] == "evaluation"
+assert (len(d["tenders"]) == SEEDED_TENDERS
+        and [t for t in d["tenders"] if t["id"] == "t1"][0]["status"] == "evaluation")
 
 print("ALL SMOKE TESTS PASSED")
 

@@ -2,13 +2,15 @@ import React, { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 
 import {
-  authConfig, clearAuth, demoLogin, fetchBootstrap, getToken, getUsername,
+  authConfig, clearAuth, demoLogin, fetchBootstrap, fetchFinance,
+  adoptBaselines, baselineFor, fetchBaselines,
+  fetchFinanceExceptions, financeFeeds, getToken, getUsername, importFinance,
   login as apiLogin, logout as apiLogout, raw, storeAuth, uploadFile,
 } from "./api";
 import { GuidePanel, seenKey } from "./guide";
 import { SecurityPanel } from "./security";
 import {
-  AcceptInvite, ForgotPassword, RegisterVendor, ResetPassword, VerifyVendor,
+  AcceptInvite, ClaimVendor, ForgotPassword, RegisterVendor, ResetPassword, VerifyVendor,
 } from "./onboarding";
 import {
   AnalyticsPage, ApprovalsPage, AuditPage, Dashboard, EvalsPage, NewTender,
@@ -17,15 +19,21 @@ import {
 import { allowedPages, homePage } from "./perms";
 import { ICON_CSS } from "./icons";
 import { MOTION_CSS, hasViewTransitions, useReveal, withViewTransition } from "./motion";
+import { BASELINE_CSS } from "./baselines";
+import { CAMPAIGN_CSS } from "./campaign";
+import { CHART_CSS } from "./charts-css";
+import { FINANCE_CSS, FinancePage } from "./finance.jsx";
 import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
 import { Keys, PALETTE_CSS, Palette, ShortcutSheet } from "./palette.jsx";
 import { SCORECARD_CSS, ScorecardsPage } from "./scorecards.jsx";
 import { AuctionRoom, BidRoom, PortalHome } from "./supplier";
 import {
-  BOOT_CSS, BootSkeleton, ConfirmDialog, RADAR_CSS, Toasts, TopProgress, useIsDesktop, useToasts,
+  BOOT_CSS, BootSkeleton, ConfirmDialog, RADAR_CSS, Toasts, useIsDesktop, useToasts,
 } from "./ui";
 
-const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS + SCORECARD_CSS + MENU_CSS + BOOT_CSS + PALETTE_CSS;
+const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS
+  + SCORECARD_CSS + MENU_CSS + BOOT_CSS + PALETTE_CSS + CHART_CSS + CAMPAIGN_CSS
+  + FINANCE_CSS + BASELINE_CSS;
 
 /* Where you land and where you may go are both read off the capabilities the
    server sent with the bootstrap payload — see perms.js. Nothing here enumerates
@@ -115,7 +123,13 @@ function publicScreenFromUrl() {
   if (q.get("vtoken")) return { name: "verify", token: q.get("vtoken") };
   if (q.get("itoken")) return { name: "invite", token: q.get("itoken") };
   if (q.get("rtoken")) return { name: "reset", token: q.get("rtoken") };
-  if (q.get("register")) return { name: "register" };
+  /* `?register=` carries a claim token from the registration drive, or the bare
+     flag "1" from the older single-vendor invite. A token means the vendor is
+     already on the register and is claiming that record; the flag means an
+     ordinary sign-up. Telling them apart on length keeps the old links working. */
+  const reg = q.get("register");
+  if (reg && reg.length > 8) return { name: "claim", token: reg };
+  if (reg) return { name: "register" };
   return null;
 }
 
@@ -195,6 +209,7 @@ export default function App() {
 
   if (screen) {
     if (screen.name === "register") return <RegisterVendor onDone={toLogin} />;
+    if (screen.name === "claim") return <ClaimVendor token={screen.token} onDone={toLogin} />;
     if (screen.name === "verify") return <VerifyVendor token={screen.token} onDone={toLogin} />;
     if (screen.name === "invite") return <AcceptInvite token={screen.token} onDone={toLogin} />;
     if (screen.name === "reset") return <ResetPassword token={screen.token} onDone={toLogin} />;
@@ -254,6 +269,8 @@ export default function App() {
     markRead: wrap(() => raw(`/notifications/read/`, { method: "POST", body: {} })),
     prequalDecision: wrap((sid, ok, reason) => raw(`/suppliers/${sid}/prequalify/`, { method: "POST", body: { ok, reason } })),
     inviteVendor: wrap((email) => raw(`/suppliers/invite/`, { method: "POST", body: { email } })),
+    setReportingLine: wrap((personId, managerId) =>
+      raw(`/team/org/`, { method: "POST", body: { personId, managerId } })),
     deleteMyDoc: wrap((docId) => raw(`/me/docs/${docId}/`, { method: "DELETE", body: {} })),
     duplicate: wrap((tid) => raw(`/tenders/${tid}/duplicate/`, { method: "POST", body: {} })),
     rename: wrap((b) => raw(`/me/`, { method: "POST", body: b })),
@@ -263,6 +280,26 @@ export default function App() {
        apply — so the caller needs the response body, not a true/false, and
        shows the errors itself inside the dialog rather than as a toast. */
     importRegister: (file, extra) => uploadFile("/suppliers/import_register/", file, extra),
+    /* Also unwrapped, and for the same reason: the registration drive is
+       preview-then-confirm, and the preview's numbers are the thing the
+       operator is being asked to agree to. A toast would throw them away. */
+    campaignPreview: () => raw("/suppliers/campaign/"),
+    campaignStart: (confirm) => raw("/suppliers/campaign/", { method: "POST", body: { action: "start", confirm } }),
+    campaignStop: () => raw("/suppliers/campaign/", { method: "POST", body: { action: "stop" } }),
+  };
+
+  /* Unwrapped, like the register import: the Finance page holds its own data
+     and renders its own loading and error states, so a `wrap` that swallowed
+     the response into true/false and toasted the failure would leave the page
+     with nothing to draw and no way to say why. */
+  const finance = {
+    state: (year) => fetchFinance(year),
+    exceptions: () => fetchFinanceExceptions(),
+    feeds: () => financeFeeds(),
+    import: (file, extra) => importFinance(file, extra),
+    baselineFor: (category, supplierId) => baselineFor(category, supplierId),
+    baselines: () => fetchBaselines(),
+    adoptBaselines: (picks) => adoptBaselines(picks),
   };
 
   const ai = {
@@ -309,7 +346,7 @@ export default function App() {
     }
   };
 
-  const api = { state: data, user, go, route, act, ai, toast, refresh };
+  const api = { state: data, user, go, route, act, ai, finance, toast, refresh };
   /* Re-armed on every page: anything marked data-reveal below the fold arrives
      as you reach it, once, then the observer lets it go. The call itself is
      hoisted above the early returns, where hooks have to live. */
@@ -336,8 +373,8 @@ export default function App() {
       <Sidebar api={api} chrome={chrome} open={drawerOpen} desktop={desktop} onClose={() => setNav(false)} />
       {drawerOpen && <div className="navscrim" onClick={() => setNav(false)} aria-hidden="true" />}
       <div className="main">
-        <Topbar api={api} chrome={chrome} desktop={desktop} navOpen={drawerOpen} onMenu={() => setNav(true)} />
-        <TopProgress busy={inFlight > 0} />
+        <Topbar api={api} chrome={chrome} desktop={desktop} navOpen={drawerOpen}
+                onMenu={() => setNav(true)} busy={inFlight > 0} />
         {askReset && (
           <ConfirmDialog title="Reset all demo data?" confirmLabel="Hold to reset the demo" tone="wax"
                          hold holdHint="Wipes everything: hold to confirm"
@@ -357,6 +394,7 @@ export default function App() {
           {page === "suppliers" && <SuppliersPage api={api} />}
           {page === "team" && <TeamPage api={api} />}
           {page === "analytics" && <AnalyticsPage api={api} />}
+          {page === "finance" && <FinancePage api={api} />}
           {page === "scorecards" && <ScorecardsPage api={api} />}
           {page === "audit" && <AuditPage api={api} />}
           {page === "approvals" && <ApprovalsPage api={api} />}

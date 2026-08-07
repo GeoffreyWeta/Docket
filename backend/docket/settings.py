@@ -100,6 +100,15 @@ else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "DOCKET <no-reply@docket.local>")
 
+# Where this workspace lives, for links in mail sent outside a request. Anything
+# triggered by a request builds its links from that request; the background
+# sweep has none, so a registration drive has to be told once. Falls back to the
+# Render host, then to the dev server.
+PUBLIC_BASE_URL = os.environ.get(
+    "PUBLIC_BASE_URL",
+    f"https://{RENDER_HOST}" if RENDER_HOST else "http://localhost:5173",
+).rstrip("/")
+
 # ---- proxy / security on Render ----
 if RENDER_HOST:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

@@ -1071,16 +1071,18 @@ export const ADMIN_CSS = `
 .emptyfriendly span{font-size:12.5px;color:var(--muted);max-width:330px;line-height:1.5}
 .phead{display:flex;align-items:center;gap:13px;padding-bottom:14px;margin-bottom:16px;
   border-bottom:1px solid var(--line)}
+.phead>div{min-width:0}
 .admincols{display:grid;grid-template-columns:minmax(0,1fr);gap:22px}
 .kv{display:flex;align-items:baseline;gap:10px;font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--hair)}
 .kv span{color:var(--muted);flex:1}
 .btnrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
-.btnrow.sticky{position:sticky;bottom:0;background:var(--card);padding:10px 0;border-top:1px solid var(--line)}
+.btnrow.sticky{position:sticky;bottom:0;z-index:1;background:var(--card);padding:10px 0 2px;
+  margin-top:2px;border-top:1px solid var(--line);box-shadow:0 -8px 12px -10px rgba(0,0,0,.28)}
 .pwrow{display:flex;gap:8px}
 .pwrow .in{flex:1}
 .permtop{display:flex;align-items:flex-end;gap:10px;margin-bottom:8px}
 .permtop>div:first-child{flex:1}
-.permgrid{display:flex;flex-direction:column;gap:12px;max-height:none}
+.permgrid{display:flex;flex-direction:column;gap:12px;max-height:none;padding-bottom:2px}
 .permgroup{border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden;background:var(--card)}
 .permhead{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--sunk);
   border-bottom:1px solid var(--line);font-size:13px}

@@ -61,6 +61,72 @@ dispatch, and an idempotent background sweep — no worker dyno required.
   The demo seeds a live auction (KST-AUC-2026-030) closing about two hours after
   seeding — sign in as coldline/harmattan/bluechip to bid against each other.
 
+* **Finance — procurement's consequences, for the people who carry them.** A section
+  of its own, because "how is the buying going" and "what did it cost, what do we
+  still owe, and what is about to go wrong" are different questions asked by
+  different people. Seven views: savings, spend, contracts, payments, compliance,
+  risk and exceptions.
+  * **Savings, three ways, never added together.** *Negotiated* measures an award
+    against a recorded prior price — the figure that survives a review. *Against
+    budget* measures it against the estimate set beforehand, which grades the
+    estimate as much as the buying. *Cost avoidance* measures it against the median
+    bid received, which is real money and also a counterfactual. Summing them
+    produces a headline nobody can defend, so the product will not do it. The
+    definitions are shared with the Analytics page, in one place, so the two
+    sections can never disagree about how much was saved.
+  * **The post-award ledger is a mirror, and says so.** Contracts, purchase orders,
+    goods receipts, invoices and payments live in the finance system (Dynamics NAV
+    today, Business Central expected). DOCKET holds a copy keyed to the source
+    system's own identifiers, and a banner at the top of every view states how old
+    the *stalest* feed is — a stale ledger drawn without comment is worse than no
+    ledger, because it gets believed.
+  * **Two adapters, not two integrations.** The importer splits into a field mapping
+    that knows one system's vocabulary and an apply step that knows none. Moving to
+    Business Central means a second mapping beside the first; rows already imported
+    stay attributable to NAV. `finance_sync.BusinessCentralAdapter` subclasses the
+    NAV one, so the migration is a readable diff rather than a rewrite.
+  * **Contract monitoring** — value, invoiced, paid, remaining balance, utilisation,
+    expiry runway, change orders and cost escalation. Escalation is a subtraction
+    from the value at signature, not an assertion, and the individual variations are
+    listed: "value grew ₦35m" and "value grew ₦35m across nine variations nobody
+    batched" are different findings and only the second names the problem.
+  * **Payment performance** — invoices received / approved / paid, average and median
+    days from *receipt* (the clock a supplier actually experiences, not from
+    approval), an ageing profile, timeliness by month, and early-payment discounts
+    split into earned and *missed* — an offered discount that lapsed is a real loss.
+  * **Eight automatic exception rules** — over budget, contract expiring or expired,
+    vendor over exposure limit, payment overdue, duplicate invoice (caught both by
+    repeated reference and by same-amount-same-day re-keying), abnormally low bid,
+    missing approvals, and a broken three-way match. They run in the existing sweep
+    and raise a notification once per *finding*, not once per sweep. Only findings
+    that need attention now notify; a mail for every contract ninety days from expiry
+    would train everyone to ignore the channel that also carries duplicate invoices.
+  * **Spend, sliced six ways** — department, category, project, supplier, region,
+    funding source and cost centre. The dimensions are org configuration, not code,
+    so opening a region does not need a release. Uncoded spend is reported as its own
+    line, never folded into "Other": a gap hidden in a bucket is a gap that survives.
+  * **Compliance, with the score deliberately demoted.** Six checks, each with its
+    own failures attached and worst-first. The headline percentage is the least
+    useful thing on the page and the copy says so — checks with nothing to measure
+    are excluded rather than scored as 100%.
+  * **Risk without invented numbers.** Exchange-rate exposure is computed from the
+    rate struck against the rate today, on open foreign-currency commitments only.
+    Vendor "financial distress" is a list of *observations* — concentration, expired
+    paperwork, delivery record, abnormal bidding — never a solvency score, because
+    DOCKET cannot see a balance sheet and a number there would be an accusation with
+    arithmetic painted on it. There is no composite fraud score for the same reason.
+  * **Baselines recovered from history** — where an award has no prior price on file,
+    the imported ledger often knows what the same category cost last time. Proposals
+    are annualised against each contract's own term, drawn only from contracts that
+    predate the tender, and carry the contracts they came from. Preview then adopt,
+    and what gets written is what the operator was shown — a basis that moved between
+    the screen and the database is a savings figure nobody signed off.
+  * **Payables are a separate permission.** `finance.payables` gates invoice, payment
+    and per-vendor exposure detail, enforced server-side rather than hidden in the
+    interface, so a category manager can be shown savings and spend without being
+    shown what every vendor is owed. Withheld and empty are never displayed the same
+    way.
+
 ## What "sealed" means here
 
 * Before the recorded opening, buyer roles receive only the fact that a bid exists —
@@ -249,7 +315,8 @@ for a build that was handed no register.
 ## Background jobs
 
 The sweep (deadline sealing events, bid-deadline reminders, compliance-document
-expiry alerts) is idempotent and runs two ways:
+expiry alerts, and the eight finance exception rules) is idempotent and runs two
+ways:
 
 * opportunistically — at most every 10 minutes, piggybacking on traffic; and
 * on a schedule — `python manage.py run_sweep` from any cron (Render cron job,

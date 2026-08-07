@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import account_views, admin_views, auth_views, export_views, views
+from . import account_views, admin_views, auth_views, export_views, finance_views, views
 
 # The administration console. Its own sign-in, its own token check (superuser or
 # nothing), and no link to it anywhere in the tendering UI.
@@ -35,10 +35,16 @@ urlpatterns = admin_urlpatterns + [
     path("auth/forgot/", account_views.forgot_password),
     path("auth/reset_password/", account_views.reset_password),
     path("register/vendor/", account_views.register_vendor),
+    path("register/claim/", account_views.claim_vendor),
     path("register/verify/", account_views.verify_vendor),
     path("register/accept_invite/", account_views.accept_invite),
 
     path("bootstrap/", views.bootstrap),
+    path("finance/", finance_views.finance_state),
+    path("finance/exceptions/", finance_views.finance_exceptions),
+    path("finance/import/", finance_views.finance_import),
+    path("finance/baseline/", finance_views.baseline_suggestion),
+    path("finance/baselines/", finance_views.baseline_backfill),
     path("reset/", views.reset_demo),
     path("notifications/read/", views.mark_notifications_read),
 
@@ -65,8 +71,10 @@ urlpatterns = admin_urlpatterns + [
     path("team/", views.team),
     path("team/invite/", views.invite_team),
     path("suppliers/invite/", views.invite_vendor),
+    path("suppliers/campaign/", views.vendor_campaign),
     path("suppliers/import/", views.import_suppliers),
     path("suppliers/import_register/", views.import_register),
+    path("team/org/", views.set_reporting_line),
     path("settings/", views.settings_view),
     path("tenders/<str:tid>/duplicate/", views.duplicate_tender),
     path("tenders/<str:tid>/export/compliance.pdf", views.export_compliance),

@@ -17,6 +17,9 @@ const P = {
   suppliers: <><circle cx="7" cy="6.5" r="2.6" /><path d="M2.5 16.5c0-2.6 2-4.2 4.5-4.2s4.5 1.6 4.5 4.2" /><path d="M13 4.4a2.6 2.6 0 0 1 0 4.9" /><path d="M14.2 12.6c1.9.4 3.3 1.8 3.3 3.9" /></>,
   team: <><circle cx="10" cy="5.5" r="2.7" /><path d="M4.5 17c0-3.2 2.5-5.2 5.5-5.2s5.5 2 5.5 5.2" /><path d="M4 8.5 2 7l2-1.5M16 8.5 18 7l-2-1.5" /></>,
   analytics: <><path d="M3 16.5V9M7.5 16.5V4.5M12 16.5v-5M16.5 16.5V7" /><path d="M2 18.2h16" /></>,
+  /* A naira note, not a generic dollar sign or a stack of coins: the workspace
+     is Nigerian and the sidebar is read by people who bank in it. */
+  finance: <><rect x="2.2" y="5" width="15.6" height="10" rx="1.4" /><path d="M7.6 12.6V7.4l4.8 5.2V7.4" /><path d="M6.2 9.1h7.6M6.2 10.9h7.6" /></>,
   audit: <><path d="M4 3.5h9.5l3 3v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-12a1 1 0 0 1 1-1Z" /><path d="M6.5 8h7M6.5 11h7M6.5 14h4" /></>,
   portal: <><path d="M3 8.5 10 3l7 5.5" /><path d="M4.5 8v8.5a.9.9 0 0 0 .9.9h9.2a.9.9 0 0 0 .9-.9V8" /><path d="M8 17.4v-5h4v5" /></>,
 

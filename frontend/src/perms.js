@@ -23,6 +23,7 @@ export const PAGE_PERM = {
   scorecards: "page.scorecards",
   team: "page.team",
   analytics: "page.analytics",
+  finance: "page.finance",
   audit: "page.audit",
   portal: "page.portal",
 };
@@ -32,7 +33,7 @@ export const PAGE_ORDER = Object.keys(PAGE_PERM);
 /** Destinations reached from within a section rather than from the sidebar. */
 function subPages(pages, user) {
   const out = [];
-  if (pages.some((p) => ["dashboard", "tenders", "approvals", "evals", "audit", "scorecards"].includes(p))) out.push("tender");
+  if (pages.some((p) => ["dashboard", "tenders", "approvals", "evals", "audit", "scorecards", "finance"].includes(p))) out.push("tender");
   if (can(user, "tender.create") || can(user, "tender.edit")) out.push("new");
   if (pages.includes("portal")) out.push("bidroom");
   return out;

@@ -42,13 +42,26 @@ export const Countdown = ({ t, deadline }) => {
   );
 };
 
-export const Stat = ({ k, v, d, tone }) => (
-  <div className="stat">
-    <div className="k">{k}</div>
-    <div className="v" style={tone ? { color: tone } : null}>{v}</div>
-    {d ? <div className="d">{d}</div> : null}
-  </div>
-);
+/* `onClick` turns a figure into the way through to what it counts: a headline
+   number you cannot click is a number you have to go and find again. It becomes
+   a real button so the keyboard and a screen reader get the same affordance. */
+export const Stat = ({ k, v, d, tone, onClick, hint }) => {
+  const inner = (
+    <>
+      <div className="k">{k}</div>
+      <div className="v" style={tone ? { color: tone } : null}>{v}</div>
+      {d ? <div className="d">{d}</div> : null}
+    </>
+  );
+  if (!onClick) return <div className="stat">{inner}</div>;
+  return (
+    <button type="button" className="stat statlink" onClick={onClick}
+            aria-label={hint || `${k}: show these`}>
+      {inner}
+      <span className="statgo" aria-hidden="true">→</span>
+    </button>
+  );
+};
 
 /* `icon` gives an empty state something to look at: pass an icon name from
    icons.jsx (e.g. <Empty icon="envelope">No bids yet.</Empty>). */

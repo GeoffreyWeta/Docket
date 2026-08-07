@@ -17,6 +17,11 @@ from .notify import notify_perm
 from .util import now_ms, record_event, rid
 
 TOKEN_TTL_MS = 3 * 24 * 60 * 60 * 1000  # 3 days
+# A registration drive is a slower thing than a password reset. The mail sits in
+# a shared info@ mailbox, somebody forwards it to whoever handles tenders, and
+# that person gets to it the following week. Three days would expire most of the
+# register before it was read.
+CAMPAIGN_TTL_MS = 60 * 24 * 60 * 60 * 1000  # 60 days
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -108,6 +113,79 @@ def register_vendor(request):
           f"Confirm your email to finish registering {company}:\n\n{_link(request, 'vtoken', tok.token)}\n\n"
           "The link is valid for 3 days.")
     return JsonResponse({"verified": False})
+
+
+@csrf_exempt
+def claim_vendor(request):
+    """Finish registration against a vendor record that already exists.
+
+    This is the other half of the registration drive. Without it, a vendor
+    invited off the imported register would arrive at the ordinary sign-up form
+    and create a *second* record for a company already on the register — and at
+    the scale a drive operates on, that is not an edge case, it is 1,300 of
+    them. The emailed token names the supplier it was minted for, so the account
+    attaches to the row the buyer already has: same id, same NAV code, same
+    history, same category.
+
+    GET  resolves a token to what the register already knows, so the form can
+         show the vendor who they are registering as before they type anything.
+    POST sets the password and creates the login.
+
+    The token is single-use and carries the supplier id itself, so possession of
+    a link cannot be turned into a claim on a different company by editing a
+    form field: `supplierId` is read from the token, never from the body.
+    """
+    token = str(request.GET.get("token") or _body(request).get("token", ""))
+    t = ActionToken.objects.filter(pk=token, kind="vendor_claim",
+                                   used_at__isnull=True).first()
+    if not t or now_ms() - t.created > CAMPAIGN_TTL_MS:
+        return _err("This link is invalid or has expired. Ask your buyer contact "
+                    "to send a new invitation.", 410)
+    sup = Supplier.objects.filter(pk=t.payload.get("supplierId")).first()
+    if not sup:
+        return _err("The vendor record this link points at no longer exists.", 410)
+
+    if request.method == "GET":
+        return JsonResponse({"supplier": {
+            "name": sup.name, "code": sup.code, "category": sup.category,
+            "subcategory": sup.subcategory, "location": sup.location,
+            "email": sup.contact_email, "contactPerson": sup.contact_person,
+        }})
+    if request.method != "POST":
+        return _err("Method not allowed", 405)
+
+    b = _body(request)
+    pw = str(b.get("password", ""))
+    if len(pw) < 8:
+        return _err("Password must be at least 8 characters.")
+    email = (sup.contact_email or t.email or "").strip().lower()
+    if not EMAIL_RE.match(email):
+        return _err("The register holds no usable email address for this company.")
+    if User.objects.filter(username=email).exists():
+        return _err("An account with this email already exists. Sign in instead, "
+                    "or use the password-reset link.", 409)
+    if Profile.objects.filter(supplier=sup).exists():
+        return _err("This company already has an account.", 409)
+
+    # Only now is the token spent: a validation failure above must not burn the
+    # vendor's one link and leave them unable to try again.
+    t.used_at = now_ms()
+    t.save(update_fields=["used_at"])
+
+    user = User.objects.create_user(username=email, email=email, password=None)
+    user.set_password(pw)
+    user.save()
+    Profile.objects.create(user=user, supplier=sup)
+    # `registered_at` is when they actually claimed the account. The import may
+    # have set it from the register's own NAV date; this is the truer fact.
+    Supplier.objects.filter(pk=sup.id).update(registered_at=now_ms())
+    record_event(actor=sup.name, role="supplier", action="Vendor claimed register account",
+                 detail="Registered from a registration-drive invitation against an "
+                        "existing register record.")
+    notify_perm("supplier.prequalify", f"Vendor registered: {sup.name}",
+                f"{sup.name} completed registration from the register drive. They are on "
+                f"the register already; prequalification is what is still outstanding.")
+    return JsonResponse({"ok": True})
 
 
 @csrf_exempt

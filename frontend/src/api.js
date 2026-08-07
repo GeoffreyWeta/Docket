@@ -64,6 +64,22 @@ export async function downloadDoc(docId, name) {
 }
 
 export const fetchBootstrap = () => raw("/bootstrap/");
+
+/* The finance rollups, fetched on their own rather than with the bootstrap:
+   they read a mirrored ledger that can run to tens of thousands of invoices,
+   and one page wants them. Putting them in bootstrap would make an evaluator's
+   scoring screen wait on a payables aggregation. */
+export const fetchFinance = (year) => raw(`/finance/${year ? `?year=${year}` : ""}`);
+export const fetchFinanceExceptions = () => raw("/finance/exceptions/");
+export const financeFeeds = () => raw("/finance/import/");
+/* Baselines derived from the imported ledger: what a category used to cost,
+   and the bulk backfill for awards made before this system existed. */
+export const baselineFor = (category, supplierId) =>
+  raw(`/finance/baseline/?category=${encodeURIComponent(category)}`
+      + (supplierId ? `&supplierId=${encodeURIComponent(supplierId)}` : ""));
+export const fetchBaselines = () => raw("/finance/baselines/");
+export const adoptBaselines = (picks) => raw("/finance/baselines/", { method: "POST", body: { picks } });
+export const importFinance = (file, extra) => uploadFile("/finance/import/", file, extra);
 export const authConfig = () => raw("/auth/config/");
 export const login = (username, password) => raw("/auth/login/", { method: "POST", body: { username, password } });
 export const demoLogin = (username) => raw("/auth/demo/", { method: "POST", body: { username } });
@@ -71,6 +87,12 @@ export const logout = () => raw("/auth/logout/", { method: "POST", body: {} });
 
 export const registerVendor = (b) => raw("/register/vendor/", { method: "POST", body: b });
 export const verifyVendor = (token) => raw("/register/verify/", { method: "POST", body: { token } });
+/* Registration-drive links. `lookupClaim` resolves the token to the register
+   record it was minted for, so the form can name the company before anyone
+   types; `claimVendor` attaches a login to that record rather than creating a
+   second one for a company already on the register. */
+export const lookupClaim = (token) => raw(`/register/claim/?token=${encodeURIComponent(token)}`);
+export const claimVendor = (token, password) => raw("/register/claim/", { method: "POST", body: { token, password } });
 export const acceptInvite = (b) => raw("/register/accept_invite/", { method: "POST", body: b });
 export const forgotPassword = (email) => raw("/auth/forgot/", { method: "POST", body: { email } });
 export const resetPassword = (token, password) => raw("/auth/reset_password/", { method: "POST", body: { token, password } });
