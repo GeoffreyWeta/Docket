@@ -19,6 +19,7 @@ admin_urlpatterns = [
     path("admin/users/<int:uid>/sessions/", admin_views.admin_sessions),
     path("admin/users/<int:uid>/mfa_reset/", admin_views.admin_reset_mfa),
     path("admin/users/<int:uid>/delete/", admin_views.admin_delete_user),
+    path("admin/demo/", admin_views.admin_demo),
 ]
 
 urlpatterns = admin_urlpatterns + [
@@ -43,6 +44,9 @@ urlpatterns = admin_urlpatterns + [
     path("finance/", finance_views.finance_state),
     path("finance/exceptions/", finance_views.finance_exceptions),
     path("finance/import/", finance_views.finance_import),
+    path("finance/pull/", finance_views.finance_pull),
+    path("items/", finance_views.item_search),
+    path("items/history/", finance_views.item_history),
     path("finance/baseline/", finance_views.baseline_suggestion),
     path("finance/baselines/", finance_views.baseline_backfill),
     path("reset/", views.reset_demo),

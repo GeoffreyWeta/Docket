@@ -78,6 +78,20 @@ AI_MODEL = os.environ.get("AI_MODEL", "claude-sonnet-4-6")
 # ---- authentication / demo mode ----
 # DEMO_LOGIN=1 exposes one-click demo logins on the sign-in screen. Set to 0
 # to require passwords. DEMO_PASSWORD is the password seeded on demo accounts.
+# --- the finance ledger feed -------------------------------------------------
+# Business Central, via the standard API v2.0 and an Entra app registration
+# using client credentials. All five must be present for a live pull; with any
+# of them missing the importer stays file-based and says so, which is the right
+# default for a deployment nobody has connected yet.
+#
+# The secret is read from the environment and never written to the database or
+# returned by any endpoint — see finance_sync.bc_config().
+BC_TENANT_ID = os.environ.get("BC_TENANT_ID", "")
+BC_COMPANY_ID = os.environ.get("BC_COMPANY_ID", "")
+BC_CLIENT_ID = os.environ.get("BC_CLIENT_ID", "")
+BC_CLIENT_SECRET = os.environ.get("BC_CLIENT_SECRET", "")
+BC_ENVIRONMENT = os.environ.get("BC_ENVIRONMENT", "production")
+
 DEMO_LOGIN = os.environ.get("DEMO_LOGIN", "1") == "1"
 DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD", "docket-demo")
 

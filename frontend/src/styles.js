@@ -679,6 +679,9 @@ label.btn{cursor:pointer}
 .formrow>.btn,.formrow>label.btn{flex:1 1 auto;justify-content:center}
 /* line item: description on its own row, then qty · unit · remove */
 .lineedit{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;margin-bottom:10px}
+/* Narrow: the item link and the description each take a row of their own, and
+   quantity/unit/remove share the third. */
+.lineedit>.itempick{grid-column:1 / -1;justify-self:start}
 .lineedit>.desc{grid-column:1 / -1}
 /* criterion: name on its own row, then weight · remove */
 .critedit{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin-bottom:10px}
@@ -895,7 +898,11 @@ label.btn{cursor:pointer}
   .formrow>.frow{flex:1 1 180px}
   .formrow>.in{flex:1 1 180px}
   .formrow>.btn,.formrow>label.btn{flex:0 0 auto}
-  .lineedit{grid-template-columns:1fr 100px 120px auto}
+  /* Wide: five columns — item link, description, quantity, unit, remove. The
+     link column sizes to content, so an unlinked line gives its width back to
+     the description instead of reserving space for a chip that is not there. */
+  .lineedit{grid-template-columns:auto 1fr 100px 120px auto}
+  .lineedit>.itempick{grid-column:auto}
   .lineedit>.desc{grid-column:auto}
   .critedit{grid-template-columns:1fr 110px auto}
   .critedit>.cname{grid-column:auto}

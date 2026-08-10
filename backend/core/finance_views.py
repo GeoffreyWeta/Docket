@@ -7,6 +7,7 @@ make an evaluator's scoring screen wait on a payables aggregation.
 """
 import json
 
+from django.db.models import Q
 from django.http import JsonResponse
 
 from . import finance, finance_sync
@@ -44,6 +45,7 @@ def finance_state(request, p, body):
 
 
 ENTITY_LABELS = {
+    "dimension": "dimension values", "vendor": "vendors", "item": "items",
     "contract": "contracts", "po": "purchase orders", "grn": "goods receipts",
     "invoice": "invoices", "payment": "payments", "fx": "exchange rates",
 }
@@ -64,6 +66,7 @@ def finance_import(request, p, body):
                              "sources": [{"key": a.key, "label": a.label}
                                          for a in finance_sync.ADAPTERS.values()],
                              "entities": [{"key": k, "label": v} for k, v in ENTITY_LABELS.items()],
+                             "connection": finance_sync.bc_config(),
                              "rows": _counts()})
 
     source = (request.POST.get("source") or body.get("source") or "nav").strip().lower()
@@ -127,6 +130,76 @@ def finance_exceptions(request, p, body):
         found = [e for e in found
                  if e["kind"] not in ("exposure", "payment_overdue", "duplicate_invoice")]
     return JsonResponse({"exceptions": found, "at": now_ms()})
+
+
+@route(["POST"], perm="finance.sync")
+def finance_pull(request, p, body):
+    """Pull live from Business Central rather than from an uploaded export.
+
+    One entity with `entity`, or the whole ledger in dependency order without
+    it. Refuses clearly when the connection is not configured: "nothing came
+    back" and "nobody told me where to look" are different problems and only
+    one of them is worth investigating in the ledger.
+    """
+    entity = (body.get("entity") or "").strip().lower()
+    cfg = finance_sync.bc_config()
+    if not cfg["configured"]:
+        return err("Business Central is not connected — missing "
+                   + ", ".join(cfg["missing"])
+                   + ". Set them in the server environment, or upload an export instead.", 409)
+
+    if entity and entity not in finance_sync.ENTITIES:
+        return err(f"Unknown entity {entity!r}.")
+
+    try:
+        report = (finance_sync.pull(entity) if entity else finance_sync.pull_all())
+    except Exception as exc:                                      # noqa: BLE001
+        return err(f"The pull failed: {exc}", 502)
+
+    detail = (f"{entity or 'all feeds'} pulled live from Business Central. "
+              + ", ".join(f"{k}: {v.get('written', v.get('error', '?'))}"
+                          for k, v in (report if not entity else {entity: report}).items()))
+    log(p, "Finance ledger pulled", detail[:400])
+    return JsonResponse({"ok": True, "report": report,
+                         "feeds": finance_sync.sync_state(), "rows": _counts()})
+
+
+@route(["GET"], perm="page.tenders")
+def item_search(request, p, body):
+    """The material master, searched. Feeds the line-item picker on the tender form.
+
+    A search endpoint rather than a slice of the bootstrap payload: the item
+    master runs to thousands of rows in most ledgers, it changes on its own
+    schedule, and one screen wants it. Blocked items are excluded from the
+    picker but stay in the database, because a discontinued item still appears
+    on the tenders that bought it and its price history is still history.
+    """
+    from .models import Item
+    q = (request.GET.get("q") or "").strip()
+    qs = Item.objects.filter(blocked=False)
+    if q:
+        qs = qs.filter(Q(code__icontains=q) | Q(description__icontains=q)
+                       | Q(description2__icontains=q) | Q(category__icontains=q))
+    rows = [{"code": i.code, "label": i.label, "uom": i.uom, "category": i.category,
+             "unitCost": i.unit_cost, "currency": i.currency}
+            for i in qs.order_by("description")[:40]]
+    return JsonResponse({"items": rows, "total": Item.objects.filter(blocked=False).count(),
+                         "query": q})
+
+
+@route(["GET"], perm="page.tenders")
+def item_history(request, p, body):
+    """What this item has actually been awarded at, over time.
+
+    The unit-price trend the Finance page could not draw before items existed:
+    with a code on the line, the same oven bought in three tenders is three
+    points on one series instead of three unrelated free-text descriptions.
+    """
+    from . import pricehistory
+    code = (request.GET.get("code") or "").strip()
+    if not code:
+        return err("Name an item code to look up.")
+    return JsonResponse(pricehistory.item_prices(code))
 
 
 @route(["GET"], perm="tender.create")

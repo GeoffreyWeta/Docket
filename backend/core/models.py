@@ -515,6 +515,47 @@ class SourceSync(models.Model):
         constraints = [models.UniqueConstraint(fields=["source", "entity"], name="one_sync_per_feed")]
 
 
+class Item(Mirrored):
+    """A line on the material master — what the organisation actually buys.
+
+    Until this existed a tender line was free text: somebody typed "Combi oven
+    line (2 per store)" and the next buyer typed something else for the same
+    oven. That is fine for running one competition and useless for the question
+    Finance keeps asking — *are we paying more for this than we were last year* —
+    because there is no "this" to compare across tenders.
+
+    Mirrored from the finance system rather than maintained here: the item
+    master is somebody else's book of record and a second editable copy of it
+    would be two masters and no truth. `blocked` is carried so a discontinued
+    item can be kept for the history it appears in without being offered on a
+    new tender.
+    """
+    code = models.CharField(max_length=40, db_index=True)
+    description = models.CharField(max_length=200)
+    description2 = models.CharField(max_length=200, blank=True, default="")
+    uom = models.CharField(max_length=24, blank=True, default="")     # each, carton, kg
+    category = models.CharField(max_length=80, blank=True, default="")
+    # The ledger's own cost figure. A reference point, never a baseline on its
+    # own: what an item cost to buy last is not what the market will quote today,
+    # and the savings basis rules (see pricehistory.py) are deliberately stricter.
+    unit_cost = models.BigIntegerField(default=0)
+    currency = models.CharField(max_length=3, default="NGN")
+    blocked = models.BooleanField(default=False)
+    kind = models.CharField(max_length=24, blank=True, default="")    # Inventory | Service
+
+    class Meta:
+        ordering = ["code"]
+        constraints = [models.UniqueConstraint(fields=["source", "external_id"],
+                                               name="one_item_per_external_id")]
+
+    def __str__(self):
+        return f"{self.code} {self.description}"
+
+    @property
+    def label(self):
+        return " — ".join(x for x in (self.description, self.description2) if x)
+
+
 class Contract(Mirrored, Money, SpendDimensions):
     """An award turned into a commitment.
 
@@ -662,6 +703,31 @@ class Payment(Mirrored, Money):
         ordering = ["-paid_at"]
         constraints = [models.UniqueConstraint(fields=["source", "external_id"],
                                                name="one_payment_per_external_id")]
+
+
+class DemoFixture(models.Model):
+    """A manifest of exactly what the demo seed created, so it can be removed again.
+
+    The alternative — deleting "everything that looks like demo data" — is the
+    kind of heuristic that works until the day somebody has a real vendor called
+    Coldline Logistics. A workspace that has imported a 1,400-row vendor register
+    and a year of NAV contracts cannot be cleaned up by pattern-matching, and
+    getting it wrong deletes the real data rather than the fixture.
+
+    So the seed writes down what it made. Recording it is exact rather than
+    clever: `wipe()` empties these tables first, so whatever sits in them when
+    the seed finishes *is* the fixture, by construction.
+
+    A workspace seeded before this existed has no manifest, and the console says
+    so rather than guessing — see `clear_demo`.
+    """
+    id = models.IntegerField(primary_key=True, default=1)
+    at = models.BigIntegerField(default=0)
+    # {"core.Tender": ["t1", ...], "auth.User": ["amara", ...]}
+    manifest = models.JSONField(default=dict, blank=True)
+
+    def total(self):
+        return sum(len(v) for v in (self.manifest or {}).values())
 
 
 class AdminAudit(models.Model):

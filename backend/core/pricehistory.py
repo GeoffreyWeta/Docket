@@ -192,6 +192,90 @@ def suggest(category, *, before=None, supplier_id=None, prefer_supplier=None,
     }
 
 
+# ----------------------------------------------------------------- item prices
+
+def item_prices(code, now=None):
+    """Every awarded unit price for one item, oldest first.
+
+    This is the thing free-text tender lines made impossible. A line carrying an
+    item code can be compared with the same code on a tender from two years ago;
+    a line reading "Combi oven line (2 per store)" can be compared with nothing,
+    because the next buyer wrote "Ovens — 10 grid, incl. install" and meant the
+    same oven.
+
+    Only awarded tenders, and only the winning bid's price: a losing quote is
+    what somebody was willing to charge, not what the organisation paid. The
+    distinction is the same one the savings basis makes and for the same reason.
+    """
+    from .models import Bid, Item, Tender
+
+    now = now or now_ms()
+    code = (code or "").strip()
+    item = Item.objects.filter(code=code).first()
+    points = []
+
+    for t in Tender.objects.filter(status="awarded").exclude(awarded_to=None):
+        lines = [l for l in (t.lines or []) if str(l.get("itemCode") or "").strip() == code]
+        if not lines:
+            continue
+        win = Bid.objects.filter(tender=t, supplier_id=t.awarded_to).first()
+        if not win or not win.lines:
+            continue
+        for line in lines:
+            unit = win.lines.get(line.get("id"))
+            if unit in (None, ""):
+                continue
+            try:
+                unit = int(unit)
+            except (TypeError, ValueError):
+                continue
+            if unit <= 0:
+                continue
+            points.append({
+                "tenderId": t.id, "ref": t.ref, "title": t.title,
+                "at": t.awarded_at, "unit": unit,
+                "qty": line.get("qty") or 0, "uom": line.get("unit") or "",
+                "supplier": t.awarded_to,
+            })
+
+    points.sort(key=lambda p: p["at"] or 0)
+    prices = [p["unit"] for p in points]
+    first, last = (prices[0], prices[-1]) if prices else (None, None)
+    return {
+        "code": code,
+        "label": item.label if item else code,
+        "uom": item.uom if item else "",
+        "ledgerCost": item.unit_cost if item else None,
+        "points": points,
+        "n": len(points),
+        "low": min(prices) if prices else None,
+        "high": max(prices) if prices else None,
+        "median": _median(prices) if prices else None,
+        "latest": last,
+        # Movement across the whole record, which is only meaningful with two
+        # points — one award is a price, not a trend.
+        "change": (last - first) if len(prices) > 1 else None,
+        "changePct": ((last - first) / first * 100) if len(prices) > 1 and first else None,
+    }
+
+
+def item_coverage():
+    """How much of the tendered line record carries an item code.
+
+    The number that says whether unit-price history is worth looking at yet: a
+    trend built on 4% of lines is a trend about those four per cent.
+    """
+    from .models import Tender
+    total = coded = 0
+    for t in Tender.objects.all():
+        for line in (t.lines or []):
+            total += 1
+            if str(line.get("itemCode") or "").strip():
+                coded += 1
+    return {"lines": total, "coded": coded,
+            "pct": (coded / total * 100) if total else None}
+
+
 # ------------------------------------------------------------------- coverage
 
 def coverage():

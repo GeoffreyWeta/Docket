@@ -259,6 +259,110 @@ function ChromeActions({ api, accounts, username, onSwitch, onLogout, onReset, o
 }
 
 export const MENU_CSS = `
+/* ---------------- item picker ---------------- */
+.itempick{position:relative;flex:0 0 auto;display:inline-flex;align-items:center;gap:6px}
+.itempick.on{padding:4px 6px 4px 8px;border:1px solid var(--line);border-radius:7px;
+  background:var(--sunk);font-size:11.5px;max-width:210px}
+.itempick.on>svg{color:var(--muted);flex:0 0 auto}
+.itempick.on b{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ihist{color:var(--green);font-family:var(--font-mono);font-size:10.5px;flex:0 0 auto}
+.ix{border:0;background:transparent;color:var(--faint);cursor:pointer;font-size:11px;
+  padding:0 2px;line-height:1}
+.ix:hover{color:var(--wax)}
+.itemdrop{position:absolute;top:calc(100% + 5px);left:0;z-index:20;width:340px;
+  background:var(--card);border:1px solid var(--line2);border-radius:10px;padding:8px;
+  box-shadow:0 10px 28px rgba(0,0,0,.16)}
+.itemdrop .in{width:100%;font-size:12.5px;padding:6px 9px}
+.itemlist{max-height:230px;overflow-y:auto;margin-top:6px}
+.itemrow{display:flex;align-items:baseline;gap:9px;width:100%;padding:6px 7px;border:0;
+  background:transparent;font:inherit;text-align:left;cursor:pointer;border-radius:6px;color:var(--ink)}
+.itemrow:hover{background:var(--sunk)}
+.itemrow:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+.itemrow b{flex:0 0 auto;font-size:11px;color:var(--muted)}
+.ilbl{flex:1;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---------------- radar ---------------- */
+/* The band strip: the shape of the next 90 days, before any single row. */
+.radarbands{display:flex;gap:2px;padding:0 16px 2px;border-bottom:1px solid var(--hair)}
+.rband{flex:1;display:flex;flex-direction:column;gap:1px;padding:8px 10px 10px;
+  border-radius:8px 8px 0 0;border-bottom:2px solid transparent}
+.rband.on{border-bottom-color:var(--line2);background:var(--sunk)}
+.rbn{font-size:19px;font-weight:600;line-height:1.1;color:var(--faint);
+  font-variant-numeric:tabular-nums}
+.rband.on .rbn{color:var(--ink)}
+.rbl{font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--faint)}
+
+.radarrow{display:flex;align-items:center;gap:11px;padding:10px 4px;
+  border-bottom:1px solid var(--hair);border-radius:6px}
+.radarrow:last-of-type{border-bottom:0}
+.radarrow.click{cursor:pointer}
+.radarrow.click:hover{background:var(--sunk)}
+.radarrow.click:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+.radarrow>svg{color:var(--faint);flex:0 0 auto}
+/* Proximity, drawn. Square at the baseline, 4px at the data end — the same
+   rule the charts follow, so a bar means the same thing everywhere. */
+.rprox{flex:0 0 54px;height:6px;border-radius:4px;background:var(--sunk);overflow:hidden}
+.rprox>span{display:block;height:100%;border-radius:0 4px 4px 0;
+  transition:width .5s cubic-bezier(.22,.61,.36,1)}
+.rmain{flex:1;min-width:0}
+.rtitle{font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rsub{font-size:11.5px;color:var(--faint);margin-top:1px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rwhen{flex:0 0 auto;font-family:var(--font-mono);font-size:12px;color:var(--muted);
+  font-variant-numeric:tabular-nums;min-width:52px;text-align:right}
+.radarfoot{display:flex;align-items:center;gap:7px;margin-top:10px;padding-top:10px;
+  border-top:1px solid var(--hair);font-size:12px;color:var(--wax)}
+
+/* ---------------- waiting on others ---------------- */
+.waitgrp{padding:10px 0;border-bottom:1px solid var(--hair)}
+.waitgrp:last-child{border-bottom:0}
+.waithead{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.avstack{display:flex;flex:0 0 auto}
+.avstack .av+.av{margin-left:-7px}
+.av{width:26px;height:26px;border-radius:50%;background:var(--sunk);color:var(--muted);
+  border:1px solid var(--line);display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:600;letter-spacing:.02em;flex:0 0 auto;
+  /* a surface ring so overlapping avatars stay separable */
+  box-shadow:0 0 0 2px var(--card)}
+.av.none{border-style:dashed;color:var(--faint)}
+.waitwho{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.35}
+.waitwho b{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.waitwho span{font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.waititem{display:flex;align-items:center;gap:9px;width:100%;padding:5px 6px 5px 30px;
+  border:0;background:transparent;font:inherit;text-align:left;cursor:pointer;
+  border-radius:6px;color:var(--ink)}
+.waititem:hover{background:var(--sunk)}
+.waititem:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+.widot{width:5px;height:5px;border-radius:50%;background:var(--line2);flex:0 0 auto}
+.witext{flex:1;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wiwhy{flex:0 0 auto;font-size:11px;color:var(--faint)}
+
+.dashpair{align-items:start}
+
+/* ---------------- recent activity ---------------- */
+/* One line per event: this is the only card on the dashboard that is not work,
+   and it is sized to say so. */
+.actrow{display:flex;align-items:baseline;gap:10px;padding:6px 2px;font-size:12.5px}
+.actdot{width:5px;height:5px;border-radius:50%;background:var(--line2);flex:0 0 auto;
+  align-self:center}
+.actrow.sealed .actdot{background:var(--wax)}
+.actwhen{flex:0 0 46px;font-family:var(--font-mono);font-size:11px;color:var(--faint);
+  font-variant-numeric:tabular-nums}
+.actwhat{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.actwho{color:var(--faint);font-size:11.5px}
+
+@media(max-width:720px){
+  .radarbands{padding:0 12px}
+  .rband{padding:7px 6px 8px}
+  .rbn{font-size:16px}
+  .rbl{font-size:9.5px}
+  .rprox{flex-basis:34px}
+  .wiwhy{display:none}
+}
+@media(prefers-reduced-motion:reduce){
+  .rprox>span{transition:none}
+}
+
 /* a register row opens its record */
 .vrow{cursor:pointer}
 .vrow:hover{background:var(--paper-2)}
@@ -514,93 +618,304 @@ export function Dashboard({ api }) {
         <MyDesk api={api} />
       </div>
 
-      <div className="grid g2">
-        <div className="card" data-reveal>
-          <div className="chead"><h3>Deadline radar</h3></div>
-          <div className="cbody" style={{ paddingTop: 6 }}>
-            {open.sort((a, b) => a.deadline - b.deadline).map((t) => {
-              const nBids = state.bids.filter((b) => b.tenderId === t.id).length;
-              return (
-                <div className="rowline" key={t.id}>
-                  <div style={{ flex: 1 }}>
-                    <b style={{ cursor: "pointer" }} onClick={() => go({ page: "tender", id: t.id })}>{t.title}</b>
-                    <div className="muted" style={{ fontSize: 12 }}>{nBids} sealed {nBids === 1 ? "bid" : "bids"} received · {t.invited.length} invited</div>
-                  </div>
-                  <Countdown t={t.deadline} />
-                </div>
-              );
-            })}
-            {!open.length && <Empty>No live tenders.</Empty>}
-          </div>
-        </div>
+      <Radar api={api} open={open} expiring={expiring} register={register} held={held} />
 
-        <div className="card" data-reveal>
-          <div className="chead">
-            <h3>Compliance radar</h3>
-            <span className="mono faint" style={{ marginLeft: "auto" }}>
-              {can(user, "page.suppliers") && register
-                ? `${register.toLocaleString()} on the register · ${held.toLocaleString()} held out`
-                : "next 60 days"}
-            </span>
-          </div>
-          <div className="cbody" style={{ paddingTop: 6 }}>
-            {expiring.map((x, i) => (
-              <div className="rowline" key={i}>
-                <div style={{ flex: 1 }}><b>{x.s.name}</b><div className="muted" style={{ fontSize: 12 }}>{x.d.name}</div></div>
-                <span className={"chip " + (x.dl <= 30 ? "warn" : "")}>{x.dl} days to expiry</span>
-              </div>
-            ))}
-            {!expiring.length && <Empty icon="shield">No compliance document expires in the next 60 days.</Empty>}
-          </div>
-        </div>
-
-        {/* Deliberately quieter than "Needs you": these are somebody else's move,
-            and the reason to show them is so nobody chases a decision twice. */}
-        <div className="card" data-reveal>
-          <div className="chead">
-            <h3>Waiting on others</h3>
-            {theirs.length > 0 && <span className="mono faint" style={{ marginLeft: "auto" }}>{theirs.length}</span>}
-          </div>
-          <div className="cbody" style={{ paddingTop: 2 }}>
-            {theirs.slice(0, 6).map((it) => <WorkRow key={it.key} it={it} mine={false} go={go} />)}
-            {theirs.length > 6 && (
-              <div className="muted" style={{ fontSize: 12, paddingTop: 10 }}>
-                and {theirs.length - 6} more.
-              </div>
-            )}
-            {!theirs.length && <Empty>Nothing is sitting with anyone else.</Empty>}
-          </div>
-        </div>
-
-        <div className="card" data-reveal>
-          <div className="chead">
-            <h3>Recent activity</h3>
-            {can(user, "page.audit") && (
-              <button className="doclink" style={{ marginLeft: "auto", fontSize: 12 }}
-                      onClick={() => go({ page: "audit" })}>The full trail</button>
-            )}
-          </div>
-          <div className="cbody">
-            <ul className="tline">
-              {state.events.slice(0, 6).map((e) => (
-                <li key={e.id} className={/seal/i.test(e.action) ? "waxdot" : ""}>
-                  <div className="when">{fmtDateTime(e.at)}</div>
-                  <div className="what">
-                    {/* an event about a tender is a way into that tender */}
-                    {e.tenderId && tenders.some((t) => t.id === e.tenderId)
-                      ? <button className="doclink" onClick={() => go({ page: "tender", id: e.tenderId })}>{e.action}</button>
-                      : e.action}
-                  </div>
-                  <div className="who">{e.actor}{e.detail ? " · " + e.detail : ""}</div>
-                </li>
-              ))}
-              {!state.events.length && <Empty>Nothing has happened yet.</Empty>}
-            </ul>
-          </div>
-        </div>
+      {/* `dashpair` stops these two stretching to the taller one. The dead space
+          under a short "Waiting on others" was half of what made the old
+          four-card block look padded, and matching heights buys nothing when the
+          two cards hold unrelated things of naturally different length. */}
+      <div className="grid g2 dashpair">
+        <WaitingOnOthers api={api} items={theirs} />
+        <RecentActivity api={api} tenders={tenders} />
       </div>
     </div>
   );
+}
+
+/* ---------------- the radar ----------------
+
+   One card, because it answers one question: what has a clock running on it.
+   A tender closing and a vendor's licence expiring are the same shape of
+   problem — a date approaching that costs something if it passes — and the old
+   dashboard split them into two identical lists purely because they come from
+   different tables. Merging them is also the only way to see the collision that
+   matters: a document lapsing in the same week a tender it qualifies for closes.
+
+   Proximity is drawn, not written. The old version put "5 days left" and "24
+   days to expiry" in chips, which meant reading every row to find the urgent
+   one; here the bar length and its colour carry that, and the number stays for
+   the exact answer. */
+
+const RADAR_HORIZON = 90;   // days; anything further out is counted, not listed
+
+const RADAR_BANDS = [
+  { key: "overdue", label: "Overdue", max: 0, tone: "var(--wax)" },
+  { key: "week", label: "7 days", max: 7, tone: "var(--wax)" },
+  { key: "month", label: "30 days", max: 30, tone: "var(--s4)" },
+  { key: "quarter", label: "90 days", max: RADAR_HORIZON, tone: "var(--s1)" },
+];
+
+const bandFor = (days) => RADAR_BANDS.find((b) => days <= b.max) || RADAR_BANDS[RADAR_BANDS.length - 1];
+
+/* How full the proximity bar is, 0–100. Logarithmic, not linear.
+
+   Linear over ninety days is useless at the end that matters: five days out and
+   nine days out both come back about ninety per cent, so the bar says "soon" for
+   everything inside a month and stops distinguishing the thing you have to do
+   tomorrow from the thing you have to do in a fortnight. Time pressure is felt
+   logarithmically — one day versus three is a crisis, sixty versus sixty-two is
+   nothing — so the scale matches. Five days now reads 60%, nine reads 49%. */
+function proximity(days) {
+  if (days <= 0) return 100;                       // overdue: full, not inverted
+  const t = Math.log1p(days) / Math.log1p(RADAR_HORIZON);
+  return Math.max(4, Math.min(100, (1 - t) * 100));
+}
+
+function Radar({ api, open, expiring, register, held }) {
+  const { state, go, user } = api;
+
+  /* Both kinds normalised to the same row shape, then sorted by date. `kind`
+     survives so the two are still tellable apart — merging the cards must not
+     merge the meanings. */
+  const rows = [];
+  for (const t of open) {
+    rows.push({
+      key: "t-" + t.id, kind: "tender", at: t.deadline, days: daysLeft(t.deadline),
+      title: t.title,
+      sub: `${state.bids.filter((b) => b.tenderId === t.id).length} sealed of ${t.invited.length} invited`,
+      what: "closes", icon: "tender",
+      onPick: () => go({ page: "tender", id: t.id }),
+    });
+  }
+  for (const x of expiring) {
+    rows.push({
+      key: "d-" + x.s.id + x.d.name, kind: "doc", at: x.d.expiry, days: x.dl,
+      title: x.s.name, sub: x.d.name, what: "expires", icon: "shield",
+      onPick: can(user, "page.suppliers") ? () => go({ page: "suppliers" }) : undefined,
+    });
+  }
+  rows.sort((a, b) => (a.at || Infinity) - (b.at || Infinity));
+
+  const near = rows.filter((r) => r.days <= RADAR_HORIZON);
+  const far = rows.length - near.length;
+  const counts = RADAR_BANDS.map((b, i) => ({
+    ...b,
+    n: near.filter((r) => bandFor(r.days).key === b.key).length,
+  }));
+  const soon = near.filter((r) => r.days <= 7).length;
+
+  return (
+    <div className="card radar" data-reveal style={{ marginBottom: 16 }}>
+      <div className="chead">
+        <h3>Radar</h3>
+        <span className="mono faint">deadlines and expiries, next {RADAR_HORIZON} days</span>
+        <span className="mono faint" style={{ marginLeft: "auto" }}>
+          {can(user, "page.suppliers") && register
+            ? `${register.toLocaleString()} vendors · ${held.toLocaleString()} held out`
+            : `${near.length} tracked`}
+        </span>
+      </div>
+
+      {/* The bands, as a strip. Counts first so the shape of the next three
+          months reads before any individual row does. */}
+      <div className="radarbands">
+        {counts.map((b) => (
+          <div key={b.key} className={"rband" + (b.n ? " on" : "")}>
+            <span className="rbn" style={b.n ? { color: b.tone } : null}>{b.n}</span>
+            <span className="rbl">{b.label}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="cbody" style={{ paddingTop: 4 }}>
+        {near.map((r) => {
+          const band = bandFor(r.days);
+          const fill = proximity(r.days);
+          return (
+            <div className={"radarrow" + (r.onPick ? " click" : "")} key={r.key}
+                 onClick={r.onPick}
+                 tabIndex={r.onPick ? 0 : undefined}
+                 onKeyDown={r.onPick ? (e) => e.key === "Enter" && r.onPick() : undefined}>
+              <span className="rprox" aria-hidden="true">
+                <span style={{ width: fill + "%", background: band.tone }} />
+              </span>
+              <Icon n={r.icon} s={14} />
+              <div className="rmain">
+                <div className="rtitle">{r.title}</div>
+                <div className="rsub">{r.what} · {r.sub}</div>
+              </div>
+              <span className="rwhen" style={{ color: r.days <= 7 ? band.tone : undefined }}>
+                {r.days < 0 ? `${Math.abs(r.days)}d ago` : r.days === 0 ? "today" : `${r.days}d`}
+              </span>
+            </div>
+          );
+        })}
+        {!near.length && (
+          <Empty icon="shield">
+            Nothing closes or expires in the next {RADAR_HORIZON} days.
+            {far ? ` ${far} item${far === 1 ? " sits" : "s sit"} beyond that.` : ""}
+          </Empty>
+        )}
+        {near.length > 0 && far > 0 && (
+          <div className="muted" style={{ fontSize: 12, paddingTop: 10 }}>
+            and {far} more beyond {RADAR_HORIZON} days.
+          </div>
+        )}
+        {soon > 0 && (
+          <div className="radarfoot">
+            <Icon n="alert" s={13} />
+            {soon} {soon === 1 ? "item needs" : "items need"} attention inside a week.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- waiting on others ----------------
+
+   Grouped by whoever can actually clear it, because the action this card leads
+   to is a conversation with a person, not a list of tickets. An item nobody
+   holds is its own group and is the more serious finding: work that is waiting
+   on a capability this workspace has not given anybody.
+
+   Grouped by the *set* of holders rather than per person, so an approval two
+   people could sign is one row, not two. Counting it twice would overstate the
+   queue and make both of them assume the other had it. */
+function holderSets(items, state) {
+  const byId = new Map((state.users || []).map((u) => [u.id, u]));
+  const caps = state.capHolders || {};
+  const groups = new Map();
+
+  for (const it of items) {
+    const ids = (caps[it.cap] || []).slice().sort();
+    const key = ids.join(",") || "__none";
+    if (!groups.has(key)) {
+      groups.set(key, { key, ids, people: ids.map((id) => byId.get(id)).filter(Boolean), items: [] });
+    }
+    groups.get(key).items.push(it);
+  }
+  return [...groups.values()]
+    .map((g) => ({ ...g, oldest: Math.min(...g.items.map((i) => i.since || Infinity)) }))
+    .sort((a, b) => a.oldest - b.oldest);
+}
+
+function initials(name) {
+  return (name || "?").split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+}
+
+function WaitingOnOthers({ api, items }) {
+  const { state, go } = api;
+  const groups = holderSets(items, state);
+
+  return (
+    <div className="card" data-reveal>
+      <div className="chead">
+        <h3>Waiting on others</h3>
+        {items.length > 0 && (
+          <span className="mono faint" style={{ marginLeft: "auto" }}>
+            {items.length} across {groups.length} {groups.length === 1 ? "desk" : "desks"}
+          </span>
+        )}
+      </div>
+      <div className="cbody" style={{ paddingTop: 4 }}>
+        {groups.map((g) => (
+          <div className="waitgrp" key={g.key}>
+            <div className="waithead">
+              {g.people.length ? (
+                <span className="avstack">
+                  {g.people.slice(0, 3).map((p) => (
+                    <span className="av" key={p.id} title={`${p.name} — ${p.title}`}>{initials(p.name)}</span>
+                  ))}
+                </span>
+              ) : <span className="av none" title="nobody holds this capability">—</span>}
+              <div className="waitwho">
+                <b>{g.people.length
+                  ? g.people.length === 1
+                    ? g.people[0].name
+                    : g.people.length === 2
+                      ? `${g.people[0].name} or ${g.people[1].name}`
+                      : `Any of ${g.people.length}`
+                  : "Nobody can clear this"}</b>
+                <span className="muted">
+                  {g.people.length === 1 ? g.people[0].title
+                    : g.people.length ? g.people.map((p) => p.name.split(" ")[0]).join(", ")
+                    : "no account holds the capability it needs"}
+                </span>
+              </div>
+              <span className="wqage" title="oldest item in this group">
+                {waitedFor(g.oldest === Infinity ? 0 : g.oldest)}
+              </span>
+            </div>
+            {g.items.slice(0, 4).map((it) => (
+              <button className="waititem" key={it.key} onClick={() => go(it.to)}>
+                <span className="widot" aria-hidden="true" />
+                <span className="witext">{it.title}</span>
+                <span className="wiwhy">{it.waiting}</span>
+              </button>
+            ))}
+            {g.items.length > 4 && (
+              <div className="muted" style={{ fontSize: 12, padding: "2px 0 0 30px" }}>
+                and {g.items.length - 4} more.
+              </div>
+            )}
+          </div>
+        ))}
+        {!items.length && <Empty icon="seal">Nothing is sitting with anyone else.</Empty>}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- recent activity ----------------
+
+   Ambient, and styled to say so. It is the only card here that is not work, so
+   it gets one line per event instead of three and stays out of the way of the
+   things that are. */
+function RecentActivity({ api, tenders }) {
+  const { state, go, user } = api;
+  const events = state.events.slice(0, 8);
+
+  return (
+    <div className="card" data-reveal>
+      <div className="chead">
+        <h3>Recent activity</h3>
+        {can(user, "page.audit") && (
+          <button className="doclink" style={{ marginLeft: "auto", fontSize: 12 }}
+                  onClick={() => go({ page: "audit" })}>The full trail</button>
+        )}
+      </div>
+      <div className="cbody" style={{ paddingTop: 4 }}>
+        {events.map((e) => {
+          const linked = e.tenderId && tenders.some((t) => t.id === e.tenderId);
+          return (
+            <div className={"actrow" + (/seal/i.test(e.action) ? " sealed" : "")} key={e.id}>
+              <span className="actdot" aria-hidden="true" />
+              <span className="actwhen" title={fmtDateTime(e.at)}>{fmtTimeShort(e.at)}</span>
+              <span className="actwhat">
+                {linked
+                  ? <button className="doclink" onClick={() => go({ page: "tender", id: e.tenderId })}>{e.action}</button>
+                  : e.action}
+                <span className="actwho"> · {e.actor}</span>
+              </span>
+            </div>
+          );
+        })}
+        {!events.length && <Empty>Nothing has happened yet.</Empty>}
+      </div>
+    </div>
+  );
+}
+
+/* "11:57" for today, "7 Aug" beyond it — a feed of mostly-today events does not
+   need the date on every line, and the full stamp is on the title attribute. */
+function fmtTimeShort(at) {
+  const d = new Date(at);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  return sameDay
+    ? d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
 /* ---------------- buyer: tender list ---------------- */
@@ -1617,6 +1932,88 @@ export function ApprovalsPage({ api }) {
 
 /* ---------------- new / edit tender ---------------- */
 
+/* Attach a tender line to the material master.
+
+   Optional on purpose. Plenty of what an organisation buys has no item number,
+   and a required field here would produce a master full of "MISC" — the coded
+   line is worth having precisely because it means something, so it has to be
+   possible to leave off.
+
+   What it buys: the same item on two tenders becomes two points on one price
+   series (see pricehistory.item_prices). Free-text lines cannot be compared
+   with anything, because the next buyer describes the same oven differently. */
+function ItemPick({ line, onPick }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [rows, setRows] = useState(null);
+  const [hist, setHist] = useState(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    let live = true;
+    const id = setTimeout(() => {
+      raw(`/items/?q=${encodeURIComponent(q)}`)
+        .then((d) => { if (live) setRows(d.items); })
+        .catch(() => { if (live) setRows([]); });
+    }, 180);   // typing settles before the search runs
+    return () => { live = false; clearTimeout(id); };
+  }, [q, open]);
+
+  // What this item has actually been awarded at before — the reason to code the
+  // line at all, shown where the decision is being made rather than on a report.
+  useEffect(() => {
+    if (!line.itemCode) { setHist(null); return undefined; }
+    let live = true;
+    raw(`/items/history/?code=${encodeURIComponent(line.itemCode)}`)
+      .then((d) => { if (live && d.n > 0) setHist(d); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [line.itemCode]);
+
+  if (line.itemCode) {
+    return (
+      <span className="itempick on" title={hist
+        ? `Last awarded at ${fmtMoney(hist.latest)} · ${hist.n} prior award(s)`
+        : "Linked to the material master"}>
+        <Icon n="tender" s={12} />
+        <b className="mono">{line.itemCode}</b>
+        {hist && <span className="ihist">{fmtCompact(hist.latest)}</span>}
+        <button className="ix" aria-label="Unlink this item" onClick={() => onPick(null)}>✕</button>
+      </span>
+    );
+  }
+
+  return (
+    <span className="itempick">
+      <button className="btn xs ghost" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <Icon n="search" s={12} />Item
+      </button>
+      {open && (
+        <div className="itemdrop">
+          <input className="in" autoFocus placeholder="Search the item master…"
+                 value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="itemlist">
+            {rows === null && <div className="muted" style={{ padding: 8, fontSize: 12 }}>Searching…</div>}
+            {rows && !rows.length && (
+              <div className="muted" style={{ padding: 8, fontSize: 12 }}>
+                Nothing matches. Leave the line as free text — not everything has an item number.
+              </div>
+            )}
+            {(rows || []).map((it) => (
+              <button className="itemrow" key={it.code}
+                      onClick={() => { onPick(it); setOpen(false); setQ(""); }}>
+                <b className="mono">{it.code}</b>
+                <span className="ilbl">{it.label}</span>
+                <span className="faint">{it.uom}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
 export function NewTender({ api, editId }) {
   const { state, act, ai, go } = api;
   const editing = editId ? state.tenders.find((t) => t.id === editId) : null;
@@ -1793,13 +2190,19 @@ export function NewTender({ api, editId }) {
         <div className="cbody">
           {f.lines.map((l, i) => (
             <div key={l.id} className="lineedit">
+              <ItemPick line={l}
+                        onPick={(it) => set("lines", f.lines.map((x) => x.id === l.id
+                          ? { ...x, itemCode: it ? it.code : "",
+                              desc: it && !x.desc.trim() ? it.label : x.desc,
+                              unit: it && it.uom ? it.uom.toLowerCase() : x.unit }
+                          : x))} />
               <input className="in desc" placeholder="Line description" aria-label={"Line " + (i + 1)} value={l.desc} onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, desc: e.target.value } : x))} />
               <input className="in" type="number" min="1" placeholder="Qty" aria-label="Quantity" value={l.qty} onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, qty: e.target.value } : x))} />
               <input className="in" placeholder="Unit" aria-label="Unit" value={l.unit} onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, unit: e.target.value } : x))} />
               <button className="btn sm" aria-label="Remove line" onClick={() => set("lines", f.lines.filter((x) => x.id !== l.id))}>✕</button>
             </div>
           ))}
-          <button className="btn sm" onClick={() => set("lines", [...f.lines, { id: uid(), desc: "", qty: "", unit: "unit" }])}>+ Add line item</button>
+          <button className="btn sm" onClick={() => set("lines", [...f.lines, { id: uid(), desc: "", qty: "", unit: "unit", itemCode: "" }])}>+ Add line item</button>
           {!linesOk && <div className="notice" style={{ marginTop: 10 }}>Every line needs a description and a quantity above zero, or remove the empty lines.</div>}
         </div>
       </div>

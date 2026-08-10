@@ -553,3 +553,50 @@ def admin_delete_user(request, admin, body, uid):
     _log(request, admin, "Account deleted", label,
          "Sign-in removed. Audit events already recorded under this name are unaffected.", mirror=True)
     return JsonResponse({"ok": True})
+
+
+# ---------------- the demo fixture ----------------
+
+@guard(["GET", "POST", "DELETE"])
+def admin_demo(request, admin, body):
+    """Preview or remove the demo fixture.
+
+    GET is the preview and is what the console shows first: what would go, what
+    would stay, and whether a manifest exists at all. POST/DELETE performs it.
+
+    Deliberately preview-then-confirm, and deliberately in the administration
+    console rather than in the workspace. Clearing the demo is not a tendering
+    action — it is an act *on* the workspace, like creating a role — and it is
+    unrecoverable, so it sits behind the console's own sign-in with the rest of
+    the things you cannot undo.
+    """
+    from .seed import clear_demo, fixture_preview
+
+    if request.method == "GET":
+        return JsonResponse(fixture_preview())
+
+    if str(body.get("confirm") or "").strip().lower() != "clear":
+        return _err('Type "clear" to confirm removing the demo data.', 409)
+
+    before = fixture_preview()
+    if not before["hasManifest"]:
+        return _err("No demo manifest on file — there is nothing recorded to remove.", 409)
+
+    keep_settings = bool(body.get("keepSettings"))
+    try:
+        with transaction.atomic():
+            removed = clear_demo(reset_settings=not keep_settings)
+    except ValueError as exc:
+        return _err(str(exc), 409)
+
+    total = sum(removed.values())
+    _log(request, admin, "Demo data cleared", "",
+         f"{total} demo record(s) removed across {len(removed)} table(s). "
+         + ("Workspace name and spend dimensions kept."
+            if keep_settings else "Workspace name and spend dimensions reset.")
+         + " Administrators, custom roles, imported vendors and any ledger loaded "
+           "from the finance system were not part of the fixture and are untouched.",
+         mirror=False)   # the audit chain it would mirror into no longer exists
+
+    return JsonResponse({"ok": True, "removed": removed, "total": total,
+                         "state": fixture_preview()})

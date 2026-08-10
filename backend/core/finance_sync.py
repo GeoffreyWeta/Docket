@@ -25,18 +25,64 @@ would replace a visible integration gap with an invisible reporting error.
 """
 import csv
 import io
+import json
 import re
 from datetime import datetime, timezone
 
 from django.db import transaction
 
-from .models import (Contract, FxRate, GoodsReceipt, Invoice, Payment, PurchaseOrder,
+from .models import (Contract, FxRate, GoodsReceipt, Invoice, Item, Payment, PurchaseOrder,
                      SourceSync, Supplier, Tender)
 from .util import now_ms, rid
 
-ENTITIES = ("contract", "po", "grn", "invoice", "payment", "fx")
+ENTITIES = ("dimension", "vendor", "item", "contract", "po", "grn", "invoice", "payment", "fx")
 
 BASE_CCY = "NGN"
+
+# Which of our five spend dimensions a NAV dimension code belongs to.
+#
+# Every NAV install names these differently — one company's "DEPT" is another's
+# "DEPARTMENT" and a third's "DIV". The defaults below cover the common spellings
+# and the whole map is overridable in OrgSetting.data["dimensionMap"], because a
+# mapping nobody can edit is a mapping that is wrong for the next customer.
+DEFAULT_DIMENSION_MAP = {
+    "DEPARTMENT": "department", "DEPT": "department", "DIVISION": "department",
+    "COSTCENTER": "cost_centre", "COSTCENTRE": "cost_centre", "COST CENTER": "cost_centre",
+    "COST CENTRE": "cost_centre", "CC": "cost_centre",
+    "PROJECT": "project", "JOB": "project", "PROJECTCODE": "project",
+    "AREA": "region", "REGION": "region", "LOCATION": "region", "TERRITORY": "region",
+    "SOURCE": "funding_source", "FUNDING": "funding_source", "BUDGET": "funding_source",
+    "FUND": "funding_source",
+}
+
+DIMENSION_SLOTS = ("department", "cost_centre", "project", "region", "funding_source")
+
+
+def dimension_map():
+    from .views import org_settings
+    custom = (org_settings().get("dimensionMap") or {})
+    return {**DEFAULT_DIMENSION_MAP, **{str(k).upper(): v for k, v in custom.items()}}
+
+
+def dimension_codes():
+    """{slot: {CODE: Name}} — how a ledger row's dimension code becomes a word.
+
+    NAV records dimensions on a document as *codes* ("OPS"), and the tender form
+    records them as the names people chose from a list ("Operations"). Without a
+    translation the two never group together, and a spend-by-department chart
+    quietly shows every department twice under two different spellings.
+    """
+    from .views import org_settings
+    return (org_settings().get("dimensionCodes") or {})
+
+
+def resolve_dimension(slot, value):
+    """A dimension value as a name, whether it arrived as a code or a name."""
+    v = str(value or "").strip()
+    if not v:
+        return ""
+    table = dimension_codes().get(slot) or {}
+    return table.get(v) or table.get(v.upper()) or v
 
 
 # ============================================================ normal row shape
@@ -152,6 +198,57 @@ class NavAdapter(Adapter):
         if fn is None:
             return []
         return [r for r in (fn(row) for row in payload) if r and r.get("external_id")]
+
+    def _dimension(self, r):
+        """One row of NAV's Dimension Value table."""
+        dim = str(_pick(r, "Dimension Code", "dimensionCode", "Dimension") or "").strip()
+        code = str(_pick(r, "Code", "valueCode", "Dimension Value Code") or "").strip()
+        return {
+            "external_id": f"{dim}:{code}",
+            "dimension_code": dim,
+            "code": code,
+            "name": str(_pick(r, "Name", "displayName", "Description") or "").strip() or code,
+            "blocked": str(_pick(r, "Blocked") or "").strip().lower() in ("true", "yes", "1"),
+            # "Begin-Total"/"End-Total" rows are headings in a dimension tree,
+            # not values anything can be coded to.
+            "kind": str(_pick(r, "Dimension Value Type", "valueType") or "Standard").strip(),
+        }
+
+    def _vendor(self, r):
+        return {
+            "external_id": str(_pick(r, "No.", "number", "Vendor No.") or "").strip(),
+            "code": str(_pick(r, "No.", "number") or "").strip(),
+            "name": str(_pick(r, "Name", "displayName") or "").strip(),
+            "email": str(_pick(r, "E-Mail", "email") or "").strip(),
+            "phone": str(_pick(r, "Phone No.", "phoneNumber") or "").strip(),
+            "address": " ".join(x for x in [
+                str(_pick(r, "Address", "addressLine1") or "").strip(),
+                str(_pick(r, "Address 2", "addressLine2") or "").strip(),
+                str(_pick(r, "City", "city") or "").strip()] if x),
+            "location": str(_pick(r, "City", "city", "County", "state") or "").strip(),
+            "payment_terms": str(_pick(r, "Payment Terms Code", "paymentTermsId",
+                                       "Payment Terms") or "").strip(),
+            "classification": str(_pick(r, "Vendor Posting Group", "Gen. Bus. Posting Group",
+                                        "Category", "Vendor Category") or "").strip(),
+            "tin": str(_pick(r, "VAT Registration No.", "taxRegistrationNumber", "TIN") or "").strip(),
+            "blocked": str(_pick(r, "Blocked") or "").strip().lower() not in ("", "false", "no", "0", " "),
+        }
+
+    def _item(self, r):
+        return {
+            "external_id": str(_pick(r, "No.", "number", "Item No.") or "").strip(),
+            "code": str(_pick(r, "No.", "number") or "").strip(),
+            "description": str(_pick(r, "Description", "displayName") or "").strip(),
+            "description2": str(_pick(r, "Description 2") or "").strip(),
+            "uom": str(_pick(r, "Base Unit of Measure", "baseUnitOfMeasure",
+                             "Unit of Measure") or "").strip(),
+            "category": str(_pick(r, "Item Category Code", "itemCategoryCode",
+                                  "Product Group Code") or "").strip(),
+            "unit_cost": _money(_pick(r, "Last Direct Cost", "Unit Cost", "unitCost")),
+            "currency": (str(_pick(r, "Currency Code") or BASE_CCY).strip() or BASE_CCY).upper(),
+            "blocked": str(_pick(r, "Blocked") or "").strip().lower() not in ("", "false", "no", "0", " "),
+            "type": str(_pick(r, "Type", "type") or "Inventory").strip(),
+        }
 
     def _contract(self, r):
         value = _money(_pick(r, "Contract Value", "Amount", "Line Amount"))
@@ -325,7 +422,93 @@ def adapter_for(source):
     return ADAPTERS.get(source, ADAPTERS["nav"])
 
 
-def fetch_bc(entity, *, tenant, company, token, base="https://api.businesscentral.dynamics.com"):
+def bc_config():
+    """What is configured for a live pull, and what is missing.
+
+    Reports presence, never values. `configured` is the only thing an endpoint
+    is allowed to return — a settings screen that echoes a client secret back to
+    a browser has published it, and the whole point of putting it in the
+    environment was to keep it out of places things get read from.
+    """
+    from django.conf import settings as s
+    fields = {
+        "tenant": s.BC_TENANT_ID, "company": s.BC_COMPANY_ID,
+        "clientId": s.BC_CLIENT_ID, "clientSecret": s.BC_CLIENT_SECRET,
+        "environment": s.BC_ENVIRONMENT,
+    }
+    missing = [k for k, v in fields.items() if not v]
+    return {"configured": not missing, "missing": missing,
+            "environment": s.BC_ENVIRONMENT,
+            # Safe to show: identifies the connection without authorising it.
+            "tenant": s.BC_TENANT_ID[:8] + "…" if s.BC_TENANT_ID else ""}
+
+
+def bc_token():
+    """A bearer token from the Entra client-credentials flow.
+
+    Minted per run rather than cached: these live an hour, a sync takes seconds,
+    and a cached secret-derived token is a stored credential with none of the
+    protections a stored credential should have.
+    """
+    import urllib.parse
+    import urllib.request
+
+    from django.conf import settings as s
+
+    cfg = bc_config()
+    if not cfg["configured"]:
+        raise RuntimeError(
+            "Business Central is not configured — missing " + ", ".join(cfg["missing"])
+            + ". Set them in the environment and restart.")
+
+    url = f"https://login.microsoftonline.com/{s.BC_TENANT_ID}/oauth2/v2.0/token"
+    body = urllib.parse.urlencode({
+        "grant_type": "client_credentials",
+        "client_id": s.BC_CLIENT_ID,
+        "client_secret": s.BC_CLIENT_SECRET,
+        "scope": "https://api.businesscentral.dynamics.com/.default",
+    }).encode()
+    req = urllib.request.Request(url, data=body, headers={
+        "Content-Type": "application/x-www-form-urlencoded"})
+    with urllib.request.urlopen(req, timeout=30) as fh:
+        payload = json.loads(fh.read().decode())
+    tok = payload.get("access_token")
+    if not tok:
+        raise RuntimeError("Entra returned no access token.")
+    return tok
+
+
+def pull(entity, *, source="bc", now=None):
+    """Fetch one entity live and apply it. The whole round trip, one call."""
+    from django.conf import settings as s
+    if source != "bc":
+        raise RuntimeError(f"{source!r} has no live transport — load an export instead.")
+    rows = fetch_bc(entity, tenant=s.BC_TENANT_ID, company=s.BC_COMPANY_ID,
+                    token=bc_token(), environment=s.BC_ENVIRONMENT)
+    return sync(source, entity, rows, now=now)
+
+
+def pull_all(*, source="bc", entities=None, now=None):
+    """Every feed, in dependency order.
+
+    Dimensions and vendors first: a contract row carries a dimension code and a
+    vendor number, and importing it before those exist means it lands unlinked
+    and uncoded. Items before contracts for the same reason. One feed failing
+    does not abandon the rest — a broken items view should not cost you the
+    invoices.
+    """
+    order = entities or ENTITIES
+    out = {}
+    for e in order:
+        try:
+            out[e] = pull(e, source=source, now=now)
+        except Exception as exc:                                  # noqa: BLE001
+            out[e] = {"error": str(exc)[:300]}
+    return out
+
+
+def fetch_bc(entity, *, tenant, company, token, environment="production",
+             base="https://api.businesscentral.dynamics.com"):
     """Fetch one entity from Business Central's API v2.0, following @odata.nextLink.
 
     Separated from the adapter so nothing about the mapping depends on having
@@ -335,15 +518,15 @@ def fetch_bc(entity, *, tenant, company, token, base="https://api.businesscentra
     client-credentials flow; deliberately not minted here, so no secret has to
     be stored in this codebase.
     """
-    import json
     import urllib.request
 
-    path = {"contract": "purchaseOrders", "po": "purchaseOrders", "grn": "purchaseReceipts",
+    path = {"dimension": "dimensionValues", "vendor": "vendors", "item": "items",
+            "contract": "purchaseOrders", "po": "purchaseOrders", "grn": "purchaseReceipts",
             "invoice": "purchaseInvoices", "payment": "vendorPayments",
             "fx": "currencyExchangeRates"}.get(entity)
     if not path:
         return []
-    url = f"{base}/v2.0/{tenant}/production/api/v2.0/companies({company})/{path}"
+    url = f"{base}/v2.0/{tenant}/{environment}/api/v2.0/companies({company})/{path}"
     out = []
     while url:
         req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}",
@@ -434,13 +617,16 @@ def apply_rows(source, entity, rows, *, now=None):
     rates = FxRate.latest()
     report = {"seen": len(rows), "written": 0, "skipped": [], "unlinked": 0}
     fn = {"contract": _apply_contract, "po": _apply_po, "grn": _apply_grn,
-          "invoice": _apply_invoice, "payment": _apply_payment, "fx": _apply_fx}.get(entity)
+          "invoice": _apply_invoice, "payment": _apply_payment, "fx": _apply_fx,
+          "dimension": _apply_dimension, "vendor": _apply_vendor,
+          "item": _apply_item}.get(entity)
     if fn is None:
         report["skipped"].append({"row": None, "why": f"unknown entity {entity!r}"})
         return report
 
     ctx = {"suppliers": _supplier_index(), "tenders": _tender_index(),
-           "rates": rates, "now": now, "source": source}
+           "rates": rates, "now": now, "source": source,
+           "dimmap": dimension_map(), "dimtable": dimension_codes()}
     for row in rows:
         try:
             with transaction.atomic():
@@ -450,7 +636,48 @@ def apply_rows(source, entity, rows, *, now=None):
                 report["unlinked"] += 1
         except Exception as exc:                                  # noqa: BLE001
             report["skipped"].append({"row": row.get("external_id"), "why": str(exc)[:200]})
+
+    # Dimensions accumulate across the run and are written once: they land in a
+    # single JSON settings row, and saving it per value would be a hundred
+    # writes to the same record and a partial list if row ninety failed.
+    if ctx.get("dims"):
+        report["dimensions"] = _save_dimensions(ctx)
+    if ctx.get("new_vendors"):
+        report["newVendors"] = ctx["new_vendors"][:50]
+        report["newVendorCount"] = len(ctx["new_vendors"])
     return report
+
+
+def _save_dimensions(ctx):
+    """Merge the imported values into the org's dimension configuration.
+
+    Merged rather than replaced. A value somebody added by hand, or one that
+    belongs to a dimension this export did not include, must survive an import
+    of the dimensions that did — otherwise every partial export silently empties
+    the lists the tender form offers.
+    """
+    from .models import OrgSetting
+    from .views import DEFAULT_DIMENSIONS
+
+    row, _ = OrgSetting.objects.get_or_create(pk=1)
+    data = dict(row.data or {})
+    dims = {**{k: [] for k in DEFAULT_DIMENSIONS}, **(data.get("dimensions") or {})}
+    codes = dict(data.get("dimensionCodes") or {})
+    summary = {}
+
+    for slot, names in ctx["dims"].items():
+        have = list(dims.get(slot) or [])
+        added = [n for n in names if n not in have]
+        dims[slot] = have + added
+        summary[slot] = {"added": len(added), "total": len(dims[slot])}
+    for slot, table in (ctx.get("dimcodes") or {}).items():
+        codes[slot] = {**(codes.get(slot) or {}), **table}
+
+    data["dimensions"] = dims
+    data["dimensionCodes"] = codes
+    row.data = data
+    row.save()
+    return summary
 
 
 def _base(row, ctx, model):
@@ -463,6 +690,118 @@ def _base(row, ctx, model):
 def _supplier(row, ctx):
     code = str(row.get("supplier_code") or "").strip().upper()
     return ctx["suppliers"].get(code)
+
+
+def _resolve(ctx, slot, value):
+    """A dimension code from a ledger row, as the name the workspace uses."""
+    v = str(value or "").strip()
+    if not v:
+        return ""
+    table = (ctx.get("dimtable") or {}).get(slot) or {}
+    return (table.get(v) or table.get(v.upper()) or v)[:120]
+
+
+def _apply_dimension(row, ctx):
+    """Fold one Dimension Value into the org's dimension configuration.
+
+    Writes both the list the tender form offers and the code→name table the
+    ledger importers translate through, so a contract carrying "OPS" and a
+    tender carrying "Operations" land on the same bar of the same chart.
+
+    Batched at the end of the run rather than saved per row — see `sync`.
+    """
+    slot = ctx["dimmap"].get(str(row.get("dimension_code") or "").strip().upper())
+    if not slot:
+        raise ValueError(f"dimension {row.get('dimension_code')!r} maps to none of ours")
+    if row.get("blocked") or str(row.get("kind") or "").lower().endswith("total"):
+        return True                     # headings and blocked values are not codeable
+    name = row.get("name") or row.get("code")
+    ctx.setdefault("dims", {}).setdefault(slot, [])
+    ctx.setdefault("dimcodes", {}).setdefault(slot, {})
+    if name not in ctx["dims"][slot]:
+        ctx["dims"][slot].append(name)
+    ctx["dimcodes"][slot][row.get("code")] = name
+    return True
+
+
+def _apply_vendor(row, ctx):
+    """Update a vendor from the ledger, keeping what the ledger does not know.
+
+    NAV is authoritative for the things it owns — the legal name, the address,
+    the payment terms, whether the account is blocked. It knows nothing about
+    the decisions this system makes: which category the vendor was placed in
+    after somebody read their classification, whether they passed
+    prequalification, which compliance documents are on file, how they scored.
+    Overwriting those from a finance export would throw away the entire
+    curation, so the split is explicit and one-directional.
+    """
+    code = str(row.get("code") or "").strip()
+    if not code:
+        raise ValueError("vendor with no code")
+    s = ctx["suppliers"].get(code.upper())
+
+    if s is None:
+        # New to us. The taxonomy rules get their one chance here; from now on
+        # this vendor's category belongs to whoever curates the register.
+        from .taxonomy import subcategory_for
+        from .vendor_import import category_for, slug_id
+        name = row.get("name") or code
+        # The same rule engine the register import uses, so a vendor arriving
+        # from NAV lands in the same bucket it would have from a spreadsheet.
+        # NAV's posting group is a posting group, not a procurement category —
+        # storing it raw would put "GENERATOR AND POWER" on a chart next to
+        # "Maintenance & facilities" and count them as different things.
+        classification = row.get("classification") or ""
+        category = category_for(classification, name) or "General procurement"
+        s = Supplier(
+            id=slug_id(name, set(Supplier.objects.values_list("id", flat=True))),
+            name=name, category=category,
+            subcategory=subcategory_for(category, classification, name),
+            classification=classification,
+            prequalified=False,          # never granted by an import
+        )
+        ctx.setdefault("new_vendors", []).append(name)
+
+    # Ledger-owned fields.
+    s.code = code
+    s.name = row.get("name") or s.name
+    s.contact_email = row.get("email") or s.contact_email
+    s.phone = row.get("phone") or s.phone
+    s.address = row.get("address") or s.address
+    s.location = row.get("location") or s.location or "—"
+    s.payment_terms = row.get("payment_terms") or s.payment_terms
+    reg = dict(s.registry or {})
+    if row.get("tin"):
+        reg["tin"] = row["tin"]
+    reg["navBlocked"] = bool(row.get("blocked"))
+    reg["lastLedgerSync"] = ctx["now"]
+    s.registry = reg
+    s.save()
+    return True
+
+
+def _apply_item(row, ctx):
+    from .models import Item
+    existing, prov = _base(row, ctx, Item)
+    fields = {
+        **prov,
+        "code": row.get("code") or prov["external_id"],
+        "description": (row.get("description") or "")[:200],
+        "description2": (row.get("description2") or "")[:200],
+        "uom": (row.get("uom") or "")[:24],
+        "category": (row.get("category") or "")[:80],
+        "unit_cost": int(row.get("unit_cost") or 0),
+        "currency": row.get("currency") or BASE_CCY,
+        "blocked": bool(row.get("blocked")),
+        "kind": (row.get("type") or "")[:24],
+    }
+    if existing:
+        for k, v in fields.items():
+            setattr(existing, k, v)
+        existing.save()
+    else:
+        Item.objects.create(id=rid("it"), **fields)
+    return True
 
 
 def _apply_contract(row, ctx):
@@ -482,12 +821,13 @@ def _apply_contract(row, ctx):
         "starts_at": row.get("starts_at"),
         "ends_at": row.get("ends_at"),
         "status": row.get("status") or "active",
-        "department": row.get("department") or "",
-        "cost_centre": row.get("cost_centre") or "",
-        "project": row.get("project") or "",
-        "region": row.get("region") or "",
-        "funding_source": row.get("funding_source") or "",
     }
+    # NAV puts dimension *codes* on a document ("OPS"); the tender form records
+    # the *names* people picked ("Operations"). Translated here through the
+    # imported Dimension Values, or the two would never group together and every
+    # spend-by chart would show each department twice under two spellings.
+    for slot in DIMENSION_SLOTS:
+        fields[slot] = _resolve(ctx, slot, row.get(slot))
     # Dimensions the ledger did not carry fall back to the tender's, which is
     # the same commitment described by the side of the house that recorded them.
     if tender:

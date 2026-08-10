@@ -886,6 +886,158 @@ export function LogTab() {
   );
 }
 
+/* ---------------- the demo fixture ----------------
+
+   Removing the demo is the only irreversible thing in this console that is not
+   about a person, and it is the one an administrator reaches for exactly once —
+   on the day the workspace stops being a demonstration and starts being the
+   record. So it shows its work first: what goes, what stays, and specifically
+   whether an imported vendor register survives, because that is the question
+   anybody hesitating over this button actually has. */
+
+function DemoTab({ toast, onCleared }) {
+  const [p, setP] = useState(null);
+  const [err, setErr] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [keepSettings, setKeep] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(null);
+
+  const load = () => req("/demo/").then(setP).catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, []);
+
+  const clear = async () => {
+    setBusy(true);
+    try {
+      const r = await req("/demo/", { method: "POST", body: { confirm: "clear", keepSettings } });
+      setDone(r);
+      setP(r.state);
+      setConfirm("");
+      toast.ok("Demo data removed", `${r.total} record(s) gone. The workspace is ready for real data.`);
+      if (onCleared) onCleared();
+    } catch (e) {
+      toast.warn("Nothing was removed", e.message || "");
+    }
+    setBusy(false);
+  };
+
+  if (err) return <div className="card"><div className="cbody"><div className="notice">{err}</div></div></div>;
+  if (!p) return <div className="card"><div className="cbody muted">Checking what is demo data…</div></div>;
+
+  if (!p.hasManifest) {
+    return (
+      <div className="card">
+        <div className="chead"><h3>Demo data</h3></div>
+        <div className="cbody">
+          <div className="notice" style={{ borderLeft: "3px solid var(--s4)" }}>
+            <b>Nothing recorded to remove.</b>
+            <div className="muted" style={{ fontSize: 12.5, marginTop: 6, lineHeight: 1.6 }}>
+              {done
+                ? "The demo data has been removed. This workspace now holds only what you put in it."
+                : `This workspace has no demo manifest — either the demo was never seeded here, or it
+                   was already cleared. There is deliberately no fallback that guesses which rows look
+                   like demo data: on a workspace holding an imported vendor register, guessing wrong
+                   deletes the real thing.`}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="card">
+        <div className="chead">
+          <h3>Demo data</h3>
+          <span className="faint" style={{ marginLeft: "auto", fontSize: 11.5 }}>
+            seeded {p.seededAt ? ago(p.seededAt) : "—"}
+          </span>
+        </div>
+        <div className="cbody">
+          <div className="muted" style={{ fontSize: 13, lineHeight: 1.65, marginBottom: 14 }}>
+            This workspace was set up with a worked example — a fictional company called{" "}
+            <b>Kestrel Hospitality Group</b>, its vendors, tenders and a two-year finance ledger.
+            It is there so the product has something to show before you have data of your own.
+            Removing it leaves the accounts, roles and settings you have made, and anything you
+            have imported.
+          </div>
+
+          <div className="demogrid2">
+            <div className="demoside gone">
+              <div className="dsh">
+                <Icon n="alert" s={14} />
+                Removed — {p.totals.removing.toLocaleString()} {p.totals.removing === 1 ? "record" : "records"}
+              </div>
+              {p.removing.map((r) => (
+                <div className="dsrow" key={r.model}>
+                  <span>{r.name}</span><b>{r.n.toLocaleString()}</b>
+                </div>
+              ))}
+            </div>
+            <div className="demoside kept">
+              <div className="dsh">
+                <Icon n="shield" s={14} />
+                Kept — {p.totals.keeping.toLocaleString()} {p.totals.keeping === 1 ? "record" : "records"}
+              </div>
+              {p.keeping.length ? p.keeping.map((r) => (
+                <div className="dsrow" key={r.model}>
+                  <span>{r.name}</span><b>{r.n.toLocaleString()}</b>
+                </div>
+              )) : (
+                <div className="dsrow muted" style={{ borderBottom: 0 }}>
+                  <span>Nothing here yet but the demo</span>
+                </div>
+              )}
+              <div className="dsrow"><span>Administrators</span><b>{p.survives.administrators}</b></div>
+              <div className="dsrow"><span>Roles you made</span><b>{p.survives.customRoles}</b></div>
+            </div>
+          </div>
+
+          <div className="muted" style={{ fontSize: 12.5, marginTop: 12, lineHeight: 1.6 }}>
+            The "kept" column is the point: an imported vendor register and any contracts or
+            invoices loaded from the finance system were never part of the demo, so they are not
+            in the manifest and are not touched.
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 14, borderLeft: "3px solid var(--wax)" }}>
+        <div className="chead"><h3>Remove the demo data</h3></div>
+        <div className="cbody">
+          <label className="dcheck">
+            <input type="checkbox" checked={keepSettings} onChange={(e) => setKeep(e.target.checked)} />
+            <span>
+              <b>Keep the workspace name and spend dimensions.</b>
+              <span className="muted">
+                {" "}Off by default: the name is the demo company's and the dimensions are its
+                departments. Leave it off unless you have already replaced them with your own.
+              </span>
+            </span>
+          </label>
+
+          <div className="frow" style={{ maxWidth: 320, marginTop: 14 }}>
+            <label className="lbl" htmlFor="dconf">Type <b>clear</b> to confirm</label>
+            <input id="dconf" className="in mono" value={confirm} autoComplete="off"
+                   placeholder="clear" onChange={(e) => setConfirm(e.target.value)} />
+          </div>
+
+          <button className="btn pri wax" disabled={busy || confirm.trim().toLowerCase() !== "clear"}
+                  onClick={clear}>
+            {busy ? "Removing…" : `Remove ${p.totals.removing.toLocaleString()} demo records`}
+          </button>
+
+          <div className="muted" style={{ fontSize: 12, marginTop: 10, lineHeight: 1.6 }}>
+            This cannot be undone. The audit chain goes with the demo events it recorded and starts
+            again from genesis. To get the example back afterwards, re-run{" "}
+            <span className="mono">manage.py seed_demo</span> on the server.
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 /* ---------------- shell ---------------- */
 
 /* A greeting is a small thing, but this console is where you arrive to deal
@@ -897,7 +1049,8 @@ function greeting() {
   return "Good evening";
 }
 
-const TABS = [["people", "People"], ["roles", "Roles"], ["log", "What has changed"]];
+const TABS = [["people", "People"], ["roles", "Roles"], ["demo", "Demo data"],
+              ["log", "What has changed"]];
 
 export default function SuperAdmin() {
   const [signedIn, setSignedIn] = useState(!!token());
@@ -988,6 +1141,7 @@ export default function SuperAdmin() {
 
           {tab === "people" && <PeopleTab state={state} reload={reload} toast={toast} />}
           {tab === "roles" && <RolesTab state={state} reload={reload} toast={toast} />}
+          {tab === "demo" && <DemoTab toast={toast} onCleared={reload} />}
           {tab === "log" && <LogTab />}
 
           {state.demoLogin && (
@@ -1007,6 +1161,30 @@ export default function SuperAdmin() {
 /* ---------------- console-only styling ---------------- */
 
 export const ADMIN_CSS = `
+/* ---- demo fixture ---- */
+/* Two columns, because the decision is a comparison: what goes against what
+   stays. Side by side is the whole argument. */
+.demogrid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.demoside{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--sunk)}
+.demoside.gone{border-left:3px solid var(--wax)}
+.demoside.kept{border-left:3px solid var(--green)}
+.dsh{display:flex;align-items:center;gap:7px;font-size:11px;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--muted);padding-bottom:8px;margin-bottom:4px;
+  border-bottom:1px solid var(--hair);font-weight:600}
+.demoside.gone .dsh{color:var(--wax)}
+.demoside.kept .dsh{color:var(--green)}
+.dsrow{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  padding:5px 0;font-size:12.5px;border-bottom:1px solid var(--hair)}
+.dsrow:last-child{border-bottom:0}
+.dsrow b{font-family:var(--font-mono);font-size:12px;font-variant-numeric:tabular-nums}
+
+.dcheck{display:flex;align-items:flex-start;gap:9px;font-size:12.5px;line-height:1.55;cursor:pointer}
+.dcheck input{margin-top:2px;flex:0 0 auto}
+.btn.pri.wax{background:var(--wax);border-color:var(--wax)}
+.btn.pri.wax:disabled{opacity:.45}
+
+@media(max-width:720px){ .demogrid2{grid-template-columns:1fr} }
+
 .adminwrap .logincard{max-width:420px}
 .adminroot{display:block;background:var(--paper)}
 .admintop{display:flex;align-items:center;gap:10px;padding:10px var(--gutter);

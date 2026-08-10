@@ -299,6 +299,8 @@ def bootstrap(request, p, body):
     else:
         reports = []
 
+    holders = cap_holders() if p["role"] != "supplier" else {}
+
     docs = []
     tmap = {t["id"]: Tender.objects.get(pk=t["id"]) for t in tenders}
     for d in Document.objects.filter(tender_id__in=visible_ids):
@@ -315,12 +317,46 @@ def bootstrap(request, p, body):
 
     return JsonResponse({
         "org": org_settings(), "me": p, "users": users, "reports": reports,
+        "capHolders": holders,
         "taxonomy": taxonomy_tree(vendor_leaf_counts()) if p["role"] != "supplier" else [],
         "suppliers": suppliers, "tenders": tenders, "bids": bids,
         "clarifications": clars, "events": events, "documents": docs,
         "notifications": notifs,
         "demoLogin": settings.DEMO_LOGIN,
     })
+
+
+# The capabilities the dashboard's work queue can be blocked on. Only these are
+# resolved into people — the point is to answer "who am I waiting on", not to
+# publish the whole permission matrix to every browser.
+WORK_CAPS = ("bid.open", "tender.publish_decision", "award.decide",
+             "clarification.answer", "supplier.prequalify")
+
+
+def cap_holders(caps=WORK_CAPS):
+    """{capability: [persona id, ...]} — who can actually clear each step.
+
+    Resolved on the server because only the server knows. `perms.js` refuses to
+    enumerate roles on purpose: a workspace can invent "Legal" on Monday and an
+    administrator can move one person off their role on Tuesday, so a client-side
+    guess at who can approve an award would be wrong in exactly the cases that
+    matter. One pass over the personas, inverted — the org is tens of people.
+    """
+    from django.contrib.auth.models import User
+
+    from .permissions import custom_roles, resolve
+
+    custom = custom_roles()
+    out = {c: [] for c in caps}
+    for u in (User.objects.filter(is_active=True, profile__persona__isnull=False)
+              .select_related("profile__persona")):
+        prof = u.profile
+        perms = resolve(prof.persona.role, prof.perm_extra, prof.perm_revoked,
+                        superadmin=u.is_superuser, custom=custom)
+        for c in caps:
+            if c in perms:
+                out[c].append(prof.persona_id)
+    return out
 
 
 def vendor_leaf_counts():
@@ -492,8 +528,13 @@ def _apply_tender_payload(t, body):
     t.scope = str(body.get("scope", "")).strip()
     t.criteria = [{"id": c.get("id") or rid("c"), "name": str(c.get("name", "")), "weight": int(c.get("weight", 0) or 0)}
                   for c in body.get("criteria", [])]
+    # `itemCode` is optional and links the line to the material master, which is
+    # what makes the same purchase comparable across tenders. Free text still
+    # works: plenty of what an organisation buys has no item number, and
+    # requiring one would just get "MISC" typed into every line.
     t.lines = [{"id": l.get("id") or rid("l"), "desc": str(l["desc"]).strip(),
-                "qty": int(l.get("qty", 0) or 0), "unit": str(l.get("unit", "unit")).strip() or "unit"}
+                "qty": int(l.get("qty", 0) or 0), "unit": str(l.get("unit", "unit")).strip() or "unit",
+                "itemCode": str(l.get("itemCode", "") or "").strip()[:40]}
                for l in body.get("lines", []) if str(l.get("desc", "")).strip()]
     t.invited = [sid for sid in body.get("invited", []) if Supplier.objects.filter(pk=sid).exists()]
 

@@ -3,9 +3,9 @@ from django.conf import settings
 from django.contrib.auth.models import User
 
 from .models import (AccessRole, ActionToken, AuctionBid, AuthToken, Bid, ChainHead,
-                     Clarification, Contract, Document, Event, FxRate, GoodsReceipt,
-                     Invoice, Notification, OrgSetting, Payment, Persona, Profile,
-                     PurchaseOrder, SourceSync, Supplier, TaskMark, Tender)
+                     Clarification, Contract, DemoFixture, Document, Event, FxRate,
+                     GoodsReceipt, Invoice, Notification, OrgSetting, Payment, Persona,
+                     Profile, PurchaseOrder, SourceSync, Supplier, TaskMark, Tender)
 from .util import (DAY_MS, award_letter, now_ms, record_event, regret_letter,
                    rid, seal_bytes, seal_json)
 
@@ -373,3 +373,173 @@ def seed_all():
     OrgSetting.objects.update_or_create(
         pk=1, defaults={"data": {"dimensions": DIMENSIONS}})
     seed_finance(T)
+
+    # Write down what was just made, so an administrator can take it away again
+    # without touching anything real that arrives later.
+    record_fixture(T)
+
+
+# ---------------------------------------------------------------- the fixture
+
+# Everything the seed populates. Order matters on the way out: children before
+# the parents they point at, so a delete never trips a protected reference or
+# leaves a row pointing at nothing.
+FIXTURE_MODELS = [
+    Payment, Invoice, GoodsReceipt, PurchaseOrder, Contract, FxRate, SourceSync,
+    AuctionBid, Bid, Clarification, Document, Notification, ActionToken,
+    Event, ChainHead, TaskMark, Tender, Supplier, Persona,
+]
+
+
+def _label(model):
+    return f"{model._meta.app_label}.{model.__name__}"
+
+
+# What each table is called when an administrator is deciding whether to delete
+# it. Django's own verbose names give "Fx Rates" and "Chain Heads", which is the
+# schema talking rather than the product.
+FIXTURE_LABELS = {
+    "core.Payment": "Payments", "core.Invoice": "Invoices",
+    "core.GoodsReceipt": "Goods receipts", "core.PurchaseOrder": "Purchase orders",
+    "core.Contract": "Contracts", "core.FxRate": "Exchange rates",
+    "core.AuctionBid": "Auction bids", "core.Bid": "Bids",
+    "core.Clarification": "Clarifications", "core.Document": "Documents",
+    "core.Notification": "Notifications", "core.Event": "Audit events",
+    "core.Tender": "Tenders", "core.Supplier": "Vendors",
+    "core.Persona": "Team members", "auth.User": "Demo sign-ins",
+}
+
+# Plumbing. Real rows, genuinely removed, but naming them individually turns a
+# decision into a database tour — they are counted together instead.
+FIXTURE_INTERNAL = {"core.ChainHead", "core.TaskMark", "core.SourceSync", "core.ActionToken"}
+
+
+def _friendly(label, model=None):
+    return FIXTURE_LABELS.get(label) or (
+        model._meta.verbose_name_plural.title() if model else label)
+
+
+def _fold_internal(rows):
+    """Collapse the bookkeeping tables into one line, keeping the count honest."""
+    keep = [r for r in rows if r["model"] not in FIXTURE_INTERNAL]
+    plumbing = sum(r["n"] for r in rows if r["model"] in FIXTURE_INTERNAL)
+    if plumbing:
+        keep.append({"model": "__internal", "name": "Internal bookkeeping", "n": plumbing})
+    return keep
+
+
+def record_fixture(at=None):
+    """Snapshot the seed's output as a manifest.
+
+    Taken after the fact rather than accumulated during: `wipe()` empties these
+    tables at the start, so whatever is in them now is exactly what the seed put
+    there. Nothing to keep in sync, and no way for a row created by the seed to
+    be missed because somebody forgot to register it.
+    """
+    manifest = {}
+    for m in FIXTURE_MODELS:
+        ids = list(m.objects.values_list("pk", flat=True))
+        if ids:
+            manifest[_label(m)] = [str(i) for i in ids]
+    # The demo logins, by username. Administrators are never in here — they are
+    # not part of the fixture and survive both the reset and the clear.
+    manifest["auth.User"] = [u for u, _, _ in DEMO_USERS]
+    DemoFixture.objects.update_or_create(
+        pk=1, defaults={"at": at or now_ms(), "manifest": manifest})
+    return manifest
+
+
+def fixture_preview():
+    """What a clear would remove, and what it would leave behind.
+
+    Read-only, and the thing the console shows before asking anyone to confirm.
+    The "keeping" side matters as much as the "removing" side: the question an
+    administrator actually has is whether their imported register survives.
+    """
+    row = DemoFixture.objects.filter(pk=1).first()
+    manifest = (row.manifest if row else None) or {}
+
+    removing, keeping = [], []
+    for m in FIXTURE_MODELS:
+        label = _label(m)
+        ids = manifest.get(label, [])
+        total = m.objects.count()
+        n = m.objects.filter(pk__in=ids).count() if ids else 0
+        if n:
+            removing.append({"model": label, "name": _friendly(label, m), "n": n})
+        if total - n > 0:
+            keeping.append({"model": label, "name": _friendly(label, m), "n": total - n})
+
+    users = list(manifest.get("auth.User", []))
+    demo_users = User.objects.filter(username__in=users, is_superuser=False).count()
+    if demo_users:
+        removing.append({"model": "auth.User", "name": "Demo sign-ins", "n": demo_users})
+    admins = User.objects.filter(is_superuser=True).count()
+
+    removing = _fold_internal(removing)
+    keeping = _fold_internal(keeping)
+
+    return {
+        "hasManifest": bool(row),
+        "seededAt": row.at if row else None,
+        "removing": sorted(removing, key=lambda r: -r["n"]),
+        "keeping": sorted(keeping, key=lambda r: -r["n"]),
+        "totals": {"removing": sum(r["n"] for r in removing),
+                   "keeping": sum(r["n"] for r in keeping)},
+        "survives": {
+            "administrators": admins,
+            "customRoles": AccessRole.objects.count(),
+        },
+    }
+
+
+def clear_demo(reset_settings=True):
+    """Remove the demo fixture and leave a workspace ready for real data.
+
+    Deletes only what the manifest names. An imported vendor register, contracts
+    synced from NAV, accounts an administrator created — none of them are in the
+    manifest, so none of them are touched. Without a manifest this refuses
+    rather than falling back to a guess: there is no safe heuristic for "which
+    of these 1,400 vendors were fake", and being wrong here is unrecoverable.
+    """
+    row = DemoFixture.objects.filter(pk=1).first()
+    if not row or not row.manifest:
+        raise ValueError(
+            "No demo manifest on file, so there is no record of which rows the seed "
+            "created. Re-run the demo seed to write one, or remove the data by hand.")
+
+    manifest = row.manifest
+    removed = {}
+    for m in FIXTURE_MODELS:
+        ids = manifest.get(_label(m), [])
+        if not ids:
+            continue
+        n, _ = m.objects.filter(pk__in=ids).delete()
+        if n:
+            removed[_label(m)] = n
+
+    # Demo sign-ins go with their personas. `is_superuser=False` is the guard
+    # that stops a console operator deleting their own account by clearing the
+    # demo — an administrator who happened to be given a demo username keeps it.
+    n, _ = User.objects.filter(username__in=manifest.get("auth.User", []),
+                               is_superuser=False).delete()
+    if n:
+        removed["auth.User"] = n
+
+    # The audit chain is now empty; put the head back to genesis so the next
+    # event starts a fresh chain instead of hashing onto a tip that is gone.
+    ChainHead.objects.update_or_create(pk=1, defaults={"seq": 0, "hash": "genesis"})
+
+    if reset_settings:
+        # The workspace name is demo branding (see ORG in this module) and the
+        # spend dimensions are the demo company's departments. Cleared to
+        # neutral so nobody inherits Kestrel's org chart; the threshold keeps its
+        # default. Custom roles are configuration somebody made and are left.
+        OrgSetting.objects.update_or_create(pk=1, defaults={"data": {
+            "name": "Untitled workspace", "short": "ORG",
+            "dimensions": {k: [] for k in
+                           ("department", "cost_centre", "project", "region", "funding_source")},
+        }})
+
+    row.delete()
+    return removed
