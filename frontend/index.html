@@ -36,19 +36,37 @@
       html[data-theme="material"] { background: #F6F5F9; }
       html[data-theme="material-dark"] { background: #121216; color-scheme: dark; }
       html[data-theme="night"] { background: #0F1613; color-scheme: dark; }
+      html[data-theme="glass"] { background: #091614; color-scheme: dark; }
     </style>
     <script>
       /* Stamp the remembered theme on <html> before first paint. Kept inline and
-         dependency-free on purpose: any later application would flash. */
+         dependency-free on purpose: any later application would flash.
+
+         This is the ONLY place a remembered theme is restored on load — the
+         bundle's applyTheme runs when somebody clicks the switcher, not at boot.
+         So this script must not carry a list of the themes it will accept: it
+         used to, and a theme added everywhere else silently failed to survive a
+         reload, because the id fell through an allowlist nobody thought to
+         update. It now stamps whatever was stored and lets CSS decide what that
+         means, which is where the per-theme knowledge already lives.
+
+         The pattern check is shape-only — this reads the visitor's own browser
+         storage, so the concern is a malformed attribute selector, not a hostile
+         one. An unknown id simply matches no rule and the default paints.
+
+         Adding a theme: one line in the <style> above (its pre-paint background
+         and colour-scheme), and the token block in styles.js. Nothing here. */
       (function () {
         try {
           var t = localStorage.getItem("docket.theme");
-          if (t === "paper" || t === "material" || t === "material-dark" || t === "night") {
-            document.documentElement.setAttribute("data-theme", t);
-            if (t === "night" || t === "material-dark") {
-              var m = document.querySelector('meta[name="color-scheme"]');
-              if (m) m.setAttribute("content", "dark");
-            }
+          if (!t || !/^[a-z][a-z0-9-]{0,23}$/.test(t)) return;
+          document.documentElement.setAttribute("data-theme", t);
+          /* Read the scheme back out of the stylesheet above rather than
+             matching the id against a second list that could drift from it. */
+          var scheme = getComputedStyle(document.documentElement).colorScheme;
+          if (scheme && scheme.indexOf("dark") !== -1) {
+            var m = document.querySelector('meta[name="color-scheme"]');
+            if (m) m.setAttribute("content", "dark");
           }
         } catch (e) {}
       })();

@@ -24,8 +24,10 @@ export const THEMES = [
     hint: "Material on M3 dark neutrals, with the tonal green inverted" },
   { id: "night", label: "Night", icon: "seal",
     hint: "Dark ledger: the editorial look after hours, brass accents" },
+  { id: "glass", label: "Eat N Go", icon: "trophy",
+    hint: "House green on frosted glass: translucent panels over a deep green field" },
 ];
-export const DARK = new Set(["night", "material-dark"]);
+export const DARK = new Set(["night", "material-dark", "glass"]);
 
 export const THEME_KEY = "docket.theme";
 const IDS = THEMES.map((t) => t.id);

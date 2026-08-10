@@ -414,6 +414,242 @@ export const CSS = `
   --sh-3:0 8px 26px -4px rgba(0,0,0,.6);
   --inset-hi:inset 0 1px 0 rgba(255,255,255,.05);
 }
+
+/* ---- glass: the Eat N Go theme ----
+
+   Frosted panels over a deep green field, drawn from the fintech-app look:
+   translucent surfaces, a hairline of light along their top edge, generous
+   radii, and one confident accent. Everything here is the house green rather
+   than the midnight blue that style usually arrives in.
+
+   THE BRAND COLOUR LIVES IN ONE PLACE. --engo below is the only hex that
+   encodes it; every button, ring, chip and glow derives from it. Change that
+   line and the whole theme follows.
+
+   Two things this theme does that the others do not, and both have a cost:
+
+   * Translucency. Surfaces are white at low alpha over the page, so what is
+     behind them shows through. That is the whole look, and it is also why the
+     contrast figures quoted below are measured against the colour the eye
+     actually receives (#17231F for a card), not against the alpha channel.
+
+   * Backdrop blur, sparingly. backdrop-filter is applied to the fixed chrome
+     only - sidebar, top bar, dialogs, tooltips. It is deliberately NOT on
+     .card: a register page carries dozens of them, and blurring dozens of
+     stacked layers on every scroll frame is the difference between a smooth
+     list and a stuttering one. Cards get their depth from a gradient and a lit
+     edge, which costs nothing and reads the same. */
+:root[data-theme="glass"]{
+  color-scheme:dark;
+
+  /* the one line that is the brand */
+  --engo:#00A651;
+  /* a brighter step of the same hue, for text and marks on dark glass where the
+     base green sits too close to the surface (5.07:1 becomes 7.05:1) */
+  --engo-lift:#17C46A;
+  --engo-deep:#00803E;
+
+  --paper:#091614; --paper-2:#0B1D18; --card:#17231F; --sunk:#101C19;
+  --ink:#EAF3EE; --muted:#A8BCB2; --faint:#7E948A;
+  --line:rgba(234,243,238,.10); --line2:rgba(234,243,238,.18);
+  --hair:rgba(234,243,238,.07);
+
+  /* Series slots: the same eight hues as the other dark themes, so a category
+     keeps its colour when somebody switches theme.
+
+     Validated against the surfaces this theme actually composites to, sampled
+     from a screenshot rather than computed from the alpha: #101C19 for a plain
+     card (all eight clear 3:1) and #1D2D28 for the lightest stat tile, where
+     slot 6 lands at 2.91:1. That one sits in the relief band, which is legal
+     only where the values are readable another way - and they are: every
+     Figure in charts.jsx carries a table view and direct labels.
+
+     Stepping slot 6 lighter to clear 3:1 was tried and rejected. Every
+     candidate that fixed the contrast pushed its CVD separation from the
+     magenta neighbour out of the passing band (8.4 down to 6.2-7.4), which
+     trades a warning that is covered for one that is not. */
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+  --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+
+  /* A filled green button takes dark ink, never white: white on #00A651 is
+     3.19:1, which fails for a button label. Near-black gives 5.92:1. */
+  --on-brand:#08130F;
+  --btn-hover:rgba(255,255,255,.09);
+  --topbar-bg:rgba(9,22,20,.72);
+  --scrim:rgba(3,9,7,.66);
+  --skel-hi:rgba(255,255,255,.07);
+  --tip-bg:#EAF3EE; --tip-ink:#091614;
+
+  --green:var(--engo-lift); --green-2:#2BD97F; --green-deep:#7DE8AE;
+  --green-tint:rgba(23,196,106,.15); --green-ring:rgba(23,196,106,.30);
+
+  --brand:var(--engo-lift); --brand-2:#2BD97F; --brand-deep:#7DE8AE;
+  --brand-tint:rgba(23,196,106,.14); --brand-ring:rgba(23,196,106,.32);
+
+  --wax:#F0836B; --wax-tint:rgba(240,131,107,.15);
+  /* the reference's amber call-to-action, kept here for awards */
+  --brass:#F0C05A; --brass-tint:rgba(240,192,90,.14); --gold-ink:#F7D98A;
+
+  --pri-from:#00A651; --pri-to:#00803E; --pri-from-h:#17C46A; --pri-to-h:#00A651;
+  --pri-line:rgba(43,217,127,.55);
+  --wax-from:#D0654D; --wax-to:#B44E38; --wax-from-h:#E0755C; --wax-to-h:#C45C44;
+  --wax-line:rgba(240,131,107,.5);
+
+  --chip-ok-line:rgba(23,196,106,.42); --chip-warn-line:rgba(240,131,107,.42);
+  --chip-gold-line:rgba(240,192,90,.4);
+
+  --letter-bg:rgba(255,255,255,.05); --ceremony-from:rgba(240,131,107,.10);
+  --ceremony-line:rgba(240,131,107,.4);
+  --addm-line:rgba(240,192,90,.4); --unread-bg:rgba(23,196,106,.09);
+  --login-glow:rgba(23,196,106,.16);
+  /* The wax seal wears the house green here rather than wax red: on this
+     theme it is the brand mark in the wordmark, and a rose disc beside a
+     green wordmark reads as two brands. */
+  --seal-hi:#7DE8AE; --seal-core:#00A651; --seal-crack:#04452A;
+
+  --side:#071210; --side-from:rgba(10,26,22,.9); --side-to:rgba(6,15,13,.9);
+  --side-ink:#DCE9E2; --side-dim:#93A79D; --side-sec:#76897F;
+  --side-hover:rgba(255,255,255,.06);
+  --side-on-bg:linear-gradient(90deg,rgba(23,196,106,.24),rgba(255,255,255,.02) 72%);
+  --side-on-ink:#FFFFFF; --side-on-line:var(--engo-lift);
+  --side-edge:inset -1px 0 0 rgba(255,255,255,.06);
+
+  --wordmark-ink:#F2FAF6; --wordmark-rule:rgba(220,233,226,.14);
+  --wordmark-font:var(--font-sans); --wordmark-weight:700; --wordmark-ls:.02em;
+
+  --newbtn-bg:rgba(255,255,255,.08); --newbtn-line:rgba(220,233,226,.22);
+  --newbtn-bg-h:rgba(255,255,255,.14); --newbtn-line-h:rgba(220,233,226,.36);
+
+  --shadow:0 1px 2px rgba(0,0,0,.35);
+  --sh-2:0 4px 14px rgba(0,0,0,.4);
+  --sh-3:0 14px 40px -8px rgba(0,0,0,.62);
+  --inset-hi:inset 0 1px 0 rgba(255,255,255,.16);
+
+  /* glass-only knobs, read by the rules below */
+  --glass-face:linear-gradient(158deg,rgba(255,255,255,.14),rgba(255,255,255,.055) 44%,rgba(255,255,255,.025));
+  --glass-edge:rgba(255,255,255,.17);
+  --glass-blur:saturate(150%) blur(18px);
+  --radius-lg:22px;
+}
+
+/* The field the glass sits on. Two soft green glows placed off-centre so the
+   translucency has something to reveal - over a flat colour, frosted panels
+   read as flat panels. Fixed attachment, so scrolling moves content across the
+   light rather than dragging the light along with it. */
+:root[data-theme="glass"] body,
+:root[data-theme="glass"] .dk{
+  background:
+    radial-gradient(1200px 680px at 10% -10%, rgba(23,196,106,.30), transparent 60%),
+    radial-gradient(1000px 760px at 98% 2%, rgba(0,166,81,.20), transparent 56%),
+    radial-gradient(900px 800px at 55% 108%, rgba(43,217,127,.10), transparent 60%),
+    linear-gradient(168deg,#0E2620 0%,#0A1A16 44%,#07110E 100%);
+  background-attachment:fixed;
+}
+
+/* Cards: a gradient face and a lit top edge, no blur. See the note above for
+   why - this is the element that appears forty times on a page. */
+:root[data-theme="glass"] .card{
+  background:var(--glass-face),rgba(26,42,36,.60);
+  border:1px solid var(--glass-edge);
+  border-radius:var(--radius-lg);
+  box-shadow:var(--sh-2),var(--inset-hi);
+}
+:root[data-theme="glass"] .stat{
+  background:var(--glass-face),rgba(26,42,36,.5);
+  border:1px solid var(--glass-edge);
+  border-radius:18px;
+  box-shadow:var(--inset-hi);
+}
+:root[data-theme="glass"] .statlink:hover{
+  background:var(--glass-face),rgba(23,196,106,.10);
+  border-color:rgba(23,196,106,.34);
+}
+
+/* The fixed chrome is where blur earns its cost: few elements, and content
+   genuinely passes underneath them. */
+:root[data-theme="glass"] .topbar,
+:root[data-theme="glass"] .side,
+:root[data-theme="glass"] .dlg,
+:root[data-theme="glass"] .charttip,
+:root[data-theme="glass"] .ndrop{
+  backdrop-filter:var(--glass-blur);
+  -webkit-backdrop-filter:var(--glass-blur);
+}
+
+:root[data-theme="glass"] .in,
+:root[data-theme="glass"] .dk textarea,
+:root[data-theme="glass"] .dk select{
+  background:rgba(255,255,255,.05);
+  border-color:var(--glass-edge);
+  border-radius:12px;
+}
+:root[data-theme="glass"] .in:focus,
+:root[data-theme="glass"] .dk textarea:focus{
+  background:rgba(255,255,255,.08);
+  border-color:var(--engo-lift);
+}
+
+:root[data-theme="glass"] .btn{
+  background:rgba(255,255,255,.07);
+  border:1px solid var(--glass-edge);
+  border-radius:999px;
+}
+:root[data-theme="glass"] .btn:hover{background:rgba(255,255,255,.12)}
+:root[data-theme="glass"] .btn.pri{
+  border-color:transparent;
+  box-shadow:0 4px 16px -4px rgba(0,166,81,.5),var(--inset-hi);
+}
+:root[data-theme="glass"] .chip{
+  background:rgba(255,255,255,.06);
+  border-color:var(--glass-edge);
+  border-radius:999px;
+}
+:root[data-theme="glass"] .tbl thead th{
+  background:rgba(255,255,255,.04);
+  border-bottom-color:var(--glass-edge);
+}
+:root[data-theme="glass"] .tbl tbody tr:hover{background:rgba(255,255,255,.035)}
+:root[data-theme="glass"] .segmented,
+:root[data-theme="glass"] .antabs{
+  background:rgba(255,255,255,.05);
+  border-color:var(--glass-edge);
+}
+:root[data-theme="glass"] .segmented button.on,
+:root[data-theme="glass"] .antab.on{
+  background:rgba(255,255,255,.11);
+  box-shadow:var(--inset-hi);
+}
+:root[data-theme="glass"] .mtrack,
+:root[data-theme="glass"] .b2t,
+:root[data-theme="glass"] .scdtrack{background:rgba(255,255,255,.07)}
+
+/* Transparency is a preference, not a given. Where the reader has asked for
+   less of it - or for more contrast - the glass becomes a solid surface and the
+   blur is dropped. The layout does not move; only the material does. */
+@media (prefers-reduced-transparency:reduce),(prefers-contrast:more){
+  :root[data-theme="glass"] .card,
+  :root[data-theme="glass"] .stat{background:#17231F}
+  :root[data-theme="glass"] .topbar,
+  :root[data-theme="glass"] .side,
+  :root[data-theme="glass"] .dlg,
+  :root[data-theme="glass"] .charttip,
+  :root[data-theme="glass"] .ndrop{
+    backdrop-filter:none; -webkit-backdrop-filter:none;
+    background:#0B1613;
+  }
+  :root[data-theme="glass"] body,
+  :root[data-theme="glass"] .dk{background:#091614}
+}
+
+/* No backdrop-filter (older Firefox, some Android WebViews): the chrome would
+   otherwise be a see-through panel with legible text scrolling under it. */
+@supports not (backdrop-filter:blur(1px)){
+  :root[data-theme="glass"] .topbar,
+  :root[data-theme="glass"] .side,
+  :root[data-theme="glass"] .dlg,
+  :root[data-theme="glass"] .ndrop{background:#0B1613}
+}
+
 *{box-sizing:border-box}
 html,body{margin:0}
 /* the drawer is open: stop the page behind it scrolling under the finger */
