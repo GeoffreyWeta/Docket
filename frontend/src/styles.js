@@ -415,240 +415,172 @@ export const CSS = `
   --inset-hi:inset 0 1px 0 rgba(255,255,255,.05);
 }
 
-/* ---- glass: the Eat N Go theme ----
 
-   Frosted panels over a deep green field, drawn from the fintech-app look:
-   translucent surfaces, a hairline of light along their top edge, generous
-   radii, and one confident accent. Everything here is the house green rather
-   than the midnight blue that style usually arrives in.
+/* ---- engo: the Eat N Go theme ----
+
+   A LIGHT theme built in sections, which is the actual structure of the
+   reference: the screens are not dark-mode, they are a page divided into a
+   deep tinted band at the top and white content sitting below it. The tint is
+   a section, not a background.
+
+   So this theme is:
+
+     the band     a deep green field carrying the page title and its headline
+                  figures, in white. One per page, at the top.
+     the content  white cards on a barely-tinted page, generous radii, soft
+                  shadows - the light sheet the reference slides up over its
+                  hero.
+     the accent   the house green, used for fills and marks.
 
    THE BRAND COLOUR LIVES IN ONE PLACE. --engo below is the only hex that
-   encodes it; every button, ring, chip and glow derives from it. Change that
-   line and the whole theme follows.
+   encodes it; everything else derives. Change that line and the theme follows.
 
-   Two things this theme does that the others do not, and both have a cost:
+   Two greens, because one cannot do both jobs on white:
 
-   * Translucency. Surfaces are white at low alpha over the page, so what is
-     behind them shows through. That is the whole look, and it is also why the
-     contrast figures quoted below are measured against the colour the eye
-     actually receives (#17231F for a card), not against the alpha channel.
+     --engo      #00A651  3.19:1 on white. A FILL and a MARK, never body text.
+     --engo-ink  #00803E  5.05:1 on white, and 5.05:1 the other way for a white
+                          label on a green button. This is the one that carries
+                          text.
 
-   * Backdrop blur, sparingly. backdrop-filter is applied to the fixed chrome
-     only - sidebar, top bar, dialogs, tooltips. It is deliberately NOT on
-     .card: a register page carries dozens of them, and blurring dozens of
-     stacked layers on every scroll frame is the difference between a smooth
-     list and a stuttering one. Cards get their depth from a gradient and a lit
-     edge, which costs nothing and reads the same. */
-:root[data-theme="glass"]{
-  color-scheme:dark;
+   Getting that backwards is the single most likely way to break this theme:
+   brand green as a text colour on white is unreadable and passes no check. */
+:root[data-theme="engo"]{
+  color-scheme:light;
 
   /* the one line that is the brand */
   --engo:#00A651;
-  /* a brighter step of the same hue, for text and marks on dark glass where the
-     base green sits too close to the surface (5.07:1 becomes 7.05:1) */
-  --engo-lift:#17C46A;
-  --engo-deep:#00803E;
+  --engo-ink:#00803E;      /* the readable-on-white step */
+  --engo-deep:#046B36;
+  --engo-band:#0B3D24;     /* the section field: white on it measures 12.3:1 */
 
-  --paper:#091614; --paper-2:#0B1D18; --card:#17231F; --sunk:#101C19;
-  --ink:#EAF3EE; --muted:#A8BCB2; --faint:#7E948A;
-  --line:rgba(234,243,238,.10); --line2:rgba(234,243,238,.18);
-  --hair:rgba(234,243,238,.07);
+  --paper:#F2F6F3; --paper-2:#E8EFEA; --card:#FFFFFF; --sunk:#F5F9F6;
+  --ink:#0E1A15; --muted:#47564E; --faint:#6B7C73;
+  --line:#DCE6DF; --line2:#C6D4CB; --hair:rgba(14,26,21,.07);
 
-  /* Series slots: the same eight hues as the other dark themes, so a category
-     keeps its colour when somebody switches theme.
+  /* Series slots: the documented light palette, unchanged. Cards here are pure
+     white, which is the surface that palette was validated against, so the
+     chart colours are identical to Studio and a category keeps its identity
+     across a theme switch. Three slots sit under 3:1 on white - the relief
+     rule applies and is satisfied, because every Figure carries a table view. */
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
 
-     Validated against the surfaces this theme actually composites to, sampled
-     from a screenshot rather than computed from the alpha: #101C19 for a plain
-     card (all eight clear 3:1) and #1D2D28 for the lightest stat tile, where
-     slot 6 lands at 2.91:1. That one sits in the relief band, which is legal
-     only where the values are readable another way - and they are: every
-     Figure in charts.jsx carries a table view and direct labels.
+  --on-brand:#FFFFFF;
+  --btn-hover:#F5F9F6;
+  --topbar-bg:rgba(242,246,243,.88);
+  --scrim:rgba(11,29,21,.42);
+  --skel-hi:#EDF3EF;
+  --tip-bg:#0E1A15; --tip-ink:#FFFFFF;
 
-     Stepping slot 6 lighter to clear 3:1 was tried and rejected. Every
-     candidate that fixed the contrast pushed its CVD separation from the
-     magenta neighbour out of the passing band (8.4 down to 6.2-7.4), which
-     trades a warning that is covered for one that is not. */
-  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
-  --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+  --green:var(--engo-ink); --green-2:var(--engo); --green-deep:#04562B;
+  --green-tint:#E6F6ED; --green-ring:rgba(0,166,81,.24);
 
-  /* A filled green button takes dark ink, never white: white on #00A651 is
-     3.19:1, which fails for a button label. Near-black gives 5.92:1. */
-  --on-brand:#08130F;
-  --btn-hover:rgba(255,255,255,.09);
-  --topbar-bg:rgba(9,22,20,.72);
-  --scrim:rgba(3,9,7,.66);
-  --skel-hi:rgba(255,255,255,.07);
-  --tip-bg:#EAF3EE; --tip-ink:#091614;
+  --brand:var(--engo-ink); --brand-2:var(--engo); --brand-deep:#04562B;
+  --brand-tint:#E6F6ED; --brand-ring:rgba(0,166,81,.26);
 
-  --green:var(--engo-lift); --green-2:#2BD97F; --green-deep:#7DE8AE;
-  --green-tint:rgba(23,196,106,.15); --green-ring:rgba(23,196,106,.30);
+  --wax:#C02A1E; --wax-tint:#FDECEA;
+  --brass:#A8620B; --brass-tint:#FEF6E7; --gold-ink:#8A4F08;
 
-  --brand:var(--engo-lift); --brand-2:#2BD97F; --brand-deep:#7DE8AE;
-  --brand-tint:rgba(23,196,106,.14); --brand-ring:rgba(23,196,106,.32);
+  /* Filled buttons use the deep step so a white label clears 5:1. */
+  --pri-from:#00A651; --pri-to:#00803E; --pri-from-h:#12B860; --pri-to-h:#008F46;
+  --pri-line:#04562B;
+  --wax-from:#D0392B; --wax-to:#B3241A; --wax-from-h:#DC4536; --wax-to-h:#C22C20;
+  --wax-line:#8E1A12;
 
-  --wax:#F0836B; --wax-tint:rgba(240,131,107,.15);
-  /* the reference's amber call-to-action, kept here for awards */
-  --brass:#F0C05A; --brass-tint:rgba(240,192,90,.14); --gold-ink:#F7D98A;
+  --chip-ok-line:#A5E3C2; --chip-warn-line:#F5C2BC; --chip-gold-line:#F3DCA6;
 
-  --pri-from:#00A651; --pri-to:#00803E; --pri-from-h:#17C46A; --pri-to-h:#00A651;
-  --pri-line:rgba(43,217,127,.55);
-  --wax-from:#D0654D; --wax-to:#B44E38; --wax-from-h:#E0755C; --wax-to-h:#C45C44;
-  --wax-line:rgba(240,131,107,.5);
-
-  --chip-ok-line:rgba(23,196,106,.42); --chip-warn-line:rgba(240,131,107,.42);
-  --chip-gold-line:rgba(240,192,90,.4);
-
-  --letter-bg:rgba(255,255,255,.05); --ceremony-from:rgba(240,131,107,.10);
-  --ceremony-line:rgba(240,131,107,.4);
-  --addm-line:rgba(240,192,90,.4); --unread-bg:rgba(23,196,106,.09);
-  --login-glow:rgba(23,196,106,.16);
-  /* The wax seal wears the house green here rather than wax red: on this
-     theme it is the brand mark in the wordmark, and a rose disc beside a
-     green wordmark reads as two brands. */
+  --letter-bg:#F7FBF8; --ceremony-from:#FDECEA; --ceremony-line:#EFA79D;
+  --addm-line:#F3DCA6; --unread-bg:#E6F6ED; --login-glow:#FFFFFF;
   --seal-hi:#7DE8AE; --seal-core:#00A651; --seal-crack:#04452A;
 
-  --side:#071210; --side-from:rgba(10,26,22,.9); --side-to:rgba(6,15,13,.9);
-  --side-ink:#DCE9E2; --side-dim:#93A79D; --side-sec:#76897F;
-  --side-hover:rgba(255,255,255,.06);
-  --side-on-bg:linear-gradient(90deg,rgba(23,196,106,.24),rgba(255,255,255,.02) 72%);
-  --side-on-ink:#FFFFFF; --side-on-line:var(--engo-lift);
-  --side-edge:inset -1px 0 0 rgba(255,255,255,.06);
+  /* The sidebar is the other half of the section idea: a deep green rail
+     against the light page, the same field the page band uses. */
+  --side:#0B3D24; --side-from:#0E4A2C; --side-to:#08301C;
+  --side-ink:#EAF6EF; --side-dim:#9FC4AF; --side-sec:#7FAB92;
+  --side-hover:rgba(255,255,255,.08);
+  --side-on-bg:linear-gradient(90deg,rgba(255,255,255,.16),rgba(255,255,255,.03) 72%);
+  --side-on-ink:#FFFFFF; --side-on-line:#2BD97F;
+  --side-edge:inset -1px 0 0 rgba(0,0,0,.18);
 
-  --wordmark-ink:#F2FAF6; --wordmark-rule:rgba(220,233,226,.14);
+  --wordmark-ink:#FFFFFF; --wordmark-rule:rgba(234,246,239,.18);
   --wordmark-font:var(--font-sans); --wordmark-weight:700; --wordmark-ls:.02em;
 
-  --newbtn-bg:rgba(255,255,255,.08); --newbtn-line:rgba(220,233,226,.22);
-  --newbtn-bg-h:rgba(255,255,255,.14); --newbtn-line-h:rgba(220,233,226,.36);
+  --newbtn-bg:rgba(255,255,255,.12); --newbtn-line:rgba(234,246,239,.28);
+  --newbtn-bg-h:rgba(255,255,255,.2); --newbtn-line-h:rgba(234,246,239,.44);
 
-  --shadow:0 1px 2px rgba(0,0,0,.35);
-  --sh-2:0 4px 14px rgba(0,0,0,.4);
-  --sh-3:0 14px 40px -8px rgba(0,0,0,.62);
-  --inset-hi:inset 0 1px 0 rgba(255,255,255,.16);
+  --shadow:0 1px 2px rgba(14,26,21,.06);
+  --sh-2:0 2px 10px rgba(14,26,21,.07);
+  --sh-3:0 16px 40px -10px rgba(14,26,21,.18);
+  --inset-hi:none;
 
-  /* glass-only knobs, read by the rules below */
-  --glass-face:linear-gradient(158deg,rgba(255,255,255,.14),rgba(255,255,255,.055) 44%,rgba(255,255,255,.025));
-  --glass-edge:rgba(255,255,255,.17);
-  --glass-blur:saturate(150%) blur(18px);
-  --radius-lg:22px;
+  --radius-lg:20px;
 }
 
-/* The field the glass sits on. Two soft green glows placed off-centre so the
-   translucency has something to reveal - over a flat colour, frosted panels
-   read as flat panels. Fixed attachment, so scrolling moves content across the
-   light rather than dragging the light along with it. */
-:root[data-theme="glass"] body,
-:root[data-theme="glass"] .dk{
-  background:
-    radial-gradient(1200px 680px at 10% -10%, rgba(23,196,106,.30), transparent 60%),
-    radial-gradient(1000px 760px at 98% 2%, rgba(0,166,81,.20), transparent 56%),
-    radial-gradient(900px 800px at 55% 108%, rgba(43,217,127,.10), transparent 60%),
-    linear-gradient(168deg,#0E2620 0%,#0A1A16 44%,#07110E 100%);
-  background-attachment:fixed;
-}
-
-/* Cards: a gradient face and a lit top edge, no blur. See the note above for
-   why - this is the element that appears forty times on a page. */
-:root[data-theme="glass"] .card{
-  background:var(--glass-face),rgba(26,42,36,.60);
-  border:1px solid var(--glass-edge);
+/* Cards: white sheets with generous radii and a soft shadow, the way the
+   reference floats its content over the tint. */
+:root[data-theme="engo"] .card{
+  background:var(--card);
+  border:1px solid var(--line);
   border-radius:var(--radius-lg);
-  box-shadow:var(--sh-2),var(--inset-hi);
+  box-shadow:var(--sh-2);
 }
-:root[data-theme="glass"] .stat{
-  background:var(--glass-face),rgba(26,42,36,.5);
-  border:1px solid var(--glass-edge);
-  border-radius:18px;
-  box-shadow:var(--inset-hi);
+:root[data-theme="engo"] .stat{
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:16px;
+  box-shadow:var(--shadow);
 }
-:root[data-theme="glass"] .statlink:hover{
-  background:var(--glass-face),rgba(23,196,106,.10);
-  border-color:rgba(23,196,106,.34);
-}
-
-/* The fixed chrome is where blur earns its cost: few elements, and content
-   genuinely passes underneath them. */
-:root[data-theme="glass"] .topbar,
-:root[data-theme="glass"] .side,
-:root[data-theme="glass"] .dlg,
-:root[data-theme="glass"] .charttip,
-:root[data-theme="glass"] .ndrop{
-  backdrop-filter:var(--glass-blur);
-  -webkit-backdrop-filter:var(--glass-blur);
+:root[data-theme="engo"] .statlink:hover{
+  border-color:var(--engo);
+  box-shadow:var(--sh-2);
 }
 
-:root[data-theme="glass"] .in,
-:root[data-theme="glass"] .dk textarea,
-:root[data-theme="glass"] .dk select{
-  background:rgba(255,255,255,.05);
-  border-color:var(--glass-edge);
-  border-radius:12px;
+/* THE BAND. Every page head becomes the tinted section the reference opens
+   with: deep green, white type, the page's stat row sitting on it as glass.
+   Scoped to .pagehead so it is one element per page and never repeats. */
+:root[data-theme="engo"] .pagehead{
+  background:
+    radial-gradient(700px 300px at 88% -40%, rgba(43,217,127,.28), transparent 62%),
+    linear-gradient(135deg,#0E4A2C 0%,#0B3D24 52%,#08301C 100%);
+  margin:-18px -18px 18px;
+  padding:26px 22px 22px;
+  border-radius:0 0 var(--radius-lg) var(--radius-lg);
+  box-shadow:var(--sh-2);
 }
-:root[data-theme="glass"] .in:focus,
-:root[data-theme="glass"] .dk textarea:focus{
-  background:rgba(255,255,255,.08);
-  border-color:var(--engo-lift);
+:root[data-theme="engo"] .pagehead h1{color:#FFFFFF}
+:root[data-theme="engo"] .pagehead .sub,
+:root[data-theme="engo"] .pagehead .mono{color:#A9D3BC}
+/* Controls that ride in the band have to invert with it. */
+:root[data-theme="engo"] .pagehead .btn{
+  background:rgba(255,255,255,.14);
+  border-color:rgba(255,255,255,.26);
+  color:#FFFFFF;
+}
+:root[data-theme="engo"] .pagehead .btn:hover{background:rgba(255,255,255,.22)}
+:root[data-theme="engo"] .pagehead .in{
+  background:rgba(255,255,255,.14);
+  border-color:rgba(255,255,255,.26);
+  color:#FFFFFF;
+}
+:root[data-theme="engo"] .pagehead .in::placeholder{color:rgba(234,246,239,.6)}
+:root[data-theme="engo"] .pagehead .checkline{color:#D7EBE0}
+
+@media(max-width:720px){
+  :root[data-theme="engo"] .pagehead{margin:-12px -12px 14px;padding:20px 14px 16px}
 }
 
-:root[data-theme="glass"] .btn{
-  background:rgba(255,255,255,.07);
-  border:1px solid var(--glass-edge);
-  border-radius:999px;
+:root[data-theme="engo"] .in,
+:root[data-theme="engo"] .dk textarea,
+:root[data-theme="engo"] .dk select{border-radius:11px}
+:root[data-theme="engo"] .btn{border-radius:999px}
+:root[data-theme="engo"] .chip{border-radius:999px}
+:root[data-theme="engo"] .btn.pri{
+  box-shadow:0 3px 12px -3px rgba(0,128,62,.42);
 }
-:root[data-theme="glass"] .btn:hover{background:rgba(255,255,255,.12)}
-:root[data-theme="glass"] .btn.pri{
-  border-color:transparent;
-  box-shadow:0 4px 16px -4px rgba(0,166,81,.5),var(--inset-hi);
-}
-:root[data-theme="glass"] .chip{
-  background:rgba(255,255,255,.06);
-  border-color:var(--glass-edge);
-  border-radius:999px;
-}
-:root[data-theme="glass"] .tbl thead th{
-  background:rgba(255,255,255,.04);
-  border-bottom-color:var(--glass-edge);
-}
-:root[data-theme="glass"] .tbl tbody tr:hover{background:rgba(255,255,255,.035)}
-:root[data-theme="glass"] .segmented,
-:root[data-theme="glass"] .antabs{
-  background:rgba(255,255,255,.05);
-  border-color:var(--glass-edge);
-}
-:root[data-theme="glass"] .segmented button.on,
-:root[data-theme="glass"] .antab.on{
-  background:rgba(255,255,255,.11);
-  box-shadow:var(--inset-hi);
-}
-:root[data-theme="glass"] .mtrack,
-:root[data-theme="glass"] .b2t,
-:root[data-theme="glass"] .scdtrack{background:rgba(255,255,255,.07)}
-
-/* Transparency is a preference, not a given. Where the reader has asked for
-   less of it - or for more contrast - the glass becomes a solid surface and the
-   blur is dropped. The layout does not move; only the material does. */
-@media (prefers-reduced-transparency:reduce),(prefers-contrast:more){
-  :root[data-theme="glass"] .card,
-  :root[data-theme="glass"] .stat{background:#17231F}
-  :root[data-theme="glass"] .topbar,
-  :root[data-theme="glass"] .side,
-  :root[data-theme="glass"] .dlg,
-  :root[data-theme="glass"] .charttip,
-  :root[data-theme="glass"] .ndrop{
-    backdrop-filter:none; -webkit-backdrop-filter:none;
-    background:#0B1613;
-  }
-  :root[data-theme="glass"] body,
-  :root[data-theme="glass"] .dk{background:#091614}
-}
-
-/* No backdrop-filter (older Firefox, some Android WebViews): the chrome would
-   otherwise be a see-through panel with legible text scrolling under it. */
-@supports not (backdrop-filter:blur(1px)){
-  :root[data-theme="glass"] .topbar,
-  :root[data-theme="glass"] .side,
-  :root[data-theme="glass"] .dlg,
-  :root[data-theme="glass"] .ndrop{background:#0B1613}
-}
+:root[data-theme="engo"] .segmented,
+:root[data-theme="engo"] .antabs{background:var(--paper-2);border-color:var(--line)}
+:root[data-theme="engo"] .segmented button.on,
+:root[data-theme="engo"] .antab.on{background:var(--card);box-shadow:var(--shadow)}
 
 *{box-sizing:border-box}
 html,body{margin:0}
