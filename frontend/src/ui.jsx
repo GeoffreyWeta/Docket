@@ -402,6 +402,11 @@ export function TopProgress({ busy }) {
    carries the difference on its own, so neither series depends on colour to be
    told apart. Rings and spokes stay recessive, every vertex has a hover
    tooltip, and the caller pairs this with a table view of the same numbers. */
+/* Breathing room around the measured content, in user units. Small on purpose:
+   the box is measured, so this is a hairline against rounding, not a guess at
+   how long a word might be. */
+const RADAR_PAD = 6;
+
 export function Radar({ axes, series, size = 300, max = 100 }) {
   const [hot, setHot] = useState(null);
   const cx = size / 2, cy = size / 2;
@@ -414,9 +419,59 @@ export function Radar({ axes, series, size = 300, max = 100 }) {
   };
   const poly = (vals) => vals.map((v, i) => at(i, v).map((x) => x.toFixed(1)).join(",")).join(" ");
 
+  /* The plot is square; the labels around it are not. An axis label is anchored
+     outside the outer ring and runs outward, so the longest one — "COMPLIANCE",
+     anchored end-wise on the left — extends past x=0 and used to be clipped to
+     "LIANCE". Worse, the clip grew with the chart: a bigger radar lost more of
+     the word, which is the opposite of what enlarging it should do.
+
+     So the box is measured rather than guessed. After layout, getBBox() returns
+     the union of everything actually drawn, labels included, in user units —
+     which is the real answer to "how much room does this need", at whatever font
+     the theme resolved and whatever words the caller passed. Callers no longer
+     have to reserve a gutter, and none of them can get it wrong.
+
+     This cannot loop: the content's geometry is expressed in user units and does
+     not depend on the viewBox, so measuring after a viewBox change yields the
+     same box and the effect settles on the first pass. */
+  const svgRef = useRef(null);
+  const [box, setBox] = useState(null);
+  const labels = axes.map((a) => a.label).join("|");
+
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return undefined;
+    let live = true;
+    const measure = () => {
+      if (!live) return;
+      try {
+        const b = el.getBBox();
+        if (!b.width || !b.height) return;      // not laid out yet, or hidden
+        setBox({ x: b.x - RADAR_PAD, y: b.y - RADAR_PAD,
+                 w: b.width + RADAR_PAD * 2, h: b.height + RADAR_PAD * 2 });
+      } catch (e) { /* detached or display:none — keep the square fallback */ }
+    };
+    measure();
+    /* Webfonts land after first paint and change every glyph advance, so a box
+       measured before they arrive is measured against the fallback face. */
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(measure).catch(() => {});
+    }
+    return () => { live = false; };
+  }, [labels, size, max, n]);
+
+  /* Until the measurement lands, the square box is the honest fallback, and
+     `overflow:visible` in the stylesheet keeps a label readable rather than
+     cropped in the one frame before it does. */
+  const vb = box ? `${box.x} ${box.y} ${box.w} ${box.h}` : `0 0 ${size} ${size}`;
+  /* Cap at the measured width so one user unit stays one pixel: the plot keeps
+     the size the caller asked for and the labels are extra room around it,
+     rather than the whole drawing shrinking to fit the labels inside `size`. */
+  const cap = box ? box.w : size;
+
   return (
     <div className="radarwrap">
-      <svg className="radar" viewBox={`0 0 ${size} ${size}`} width="100%" style={{ maxWidth: size }}
+      <svg ref={svgRef} className="radar" viewBox={vb} width="100%" style={{ maxWidth: cap }}
            role="img" aria-label={`${axes.length} dimension scorecard, ${series.map((s) => s.label).join(" against ")}`}>
         {[0.25, 0.5, 0.75, 1].map((f) => (
           <polygon key={f} className="ring" points={poly(axes.map(() => max * f))} />
@@ -470,6 +525,11 @@ export function Radar({ axes, series, size = 300, max = 100 }) {
 
 export const RADAR_CSS = `
 .radarwrap{display:flex;flex-direction:column;align-items:center;gap:10px}
+/* A safety net, not the mechanism: Radar measures its content and widens its
+   viewBox to fit the labels (see the comment there). This only covers the frame
+   before that measurement lands, and the case where getBBox cannot run at all —
+   a clipped label is worse than one that briefly overlaps its neighbour. */
+.radar{overflow:visible}
 .radar .ring{fill:none;stroke:var(--line);stroke-width:1}
 .radar .spoke{stroke:var(--line);stroke-width:1}
 .radar .plot{stroke-width:2;stroke-linejoin:round}

@@ -333,7 +333,11 @@ function SupplierCard({ row, peer, state, total, tableView, onTableView }) {
               </tbody>
             </table>
           ) : (
-            <Radar axes={DIMENSIONS} series={series} />
+            /* 420 rather than the 300 default: the chart now owns half the
+               card, and the Radar reserves a fixed 42px gutter for its axis
+               labels — so a larger canvas spends the extra room on the plot
+               rather than on the labels, which is where the reading happens. */
+            <Radar axes={DIMENSIONS} series={series} size={420} />
           )}
           <div className="scnote">
             {tableView
@@ -411,9 +415,23 @@ function SupplierCard({ row, peer, state, total, tableView, onTableView }) {
 
 export const SCORECARD_CSS = `
 .scwrap{display:grid;gap:18px}
+/* An even split: the web chart takes half the card, the five dimension tracks
+   take the other half. The chart used to sit in a fixed 320px column while the
+   tracks absorbed everything left over, which on a wide monitor made the shape
+   — the thing the chart exists to show — the smaller half of its own section. */
 @media(min-width:900px){
-  .scwrap{grid-template-columns:minmax(0,320px) minmax(0,1fr);align-items:start}
+  .scwrap{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}
 }
+/* Centre the chart in its half and let it grow into the space. The Radar caps
+   itself with an inline max-width taken from its size prop, so the value passed
+   by SupplierCard is what actually decides how large it gets — this only keeps
+   it centred once it stops growing. */
+.scchart{display:flex;flex-direction:column;align-items:center}
+/* No label gutter here any more. Radar measures its own drawn content and sizes
+   its viewBox from it, so the room the labels need travels with the component
+   instead of being a number every caller has to guess and keep in step. */
+.scchart .radarwrap{width:100%;display:flex;justify-content:center}
+.scchart > .tbl,.scchart > .sccompare{width:100%}
 
 /* ---------------- the card header ---------------- */
 .scchead{flex-wrap:wrap;gap:14px;align-items:flex-start}

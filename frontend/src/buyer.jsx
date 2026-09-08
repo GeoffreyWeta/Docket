@@ -2839,7 +2839,10 @@ export function AuditPage({ api }) {
 
 
 export function TeamPage({ api }) {
-  const { act } = api;
+  // `user` is read further down to decide whether the reporting lines are shown.
+  // It was missing from this destructure, which threw a ReferenceError during
+  // render and unmounted the whole application — a blank page, not a broken card.
+  const { act, user } = api;
   const [team, setTeam] = useState(null);
   const [f, setF] = useState({ email: "", role: "evaluator", name: "", title: "" });
   const [msg, setMsg] = useState("");
