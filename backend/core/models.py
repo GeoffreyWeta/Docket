@@ -6,6 +6,9 @@ UI consumes; sealing/blindness is enforced at serialization time in views.
 """
 from django.db import models
 
+from .util import now_ms as _now_ms
+from .util import rid as _rid
+
 
 class Persona(models.Model):
     """Buyer-side demo personas (procurement / evaluator / approver / auditor)."""
@@ -103,6 +106,43 @@ class Supplier(models.Model):
     # tells Finance every vendor is in breach.
     exposure_limit = models.BigIntegerField(default=0)
 
+    # --- the verification lifecycle ----------------------------------------
+    # `prequalified` has always been the verification decision; these record
+    # when it was taken and by whom, which a register that is audited needs and
+    # a boolean cannot say. Suspension is the third state the boolean could not
+    # express: a vendor who is verified but barred for now - a live dispute, an
+    # expired licence, a debarment - and who must come back verified rather
+    # than re-register from nothing when the bar lifts.
+    verified_at = models.BigIntegerField(null=True, blank=True)
+    verified_by = models.CharField(max_length=120, blank=True, default="")
+    suspended = models.BooleanField(default=False)
+    suspended_reason = models.CharField(max_length=300, blank=True, default="")
+    suspended_at = models.BigIntegerField(null=True, blank=True)
+
+    # How this record got onto the register. "self" (they registered), "invite"
+    # (a buyer invited them and they completed it), "buyer" (a buyer typed them
+    # in), "import" (a register upload). Reporting asks where the register came
+    # from and nothing could answer.
+    source = models.CharField(max_length=12, blank=True, default="")
+
+    def registration_status(self):
+        """invited | pending | registered - how far through onboarding they are."""
+        if self.registered_at:
+            return "registered"
+        if self.invited_at:
+            return "invited"
+        return "pending"
+
+    def verification_status(self):
+        """unverified | verified | rejected | suspended - whether we trust them."""
+        if self.suspended:
+            return "suspended"
+        if self.rejected_reason:
+            return "rejected"
+        if self.prequalified:
+            return "verified"
+        return "unverified"
+
     def __str__(self):
         return self.name
 
@@ -194,6 +234,38 @@ class Tender(SpendDimensions):
     baseline = models.BigIntegerField(null=True, blank=True)
     baseline_source = models.CharField(max_length=200, blank=True, default="")
 
+    # --- what the buyer expects to pay -------------------------------------
+    # `budget` is the ceiling that must not be crossed and `baseline` is what
+    # the organisation was paying before. Neither is what the category manager
+    # actually expects this to land at, and that third number is the one an
+    # evaluation panel is judged against: a bid under the ceiling but over the
+    # projection is a bid that failed to deliver what the business case
+    # promised. Optional, and null rather than defaulted to the budget for the
+    # same reason `baseline` is - a projection that silently equals the ceiling
+    # reads as a real forecast and is not one.
+    projected_cost = models.BigIntegerField(null=True, blank=True)
+
+    # --- the lifecycle beyond draft/published/awarded ----------------------
+    # A live competition can be suspended (a specification is wrong, a court
+    # order lands, the funding is pulled for a quarter) and it can be abandoned.
+    # Both are real procurement events with real notification duties, and both
+    # were previously only expressible by letting the deadline lapse in silence.
+    # Timestamps rather than a status word: `status` says where the event is,
+    # these say when it got there, and a resumed event needs to remember that it
+    # was ever paused for the audit trail to make sense.
+    paused_at = models.BigIntegerField(null=True, blank=True)
+    paused_reason = models.CharField(max_length=300, blank=True, default="")
+    resumed_at = models.BigIntegerField(null=True, blank=True)
+    cancelled_at = models.BigIntegerField(null=True, blank=True)
+    cancel_reason = models.CharField(max_length=300, blank=True, default="")
+
+    # Every deadline this event has ever had, oldest first:
+    # [{from, to, at, by, reason}]. The audit chain records the act; this
+    # records the series, because "how many times has this been extended and
+    # who keeps extending it" is a question about the tender, not about one
+    # event in a chain of four thousand.
+    deadline_changes = models.JSONField(default=list, blank=True)
+
     def savings_basis(self):
         """(amount, basis) — the number to measure the award against and the
         word for where it came from. Never guesses: no baseline means budget."""
@@ -201,13 +273,107 @@ class Tender(SpendDimensions):
             return self.baseline, "baseline"
         return self.budget, "budget"
 
+    def active_round(self):
+        """The round bids are currently being taken into, or None.
+
+        None is not an error and not an empty event: it is the ordinary
+        single-round competition, where the tender's own deadline and invitation
+        list *are* the round. Rounds are materialised only when somebody runs a
+        second one (see ProcurementRound.materialise), so nothing that worked
+        before rounds existed has to know about them."""
+        return self.rounds.filter(status="open").order_by("-number").first()
+
+    def latest_round(self):
+        return self.rounds.order_by("-number").first()
+
     def __str__(self):
         return f"{self.ref} {self.title}"
+
+
+class ProcurementRound(models.Model):
+    """One bidding round inside a procurement event.
+
+    Multi-round competition - a best-and-final round after a first pass, a
+    shortlist re-bid, an RFI that narrows into an RFQ - is a sequence of
+    submission windows against one event, one scope and one evaluation. Not a
+    sequence of tenders: making round two a second tender would fork the audit
+    trail, the invitation list and the award, and leave nothing able to answer
+    "what did this vendor bid last time".
+
+    Round 1 is implicit until it isn't. An event with no rows here is a
+    single-round event whose window is the tender's own deadline, which is what
+    every event created before this existed is. `materialise` is what turns that
+    implicit round into a row, and it runs exactly once, when somebody opens a
+    second round.
+    """
+    id = models.CharField(primary_key=True, max_length=16)
+    tender = models.ForeignKey(Tender, on_delete=models.CASCADE, related_name="rounds")
+    number = models.IntegerField()
+    name = models.CharField(max_length=120, blank=True, default="")
+    # draft | upcoming | open | closed | evaluation | completed | cancelled
+    status = models.CharField(max_length=16, default="draft")
+    opens_at = models.BigIntegerField(null=True, blank=True)
+    deadline = models.BigIntegerField(null=True, blank=True)
+    opened_at = models.BigIntegerField(null=True, blank=True)   # the recorded opening of this round
+    closed_at = models.BigIntegerField(null=True, blank=True)
+    instructions = models.TextField(blank=True, default="")
+    # Who may bid in *this* round. Empty means everyone invited to the event,
+    # which is what a first round always is; a best-and-final round carries the
+    # shortlist. Stored as ids rather than a join table for the same reason
+    # Tender.invited is: it is read on every render and written once.
+    invited = models.JSONField(default=list, blank=True)
+    cancel_reason = models.CharField(max_length=300, blank=True, default="")
+    created_at = models.BigIntegerField(default=0)
+    created_by = models.CharField(max_length=120, blank=True, default="")
+
+    class Meta:
+        ordering = ["tender_id", "number"]
+        constraints = [
+            models.UniqueConstraint(fields=["tender", "number"], name="one_round_per_number"),
+        ]
+
+    def __str__(self):
+        return f"{self.tender_id} R{self.number}"
+
+    @property
+    def label(self):
+        return self.name or f"Round {self.number}"
+
+    def bidders(self):
+        """The invitation list that applies to this round."""
+        return list(self.invited or []) or list(self.tender.invited or [])
+
+    @classmethod
+    def materialise(cls, tender, actor=""):
+        """Give an event that has been running implicitly its Round 1 row, and
+        adopt the bids already submitted into it. Idempotent."""
+        first = tender.rounds.order_by("number").first()
+        if first:
+            return first
+        now = _now_ms()
+        status = {"draft": "draft", "approval": "draft", "published": "open",
+                  "evaluation": "evaluation", "awarded": "completed",
+                  "cancelled": "cancelled", "paused": "open"}.get(tender.status, "closed")
+        if status == "open" and tender.deadline and tender.deadline <= now:
+            status = "closed"
+        r = cls.objects.create(
+            id=_rid("r"), tender=tender, number=1, name="Round 1", status=status,
+            opens_at=tender.published_at, deadline=tender.deadline,
+            opened_at=tender.opened_at, closed_at=None if status == "open" else tender.deadline,
+            invited=list(tender.invited or []), created_at=tender.published_at or now,
+            created_by=actor,
+        )
+        Bid.objects.filter(tender=tender, round__isnull=True).update(round=r)
+        return r
 
 
 class Bid(models.Model):
     id = models.CharField(primary_key=True, max_length=16)
     tender = models.ForeignKey(Tender, on_delete=models.CASCADE, related_name="bids")
+    # Null means the event's implicit first round - see ProcurementRound. Every
+    # bid taken before rounds existed is one of these, and stays valid.
+    round = models.ForeignKey("ProcurementRound", null=True, blank=True,
+                              on_delete=models.CASCADE, related_name="bids")
     supplier_id = models.CharField(max_length=16)
     submitted_at = models.BigIntegerField()
     amount = models.BigIntegerField(null=True, blank=True)  # None while cryptographically sealed
@@ -219,8 +385,19 @@ class Bid(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["tender", "supplier_id"], name="one_bid_per_supplier"),
+            # One bid per vendor per round. The null-round case needs its own
+            # constraint because SQL treats NULLs as distinct, which would let
+            # a single-round event take the same vendor's bid twice.
+            models.UniqueConstraint(fields=["tender", "supplier_id", "round"],
+                                    name="one_bid_per_supplier_round"),
+            models.UniqueConstraint(fields=["tender", "supplier_id"],
+                                    condition=models.Q(round__isnull=True),
+                                    name="one_bid_per_supplier"),
         ]
+
+    @property
+    def round_number(self):
+        return self.round.number if self.round_id else 1
 
 
 class Clarification(models.Model):
@@ -301,6 +478,11 @@ class Document(models.Model):
     id = models.CharField(primary_key=True, max_length=16)
     kind = models.CharField(max_length=12)  # tender | bid | supplier
     tender = models.ForeignKey(Tender, null=True, blank=True, on_delete=models.CASCADE, related_name="documents")
+    # Which round this belongs to, where it belongs to one. Null is the event
+    # itself (the buyer's document pack) or a single-round competition, which is
+    # every document uploaded before rounds existed.
+    round = models.ForeignKey("ProcurementRound", null=True, blank=True,
+                              on_delete=models.SET_NULL, related_name="documents")
     supplier_id = models.CharField(max_length=16, null=True, blank=True)
     envelope = models.CharField(max_length=12, blank=True, default="")
     encrypted = models.BooleanField(default=False)          # bid docs are ciphertext until opening

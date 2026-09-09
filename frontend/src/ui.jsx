@@ -134,8 +134,12 @@ export function Dialog({ title, children, footer, onClose, wide }) {
 
 /** One-call confirmation. `hold` turns the confirm button into press-and-hold:
     use it for anything the server cannot undo. */
+/* `disabled` is for the confirmations that need something typed before they
+   mean anything — a cancellation reason a vendor is about to read verbatim, for
+   instance. Without it those dialogs had to be rebuilt from Dialog by hand and
+   lost the hold gesture in the process. */
 export function ConfirmDialog({ title, children, confirmLabel = "Confirm", tone = "pri",
-                               hold = false, holdHint, onConfirm, onClose }) {
+                               hold = false, holdHint, disabled = false, onConfirm, onClose }) {
   const [busy, setBusy] = useState(false);
   const run = async () => {
     setBusy(true);
@@ -147,8 +151,9 @@ export function ConfirmDialog({ title, children, confirmLabel = "Confirm", tone 
         {hold && <span className="holdhint" style={{ marginRight: "auto" }}>{holdHint || "Press and hold to confirm"}</span>}
         <button className="btn" onClick={onClose} disabled={busy}>Cancel</button>
         {hold
-          ? <HoldButton tone={tone} label={confirmLabel} busyLabel="Working…" busy={busy} onDone={run} />
-          : <button className={"btn " + tone} onClick={run} disabled={busy}>{busy ? "Working…" : confirmLabel}</button>}
+          ? <HoldButton tone={tone} label={confirmLabel} busyLabel="Working…" busy={busy}
+                        disabled={disabled} onDone={run} />
+          : <button className={"btn " + tone} onClick={run} disabled={busy || disabled}>{busy ? "Working…" : confirmLabel}</button>}
       </>
     }>
       {children}

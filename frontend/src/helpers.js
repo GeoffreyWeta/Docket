@@ -31,12 +31,92 @@ export const STATUS = {
   draft:      { label: "Draft" },
   approval:   { label: "Awaiting approval" },
   published:  { label: "Open for bids" },
+  closing:    { label: "Closing soon" },
+  paused:     { label: "Paused" },
   closed:     { label: "Sealed" },
   evaluation: { label: "In evaluation" },
   awarded:    { label: "Awarded" },
+  cancelled:  { label: "Cancelled" },
 };
 
 export const effStatus = (t) => (t.status === "published" && t.deadline < nowMs() ? "closed" : t.status);
+
+/* The status a person is shown, which is one step finer than the status the
+   server acts on. "Closing soon" is not a state a tender is in — nothing
+   transitions into or out of it — it is the last stretch of "open", surfaced
+   because a bidder with 30 hours left and a bidder with 30 days left are not
+   in the same situation and a single green badge tells them they are. */
+export const CLOSING_SOON = 2 * DAY;
+export const displayStatus = (t) => {
+  const st = effStatus(t);
+  if (st !== "published") return st;
+  const left = t.deadline - nowMs();
+  return left > 0 && left <= CLOSING_SOON ? "closing" : "published";
+};
+
+/* ---------------- rounds ---------------- */
+
+export const ROUND_STATUS = {
+  draft:      { label: "Draft", tone: "" },
+  upcoming:   { label: "Upcoming", tone: "" },
+  open:       { label: "Open", tone: "ok" },
+  closed:     { label: "Closed", tone: "warn" },
+  evaluation: { label: "Under evaluation", tone: "" },
+  completed:  { label: "Completed", tone: "gold" },
+  cancelled:  { label: "Cancelled", tone: "warn" },
+};
+
+/* An event with no explicit rounds is a single-round event whose window is the
+   tender's own deadline — see ProcurementRound in the backend. The interface
+   says "Round 1" either way, so a manager opening a second round sees a list
+   grow rather than a concept appear. */
+export const roundsOf = (t) => (t.rounds && t.rounds.length ? t.rounds : [{
+  id: null, number: 1, name: "Round 1", status: effStatus(t) === "published" ? "open" : effStatus(t),
+  deadline: t.deadline, opensAt: t.publishedAt, openedAt: t.openedAt,
+  invited: t.invited || [], invitedCount: (t.invited || []).length, implicit: true,
+}]);
+
+export const activeRound = (t) => roundsOf(t).find((r) => r.status === "open") || null;
+
+/* ---------------- vendor lifecycle ---------------- */
+
+export const REG_STATUS = {
+  pending:    { label: "Pending registration", tone: "" },
+  invited:    { label: "Invitation sent", tone: "" },
+  registered: { label: "Registered", tone: "ok" },
+};
+
+export const VERIFY_STATUS = {
+  unverified: { label: "Unverified", tone: "" },
+  verified:   { label: "Verified", tone: "ok" },
+  rejected:   { label: "Declined", tone: "warn" },
+  suspended:  { label: "Suspended", tone: "warn" },
+};
+
+/* Derived on the client only as a fallback: the server sends both statuses on
+   every supplier record, and this keeps a stale cached payload rendering
+   something true rather than blank. */
+export const regStatusOf = (s) =>
+  s.registrationStatus || (s.registeredAt ? "registered" : s.invitedAt ? "invited" : "pending");
+export const verifyStatusOf = (s) =>
+  s.verificationStatus || (s.suspended ? "suspended" : s.rejectedReason ? "rejected"
+    : s.prequalified ? "verified" : "unverified");
+
+/* ---------------- what a bid is worth ---------------- */
+
+/* Mirrors util.savings_against. Three numbers can play "what we would otherwise
+   have paid" and they are not interchangeable: a baseline is what was actually
+   being paid, a projection is what this was expected to land at, a budget is a
+   ceiling somebody set. The strongest available basis wins and its name travels
+   with the number, because a saving whose basis is unstated cannot be checked. */
+export const savingsAgainst = (t, amount) => {
+  if (amount == null) return null;
+  const [basisAmount, basis] = t.baseline ? [t.baseline, "baseline"]
+    : t.projectedCost ? [t.projectedCost, "projection"]
+    : [t.budget, "budget"];
+  const savings = (basisAmount || 0) - amount;
+  return { basis, basisAmount, savings, pct: basisAmount ? (savings / basisAmount) * 100 : 0 };
+};
 
 export const techScore = (t, bid) => {
   const panels = Object.values(bid.scores || {});

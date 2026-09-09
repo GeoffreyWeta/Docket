@@ -24,6 +24,7 @@ import { CAMPAIGN_CSS } from "./campaign";
 import { CHART_CSS } from "./charts-css";
 import { FINANCE_CSS, FinancePage } from "./finance.jsx";
 import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
+import { LIFECYCLE_CSS } from "./lifecycle";
 import { Keys, PALETTE_CSS, Palette, ShortcutSheet } from "./palette.jsx";
 import { SCORECARD_CSS, ScorecardsPage } from "./scorecards.jsx";
 import { AuctionRoom, BidRoom, PortalHome } from "./supplier";
@@ -33,7 +34,7 @@ import {
 
 const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS
   + SCORECARD_CSS + MENU_CSS + BOOT_CSS + PALETTE_CSS + CHART_CSS + CAMPAIGN_CSS
-  + FINANCE_CSS + BASELINE_CSS;
+  + FINANCE_CSS + BASELINE_CSS + LIFECYCLE_CSS;
 
 /* Where you land and where you may go are both read off the capabilities the
    server sent with the bootstrap payload — see perms.js. Nothing here enumerates
@@ -286,6 +287,31 @@ export default function App() {
     campaignPreview: () => raw("/suppliers/campaign/"),
     campaignStart: (confirm) => raw("/suppliers/campaign/", { method: "POST", body: { action: "start", confirm } }),
     campaignStop: () => raw("/suppliers/campaign/", { method: "POST", body: { action: "stop" } }),
+
+    /* ---- the event lifecycle ---- */
+    extendDeadline: wrap((id, deadline, reason) =>
+      raw(`/tenders/${id}/extend/`, { method: "POST", body: { deadline, reason } })),
+    pauseEvent: wrap((id, reason) => raw(`/tenders/${id}/pause/`, { method: "POST", body: { reason } })),
+    resumeEvent: wrap((id, deadline) =>
+      raw(`/tenders/${id}/resume/`, { method: "POST", body: deadline ? { deadline } : {} })),
+    cancelEvent: wrap((id, reason) => raw(`/tenders/${id}/cancel/`, { method: "POST", body: { reason } })),
+
+    /* ---- the event's vendors ---- */
+    addEventVendors: wrap((id, supplierIds) =>
+      raw(`/tenders/${id}/vendors/`, { method: "POST", body: { supplierIds } })),
+    removeEventVendor: wrap((id, supplierId) =>
+      raw(`/tenders/${id}/vendors/`, { method: "DELETE", body: { supplierId } })),
+    notifyVendors: wrap((id, b) => raw(`/tenders/${id}/vendors/notify/`, { method: "POST", body: b })),
+
+    /* ---- rounds ---- */
+    createRound: wrap((id, b) => raw(`/tenders/${id}/rounds/`, { method: "POST", body: b })),
+    openRound: wrap((rid) => raw(`/rounds/${rid}/open/`, { method: "POST", body: {} })),
+    closeRound: wrap((rid) => raw(`/rounds/${rid}/close/`, { method: "POST", body: {} })),
+    cancelRound: wrap((rid, reason) => raw(`/rounds/${rid}/cancel/`, { method: "POST", body: { reason } })),
+
+    /* ---- the vendor register ---- */
+    suspendVendor: wrap((sid, on, reason) =>
+      raw(`/suppliers/${sid}/suspend/`, { method: "POST", body: on ? { ok: true, reason } : { ok: false } })),
   };
 
   /* Unwrapped, like the register import: the Finance page holds its own data

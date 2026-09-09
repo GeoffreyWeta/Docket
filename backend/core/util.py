@@ -31,9 +31,52 @@ def fmt_compact(n):
 
 
 def eff_status(t):
+    """The status to act on, as opposed to the one on the row.
+
+    A published tender whose deadline has passed is sealed whether or not
+    anything has run since; that is the whole of the derivation, and it stays
+    the whole of it. `paused` and `cancelled` are stored statuses rather than
+    derived ones because somebody decided them - and a paused event returns
+    "paused" here without a special case, which is why pausing takes an event
+    out of every "published" query in the sweep for free.
+    """
     if t.status == "published" and t.deadline < now_ms():
         return "closed"
     return t.status
+
+
+CLOSING_SOON_MS = 2 * DAY_MS
+
+
+def closing_soon(t):
+    """Open, and closing inside the window a bidder can still act in."""
+    return t.status == "published" and 0 < (t.deadline - now_ms()) <= CLOSING_SOON_MS
+
+
+def savings_against(t, amount):
+    """What one price is worth against this event: {basis, basisAmount, savings, pct}.
+
+    Three numbers can play the part of "what we would otherwise have paid", and
+    they are not interchangeable. A baseline is what the organisation actually
+    paid before, so a saving against it is money that stops leaving. A
+    projection is what the category manager expected this to land at, so a
+    saving against it is a negotiation outcome. A budget is a ceiling somebody
+    set, so a saving against it measures the estimate as much as the deal. The
+    strongest available basis wins, and the word for which one it was travels
+    with the number - a saving whose basis is unstated is a saving nobody can
+    check.
+    """
+    if amount is None:
+        return None
+    if t.baseline:
+        basis, word = t.baseline, "baseline"
+    elif t.projected_cost:
+        basis, word = t.projected_cost, "projection"
+    else:
+        basis, word = t.budget, "budget"
+    saving = (basis or 0) - amount
+    return {"basis": word, "basisAmount": basis, "savings": saving,
+            "pct": (saving / basis * 100) if basis else 0.0}
 
 
 # ---------------- evaluation math (mirrors the frontend) ----------------

@@ -10,10 +10,21 @@ dispatch, and an idempotent background sweep — no worker dyno required.
 
 ## The full platform
 
-* **Vendor onboarding** — self-service registration (email-verified; auto-verified in
-  demo mode), compliance-document uploads with expiry dates, a prequalification
-  review queue for procurement with approve / decline-with-reason, and vendor
-  notifications either way. Procurement can also invite a vendor to register by email.
+* **Vendor onboarding, four ways in** — self-service registration (email-verified;
+  auto-verified in demo mode), an emailed invitation to register, a bulk register
+  import, and a buyer typing the company straight in from the Vendors page. Whichever
+  route a vendor arrives by, the register records which one it was, and a claim link
+  attaches their login to the record the buyer already holds rather than creating a
+  second one for the same company.
+* **Registration and verification are separate facts** — a vendor can be fully
+  registered and entirely unverified, and the register says both. Registration is
+  *invitation sent → pending → registered*; verification is *unverified → verified*,
+  plus *declined* (with a reason the vendor reads verbatim) and *suspended*.
+  **An unverified vendor can be invited and can bid** — verification gates
+  prequalification, not participation, and the event's vendor table says so out loud
+  rather than quietly blocking the invitation. Suspension bars a vendor from new
+  events without undoing their prequalification, so lifting it brings them back
+  verified instead of making them start again.
 * **Team onboarding** — invite colleagues by email with a role (procurement,
   evaluator, approver, auditor); they set a password via a single-use link. In demo
   mode the invite link is surfaced in the UI so the flow is testable without SMTP.
@@ -53,6 +64,27 @@ dispatch, and an idempotent background sweep — no worker dyno required.
   envelopes are then decrypted only for bidders meeting the technical threshold.
   Disqualified bidders' pricing is *never* decrypted — the envelope is returned
   unopened, and the API, the exports and the database all honour that.
+* **Multi-round bidding** — a second and third submission window against the same
+  scope, the same panel and the same award: a best-and-final, or a shortlist re-bid.
+  Round 1 is implicit until somebody opens a round 2, at which point it is
+  materialised and the bids already taken are adopted into it — so every event
+  raised before rounds existed is a valid single-round event and nothing had to be
+  migrated. A later round can only be drawn from vendors who bid in an earlier one,
+  each round seals and opens on its own record, and the **bid bucket** groups every
+  submission by round with a movement column showing what the re-bid actually
+  changed.
+* **The controls a live event needs** — extend the deadline (forward only, with the
+  old date, the new one, the reason and a notice to every bidder), pause and resume,
+  cancel with a reason every vendor is told verbatim, add or withdraw vendors
+  mid-competition, and send the field a message that is not an addendum. Every one
+  is capability-gated, recorded on the hash chain, and refused where the event's
+  state makes it dishonest: a deadline cannot be brought forward, an opened event
+  cannot be reopened, an awarded or cancelled event is frozen.
+* **Three money columns, not one** — a budget is a ceiling somebody set, a projection
+  is what the category manager expects this to land at, and a baseline is what the
+  organisation was actually paying. The evaluation screen shows all three and
+  measures the saving against the strongest one available, naming which — a saving
+  whose basis is unstated is a saving nobody can check.
 * **Reverse auctions** — a live, rank-visible price competition (tender type "AUC").
   Suppliers see their position, never a competitor's price; the buyer watches a live
   leaderboard. Minimum decrements are enforced, bids in the final two minutes extend
@@ -312,6 +344,21 @@ forever. So the register reaches a deployment without passing through the repo.
 With neither, the deployment keeps its seeded demo suppliers — the right default
 for a build that was handed no register.
 
+## Roles and what they may do
+
+Capabilities, not job titles — see `backend/core/permissions.py`. The lifecycle adds
+six, all granted to `procurement` by default and all grantable to any custom role
+from the administration console:
+
+| Capability | What it allows |
+|---|---|
+| `tender.extend` | Push a live submission deadline back |
+| `tender.lifecycle` | Pause, resume and cancel an event |
+| `tender.vendors` | Add or withdraw vendors on an event that is already live |
+| `tender.rounds` | Open, close and cancel bidding rounds |
+| `supplier.register` | Put a vendor on the register directly |
+| `supplier.suspend` | Bar a verified vendor from new invitations, and lift it |
+
 ## Background jobs
 
 The sweep (deadline sealing events, bid-deadline reminders, compliance-document
@@ -329,6 +376,33 @@ they survive deploys with no object-storage setup; 10 MB per file, safe-extensio
 whitelist. A supplier's documents are locked while their bid is sealed and can be
 swapped only by withdrawing the bid first — all before the deadline.
 
+## The event lifecycle, in one picture
+
+```
+vendor registration  ─┐
+ (self / invited /    │
+  imported / typed)   │
+                      ▼
+   procurement event ── RFI | RFP | RFQ | reverse auction
+        │
+        ├─ configure: scope, criteria, line items, budget, projection, baseline
+        ├─ invite vendors (verified or not)
+        ├─ submit ──▶ approval matrix ──▶ publish
+        │
+        ├─ round 1 ─ open ─▶ sealed submissions ─▶ close ─▶ recorded opening
+        │       ↑ extend deadline · pause · resume · add/withdraw vendors
+        │
+        ├─ round 2 (best and final, drawn from round 1's bidders) ─▶ …
+        │
+        ├─ evaluation: blind scoring, consensus matrix, budget/projection/savings
+        ├─ recommendation ─▶ approver ─▶ approved | returned for review
+        └─ award ─▶ letters to every bidder
+                 or cancel ─▶ every bidder told, sealed bids never opened
+```
+
+Every arrow writes to the hash-chained audit trail and, where a vendor is affected,
+sends them an in-app notification and an email.
+
 ## A good end-to-end run
 
 1. **amara** — open the sealed equipment tender: break the seals, download the
@@ -343,6 +417,18 @@ swapped only by withdrawing the bid first — all before the deadline.
    uploading a technical proposal.
 6. **coldline vs harmattan** — open the diesel reverse auction and outbid each other;
    watch your rank move, then sign in as **amara** to see the live leaderboard they can't.
+7. **amara** — on any live tender, open the **Vendors** tab to see registration,
+   verification, invitation, bid and evaluation status per vendor; extend the
+   deadline and watch the old date, the reason and your name land on the audit trail
+   while every bidder gets an email.
+8. **amara** — after an opening, use the **Rounds** tab to run a best-and-final from
+   the vendors who bid, then read the **Bids** tab: the bid bucket groups both rounds
+   and shows which bidders actually moved.
+
+Or run the whole thing at once: `python test_procurement.py` in `backend/` drives
+registration → configuration → invitation → two rounds → closing → opening →
+evaluation → approval → award → cancellation → audit verification, and asserts every
+guard along the way (186 checks).
 
 ## Still on the list before real production
 

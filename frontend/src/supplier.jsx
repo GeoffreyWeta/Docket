@@ -2,7 +2,10 @@ import React, { useEffect, useRef, useState } from "react";
 
 import { downloadDoc, raw } from "./api";
 import { Countdown, Empty, Money, Stat } from "./atoms";
-import { effStatus, fmtCompact, fmtDate, fmtDateTime, fmtMoney } from "./helpers";
+import {
+  REG_STATUS, VERIFY_STATUS, activeRound, effStatus, fmtCompact, fmtDate,
+  fmtDateTime, fmtMoney, regStatusOf, roundsOf, verifyStatusOf,
+} from "./helpers";
 import { Icon, SealMark } from "./icons";
 import { cue, usePrev } from "./motion";
 import { ConfirmDialog, CountUp, LiveCountdown, RollNumber, Sparkline, TypeOut } from "./ui";
@@ -26,17 +29,34 @@ export function PortalHome({ api }) {
     e.target.value = "";
   };
   const [openL, setOpenL] = useState({});
-  const invitations = state.tenders.filter((t) => t.invited.includes(me) && ["published", "closed"].includes(effStatus(t)));
-  const outcomes = state.tenders.filter((t) => t.invited.includes(me) && ["evaluation", "awarded"].includes(t.status) && state.bids.some((b) => b.tenderId === t.id && b.supplierId === me));
+  /* A paused event is still an invitation the vendor holds — dropping it off
+     the list would tell them nothing, which is exactly the silence pausing an
+     event is supposed to replace. Cancelled events move to Outcomes below:
+     there is nothing left to do about them, but there is something to know. */
+  const invitations = state.tenders.filter((t) => t.invited.includes(me)
+    && ["published", "closed", "paused"].includes(effStatus(t)));
+  const outcomes = state.tenders.filter((t) => t.invited.includes(me)
+    && (["evaluation", "awarded"].includes(t.status)
+        || (t.status === "cancelled" && state.bids.some((b) => b.tenderId === t.id && b.supplierId === me)))
+    && (t.status === "cancelled" || state.bids.some((b) => b.tenderId === t.id && b.supplierId === me)));
 
   return (
     <div>
       <div className="pagehead">
         <div><div className="mono muted" style={{ marginBottom: 3 }}>SUPPLIER PORTAL</div><h1>{supplier.name}</h1></div>
         <div className="grow" />
-        {supplier.prequalified
-          ? <span className="chip ok">Prequalified supplier</span>
-          : <span className="chip warn">Prequalification pending</span>}
+        {/* Two facts, because they are two facts. A vendor who is registered
+            but unverified is eligible to bid and needs to be told so — the old
+            single "pending" chip read as a bar and led to support calls asking
+            when they would be allowed to submit. */}
+        <span className={"chip " + (REG_STATUS[regStatusOf(supplier)] || {}).tone}>
+          {(REG_STATUS[regStatusOf(supplier)] || {}).label || "Registered"}
+        </span>
+        <span className={"chip " + (VERIFY_STATUS[verifyStatusOf(supplier)] || {}).tone}
+              title={supplier.suspended ? supplier.suspendedReason : supplier.rejectedReason || undefined}
+              style={{ marginLeft: 6 }}>
+          {(VERIFY_STATUS[verifyStatusOf(supplier)] || {}).label || "Unverified"}
+        </span>
       </div>
 
       {!supplier.prequalified && (
@@ -116,7 +136,11 @@ export function PortalHome({ api }) {
         <div className="cbody" style={{ paddingTop: 6 }}>
           {invitations.map((t) => {
             const st = effStatus(t);
-            const myBid = state.bids.find((b) => b.tenderId === t.id && b.supplierId === me);
+            const rnd = activeRound(t);
+            /* With rounds, a vendor can hold more than one bid on the same
+               event. "Have I submitted?" means "in the round that is open now". */
+            const myBid = state.bids.find((b) => b.tenderId === t.id && b.supplierId === me
+              && (rnd && rnd.id ? b.roundId === rnd.id : true));
             return (
               <div className="rowline" key={t.id}>
                 <div style={{ flex: 1 }}>
@@ -125,9 +149,14 @@ export function PortalHome({ api }) {
                     {t.ref} · budget ceiling <Money n={t.budget} />
                     {t.lines && t.lines.length > 0 ? ` · ${t.lines.length} priced lines` : ""}
                     {(t.addenda || []).length > 0 ? ` · ${(t.addenda || []).length} addendum issued` : ""}
+                    {(t.rounds || []).length > 1 ? ` · round ${t.currentRound} of ${t.rounds.length}` : ""}
+                    {(t.deadlineChanges || []).length > 0 ? " · deadline extended" : ""}
                   </div>
                 </div>
-                {myBid ? <span className="chip ok">Submitted & sealed</span> : st === "published" ? <span className="chip warn">Not started</span> : <span className="chip">Deadline passed</span>}
+                {st === "paused" ? <span className="chip warn">Paused by the buyer</span>
+                  : myBid ? <span className="chip ok">Submitted &amp; sealed</span>
+                  : st === "published" ? <span className="chip warn">Not started</span>
+                  : <span className="chip">Deadline passed</span>}
                 <Countdown t={t.deadline} />
                 {st === "published" && <button className="btn sm pri" onClick={() => go({ page: "bidroom", id: t.id })}>{myBid ? "View receipt" : "Enter bid room"}</button>}
               </div>
@@ -177,7 +206,15 @@ export function BidRoom({ api, id }) {
   const t = state.tenders.find((x) => x.id === id);
   if (!t) return <Empty>Tender not found.</Empty>;
   const st = effStatus(t);
-  const myBid = state.bids.find((b) => b.tenderId === t.id && b.supplierId === me);
+  const rnd = activeRound(t);
+  const rounds = roundsOf(t);
+  /* Scoped to the open round: an event running a best-and-final has this
+     vendor's first-round bid on file too, and that one is not the bid the room
+     is asking them to make. */
+  const myBid = state.bids.find((b) => b.tenderId === t.id && b.supplierId === me
+    && (rnd && rnd.id ? b.roundId === rnd.id : true));
+  const priorBids = state.bids.filter((b) => b.tenderId === t.id && b.supplierId === me
+    && b !== myBid);
   const clar = state.clarifications.filter((c) => c.tenderId === t.id);
   const hasLines = t.lines && t.lines.length > 0;
   const addenda = t.addenda || [];
@@ -257,9 +294,48 @@ export function BidRoom({ api, id }) {
     <div style={{ maxWidth: 820 }}>
       <button className="btn sm" style={{ marginBottom: 14 }} onClick={() => go({ page: "portal" })}>← My invitations</button>
       <div className="pagehead" style={{ marginBottom: 14 }}>
-        <div><div className="mono muted" style={{ marginBottom: 3 }}>{t.ref} · deadline {fmtDate(t.deadline)}</div><h1>{t.title}</h1></div>
+        <div><div className="mono muted" style={{ marginBottom: 3 }}>
+          {t.ref} · deadline {fmtDate(t.deadline)}
+          {rounds.length > 1 && rnd ? ` · ${rnd.name}` : ""}
+        </div><h1>{t.title}</h1></div>
         <div className="grow" /><Countdown t={t.deadline} />
       </div>
+
+      {/* Everything the buyer changed that this vendor is owed. Stated before
+          the scope, because a paused event or a moved deadline changes what
+          they should do next and the scope does not. */}
+      {st === "paused" && (
+        <div className="notice wax" style={{ marginBottom: 14 }}>
+          <b>This event is paused.</b> The buyer has suspended submissions. You will be told when it
+          resumes, and nothing you have already sealed is affected.
+        </div>
+      )}
+      {t.cancelledAt && (
+        <div className="notice wax" style={{ marginBottom: 14 }}>
+          <b>This event was cancelled on {fmtDate(t.cancelledAt)}.</b> {t.cancelReason}
+          {" "}No award will be made. Any sealed bid you submitted was never opened.
+        </div>
+      )}
+      {(t.deadlineChanges || []).length > 0 && st !== "cancelled" && (
+        <div className="notice" style={{ marginBottom: 14 }}>
+          <b>The deadline has moved.</b>{" "}
+          {t.deadlineChanges.map((c, i) => (
+            <span key={i}>{i > 0 ? ", then " : ""}{fmtDate(c.from)} → {fmtDate(c.to)}</span>
+          ))}. Submissions now close {fmtDateTime(t.deadline)}.
+        </div>
+      )}
+      {rounds.length > 1 && rnd && (
+        <div className="notice" style={{ marginBottom: 14 }}>
+          <b>{rnd.name} of {rounds.length}.</b> This is a fresh submission against the same scope —
+          your earlier bid stands as the record of that round and is not replaced by this one.
+          {rnd.instructions ? <div style={{ marginTop: 6 }}>{rnd.instructions}</div> : null}
+          {priorBids.length > 0 && (
+            <div style={{ marginTop: 6 }} className="muted">
+              You submitted in {priorBids.length === 1 ? "the earlier round" : `${priorBids.length} earlier rounds`}.
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="chead"><h3>Scope of work</h3></div>
@@ -395,7 +471,11 @@ export function BidRoom({ api, id }) {
           </div>
         </div>
       ) : (
-        <div className="notice" style={{ marginBottom: 14 }}>The deadline has passed: no further bids can be submitted.</div>
+        <div className="notice" style={{ marginBottom: 14 }}>
+          {st === "paused" ? "This event is paused: no submissions are being taken until the buyer resumes it."
+            : st === "cancelled" ? "This event was cancelled: no submissions are being taken."
+            : "The deadline has passed: no further bids can be submitted."}
+        </div>
       )}
 
       <div className="card">

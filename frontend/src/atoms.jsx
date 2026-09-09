@@ -93,10 +93,33 @@ export function MiniBars({ data }) {
 
 export function StageTracker({ t }) {
   const T = nowMs();
+  /* A cancelled event did not reach the stages it never reached. Drawing the
+     ordinary six with the first three ticked would read as a competition still
+     in flight, which is the one thing it is not — so the track ends where the
+     event ended and says so. */
+  if (t.cancelledAt) {
+    const stages = [
+      { k: "Drafted", done: true, at: null },
+      { k: "Open for bids", done: !!t.publishedAt, at: t.publishedAt },
+      { k: "Cancelled", done: true, at: t.cancelledAt, cls: "wax" },
+    ];
+    return (
+      <div className="stages" aria-label="Tender progress">
+        {stages.map((s, i) => (
+          <div key={i} className={"stg" + (s.done ? " done" : "") + (s.cls && s.done ? " " + s.cls : "")}>
+            <span className="dot" aria-hidden="true" />
+            <div className="sk">{s.k}</div>
+            <div className="sd">{s.at ? fmtDate(s.at) : " "}</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
   const stages = [
     { k: "Drafted", done: true, at: null },
     { k: "Approved", done: !!t.publishedAt, at: null },
-    { k: "Open for bids", done: !!t.publishedAt, at: t.publishedAt },
+    { k: t.status === "paused" ? "Paused" : "Open for bids", done: !!t.publishedAt, at: t.publishedAt,
+      cls: t.status === "paused" ? "wax" : undefined },
     { k: "Sealed", done: !!t.publishedAt && t.deadline < T, at: t.publishedAt && t.deadline < T ? t.deadline : null, cls: "wax" },
     { k: "Opened", done: !!t.openedAt, at: t.openedAt },
     { k: "Awarded", done: !!t.awardedAt, at: t.awardedAt, cls: "gold" },

@@ -148,10 +148,13 @@ export const DESK_BUCKETS = [
 
 export function deskBucket(t) {
   if (t.status === "draft") return "draft";
-  if (t.status === "awarded") return "done";
+  // "Concluded without an award" is what the Closed bucket already says it
+  // holds, and a cancelled event is exactly that. Left in "in progress" it
+  // would sit on somebody's desk forever as work that cannot be done.
+  if (t.status === "awarded" || t.status === "cancelled") return "done";
   const st = effStatus(t);
   if (st === "published") return "live";
-  return "progress";   // sealed, evaluation, awaiting approval
+  return "progress";   // sealed, evaluation, paused, awaiting approval
 }
 
 export function desk(tenders, ownerIds) {

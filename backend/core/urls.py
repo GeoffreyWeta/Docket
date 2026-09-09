@@ -1,6 +1,7 @@
 from django.urls import path
 
-from . import account_views, admin_views, auth_views, export_views, finance_views, views
+from . import (account_views, admin_views, auth_views, export_views, finance_views,
+               procurement, views)
 
 # The administration console. Its own sign-in, its own token check (superuser or
 # nothing), and no link to it anywhere in the tendering UI.
@@ -67,6 +68,22 @@ urlpatterns = admin_urlpatterns + [
     path("tenders/<str:tid>/auction/", views.auction_state),
     path("tenders/<str:tid>/auction/bids/", views.auction_bid),
     path("tenders/<str:tid>/docs/", views.upload_tender_doc),
+
+    # --- the event lifecycle (procurement.py) ---
+    path("tenders/<str:tid>/extend/", procurement.extend_deadline),
+    path("tenders/<str:tid>/pause/", procurement.pause_event),
+    path("tenders/<str:tid>/resume/", procurement.resume_event),
+    path("tenders/<str:tid>/cancel/", procurement.cancel_event),
+    path("tenders/<str:tid>/vendors/", procurement.event_vendors),
+    path("tenders/<str:tid>/vendors/notify/", procurement.notify_event_vendors),
+    path("tenders/<str:tid>/rounds/", procurement.round_collection),
+    path("tenders/<str:tid>/bucket/", procurement.bid_bucket),
+    path("rounds/<str:rid_>/", procurement.round_update),
+    path("rounds/<str:rid_>/open/", procurement.round_open),
+    path("rounds/<str:rid_>/close/", procurement.round_close),
+    path("rounds/<str:rid_>/cancel/", procurement.round_cancel),
+    path("suppliers/register/", procurement.register_supplier),
+    path("suppliers/<str:sid>/suspend/", procurement.suspend_supplier),
     path("tenders/<str:tid>/bid_docs/", views.upload_bid_doc),
     path("docs/<str:doc_id>/", views.delete_doc),
     path("me/", views.me_update),

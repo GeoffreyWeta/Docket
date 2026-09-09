@@ -33,13 +33,20 @@ const matShared = blockAt(':root[data-theme="material"],:root[data-theme="materi
 const matLight = blockAt(':root[data-theme="material"]', src.indexOf(':root[data-theme="material"],'));
 const matDark = blockAt(':root[data-theme="material-dark"]', src.indexOf(':root[data-theme="material"]{'));
 const night = blockAt(':root[data-theme="night"]');
+const engo = blockAt(':root[data-theme="engo"]');
+const circle = blockAt(':root[data-theme="circle"]');
 
+/* Every theme in theme.js belongs here, or it ships unmeasured. Each entry is
+   its cascade, innermost last: :root is the fallback layer for whatever a theme
+   does not declare, exactly as the browser resolves it. */
 const THEMES = {
+  circle: [base, circle],
   studio: [base],
   paper: [base, paper],
   material: [base, matShared, matLight],
   "material-dark": [base, matShared, matDark],
   night: [base, night],
+  engo: [base, engo],
 };
 
 /* status stamp values live in rules, not the token blocks */
@@ -51,12 +58,18 @@ function stamps(themeSel) {
   for (const m of src.matchAll(re)) out[m[1]] = { fg: m[2].trim(), bg: m[3].trim() };
   return out;
 }
+/* circle and engo declare no stamp rules of their own, so they inherit the
+   unprefixed set, which is studio's: those pairs are already measured for AA
+   and for CVD separation, and both themes put them on a white card, which is
+   the surface they were measured against. */
 const STAMPS = {
+  circle: stamps(null),
   studio: stamps(null),
   paper: stamps("paper"),
   material: stamps("material"),
   "material-dark": stamps("material-dark"),
   night: stamps("night"),
+  engo: stamps(null),
 };
 
 /* ---------- colour maths ---------- */

@@ -582,6 +582,156 @@ export const CSS = `
 :root[data-theme="engo"] .segmented button.on,
 :root[data-theme="engo"] .antab.on{background:var(--card);box-shadow:var(--shadow)}
 
+/* ---- circle: the default. A white console floating on a slate canvas ----
+   The other five themes are palettes; this one is also a SHAPE. From the
+   desktop rung the page stops being a full-bleed two-pane app and becomes one
+   rounded white container inset from a muted slate-blue field, with the
+   navigation rail living inside that container rather than beside it. Below
+   that rung a phone has no room to give away, so the frame is not drawn and
+   only the palette applies: the shell rules are in the ladder, at the desk
+   rung, with every other width-conditional rule in the file.
+
+   Consequences worth knowing before editing:
+     - --paper is WHITE here, not a tint. The container interior and a card are
+       the same colour, so a card is told apart by its line and its soft
+       shadow, never by a fill. --card-shadow carries that and is not optional.
+     - --side is white too. The rail is ink-on-white, so --side-dim and
+       --side-sec had to be re-measured against white rather than dimmed off a
+       dark slate: both clear 4.5 there, which the 13.5px item labels and the
+       10px section caps need.
+     - the display face is the sans, not the serif. This look is a dashboard,
+       and a Source Serif page title reads as stationery in the middle of it.
+   The series slots are deliberately IDENTICAL to studio and engo: those eight
+   were measured for adjacent-pair separation under protanopia and deuteranopia
+   against a white card, which is exactly the surface they sit on here, and a
+   category has to keep its colour when somebody switches theme. */
+:root[data-theme="circle"]{
+  color-scheme:light;
+
+  /* the canvas the console floats on, and the console's own corner */
+  --canvas:#4A6572;
+  --canvas-bg:radial-gradient(1200px 680px at 50% -12%,#57727F 0%,#4A6572 46%,#3E5765 100%);
+  --shell-r:26px;
+
+  /* the two accents the look is built from */
+  --navy:#1B2A4A; --navy-deep:#101B33;
+  --teal:#3F8E8E;
+  --peach:#F5D6BC; --peach-line:#EFC09A; --peach-ink:#7A3E16;
+
+  --paper:#FFFFFF; --paper-2:#F1F3F7; --card:#FFFFFF; --sunk:#F7F8FB;
+  --ink:#16213E; --muted:#4E5A70; --faint:#697488;
+  --line:#E9ECF1; --line2:#DBE0E8; --hair:rgba(22,33,62,.065);
+  --on-brand:#FFFFFF;
+  --btn-hover:#F7F8FB;
+  --topbar-bg:rgba(255,255,255,.9);
+  --scrim:rgba(14,22,38,.5);
+  --skel-hi:#F1F3F7;
+  --tip-bg:#16213E; --tip-ink:#FFFFFF;
+
+  /* the validated eight, unchanged: see the note above */
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+
+  /* primary: the navy the reference fills its buttons and avatars with */
+  --brand:#26406E; --brand-2:#33538A; --brand-deep:var(--navy-deep);
+  --brand-tint:#EEF1F7; --brand-ring:rgba(38,64,110,.22);
+
+  /* positive state stays its own family, on the teal axis so it belongs here */
+  --green:#137A5F; --green-2:#189A78; --green-deep:#0D5946;
+  --green-tint:#E6F5F0; --green-ring:rgba(19,122,95,.22);
+
+  /* critical: a warm coral rather than a wax red, so it lives with the peach */
+  --wax:#BE3A2E; --wax-tint:#FDEDEA;
+  --brass:#9C6414; --brass-tint:#FDF4E5; --gold-ink:#7A4E0F;
+
+  --pri-from:#33538A; --pri-to:#26406E; --pri-from-h:#3D6099; --pri-to-h:#2C497B;
+  --pri-line:var(--navy-deep);
+  --wax-from:#CE4638; --wax-to:#BE3A2E; --wax-from-h:#D95243; --wax-to-h:#C63E32;
+  --wax-line:#93281E;
+
+  --chip-ok-line:#A8DECE; --chip-warn-line:#F2BFB8; --chip-gold-line:#EFD6A4;
+
+  --letter-bg:#F8FAFC; --ceremony-from:#FBE3CE; --ceremony-line:var(--peach-line);
+  --addm-line:#EFD6A4; --unread-bg:#F1F5FA; --login-glow:rgba(255,255,255,.14);
+
+  /* the mark: a teal disc, which is what "circle" means here */
+  --seal-hi:#7FD4C4; --seal-core:var(--teal); --seal-crack:#1F5A5A;
+
+  /* ---- the rail, INSIDE the white console: ink on white, not a dark slab.
+          --side-dim and --side-sec are measured against #FFFFFF, because on
+          this theme that is the surface they land on. ---- */
+  --side:#FFFFFF; --side-from:#FFFFFF; --side-to:#FFFFFF;
+  --side-ink:var(--ink); --side-dim:#5A6478; --side-sec:#6B7488;
+  --side-hover:rgba(22,33,62,.05);
+  --side-on-bg:transparent;
+  --side-on-ink:var(--navy-deep); --side-on-line:transparent;
+  /* a hairline seam between rail and content, plus the console's cast shadow
+     on its left edge: .side already paints var(--side-edge) at the desk rung */
+  --side-edge:inset -1px 0 0 var(--line),-12px 0 34px -14px rgba(12,20,36,.5);
+  --newbtn-bg:#F2F4F8; --newbtn-line:#E1E5EC;
+  --newbtn-bg-h:#E9EDF3; --newbtn-line-h:#D5DBE4;
+  --wordmark-ink:var(--ink); --wordmark-rule:rgba(22,33,62,.09);
+  --wordmark-font:var(--font-sans); --wordmark-weight:700; --wordmark-ls:-.012em;
+
+  /* ---- type: a dashboard, so the display face is the sans and the micro
+          labels are letter-spaced sans caps rather than mono ---- */
+  --font-display:var(--font-sans);
+  --h1-size:26px; --h1-weight:650; --h1-ls:-.022em;
+  --th-font:var(--font-sans); --th-size:10px; --th-tt:uppercase; --th-ls:.11em; --th-weight:600;
+  --k-font:var(--font-sans); --k-size:10px; --k-tt:uppercase; --k-ls:.12em; --k-weight:600;
+  --badge-font:var(--font-sans); --badge-size:10px; --badge-tt:uppercase; --badge-ls:.08em;
+  --badge-weight:600; --badge-r:999px; --badge-bd:1px; --badge-pad:4px 10px;
+  --stat-v-font:var(--font-sans); --stat-v-weight:700; --stat-v-size:30px;
+
+  --field-bg:var(--card); --field-bd:var(--line2); --field-r:12px; --field-shadow:none;
+  --btn-bd:1px solid var(--line2); --btn-fw:600;
+  --nav-r:999px; --nav-mx:10px;
+
+  /* everything is a pill or a generous corner */
+  --r-xs:8px; --r-sm:10px; --r:16px; --r-lg:22px; --r-btn:999px;
+
+  /* soft and layered: the shadow is what separates a white card from a white
+     page, so it does more work here than in any other theme */
+  --shadow:0 1px 2px rgba(22,33,62,.05);
+  --sh-2:0 2px 6px rgba(22,33,62,.05),0 10px 24px -10px rgba(22,33,62,.14);
+  --sh-3:0 24px 60px -20px rgba(22,33,62,.3);
+  --inset-hi:none;
+  --card-shadow:0 1px 3px rgba(22,33,62,.05),0 8px 20px -12px rgba(22,33,62,.16);
+  --btn-shadow:0 1px 2px rgba(22,33,62,.06);
+}
+
+/* Cards and stats: the generous corner and the soft lift. */
+:root[data-theme="circle"] .card{border-radius:var(--r-lg)}
+:root[data-theme="circle"] .stat{border-radius:var(--r-lg);box-shadow:var(--card-shadow)}
+/* pills all the way down: .sm re-declares its own radius in the base */
+:root[data-theme="circle"] .btn.sm{border-radius:999px}
+:root[data-theme="circle"] .btn.pri{box-shadow:0 4px 14px -5px rgba(16,27,51,.55)}
+/* the rail's current item is a tonal pill, the way Material's is, rather than
+   the left-edge rule the paper themes draw */
+:root[data-theme="circle"] .navi{width:auto;border-left:0;border-radius:var(--nav-r);
+  margin:2px var(--nav-mx);padding:9px 14px;font-weight:500}
+:root[data-theme="circle"] .navi.on{background:transparent;font-weight:650}
+:root[data-theme="circle"] .navind{left:var(--nav-mx);right:var(--nav-mx);width:auto;
+  background:var(--brand-tint);border-radius:var(--nav-r)}
+/* the one filled control in the rail, so it cannot take the rail's own tokens */
+:root[data-theme="circle"] .newbtn{background:linear-gradient(180deg,var(--pri-from) 0%,var(--pri-to) 100%);
+  border-color:transparent;color:var(--on-brand);border-radius:999px;font-weight:600;
+  box-shadow:0 6px 16px -7px rgba(16,27,51,.55)}
+:root[data-theme="circle"] .tab.on{border-bottom-color:var(--brand);border-bottom-width:2.5px}
+:root[data-theme="circle"] .segmented,
+:root[data-theme="circle"] .antabs{background:var(--paper-2);border-color:var(--line)}
+:root[data-theme="circle"] .segmented button.on,
+:root[data-theme="circle"] .antab.on{background:var(--card);box-shadow:var(--shadow)}
+/* the award surface is where the peach lives: one warm sheet in a cool app */
+:root[data-theme="circle"] .ceremony{border-style:solid;border-width:1px;border-radius:var(--r-lg)}
+:root[data-theme="circle"] .receipt,:root[data-theme="circle"] .letter,
+:root[data-theme="circle"] .aihint{border-radius:var(--r-lg)}
+/* the sign-in page gets the canvas too: the card is the console, in miniature */
+:root[data-theme="circle"] .loginwrap{background:var(--canvas-bg)}
+:root[data-theme="circle"] .loginwrap .card{border-color:transparent;border-radius:var(--shell-r)}
+:root[data-theme="circle"] .loginlogo b{color:#FFFFFF}
+:root[data-theme="circle"] .booting{background:var(--canvas-bg);color:#DDE5EA}
+
 *{box-sizing:border-box}
 html,body{margin:0}
 /* the drawer is open: stop the page behind it scrolling under the finger */
@@ -666,8 +816,16 @@ body.navopen{overflow:hidden}
    full-width, instead of overflowing the app bar. */
 /* Two per row: five stacked full-width buttons pushed "Sign out" off the end
    of a 844px-tall phone, and these are all short labels with an icon. */
-.chromeacts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;
+/* align-items:start, not the grid default: the account list is the tallest
+   thing in here by far, and a stretched sibling button grew to match its row.
+   That was always wrong and merely looked like a tall rectangle; on a theme
+   whose buttons are pills it became a 480px stadium. */
+.chromeacts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;align-items:start;
   padding:12px var(--gutter) 0;border-top:1px solid var(--wordmark-rule)}
+/* Two per row is for the short labelled buttons. Who you are, a section cap,
+   the account list and the paired appearance controls are each a full-width
+   band: half a drawer is not enough for any of them. */
+.chromeacts .me,.chromeacts .msec,.chromeacts .mscroll,.chromeacts .mrow{grid-column:1 / -1}
 .chromeacts .btn{width:100%;justify-content:flex-start;font-size:13.5px;
   background:var(--newbtn-bg);border:1px solid var(--newbtn-line);color:var(--side-ink);box-shadow:none}
 .chromeacts .btn:active{background:var(--newbtn-bg-h);color:var(--side-ink)}
@@ -755,6 +913,9 @@ body.navopen{overflow:hidden}
 .st-closed{--st-fg:#9F1239;--st-bg:#FECDD3}
 .st-evaluation{--st-fg:#3730A3;--st-bg:#E0E7FF}
 .st-awarded{--st-fg:#78350F;--st-bg:#FDE68A}
+.st-closing{--st-fg:#9A3412;--st-bg:#FFEDD5}
+.st-paused{--st-fg:#1E3A5F;--st-bg:#DBE6F3}
+.st-cancelled{--st-fg:#7F1D1D;--st-bg:#F5D0CE}
 /* paper keeps the editorial set it always had */
 :root[data-theme="paper"] .st-draft{--st-fg:#4E5852;--st-bg:#ECEBE3}
 :root[data-theme="paper"] .st-approval{--st-fg:#75590E;--st-bg:#F6EFDC}
@@ -762,6 +923,9 @@ body.navopen{overflow:hidden}
 :root[data-theme="paper"] .st-closed{--st-fg:#962B19;--st-bg:#F8E8E2}
 :root[data-theme="paper"] .st-evaluation{--st-fg:#0E3527;--st-bg:#DBE8E0}
 :root[data-theme="paper"] .st-awarded{--st-fg:#6B5215;--st-bg:#F3ECD9}
+:root[data-theme="paper"] .st-closing{--st-fg:#8A4A16;--st-bg:#F7EBDD}
+:root[data-theme="paper"] .st-paused{--st-fg:#24455F;--st-bg:#DDE6EC}
+:root[data-theme="paper"] .st-cancelled{--st-fg:#7A2113;--st-bg:#F1DCD6}
 /* Material maps the lifecycle onto the prototype's reserved status roles:
    neutral / warn / ok / crit, plus a primary-tonal for evaluation and a
    deeper brass for the awarded terminal state so it never reads as "pending". */
@@ -771,18 +935,27 @@ body.navopen{overflow:hidden}
 :root[data-theme="material"] .st-closed{--st-fg:#962B19;--st-bg:#F9E7E2}
 :root[data-theme="material"] .st-evaluation{--st-fg:#04291B;--st-bg:#CDE8D9}
 :root[data-theme="material"] .st-awarded{--st-fg:#4A3A0C;--st-bg:#EFE3BE}
+:root[data-theme="material"] .st-closing{--st-fg:#8A4A16;--st-bg:#F9EADB}
+:root[data-theme="material"] .st-paused{--st-fg:#1F4664;--st-bg:#DCE7F1}
+:root[data-theme="material"] .st-cancelled{--st-fg:#7A2113;--st-bg:#F3DBD5}
 :root[data-theme="material-dark"] .st-draft{--st-fg:#C6C4CD;--st-bg:#33323A}
 :root[data-theme="material-dark"] .st-approval{--st-fg:#E6CA84;--st-bg:#3A3218}
 :root[data-theme="material-dark"] .st-published{--st-fg:#8FD5B0;--st-bg:#1F3D30}
 :root[data-theme="material-dark"] .st-closed{--st-fg:#F2B8A5;--st-bg:#43281F}
 :root[data-theme="material-dark"] .st-evaluation{--st-fg:#ABF2CB;--st-bg:#1F5340}
 :root[data-theme="material-dark"] .st-awarded{--st-fg:#F0DDA8;--st-bg:#453A18}
+:root[data-theme="material-dark"] .st-closing{--st-fg:#F2C08D;--st-bg:#43331F}
+:root[data-theme="material-dark"] .st-paused{--st-fg:#9FC9EA;--st-bg:#1B3247}
+:root[data-theme="material-dark"] .st-cancelled{--st-fg:#F5AFA0;--st-bg:#4E2019}
 :root[data-theme="night"] .st-draft{--st-fg:#C3CDC7;--st-bg:rgba(195,205,199,.14)}
 :root[data-theme="night"] .st-approval{--st-fg:#E6CA84;--st-bg:rgba(217,184,99,.16)}
 :root[data-theme="night"] .st-published{--st-fg:#6FD3A6;--st-bg:rgba(63,169,124,.18)}
 :root[data-theme="night"] .st-closed{--st-fg:#F09479;--st-bg:rgba(216,102,76,.18)}
 :root[data-theme="night"] .st-evaluation{--st-fg:#8FD9B6;--st-bg:rgba(63,169,124,.14)}
 :root[data-theme="night"] .st-awarded{--st-fg:#E6CA84;--st-bg:rgba(217,184,99,.14)}
+:root[data-theme="night"] .st-closing{--st-fg:#F0B27A;--st-bg:rgba(216,140,76,.18)}
+:root[data-theme="night"] .st-paused{--st-fg:#8FBEDD;--st-bg:rgba(110,168,208,.16)}
+:root[data-theme="night"] .st-cancelled{--st-fg:#F09479;--st-bg:rgba(216,76,76,.22)}
 /* status vocabulary is always a stamp; the tone variants carry their own colour
    where there is no STATUS entry to read one from (e.g. award approval). */
 .stamp.gold{color:var(--gold-ink);background:var(--brass-tint);border-color:var(--chip-gold-line)}
@@ -1134,6 +1307,12 @@ label.btn{cursor:pointer}
   .tabs{margin-bottom:17px}
   .tab{min-height:0;padding:9px 13px}
   .stages{display:flex;gap:0;margin:0 0 20px}
+  /* Equal segments, not content-width ones. Without flex:1 each stage shrank to
+     its own label and the six captions ran together as one word, while the dots
+     -- positioned at 50% of each stage -- drifted off the captions they name.
+     Equal segments are also what the connector rail assumes: it spans each
+     stage edge to edge, so only equal stages join into one continuous line. */
+  .stg{flex:1;padding-left:3px;padding-right:3px}
   .stg::before{display:block}
   .sealrow{flex-wrap:nowrap;padding:12px 14px}
   .rowline{flex-wrap:nowrap}
@@ -1169,6 +1348,36 @@ label.btn{cursor:pointer}
   .topbar .crumb{flex:0 0 auto;overflow:visible;text-overflow:clip}
   .topbar .btn{white-space:nowrap}
   .content{flex:1;overflow-y:auto;padding:28px 26px 40px}
+
+  /* ---- circle only: the console ----
+     The shell stops being full-bleed and becomes one rounded white container
+     inset from the slate canvas, with the navigation rail inside it. The inset
+     is padding on .dk rather than a margin on its children, because .dk already
+     owns overflow:hidden here; the two children then meet with no seam and make
+     one silhouette, the rail rounding the left pair of corners and the content
+     pane the right pair.
+
+     Nothing is clipped to achieve that: .main paints the rounded background and
+     leaves its own children transparent, so the app bar's dropdowns still hang
+     out of the pane. An overflow:hidden on .main would have rounded the corner
+     just as well and cut the notification sheet off at the same time. */
+  :root[data-theme="circle"] .dk{padding:18px;background:var(--canvas-bg)}
+  :root[data-theme="circle"] .side{width:212px;padding:22px 0 16px;
+    border-radius:var(--shell-r) 0 0 var(--shell-r)}
+  :root[data-theme="circle"] .main{background:var(--paper);
+    border-radius:0 var(--shell-r) var(--shell-r) 0;
+    box-shadow:14px 0 34px -16px rgba(12,20,36,.5)}
+  /* the bar is inside the console now, so it stops being a pinned surface with
+     its own fill and blur and becomes a ruled row of the page */
+  :root[data-theme="circle"] .topbar{background:transparent;backdrop-filter:none;
+    box-shadow:none;padding:14px 26px}
+  /* the pane scrolls, so its own radius is what keeps a long table from
+     painting into the console's bottom-right corner */
+  :root[data-theme="circle"] .content{border-radius:0 0 var(--shell-r) 0;padding:24px 26px 34px}
+  :root[data-theme="circle"] .wordmark{padding:0 20px 16px;margin-bottom:10px}
+  :root[data-theme="circle"] .orgline{padding:0 20px 14px}
+  :root[data-theme="circle"] .navsec{padding:14px 20px 6px}
+  :root[data-theme="circle"] .sidefoot{padding:14px 20px 0}
 }
 
 /* ---- ${BP.wide}px · room for a four-up figure row ---- */
@@ -1197,6 +1406,10 @@ label.btn{cursor:pointer}
   .tbl tr.click:hover td{background:var(--sunk)}
   .stat:hover{box-shadow:var(--sh-2);border-color:var(--line2)}
   .tab:hover{color:var(--ink)}
+  /* circle's rail button is a filled pill, so it cannot take the tonal hover
+     the other themes give .newbtn */
+  :root[data-theme="circle"] .newbtn:hover{border-color:transparent;
+    background:linear-gradient(180deg,var(--pri-from-h) 0%,var(--pri-to-h) 100%)}
 }
 
 @media(prefers-reduced-motion:reduce){

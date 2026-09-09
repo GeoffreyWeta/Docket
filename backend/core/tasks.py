@@ -5,7 +5,7 @@ run on a schedule via `python manage.py run_sweep` (Render cron, GitHub Action,
 anything that can hit a shell). Every effect is keyed in TaskMark so repeated
 runs never double-send.
 """
-from .models import Bid, Supplier, TaskMark, Tender
+from .models import Bid, ProcurementRound, Supplier, TaskMark, Tender
 from .notify import notify_perm, notify_supplier
 from .util import DAY_MS, fmt_date_ms, now_ms, record_event
 
@@ -30,12 +30,37 @@ def maybe_sweep():
     return True
 
 
+def _seal_key(t):
+    """The idempotence key for "this deadline has passed".
+
+    Keyed on the deadline, not the tender: a deadline that is extended, or a
+    second bidding round with its own window, is a *new* sealing and owes
+    everyone a fresh notice. The pre-rounds key was the tender alone, so it is
+    adopted into the current shape the first time it is seen rather than left to
+    fire a duplicate for every tender already sealed.
+    """
+    legacy = f"sealed:{t.id}"
+    key = f"sealed:{t.id}:{t.deadline}"
+    if TaskMark.objects.filter(pk=legacy).exists():
+        TaskMark.objects.get_or_create(pk=key, defaults={"at": now_ms()})
+        TaskMark.objects.filter(pk=legacy).delete()
+    return key
+
+
 def run_sweep():
     now = now_ms()
 
-    # 1) Deadline sealing: log the system event + tell procurement, once per tender.
+    # 0) Rounds whose window has run out. The tender's own deadline already
+    #    reads as sealed through eff_status; this is the round row catching up,
+    #    so the rounds table and the bid bucket agree with the countdown.
+    for r in ProcurementRound.objects.filter(status="open", deadline__lt=now):
+        r.status = "closed"
+        r.closed_at = r.deadline
+        r.save(update_fields=["status", "closed_at"])
+
+    # 1) Deadline sealing: log the system event + tell procurement, once per deadline.
     for t in Tender.objects.filter(status="published", deadline__lt=now):
-        if _once(f"sealed:{t.id}"):
+        if _once(_seal_key(t)):
             n = t.bids.count()
             record_event(actor="System", role="system", at=t.deadline,
                          action="Deadline passed — bids sealed", tender_id=t.id,
@@ -50,10 +75,12 @@ def run_sweep():
             bidders = set(t.auction_bids.values_list("supplier_id", flat=True))
             word = "auction bid"
         else:
-            bidders = set(Bid.objects.filter(tender=t).values_list("supplier_id", flat=True))
+            bidders = set(Bid.objects.filter(tender=t, round=t.active_round())
+                          .values_list("supplier_id", flat=True))
             word = "sealed bid"
-        for sid in t.invited:
-            if sid not in bidders and _once(f"remind:{t.id}:{sid}"):
+        rnd = t.active_round()
+        for sid in (rnd.bidders() if rnd else t.invited):
+            if sid not in bidders and _once(f"remind:{t.id}:{t.deadline}:{sid}"):
                 notify_supplier(sid, f"Deadline approaching: {t.title}",
                                 f"Your {word} for {t.ref} is due by {fmt_date_ms(t.deadline)}. "
                                 f"No submission has been received yet.", t.id)

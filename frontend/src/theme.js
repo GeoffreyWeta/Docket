@@ -6,14 +6,29 @@
    by a tiny inline script in index.html before first paint, so a reload never
    flickers the previous theme.
 
-   `studio` is the default: cool neutrals and an indigo primary, so a first-time
-   visitor meets a contemporary surface. `paper`, the stationery look the product
-   was drawn in, is one click away and unchanged.
+   `circle` is the default: a white console floating on a slate canvas, with a
+   navy primary and a peach accent. `paper`, the stationery look the product was
+   drawn in, is one click away and unchanged.
 
-   DEFAULT_THEME and the block on bare :root in styles.js must name the same
-   theme, because applyTheme removes the attribute entirely for the default. */
+   TWO CONSTANTS, NOT ONE, and they no longer name the same theme:
+
+     ROOT_THEME     the theme written on bare :root in styles.js. It is also the
+                    fallback every other block inherits from, so it carries the
+                    STRUCTURE (radii, type roles, easing) as well as its own
+                    palette. That is still studio, and moving it would silently
+                    restyle night and material, which declare no structure of
+                    their own. applyTheme removes the attribute only for this
+                    one, because only this one is already painted by :root.
+     DEFAULT_THEME  what a visitor with nothing stored gets. Now circle, which
+                    is a full attribute block like the other four.
+
+   Because those differ, a first visit has to STAMP the default rather than
+   leave <html> bare. Two places do that and both must agree with DEFAULT_THEME:
+   getTheme below, and the pre-paint script in index.html. */
 
 export const THEMES = [
+  { id: "circle", label: "Circle", icon: "seal",
+    hint: "The default: a white console on a slate canvas, navy primary, pill controls" },
   { id: "studio", label: "Studio", icon: "stamp",
     hint: "The default: cool neutral surfaces, indigo primary, emerald for state" },
   { id: "paper", label: "Paper", icon: "tender",
@@ -31,7 +46,11 @@ export const DARK = new Set(["night", "material-dark"]);
 
 export const THEME_KEY = "docket.theme";
 const IDS = THEMES.map((t) => t.id);
-export const DEFAULT_THEME = "studio";
+/** What a visitor with nothing stored gets. */
+export const DEFAULT_THEME = "circle";
+/** The theme written on bare :root in styles.js, and the fallback for every
+    token another theme does not declare. See the note at the top of the file. */
+export const ROOT_THEME = "studio";
 
 export function getTheme() {
   try {
@@ -45,7 +64,7 @@ export function getTheme() {
 export function applyTheme(id) {
   const theme = IDS.includes(id) ? id : DEFAULT_THEME;
   const root = document.documentElement;
-  if (theme === DEFAULT_THEME) delete root.dataset.theme;   // :root carries studio
+  if (theme === ROOT_THEME) delete root.dataset.theme;      // :root carries studio
   else root.dataset.theme = theme;
   // keep the tab chrome and the pre-paint background in step with the theme
   const meta = document.querySelector('meta[name="color-scheme"]');

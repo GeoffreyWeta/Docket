@@ -7,9 +7,14 @@ import { BaselineHint } from "./baselines";
 import { CampaignDialog } from "./campaign";
 import { MyDesk } from "./mydesk";
 import {
-  DAY, abnormallyLow, commScore, daysLeft, effStatus, fmtCompact, fmtDate, fmtDateTime,
-  fmtMoney, mean, median, stdev, techScore, totalScore, uid, varianceFlags,
+  DAY, REG_STATUS, VERIFY_STATUS, abnormallyLow, commScore, daysLeft, displayStatus,
+  effStatus, fmtCompact, fmtDate, fmtDateTime, fmtMoney, mean, median, regStatusOf,
+  roundsOf, savingsAgainst, stdev, techScore, totalScore, uid, varianceFlags,
+  verifyStatusOf,
 } from "./helpers";
+import {
+  BidBucket, LifecycleBar, RegisterVendorDialog, RoundsTab, SuspendDialog, VendorsTab,
+} from "./lifecycle";
 import { Icon, SealMark } from "./icons";
 import { can, homePage, navPages } from "./perms";
 import { DUR, cue, useFlip } from "./motion";
@@ -504,7 +509,10 @@ function workItems(state, tenders) {
                  waiting: "an answer" });
   }
   for (const s of state.suppliers) {
-    if (s.prequalified || !s.registeredAt) continue;
+    // A suspended vendor is not waiting on a prequalification decision — that
+    // decision has been taken, and putting them back in the queue would ask
+    // somebody to take it again every week until the suspension lifts.
+    if (s.prequalified || s.suspended || !s.registeredAt) continue;
     items.push({ key: "vend-" + s.id, cap: "supplier.prequalify", since: s.registeredAt,
                  title: s.name, why: "Registered and waiting to be prequalified.",
                  verb: "Review", to: { page: "suppliers" }, waiting: "prequalification" });
@@ -934,7 +942,13 @@ export function TendersPage({ api }) {
     if (statusF === "live" && !["published", "closed"].includes(st)) return false;
     if (statusF === "evaluation" && st !== "evaluation") return false;
     if (statusF === "awarded" && st !== "awarded") return false;
-    if (statusF === "active" && st === "awarded") return false;
+    if (statusF === "paused" && st !== "paused") return false;
+    if (statusF === "cancelled" && st !== "cancelled") return false;
+    /* "Hide awarded" has always meant "the work that is still mine". A
+       cancelled event is finished too, so it belongs on the other side of that
+       line — leaving it in would grow the list of things that look outstanding
+       every time somebody closes one down. */
+    if (statusF === "active" && ["awarded", "cancelled"].includes(st)) return false;
     if (!q.trim()) return true;
     const n = q.trim().toLowerCase();
     return [t.ref, t.title, t.category].some((x) => (x || "").toLowerCase().includes(n));
@@ -955,6 +969,8 @@ export function TendersPage({ api }) {
             <option value="live">Live (open for bids)</option>
             <option value="evaluation">In evaluation</option>
             <option value="awarded">Awarded</option>
+            <option value="paused">Paused</option>
+            <option value="cancelled">Cancelled</option>
           </select>
           {can(user, "tender.create") && <button className="btn pri" onClick={() => go({ page: "new" })}>New tender</button>}
         </div>
@@ -964,10 +980,10 @@ export function TendersPage({ api }) {
             a list of records. The title and the status stamp carry the record
             rather than a field, so they stay unlabelled. */}
         <table className="tbl">
-          <thead><tr><th>Ref</th><th>Title</th><th>Category</th><th className="num">Budget</th><th>Deadline</th><th>Bids</th><th>Status</th>{can(user, "tender.edit") && <th />}</tr></thead>
+          <thead><tr><th>Ref</th><th>Title</th><th>Category</th><th className="num">Budget</th><th>Deadline</th><th>Documents</th><th>Bids</th><th>Status</th>{can(user, "tender.edit") && <th />}</tr></thead>
           <tbody>
             {rows.map((t) => {
-              const st = effStatus(t);
+              const st = displayStatus(t);
               const nBids = state.bids.filter((b) => b.tenderId === t.id).length;
               return (
                 <tr key={t.id} className="click" onClick={() => go({ page: "tender", id: t.id })}>
@@ -976,7 +992,21 @@ export function TendersPage({ api }) {
                   <td className="muted" data-l="Category">{t.category}</td>
                   <td className="num" data-l="Budget"><Money n={t.budget} /></td>
                   <td data-l="Deadline">{t.status === "approval" || t.status === "draft" ? <span className="faint">-</span> : <Countdown t={t.deadline} />}</td>
-                  <td className="mono" data-l="Bids">{st === "published" || st === "closed" ? nBids + " sealed" : nBids || "-"}</td>
+                  {/* Whether the pack a bidder is meant to price against is
+                      actually attached. A published RFP with no RFP on it is
+                      the single most common thing to discover too late, and
+                      until now the list gave no way to notice it. */}
+                  <td data-l="Documents">{(() => {
+                    const n = (state.documents || []).filter((d) => d.kind === "tender" && d.tenderId === t.id).length;
+                    if (n) return <span className="chip ok">{n} attached</span>;
+                    return ["published", "closed", "closing", "paused"].includes(st)
+                      ? <span className="chip warn">{t.type} not attached</span>
+                      : <span className="faint">-</span>;
+                  })()}</td>
+                  <td className="mono" data-l="Bids">
+                    {["published", "closing", "closed", "paused"].includes(st) ? nBids + " sealed" : nBids || "-"}
+                    {(t.rounds || []).length > 1 && <span className="faint"> · R{t.currentRound}</span>}
+                  </td>
                   <td><Stamp s={st} /></td>
                   {can(user, "tender.edit") && (
                     <td onClick={(e) => e.stopPropagation()}>
@@ -1001,18 +1031,34 @@ export function TenderDetail({ api, id, initialTab }) {
   /* Which tabs exist follows what this person can actually do here: whoever
      answers clarifications gets the clarifications tab, whoever scores or reads
      the panel gets evaluation, and everyone gets the overview. */
-  const labels = { overview: "Overview", clar: "Clarifications", bids: "Bids", eval: "Evaluation", audit: "Audit" };
+  const labels = { overview: "Overview", vendors: "Vendors", rounds: "Rounds", clar: "Clarifications",
+                   bids: "Bids", eval: "Evaluation", audit: "Audit" };
   const t = state.tenders.find((x) => x.id === id);
   let tabs = ["overview"];
+  /* The vendor and round tabs follow the capabilities that act on them rather
+     than a role: whoever can manage an event's invitation list is the person
+     the vendor table is for, and an auditor who can read the register gets the
+     read-only version of the same table. */
+  /* Seeing who was invited and whether they answered is oversight, so it
+     follows being able to see the event at all rather than being able to change
+     its invitation list — the endpoint draws the same line. The controls inside
+     the tab are what ask for `tender.vendors`. */
+  if (can(user, "page.tenders") || can(user, "page.evals") || can(user, "page.approvals")
+      || can(user, "tender.vendors")) tabs.push("vendors");
+  if (can(user, "page.tenders") || can(user, "tender.rounds") || can(user, "bid.open")) tabs.push("rounds");
   if (can(user, "clarification.answer")) tabs.push("clar");
   if (can(user, "bid.open") || can(user, "award.recommend")) tabs.push("bids");
   if (can(user, "bid.score") || can(user, "bid.see_all_scores")) tabs.push("eval");
   if (can(user, "page.audit")) tabs.push("audit");
-  if (t && t.type === "AUC") tabs = tabs.filter((x) => x !== "eval");  // price-only: nothing to score
+  if (t && t.type === "AUC") {
+    // Price-only: nothing to score, and a live auction is one continuous
+    // competition rather than a sequence of rounds.
+    tabs = tabs.filter((x) => x !== "eval" && x !== "rounds");
+  }
   const [tab, setTab] = useState(initialTab && tabs.includes(initialTab) ? initialTab : tabs[0]);
   if (!t) return <Empty>Tender not found.</Empty>;
   const oversight = can(user, "bid.see_all_scores");
-  const st = effStatus(t);
+  const st = displayStatus(t);
   const unansweredN = state.clarifications.filter((c) => c.tenderId === id && !c.a).length;
 
   return (
@@ -1027,6 +1073,7 @@ export function TenderDetail({ api, id, initialTab }) {
         <Stamp s={st} />
       </div>
       <StageTracker t={t} />
+      <LifecycleBar api={api} t={t} />
       <div className="tabs" role="tablist">
         {tabs.map((k) => (
           <button key={k} role="tab" aria-selected={tab === k} className={"tab" + (tab === k ? " on" : "")} onClick={() => setTab(k)}>
@@ -1042,6 +1089,8 @@ export function TenderDetail({ api, id, initialTab }) {
         )}
       </div>
       {tab === "overview" && <OverviewTab api={api} t={t} />}
+      {tab === "vendors" && <VendorsTab api={api} t={t} />}
+      {tab === "rounds" && <RoundsTab api={api} t={t} />}
       {tab === "clar" && <ClarTab api={api} t={t} />}
       {tab === "bids" && <BidsTab api={api} t={t} />}
       {tab === "eval" && <EvalTab api={api} t={t} />}
@@ -1118,14 +1167,29 @@ export function OverviewTab({ api, t }) {
         <div className="chead"><h3>Key terms</h3></div>
         <div className="cbody" style={{ paddingTop: 6 }}>
           <div className="rowline"><span className="muted" style={{ flex: 1 }}>Budget ceiling</span><Money n={t.budget} strong /></div>
+          {t.projectedCost != null && (
+            <div className="rowline"><span className="muted" style={{ flex: 1 }}>Projected cost</span><Money n={t.projectedCost} /></div>
+          )}
+          {t.baseline != null && (
+            <div className="rowline"><span className="muted" style={{ flex: 1 }}>Baseline{t.baselineSource ? ` · ${t.baselineSource}` : ""}</span><Money n={t.baseline} /></div>
+          )}
           <div className="rowline"><span className="muted" style={{ flex: 1 }}>Submission deadline</span><span className="mono">{fmtDate(t.deadline)}</span></div>
           {t.publishedAt && <div className="rowline"><span className="muted" style={{ flex: 1 }}>Published</span><span className="mono">{fmtDate(t.publishedAt)}</span></div>}
           <div className="rowline"><span className="muted" style={{ flex: 1 }}>Evaluation split</span><span className="mono">{t.techWeight}% technical / {t.commWeight}% commercial</span></div>
+          {(t.rounds || []).length > 1 && (
+            <div className="rowline"><span className="muted" style={{ flex: 1 }}>Rounds</span>
+              <span className="mono">{t.rounds.length} · currently round {t.currentRound}</span></div>
+          )}
+          {(t.deadlineChanges || []).length > 0 && (
+            <div className="rowline"><span className="muted" style={{ flex: 1 }}>Deadline extended</span>
+              <span className="mono">{t.deadlineChanges.length}×, last from {fmtDate(t.deadlineChanges[t.deadlineChanges.length - 1].from)}</span></div>
+          )}
           {t.status === "awarded" && (
             <div className="rowline"><span className="muted" style={{ flex: 1 }}>Awarded to</span><b>{state.suppliers.find((s) => s.id === t.awardedTo)?.name}</b></div>
           )}
         </div>
       </div>
+      <ProjectCard api={api} t={t} />
       <div className="card">
         <div className="chead"><h3>Evaluation criteria</h3><span className="mono faint" style={{ marginLeft: "auto" }}>technical envelope</span></div>
         <div className="cbody" style={{ paddingTop: 6 }}>
@@ -1179,6 +1243,57 @@ export function OverviewTab({ api, t }) {
             );
           })}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* Where this event sits in the wider piece of work.
+
+   A project is a spend dimension rather than a table of its own, and that is
+   deliberate: the value recorded is what the project was called when the event
+   was raised, and reorganising the list next year must not silently re-badge
+   last year's spend. What was missing was the other direction — a project that
+   is being bought in four events wants to be readable as four events, and
+   until now each one only knew its own name for the thing.
+
+   Single-event procurement renders as a single event, which is the honest
+   answer rather than a section saying "1 of 1". */
+function ProjectCard({ api, t }) {
+  const { state, go } = api;
+  const project = (t.dimensions || {}).project;
+  if (!project) return null;
+  const siblings = state.tenders.filter((x) => (x.dimensions || {}).project === project && x.id !== t.id);
+  const dims = Object.entries(t.dimensions || {}).filter(([k, v]) => v && k !== "project");
+  return (
+    <div className="card" style={{ gridColumn: "1 / -1" }}>
+      <div className="chead"><h3>Project</h3>
+        <span className="mono faint" style={{ marginLeft: "auto" }}>
+          {siblings.length ? `${siblings.length + 1} events under this project` : "single-event procurement"}
+        </span>
+      </div>
+      <div className="cbody" style={{ paddingTop: 6 }}>
+        <div className="rowline"><span className="muted" style={{ flex: 1 }}>Project</span><b>{project}</b></div>
+        {dims.map(([k, v]) => (
+          <div className="rowline" key={k}>
+            <span className="muted" style={{ flex: 1, textTransform: "capitalize" }}>{k.replace(/_/g, " ")}</span>
+            <span className="mono">{v}</span>
+          </div>
+        ))}
+        {siblings.length > 0 && (
+          <div style={{ marginTop: 10, borderTop: "1px solid var(--hair)", paddingTop: 10 }}>
+            {siblings.map((x) => (
+              <div className="rowline" key={x.id}>
+                <button className="doclink" style={{ flex: 1, textAlign: "left" }}
+                        onClick={() => go({ page: "tender", id: x.id })}>
+                  <span className="mono muted">{x.ref}</span> {x.title}
+                </button>
+                <Money n={x.awardedAmount ?? x.budget} />
+                <Stamp s={displayStatus(x)} />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1267,6 +1382,23 @@ export function BidsTab({ api, t }) {
 
   if (t.type === "AUC" && !t.openedAt) {
     return <AuctionBoard api={api} t={t} />;
+  }
+
+  /* Once an event has run more than one round, the flat list of bids stops
+     being the useful shape: what a manager needs is which round each
+     submission belongs to and whether the later round moved anybody. */
+  if ((t.rounds || []).length > 1) {
+    return (
+      <div>
+        <BidBucket api={api} t={t} />
+        {st === "closed" && can(user, "bid.open") && (
+          <div className="notice" style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ flex: 1 }}>The current round is sealed. Break the seals in a recorded opening to score it.</span>
+            <HoldButton label="Hold to open the bids" tone="wax" onDone={openBids} />
+          </div>
+        )}
+      </div>
+    );
   }
 
   if (!t.openedAt && t.techOpenedAt) {
@@ -1628,11 +1760,12 @@ export function EvalTab({ api, t }) {
           {can(user, "award.recommend") && <button className="btn sm" onClick={withdrawRec}>Withdraw recommendation</button>}
         </div>
       )}
+      <EvalMoney t={t} bids={bids} />
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="chead"><h3>Consensus matrix</h3><span className="mono faint" style={{ marginLeft: "auto" }}>{t.techWeight}% technical · {t.commWeight}% commercial</span></div>
         <div className="tscroll">
           <table className="tbl wide">
-            <thead><tr><th>Supplier</th><th className="num">Amount</th><th className="num">Technical</th><th className="num">Commercial</th><th className="num">Total</th><th>Flags</th><th></th></tr></thead>
+            <thead><tr><th>Supplier</th><th className="num">Amount</th><th className="num">Saving</th><th className="num">Technical</th><th className="num">Commercial</th><th className="num">Total</th><th>Flags</th><th></th></tr></thead>
             <tbody>
               {bids
                 .map((b) => ({ b, total: totalScore(t, b, bids) }))
@@ -1642,6 +1775,7 @@ export function EvalTab({ api, t }) {
                   const ts = techScore(t, b);
                   const flags = varianceFlags(t, b);
                   const low = abnormallyLow(b, bids);
+                  const sv = savingsAgainst(t, b.amount);
                   const isOpen = openRows[b.id];
                   return (
                     <React.Fragment key={b.id}>
@@ -1653,6 +1787,14 @@ export function EvalTab({ api, t }) {
                           {t.awardedTo === b.supplierId && <span className="chip gold" style={{ marginLeft: 8 }}>Awarded</span>}
                         </td>
                         <td className="num">{b.amount != null ? <Money n={b.amount} /> : <span className="mono waxfg" style={{ fontSize: 10.5 }}>{b.disqualified ? "UNOPENED" : "SEALED"}</span>}</td>
+                        <td className="num mono" data-l="Saving">
+                          {sv == null ? <span className="faint">-</span> : (
+                            <span style={{ color: sv.savings > 0 ? "var(--green)" : sv.savings < 0 ? "var(--wax)" : undefined }}>
+                              {sv.savings >= 0 ? "" : "−"}{fmtCompact(Math.abs(sv.savings))}
+                              <span className="faint"> ({sv.pct >= 0 ? "" : "−"}{Math.abs(sv.pct).toFixed(1)}%)</span>
+                            </span>
+                          )}
+                        </td>
                         <td className="num mono">{ts != null ? ts.toFixed(0) : "-"}</td>
                         <td className="num mono">{commScore(t, b, bids).toFixed(0)}</td>
                         <td className="num mono" style={{ fontWeight: 600 }}>{total != null ? total.toFixed(1) : "-"}</td>
@@ -1668,7 +1810,7 @@ export function EvalTab({ api, t }) {
                       </tr>
                       {isOpen && (
                         <tr className="breakrow">
-                          <td colSpan={7}>
+                          <td colSpan={8}>
                             <table className="subtbl" style={{ width: "100%", borderCollapse: "collapse" }}>
                               <thead><tr><th style={{ textAlign: "left", fontFamily: "'Courier New',Courier,monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--faint)", padding: "6px 12px" }}>Criterion</th>{evaluators.map((u) => <th key={u.id} style={{ textAlign: "right", fontFamily: "'Courier New',Courier,monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--faint)", padding: "6px 12px" }}>{u.name.split(" ")[0]}</th>)}<th style={{ textAlign: "right", fontFamily: "'Courier New',Courier,monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--faint)", padding: "6px 12px" }}>Spread</th></tr></thead>
                               <tbody>
@@ -1715,6 +1857,34 @@ export function EvalTab({ api, t }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* Budget, projection, baseline and what the field actually came in at. The
+   panel is judged against these three numbers, and until now the evaluation
+   screen showed only the first: a bid under the ceiling but over the
+   projection reads as a win against a budget and as a miss against the
+   business case, and the panel has to be able to see which it is. */
+function EvalMoney({ t, bids }) {
+  const priced = bids.filter((b) => b.amount != null && !b.disqualified).map((b) => b.amount);
+  const best = priced.length ? Math.min(...priced) : null;
+  const sv = savingsAgainst(t, best);
+  const BASIS = { baseline: "against the baseline", projection: "against the projection", budget: "against the budget" };
+  return (
+    <div className="evalmoney">
+      <div className="em"><div className="k">Budget ceiling</div><div className="v">{fmtCompact(t.budget)}</div></div>
+      <div className="em"><div className="k">Projected cost</div>
+        <div className="v">{t.projectedCost != null ? fmtCompact(t.projectedCost) : <span className="faint">not set</span>}</div></div>
+      <div className="em"><div className="k">Baseline</div>
+        <div className="v">{t.baseline != null ? fmtCompact(t.baseline) : <span className="faint">not set</span>}</div></div>
+      <div className="em"><div className="k">Best priced bid</div>
+        <div className="v">{best != null ? fmtCompact(best) : <span className="faint">sealed</span>}</div></div>
+      <div className="em"><div className="k">Saving {sv ? BASIS[sv.basis] : ""}</div>
+        <div className="v" style={{ color: sv && sv.savings > 0 ? "var(--green)" : sv && sv.savings < 0 ? "var(--wax)" : undefined }}>
+          {sv == null ? <span className="faint">-</span>
+            : <>{sv.savings >= 0 ? "" : "−"}{fmtCompact(Math.abs(sv.savings))}</>}
+        </div></div>
     </div>
   );
 }
@@ -2026,13 +2196,14 @@ export function NewTender({ api, editId }) {
     minDecrement: String(editing.minDecrement || ""),
     baseline: editing.baseline ? String(editing.baseline) : "",
     baselineSource: editing.baselineSource || "",
+    projectedCost: editing.projectedCost ? String(editing.projectedCost) : "",
   } : {
     title: "", type: "RFQ", category: "", budget: "", deadline: "",
     techWeight: 70, scope: "",
     criteria: [{ id: uid(), name: "Quality & compliance", weight: 40 }, { id: uid(), name: "Capacity & reliability", weight: 35 }, { id: uid(), name: "Commercial terms", weight: 25 }],
     invited: [], lines: [],
     twoStage: false, techThreshold: 70, minDecrement: "",
-    baseline: "", baselineSource: "",
+    baseline: "", baselineSource: "", projectedCost: "",
   });
   const [busy, setBusy] = useState(false);
   const [busyC, setBusyC] = useState(false);
@@ -2040,7 +2211,9 @@ export function NewTender({ api, editId }) {
   const weightSum = f.criteria.reduce((s, c) => s + Number(c.weight || 0), 0);
   const linesOk = f.lines.length === 0 || f.lines.every((l) => l.desc.trim() && Number(l.qty) > 0);
   const isAuction = f.type === "AUC";
-  const ready = f.title.trim() && f.category && Number(f.budget) > 0 && f.deadline && f.invited.length > 0 && linesOk
+  const projOk = !(Number(f.projectedCost) > 0 && Number(f.budget) > 0
+                   && Number(f.projectedCost) > Number(f.budget));
+  const ready = f.title.trim() && f.category && Number(f.budget) > 0 && f.deadline && f.invited.length > 0 && linesOk && projOk
     && (isAuction ? Number(f.minDecrement) > 0 && f.lines.length === 0 : weightSum === 100);
 
   const draftScope = async () => {
@@ -2075,6 +2248,7 @@ export function NewTender({ api, editId }) {
       minDecrement: Number(f.minDecrement) || 0,
       baseline: Number(f.baseline) || 0,
       baselineSource: f.baselineSource.trim(),
+      projectedCost: Number(f.projectedCost) || 0,
       submit,
     };
     const ok = editing ? await act.updateTender(editId, payload) : await act.createTender(payload);
@@ -2140,6 +2314,21 @@ export function NewTender({ api, editId }) {
               </select></div>
             <div className="frow"><label className="lbl">Budget ceiling (₦)</label>
               <input className="in" type="number" min="0" placeholder="120000000" value={f.budget} onChange={(e) => set("budget", e.target.value)} /></div>
+            {/* The ceiling and the expectation are different numbers and the
+                evaluation panel is judged against the second one. A bid under
+                the ceiling but over the projection is a win against a budget
+                and a miss against the business case, and until this field
+                existed there was no way to tell those apart. */}
+            <div className="frow"><label className="lbl" htmlFor="nt-proj">
+              Projected cost (₦) <span className="faint">optional</span></label>
+              <input id="nt-proj" className="in" type="number" min="0" placeholder="e.g. 108000000"
+                     value={f.projectedCost} onChange={(e) => set("projectedCost", e.target.value)} />
+              <div className="hint">
+                What you actually expect this to land at, as opposed to the ceiling it must not cross.
+                {Number(f.projectedCost) > 0 && Number(f.budget) > 0 && Number(f.projectedCost) > Number(f.budget)
+                  ? " This is above the ceiling — raise the ceiling or revise the projection."
+                  : ""}
+              </div></div>
           </div>
 
           {/* The baseline is what makes a saving on this tender defensible.
@@ -2255,12 +2444,16 @@ export function SuppliersPage({ api }) {
   const canImport = can(user, "supplier.import");
   const canPrequalify = can(user, "supplier.prequalify");
   const canInvite = can(user, "supplier.invite");
+  const canRegister = can(user, "supplier.register");
+  const canSuspend = can(user, "supplier.suspend");
   const [preS, setPreS] = useState(null);        // vendor queued for approval
   const [declineS, setDeclineS] = useState(null); // vendor queued for decline
   const [reason, setReason] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [regOpen, setRegOpen] = useState(false);   // the register upload
   const [campaign, setCampaign] = useState(false); // the registration drive
+  const [registerOpen, setRegisterOpen] = useState(false); // type a vendor in directly
+  const [suspending, setSuspending] = useState(null);
   const [email, setEmail] = useState("");
 
   const prequalify = (s) => setPreS(s);
@@ -2270,6 +2463,7 @@ export function SuppliersPage({ api }) {
   const complianceDocs = (sid) => (state.documents || []).filter((x) => x.kind === "supplier" && x.supplierId === sid);
   const [sq, setSq] = useState("");
   const [preOnly, setPreOnly] = useState(false);
+  const [vstate, setVstate] = useState("");   // "" | unverified | verified | rejected | suspended
   const [cat, setCat] = useState("");
   const [loc, setLoc] = useState("");
   const [shown, setShown] = useState(PAGE);
@@ -2298,13 +2492,14 @@ export function SuppliersPage({ api }) {
 
   const visible = state.suppliers.filter((s) => {
     if (preOnly && !s.prequalified) return false;
+    if (vstate && verifyStatusOf(s) !== vstate) return false;
     if (cat && s.category !== cat) return false;
     if (loc && s.location !== loc) return false;
     if (!sq.trim()) return true;
     const n = sq.trim().toLowerCase();
     return [s.name, s.category, s.location, s.code].some((x) => (x || "").toLowerCase().includes(n));
   });
-  useEffect(() => { setShown(PAGE); }, [sq, cat, loc, preOnly]);
+  useEffect(() => { setShown(PAGE); }, [sq, cat, loc, preOnly, vstate]);
   const page = visible.slice(0, shown);
   return (
     <div>
@@ -2356,6 +2551,8 @@ export function SuppliersPage({ api }) {
         </Dialog>
       )}
       {campaign && <CampaignDialog api={api} onClose={() => setCampaign(false)} />}
+      {registerOpen && <RegisterVendorDialog api={api} onClose={() => setRegisterOpen(false)} />}
+      {suspending && <SuspendDialog api={api} supplier={suspending} onClose={() => setSuspending(null)} />}
       <div className="pagehead"><h1>Suppliers</h1>
         <span className="sub">
           {visible.length === state.suppliers.length
@@ -2374,9 +2571,22 @@ export function SuppliersPage({ api }) {
             <option value="">Everywhere</option>
             {locations.map(([l, n]) => <option key={l} value={l}>{l} ({n})</option>)}
           </select>
+          <select className="in" aria-label="Filter by verification status" value={vstate}
+                  onChange={(e) => setVstate(e.target.value)}>
+            <option value="">Any verification status</option>
+            {Object.entries(VERIFY_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
           <label className="checkline">
             <input type="checkbox" checked={preOnly} onChange={(e) => setPreOnly(e.target.checked)} /> Prequalified only
           </label>
+          {/* Typing a vendor in is its own capability. Somebody trusted to email
+              an invitation is not automatically trusted to put a company on the
+              register without one being answered. */}
+          {canRegister && (
+            <button className="btn sm pri" onClick={() => setRegisterOpen(true)}>
+              <Icon n="plus" /> Register a vendor
+            </button>
+          )}
           {canImport && (
             <>
               <button className="btn sm" onClick={() => setRegOpen(true)}>
@@ -2443,7 +2653,7 @@ export function SuppliersPage({ api }) {
       <div className="card">
         <div className="tscroll">
           <table className="tbl">
-            <thead><tr><th>Supplier</th><th>Category</th><th>Prequalified</th><th>Paperwork</th><th className="num">On-time</th><th className="num">Quality</th></tr></thead>
+            <thead><tr><th>Supplier</th><th>Category</th><th>Registration</th><th>Verification</th><th>Paperwork</th><th className="num">On-time</th><th className="num">Quality</th></tr></thead>
             <tbody>
               {page.map((s) => (
                 <tr key={s.id} className="vrow" onClick={() => setOpenId(s.id)} title="Open the register record">
@@ -2455,13 +2665,30 @@ export function SuppliersPage({ api }) {
                     </div>
                   </td>
                   <td className="muted" data-l="Category">{s.category}</td>
-                  <td data-l="Prequalified">
-                    {s.prequalified
-                      ? <span className="chip ok">Prequalified</span>
-                      : <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                          <span className="chip warn">Pending review</span>
-                          {canPrequalify && <button className="btn sm" onClick={(e) => { e.stopPropagation(); prequalify(s); }}>Approve</button>}
-                        </span>}
+                  <td data-l="Registration">
+                    {(() => {
+                      const r = REG_STATUS[regStatusOf(s)];
+                      return <span className={"chip " + (r ? r.tone : "")}>{r ? r.label : regStatusOf(s)}</span>;
+                    })()}
+                  </td>
+                  <td data-l="Verification">
+                    <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                      {(() => {
+                        const v = VERIFY_STATUS[verifyStatusOf(s)];
+                        return <span className={"chip " + (v ? v.tone : "")}
+                                     title={s.suspended ? s.suspendedReason : s.rejectedReason || undefined}>
+                          {v ? v.label : verifyStatusOf(s)}
+                        </span>;
+                      })()}
+                      {canPrequalify && !s.prequalified && !s.suspended && (
+                        <button className="btn sm" onClick={(e) => { e.stopPropagation(); prequalify(s); }}>Verify</button>
+                      )}
+                      {canSuspend && (s.suspended || s.prequalified) && (
+                        <button className="btn sm" onClick={(e) => { e.stopPropagation(); setSuspending(s); }}>
+                          {s.suspended ? "Reinstate" : "Suspend"}
+                        </button>
+                      )}
+                    </span>
                   </td>
                   <td data-l="Paperwork">
                     {/* tender-linked vendors carry dated documents and keep

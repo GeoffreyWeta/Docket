@@ -71,6 +71,10 @@ def _finish_vendor(payload):
         id=rid("s"), name=payload["company"][:120], category=payload.get("category", "General")[:60],
         location=payload.get("location", "")[:60] or "—", prequalified=False,
         contact_email=email, registered_at=now_ms(), docs=[], perf={},
+        source=payload.get("_source", "self"),
+        contact_person=payload.get("contactPerson", "")[:140],
+        phone=payload.get("phone", "")[:120],
+        address=payload.get("address", "")[:300],
     )
     user = User.objects.create_user(username=email, email=email, password=None)
     user.set_password(payload["_pw"])
@@ -78,6 +82,14 @@ def _finish_vendor(payload):
     Profile.objects.create(user=user, supplier=sup)
     record_event(actor=sup.name, role="supplier", action="Vendor registered",
                  detail="Self-service registration completed; awaiting prequalification review.")
+    # The vendor hears from us first. A registration that produces silence is a
+    # registration the company assumes failed, and they register again.
+    _mail(email, "Registration received",
+          f"Thank you for registering {sup.name}.\n\n"
+          f"Your company is on the register and you can sign in now. You are not yet verified: "
+          f"a buyer reviews your compliance documents and you will be told the outcome. "
+          f"Being unverified does not stop you being invited to bid.\n\n"
+          f"Upload your compliance documents from your company profile to speed the review up.")
     notify_perm("supplier.prequalify", f"New vendor registration: {sup.name}",
                 "A vendor completed registration. Review their compliance documents and "
                 "prequalify (or decline) them from the Suppliers page.")
@@ -178,7 +190,12 @@ def claim_vendor(request):
     Profile.objects.create(user=user, supplier=sup)
     # `registered_at` is when they actually claimed the account. The import may
     # have set it from the register's own NAV date; this is the truer fact.
-    Supplier.objects.filter(pk=sup.id).update(registered_at=now_ms())
+    Supplier.objects.filter(pk=sup.id).update(registered_at=now_ms(),
+                                              source=sup.source or "invite")
+    _mail(email, "Registration complete",
+          f"Your account for {sup.name} is active and you can sign in now.\n\n"
+          f"You were already on the register; verification is what is still outstanding, "
+          f"and it does not stop you being invited to bid.")
     record_event(actor=sup.name, role="supplier", action="Vendor claimed register account",
                  detail="Registered from a registration-drive invitation against an "
                         "existing register record.")

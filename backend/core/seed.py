@@ -5,7 +5,8 @@ from django.contrib.auth.models import User
 from .models import (AccessRole, ActionToken, AuctionBid, AuthToken, Bid, ChainHead,
                      Clarification, Contract, DemoFixture, Document, Event, FxRate,
                      GoodsReceipt, Invoice, Notification, OrgSetting, Payment, Persona,
-                     Profile, PurchaseOrder, SourceSync, Supplier, TaskMark, Tender)
+                     ProcurementRound, Profile, PurchaseOrder, SourceSync, Supplier,
+                     TaskMark, Tender)
 from .util import (DAY_MS, award_letter, now_ms, record_event, regret_letter,
                    rid, seal_bytes, seal_json)
 
@@ -57,7 +58,8 @@ def wipe():
     for m in (Payment, Invoice, GoodsReceipt, PurchaseOrder, Contract, FxRate, SourceSync):
         m.objects.all().delete()
     for m in (Notification, ActionToken, Document, TaskMark, Event,
-              ChainHead, Clarification, Bid, Tender, Supplier, Persona, OrgSetting):
+              ChainHead, Clarification, Bid, ProcurementRound, Tender, Supplier,
+              Persona, OrgSetting):
         m.objects.all().delete()
     # An administrator who also held a persona loses it with the Persona table,
     # and the cascade takes the profile with it. Give it back, admin-only.

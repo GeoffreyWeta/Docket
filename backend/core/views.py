@@ -25,7 +25,7 @@ from django.http import HttpResponse
 from . import ai
 from .models import (ActionToken as ActionTokenModel, AuctionBid, AuthToken, Bid,
                      Clarification, Document, Event,
-                     Notification, Persona, Supplier, Tender)
+                     Notification, Persona, ProcurementRound, Supplier, Tender)
 from .notify import notify_perm, notify_supplier, notify_suppliers
 from .permissions import has
 from .seed import ORG, seed_all
@@ -35,8 +35,8 @@ from .taxonomy import tree as taxonomy_tree
 from .util import (record_event, seal_bytes, seal_json, unseal_bytes,
                    unseal_json, verify_chain)
 from .util import (abnormally_low, award_letter, comm_score, eff_status,
-                   fmt_compact, fmt_money, now_ms, regret_letter, rid,
-                   tech_score, total_score, variance_flags)
+                   fmt_compact, fmt_date_ms, fmt_money, now_ms, regret_letter,
+                   rid, savings_against, tech_score, total_score, variance_flags)
 
 PERSONA_SUPPLIERS = ["s2", "s3", "s7"]                 # supplier personas exposed in the demo switcher
 
@@ -130,6 +130,13 @@ def supplier_view(s, full=False):
         "contactEmail": s.contact_email, "registeredAt": s.registered_at,
         "rejectedReason": s.rejected_reason, "invitedAt": s.invited_at,
         "code": s.code, "docCount": len(s.docs or []),
+        # Two orthogonal facts, not one. A vendor can be fully registered and
+        # entirely unverified, and the register has always been able to be in
+        # that state without being able to say so.
+        "registrationStatus": s.registration_status(),
+        "verificationStatus": s.verification_status(),
+        "verifiedAt": s.verified_at, "suspended": s.suspended,
+        "suspendedReason": s.suspended_reason or "", "source": s.source or "",
     }
     if not full:
         d["docs"] = []
@@ -162,6 +169,15 @@ def tender_view(t, p):
         # before it went to market, are both facts a bidder could price against.
         "ownerId": None, "baseline": None, "baselineSource": None,
     }
+    # The lifecycle (paused / cancelled / extensions) and the rounds. Imported
+    # here rather than at module scope because procurement.py imports `route`
+    # and `err` from this module; the cycle is real and this is where it breaks.
+    from .procurement import lifecycle_fields, rounds_for
+    d.update(lifecycle_fields(t, p))
+    d["rounds"] = rounds_for(t, p)
+    cur = t.active_round() or t.latest_round()
+    d["currentRound"] = cur.number if cur else 1
+    d["roundCount"] = len(d["rounds"]) or 1
     if p["role"] != "supplier":
         d["ownerId"] = t.owner_id
         d["baseline"] = t.baseline
@@ -185,11 +201,25 @@ def tender_view(t, p):
     return d
 
 
+def _round_opened(b, t):
+    """Has the recorded opening happened for the window this bid was taken in?
+
+    A bid belonging to an explicit round answers from that round; one with no
+    round is the event's own single window and answers from the tender, which
+    is every bid taken before rounds existed. Keeping the question per-round is
+    what lets round 1 stay open on the record — its documents readable, its
+    prices scored — while round 2 is still sealed underneath it."""
+    if b.round_id:
+        return bool(b.round.opened_at)
+    return bool(t.opened_at)
+
+
 def bid_view(b, t, p):
-    opened = bool(t.opened_at)
+    opened = _round_opened(b, t)
     tech_open = bool(t.tech_opened_at)
     base = {"id": b.id, "tenderId": b.tender_id, "supplierId": b.supplier_id,
-            "submittedAt": b.submitted_at, "disqualified": b.disqualified}
+            "submittedAt": b.submitted_at, "disqualified": b.disqualified,
+            "roundId": b.round_id, "roundNumber": b.round_number}
     if p["role"] == "supplier":
         if b.supplier_id != p["supplierId"]:
             return None
@@ -219,9 +249,18 @@ def doc_visible(d, t, p):
     # bid documents: sealed until the relevant recorded opening
     if p["role"] == "supplier":
         return d.supplier_id == p["supplierId"]
+    # A bid document opens with its own round. Uploaded before rounds existed,
+    # or into a single-round event, it has no round and follows the tender.
+    #
+    # `tech_opened_at` is the two-stage technical release, and it belongs to the
+    # event's own submission window — the one two-stage was configured for. It
+    # must not reach forward into a later round: a round-2 technical proposal is
+    # sealed until round 2 has its own recorded opening, whatever stage 1 did to
+    # round 1's.
+    opened_at = d.round.opened_at if d.round_id else t.opened_at
     if d.envelope == "technical":
-        return bool(t.opened_at or t.tech_opened_at)
-    if not t.opened_at:
+        return bool(opened_at or (t.tech_opened_at and not d.round_id))
+    if not opened_at:
         return False
     if Bid.objects.filter(tender=t, supplier_id=d.supplier_id, disqualified=True).exists():
         return False  # returned unopened — stays that way
@@ -230,6 +269,7 @@ def doc_visible(d, t, p):
 
 def doc_view(d):
     return {"id": d.id, "kind": d.kind, "tenderId": d.tender_id, "supplierId": d.supplier_id,
+            "roundId": d.round_id,
             "envelope": d.envelope, "name": d.name, "size": d.size,
             "uploadedBy": d.uploaded_by, "uploadedAt": d.uploaded_at}
 
@@ -254,7 +294,7 @@ def bootstrap(request, p, body):
     visible_ids = {t["id"] for t in tenders}
 
     bids = []
-    for b in Bid.objects.select_related("tender"):
+    for b in Bid.objects.select_related("tender", "round"):
         if b.tender_id not in visible_ids:
             continue
         bv = bid_view(b, b.tender, p)
@@ -303,7 +343,7 @@ def bootstrap(request, p, body):
 
     docs = []
     tmap = {t["id"]: Tender.objects.get(pk=t["id"]) for t in tenders}
-    for d in Document.objects.filter(tender_id__in=visible_ids):
+    for d in Document.objects.select_related("round").filter(tender_id__in=visible_ids):
         if doc_visible(d, tmap[d.tender_id], p):
             docs.append(doc_view(d))
     if p["role"] == "supplier":
@@ -522,6 +562,14 @@ def _apply_tender_payload(t, body):
         base = 0
     t.baseline = base if base > 0 else None
     t.baseline_source = str(body.get("baselineSource", "")).strip()[:200] if t.baseline else ""
+    # What the category manager expects this to land at. Third of the three
+    # money columns the evaluation panel compares a bid against; see
+    # util.savings_against for why they are not interchangeable.
+    try:
+        proj = int(body.get("projectedCost") or 0)
+    except (TypeError, ValueError):
+        proj = 0
+    t.projected_cost = proj if proj > 0 else None
     t.deadline = int(body.get("deadline", 0) or 0)
     t.tech_weight = int(body.get("techWeight", 70))
     t.comm_weight = 100 - t.tech_weight
@@ -536,7 +584,12 @@ def _apply_tender_payload(t, body):
                 "qty": int(l.get("qty", 0) or 0), "unit": str(l.get("unit", "unit")).strip() or "unit",
                 "itemCode": str(l.get("itemCode", "") or "").strip()[:40]}
                for l in body.get("lines", []) if str(l.get("desc", "")).strip()]
-    t.invited = [sid for sid in body.get("invited", []) if Supplier.objects.filter(pk=sid).exists()]
+    # Suspended vendors are dropped rather than rejected: a draft's list is
+    # edited over days, and a vendor suspended on Tuesday should not make
+    # Wednesday's save fail with an error about a field nobody touched. The
+    # event page says who was dropped when it matters.
+    t.invited = [sid for sid in body.get("invited", [])
+                 if Supplier.objects.filter(pk=sid, suspended=False).exists()]
 
     # Finance coding. Free text against a configured list rather than a foreign
     # key: the value recorded is what the department was called when the tender
@@ -557,6 +610,8 @@ def _apply_tender_payload(t, body):
 def _validate_tender(t, submitting):
     if not t.title:
         return "A title is required."
+    if t.projected_cost and t.budget and t.projected_cost > t.budget:
+        return "The projected cost is above the budget ceiling. Raise the ceiling or revise the projection."
     if submitting:
         if t.budget <= 0:
             return "Budget must be above zero."
@@ -604,7 +659,8 @@ def tender_update(request, p, body, tid):
     if not t:
         return err("Tender not found.", 404)
     if t.status != "draft":
-        return err("Only drafts can be edited.", 409)
+        return err("Only drafts can be edited. A live event is steered from its own page — "
+                   "extend the deadline, manage its vendors, pause or cancel it.", 409)
     submitting = bool(body.get("submit"))
     _apply_tender_payload(t, body)
     msg = _validate_tender(t, submitting)
@@ -672,6 +728,22 @@ def add_addendum(request, p, body, tid):
     return JsonResponse({"ok": True})
 
 
+def _stamp_round_opening(t):
+    """Record the opening against the round it opened, where there is one.
+
+    `open_bids` deliberately knows nothing about rounds — it opens whatever is
+    sealed on the tender, which is right in both the single-round and the
+    multi-round case. This is the bookkeeping that follows: the round that was
+    just unsealed moves to evaluation and remembers when."""
+    r = t.rounds.filter(status__in=("closed", "open")).order_by("-number").first()
+    if not r:
+        return
+    r.status = "evaluation"
+    r.opened_at = now_ms()
+    r.closed_at = r.closed_at or now_ms()
+    r.save(update_fields=["status", "opened_at", "closed_at"])
+
+
 @route(["POST"], perm="bid.open")
 def open_bids(request, p, body, tid):
     """The recorded opening. Three shapes:
@@ -684,6 +756,10 @@ def open_bids(request, p, body, tid):
     t = Tender.objects.filter(pk=tid).first()
     if not t:
         return err("Tender not found.", 404)
+    if t.status == "cancelled":
+        return err("This event was cancelled — its bids stay sealed and unopened.", 409)
+    if t.status == "paused":
+        return err("This event is paused. Resume it, or cancel it, before opening anything.", 409)
     from django.db import transaction as _tx
 
     if t.ttype == "AUC":
@@ -704,6 +780,7 @@ def open_bids(request, p, body, tid):
             t.opened_at = now_ms()
             t.status = "evaluation"
             t.save()
+        _stamp_round_opening(t)
         log(p, "Auction closed — results recorded",
             f"{len(standings)} bidder(s); best price {fmt_compact(standings[0]['amount'])} after "
             f"{t.auction_bids.count()} price movements.", t.id)
@@ -791,6 +868,7 @@ def open_bids(request, p, body, tid):
         t.opened_at = now_ms()
         t.status = "evaluation"
         t.save()
+    _stamp_round_opening(t)
     log(p, "Bid opening — seals broken", f"{n} bids opened before the evaluation panel; amounts recorded.", t.id)
     notify_perm("bid.score", f"Scoring open: {t.title}",
                 f"The seals on {t.ref} were broken in a recorded opening. Sign your conflict-of-interest "
@@ -878,6 +956,7 @@ def award_decision(request, p, body, tid):
             )
         t.letters = letters
         t.save()
+        t.rounds.exclude(status="cancelled").update(status="completed")
         under = (t.budget - t.awarded_amount) / t.budget * 100
         log(p, "Award approved",
             f"Awarded to {winner.name} at {fmt_compact(t.awarded_amount)} — {under:.1f}% under budget. "
@@ -907,17 +986,29 @@ def bid_collection(request, p, body, tid):
     me = p["supplierId"]
     if me not in t.invited:
         return err("You are not invited to this tender.", 403)
-    if eff_status(t) != "published":
+    st = eff_status(t)
+    if st == "paused":
+        return err("This event is paused. You will be notified when it resumes.", 409)
+    if st == "cancelled":
+        return err("This event was cancelled — no submissions are being taken.", 409)
+    if st != "published":
         return err("The deadline has passed — the tender is sealed.", 409)
 
+    # Which submission window this bid lands in. None is the ordinary
+    # single-round event, where the tender's own deadline is the window.
+    rnd = t.active_round()
+    if rnd and me not in rnd.bidders():
+        return err(f"You are not in {rnd.label.lower()} of this event.", 403)
+    mine = Bid.objects.filter(tender=t, supplier_id=me, round=rnd)
+
     if request.method == "DELETE":
-        deleted, _ = Bid.objects.filter(tender=t, supplier_id=me).delete()
+        deleted, _ = mine.delete()
         if not deleted:
             return err("You have no sealed bid to withdraw.", 404)
         log(p, "Sealed bid withdrawn by supplier", "Withdrawn before the deadline; a replacement may be submitted.", t.id)
         return JsonResponse({"ok": True})
 
-    if Bid.objects.filter(tender=t, supplier_id=me).exists():
+    if mine.exists():
         return err("You already have a sealed bid — withdraw it first to replace it.", 409)
     acks = set(body.get("acks", []))
     missing = [a["title"] for a in t.addenda if a["id"] not in acks]
@@ -946,14 +1037,25 @@ def bid_collection(request, p, body, tid):
         clean_lines = {}
     if t.ttype == "AUC":
         return err("This is a live reverse auction — place bids in the auction room instead.", 409)
-    if not Document.objects.filter(tender=t, kind="bid", supplier_id=me, envelope="technical").exists():
+    # The technical proposal is required to enter a competition, not to revise a
+    # price inside one. A best-and-final round re-prices an already-accepted
+    # technical proposal, so demanding a fresh upload there would be asking for
+    # a copy of a document already on the record.
+    first_round = rnd is None or rnd.number == 1
+    if first_round and not Document.objects.filter(
+            tender=t, kind="bid", supplier_id=me, envelope="technical").exists():
         return err("Upload your technical proposal before sealing the bid.")
-    Bid.objects.create(id=rid("b"), tender=t, supplier_id=me, submitted_at=now_ms(),
+    Bid.objects.create(id=rid("b"), tender=t, round=rnd, supplier_id=me, submitted_at=now_ms(),
                        amount=None, lines={}, scores={},
                        sealed_blob=seal_json({"amount": amount, "lines": clean_lines}))
-    log(p, "Sealed bid received", "Contents sealed until the opening is logged.", t.id)
+    where = f" in {rnd.label.lower()}" if rnd else ""
+    log(p, "Sealed bid received", f"Contents sealed until the opening is logged{where}.", t.id)
+    notify_supplier(me, f"Bid received: {t.title}",
+                    f"{org_name()} has received your sealed bid for {t.ref}{where}. It stays sealed "
+                    f"until the recorded opening after the deadline, {fmt_date_ms(t.deadline)}.", t.id)
     notify_perm("bid.open", f"Sealed bid received: {t.title}",
-                f"A sealed bid was received on {t.ref}. Contents stay sealed until the recorded opening.", t.id)
+                f"A sealed bid was received on {t.ref}{where}. Contents stay sealed until the "
+                f"recorded opening.", t.id)
     return JsonResponse({"ok": True})
 
 
@@ -1061,9 +1163,13 @@ def prequalify(request, p, body, sid):
         return err("Supplier not found.", 404)
     ok = body.get("ok", True)
     if ok:
+        if s.suspended:
+            return err("This vendor is suspended. Lift the suspension before prequalifying them.", 409)
         s.prequalified = True
         s.rejected_reason = ""
-        s.save(update_fields=["prequalified", "rejected_reason"])
+        s.verified_at = now_ms()
+        s.verified_by = p["name"]
+        s.save(update_fields=["prequalified", "rejected_reason", "verified_at", "verified_by"])
         log(p, "Supplier prequalified", f"{s.name} approved onto the register after document review.")
         notify_supplier(s.id, "Prequalification approved",
                         f"{org_name()} has prequalified {s.name}. You can now be invited to tenders.")
@@ -1316,12 +1422,23 @@ def upload_tender_doc(request, p, body, tid):
         return err("Tender not found.", 404)
     if t.status == "awarded":
         return err("This tender is closed.", 409)
+    if t.status == "cancelled":
+        return err("This event was cancelled — its document pack is final.", 409)
     up, msg = _read_upload(request)
     if msg:
         return err(msg)
-    d = Document.objects.create(id=rid("d"), kind="tender", tender=t, supplier_id=None, envelope="",
+    # A document may belong to one round rather than to the event: a
+    # best-and-final's own instruction pack is not part of the original RFP.
+    rnd = None
+    if request.POST.get("roundId"):
+        rnd = ProcurementRound.objects.filter(pk=request.POST["roundId"], tender=t).first()
+        if not rnd:
+            return err("That round is not part of this event.", 404)
+    d = Document.objects.create(id=rid("d"), kind="tender", tender=t, round=rnd,
+                                supplier_id=None, envelope="",
                                 uploaded_by=p["name"], uploaded_at=now_ms(), **up)
-    log(p, "Tender document published", f"{d.name} attached; visible to all invited suppliers.", t.id)
+    log(p, "Tender document published",
+        f"{d.name} attached" + (f" to {rnd.label}" if rnd else "") + "; visible to all invited suppliers.", t.id)
     return JsonResponse({"doc": doc_view(d)})
 
 
@@ -1339,7 +1456,10 @@ def upload_bid_doc(request, p, body, tid):
     if msg:
         return err(msg)
     up["data"] = seal_bytes(up["data"])
-    d = Document.objects.create(id=rid("d"), kind="bid", tender=t, supplier_id=p["supplierId"],
+    # Tagged with the round it was uploaded into, so a second round's documents
+    # sit with that round's bids instead of merging into one undated pile.
+    d = Document.objects.create(id=rid("d"), kind="bid", tender=t, round=t.active_round(),
+                                supplier_id=p["supplierId"],
                                 envelope=envelope, encrypted=True,
                                 uploaded_by=p["name"], uploaded_at=now_ms(), **up)
     # No event on purpose: even the existence of pre-submission uploads is the supplier's business.
@@ -1673,6 +1793,7 @@ def import_suppliers(request, p, body):
             location=r.get("location", "—")[:60] or "—",
             prequalified=r.get("prequalified", "").lower() in ("yes", "y", "true", "1"),
             contact_email=r.get("email", "")[:200], docs=[], perf={},
+            source="import",
         )
         created.append(name)
     log(p, "Suppliers imported", f"{len(created)} supplier(s) imported from CSV; {skipped} duplicate/blank row(s) skipped.")
@@ -1819,8 +1940,16 @@ def duplicate_tender(request, p, body, tid):
         tech_weight=src.tech_weight, comm_weight=src.comm_weight, scope=src.scope,
         criteria=[{**c, "id": rid("c")} for c in (src.criteria or [])],
         lines=[{**l, "id": rid("l")} for l in (src.lines or [])],
-        invited=list(src.invited or []), addenda=[], two_stage=src.two_stage,
+        # A vendor suspended since the original ran does not come across with
+        # the template. Carrying them would produce a draft that cannot be
+        # submitted, and the reason would not be visible on the form.
+        invited=[sid for sid in (src.invited or [])
+                 if Supplier.objects.filter(pk=sid, suspended=False).exists()],
+        addenda=[], two_stage=src.two_stage,
         tech_threshold=src.tech_threshold, auction_min_decrement=src.auction_min_decrement,
+        # The expectation carries over with the structure; the deadline and the
+        # rounds do not, because those are facts about the run, not the template.
+        projected_cost=src.projected_cost,
     )
     seq = Tender.objects.count() + 28
     t.ref = f"{ref_prefix()}-{t.ttype}-2026-{seq:03d}"

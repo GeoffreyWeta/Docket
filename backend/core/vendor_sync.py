@@ -201,7 +201,7 @@ def _write(vendors, existing, protect):
         if row is None:
             insert.append(Supplier(id=v["id"], registered_at=v["registered_at"],
                                    rating=v["rating"], docs=v["docs"], perf=v["perf"],
-                                   **fields))
+                                   source="import", **fields))
             continue
         for k, val in fields.items():
             setattr(row, k, val)
