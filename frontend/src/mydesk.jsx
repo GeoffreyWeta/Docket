@@ -58,7 +58,7 @@ export function MyDesk({ api }) {
       <div className="card desk" data-reveal>
         <div className="chead"><h3>My desk</h3></div>
         <div className="cbody">
-          <Empty icon="tender">
+          <Empty art="desk">
             You aren't carrying any tenders yet. Anything you create lands here, split by
             what's open, what's mid-flight and what's closed.
           </Empty>

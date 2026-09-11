@@ -214,9 +214,21 @@ def _round_opened(b, t):
     return bool(t.opened_at)
 
 
+def _first_round(obj):
+    """Does this bid or document belong to the event's own first window?
+
+    Two-stage is configured on the event, and its stage-1 opening released the
+    technical envelopes of the window that was running at the time — round 1.
+    It does not reach forward: a later round re-seals, and its technical
+    envelopes wait for its own recorded opening. A row with no round at all is
+    a single-round event, which is the first window by definition.
+    """
+    return obj.round_id is None or obj.round.number == 1
+
+
 def bid_view(b, t, p):
     opened = _round_opened(b, t)
-    tech_open = bool(t.tech_opened_at)
+    tech_open = bool(t.tech_opened_at) and _first_round(b)
     base = {"id": b.id, "tenderId": b.tender_id, "supplierId": b.supplier_id,
             "submittedAt": b.submitted_at, "disqualified": b.disqualified,
             "roundId": b.round_id, "roundNumber": b.round_number}
@@ -252,14 +264,10 @@ def doc_visible(d, t, p):
     # A bid document opens with its own round. Uploaded before rounds existed,
     # or into a single-round event, it has no round and follows the tender.
     #
-    # `tech_opened_at` is the two-stage technical release, and it belongs to the
-    # event's own submission window — the one two-stage was configured for. It
-    # must not reach forward into a later round: a round-2 technical proposal is
-    # sealed until round 2 has its own recorded opening, whatever stage 1 did to
-    # round 1's.
+    # The two-stage technical release is scoped by _first_round, above.
     opened_at = d.round.opened_at if d.round_id else t.opened_at
     if d.envelope == "technical":
-        return bool(opened_at or (t.tech_opened_at and not d.round_id))
+        return bool(opened_at or (t.tech_opened_at and _first_round(d)))
     if not opened_at:
         return False
     if Bid.objects.filter(tender=t, supplier_id=d.supplier_id, disqualified=True).exists():

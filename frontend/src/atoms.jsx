@@ -2,6 +2,7 @@ import React from "react";
 
 import { STATUS, daysLeft, fmtCompact, fmtDate, fmtMoney, nowMs } from "./helpers";
 import { Icon } from "./icons";
+import { Illus } from "./illus";
 import { fmtRemaining, tickRateFor, useTicker } from "./motion";
 
 /* ---------------- atoms ---------------- */
@@ -63,11 +64,22 @@ export const Stat = ({ k, v, d, tone, onClick, hint }) => {
   );
 };
 
-/* `icon` gives an empty state something to look at: pass an icon name from
-   icons.jsx (e.g. <Empty icon="envelope">No bids yet.</Empty>). */
-export const Empty = ({ children, icon }) => (
-  <div className="empty">
-    {icon ? <Icon n={icon} s={30} /> : null}
+/* An empty state wants something to look at. Two grades of it:
+
+     art="clear"        a drawn scene from illus.jsx. For the empty states
+                        that own a whole card or page, where there is room
+                        for a picture and the blankness would otherwise read
+                        as a load failure.
+     icon="envelope"    a 30px glyph from icons.jsx. For the small ones —
+                        inside a table cell, a half-card, a dialog — where a
+                        190px illustration would be louder than the record
+                        list it is standing in for.
+
+   `art` wins if both are passed. Neither is required: a one-line "Nothing to
+   chart." in a small panel is better off with just its sentence. */
+export const Empty = ({ children, icon, art }) => (
+  <div className={"empty" + (art ? " hasart" : "")}>
+    {art ? <Illus n={art} /> : icon ? <Icon n={icon} s={30} /> : null}
     {children}
   </div>
 );

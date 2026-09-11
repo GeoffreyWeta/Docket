@@ -592,7 +592,7 @@ export function Dashboard({ api }) {
         <div className="cbody stagger" style={{ paddingTop: 2 }}>
           {mine.map((it) => <WorkRow key={it.key} it={it} mine go={go} />)}
           {!mine.length && (
-            <Empty icon="seal">
+            <Empty art="clear">
               Nothing is waiting on you. {theirs.length > 0
                 ? `${theirs.length} ${theirs.length === 1 ? "item is" : "items are"} with other people.`
                 : "The workspace is clear."}
@@ -1465,7 +1465,7 @@ export function BidsTab({ api, t }) {
               </div>
             );
           })}
-          {!bids.length && <Empty>No bids received yet.</Empty>}
+          {!bids.length && <Empty art="sealed">No bids received yet.</Empty>}
         </div>
         {st === "closed" && can(user, "bid.open") && bids.length > 0 && (
           <div className="ceremony">
@@ -2723,7 +2723,7 @@ export function SuppliersPage({ api }) {
             <button className="btn sm" onClick={() => setShown(visible.length)}>Show all {visible.length.toLocaleString()}</button>
           </div>
         )}
-        {visible.length === 0 && <div className="cbody"><Empty icon="suppliers">Nothing on the register matches that.</Empty></div>}
+        {visible.length === 0 && <div className="cbody"><Empty art="search">Nothing on the register matches that.</Empty></div>}
       </div>
       {openId && <VendorRecord row={state.suppliers.find((x) => x.id === openId)}
                                detail={detail} onClose={() => setOpenId(null)} />}

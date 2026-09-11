@@ -125,7 +125,7 @@ function SpendTab({ api, tenders }) {
             <Bars data={fams.map((f) => ({ key: f.key, label: f.label,
                     value: f.committed + f.forecast, color: colour(f.key) }))}
                   onPick={(d) => setOpenFamily(d.key === openFamily ? null : d.key)} />
-          ) : <Empty icon="analytics">Nothing has been committed or priced yet.</Empty>}
+          ) : <Empty art="chart">Nothing has been committed or priced yet.</Empty>}
         </Figure>
 
         <Figure title="Share of committed spend" sub="awarded only"

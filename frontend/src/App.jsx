@@ -23,6 +23,7 @@ import { BASELINE_CSS } from "./baselines";
 import { CAMPAIGN_CSS } from "./campaign";
 import { CHART_CSS } from "./charts-css";
 import { FINANCE_CSS, FinancePage } from "./finance.jsx";
+import { ILLUS_CSS } from "./illus";
 import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
 import { LIFECYCLE_CSS } from "./lifecycle";
 import { Keys, PALETTE_CSS, Palette, ShortcutSheet } from "./palette.jsx";
@@ -34,7 +35,7 @@ import {
 
 const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS
   + SCORECARD_CSS + MENU_CSS + BOOT_CSS + PALETTE_CSS + CHART_CSS + CAMPAIGN_CSS
-  + FINANCE_CSS + BASELINE_CSS + LIFECYCLE_CSS;
+  + FINANCE_CSS + BASELINE_CSS + LIFECYCLE_CSS + ILLUS_CSS;
 
 /* Where you land and where you may go are both read off the capabilities the
    server sent with the bootstrap payload — see perms.js. Nothing here enumerates
