@@ -11,7 +11,7 @@ django.setup()
 
 from django.test import Client  # noqa: E402
 
-from core.seed import seed_all  # noqa: E402
+from core.seed import DEMO_USERS, seed_all  # noqa: E402
 from core.seed_finance import HISTORY  # noqa: E402
 
 # The seven hand-written competitions, plus the 2025 awards that sit behind the
@@ -57,10 +57,12 @@ assert r.status_code == 401, "unauthenticated bootstrap must 401"
 r = c.post("/api/auth/login/", json.dumps({"username": "amara", "password": "wrong"}), content_type=J)
 assert r.status_code == 401
 cfg = c.get("/api/auth/config/").json()
-# nine: five buyer personas, the executive, and three vendors
-assert cfg["demoLogin"] and len(cfg["accounts"]) == 9, cfg["accounts"]
-for u in ["tunde", "amara", "deji", "ngozi", "mark", "aisha", "coldline", "harmattan", "bluechip"]:
-    login(u)
+# Derived from the seed rather than counted by hand, for the same reason
+# SEEDED_TENDERS is: an org chart that grows a rung should not need this file
+# edited to stay true.
+assert cfg["demoLogin"] and len(cfg["accounts"]) == len(DEMO_USERS), cfg["accounts"]
+for username, _, _ in DEMO_USERS:
+    login(username)
 # demo one-click login works while enabled
 r = c.post("/api/auth/demo/", json.dumps({"username": "mark"}), content_type=J)
 assert r.status_code == 200

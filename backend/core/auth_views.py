@@ -47,15 +47,49 @@ def _body(request):
 
 
 def _demo_accounts():
-    """One-click demo logins. Administrator accounts are excluded on purpose: a
-    passwordless door into an account that can change everyone's permissions is
-    not a demo convenience, it is a hole."""
-    out = []
-    for u in (User.objects.filter(profile__persona__isnull=False, is_active=True)
-              .exclude(is_superuser=True)
-              .select_related("profile__persona").order_by("profile__persona__id")):
-        p = u.profile.persona
-        out.append({"username": u.username, "label": f"{p.name} — {p.title}", "role": p.role})
+    """One-click demo logins, in reading order down the org chart.
+
+    Administrator accounts are excluded on purpose: a passwordless door into an
+    account that can change everyone's permissions is not a demo convenience, it
+    is a hole.
+
+    Ordered by a walk of the reporting tree rather than by persona id, so the
+    list on the sign-in page reads as the hierarchy it represents: every manager
+    is followed immediately by the people who report to them. Insertion order
+    put the Procurement Officer three rows below an unrelated evaluator and
+    broke the one chain the list exists to show.
+    """
+    users = list(User.objects.filter(profile__persona__isnull=False, is_active=True)
+                 .exclude(is_superuser=True).select_related("profile__persona"))
+    reports = {}
+    for u in users:
+        reports.setdefault(u.profile.persona.manager_id, []).append(u)
+    for group in reports.values():
+        group.sort(key=lambda u: u.profile.persona_id)
+
+    out, seen = [], set()
+    row = lambda u: {"username": u.username,
+                     "label": f"{u.profile.persona.name} — {u.profile.persona.title}",
+                     "role": u.profile.persona.role}
+
+    def walk(manager_id):
+        for u in reports.get(manager_id, []):
+            pid = u.profile.persona_id
+            # Reporting lines are editable (team.org), so a cycle is reachable
+            # from the console. Guard it: a sign-in page that hangs is worse
+            # than one that lists somebody in the wrong place.
+            if pid in seen:
+                continue
+            seen.add(pid)
+            out.append(row(u))
+            walk(pid)
+
+    walk(None)
+    # anything the walk could not reach — an orphaned line, or one in a cycle —
+    # still gets a door, just at the end
+    for u in sorted(users, key=lambda u: u.profile.persona_id):
+        if u.profile.persona_id not in seen:
+            out.append(row(u))
     for u in (User.objects.filter(profile__supplier__isnull=False, is_active=True)
               .exclude(is_superuser=True)
               .select_related("profile__supplier").order_by("profile__supplier__id")):

@@ -19,10 +19,50 @@ TINY_PDF = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
 DEMO_USERS = [
     # (username, persona_id, supplier_id)
     ("tunde", "u0", None),
-    ("amara", "u1", None), ("deji", "u2", None), ("ngozi", "u3", None),
-    ("mark", "u4", None), ("aisha", "u5", None),
+    ("amara", "u1", None), ("chidi", "u6", None), ("funke", "u7", None),
+    ("deji", "u2", None), ("ngozi", "u3", None),
+    ("mark", "u4", None), ("bisi", "u8", None), ("aisha", "u5", None),
     ("coldline", None, "s2"), ("harmattan", None, "s3"), ("bluechip", None, "s7"),
 ]
+
+# SENIORITY IS NOT A ROLE.
+#
+# Amara, Chidi and Funke all hold `procurement`, because they do the same job:
+# they run competitions. What separates them is how far their authority reaches,
+# and that is a subtraction from the role rather than a role of its own. Model it
+# the other way — "buyer", "procurement_manager", "hod_procurement" as distinct
+# roles — and you need a new role every time somebody is promoted, plus a second
+# one per department, and the capability catalogue stops being the single answer
+# to "what may this person do".
+#
+# So the ladder lives in profile.perm_revoked, which is exactly what the resolver
+# is for: role defaults + perm_extra − perm_revoked.
+#
+#   Head of Procurement   the full role: owns the department, its people, its
+#                         vendor register and its ledger feed
+#   Procurement Manager    runs the work and can end a competition, but does not
+#                         invite staff, move reporting lines, rename the
+#                         workspace or reload the ledger
+#   Procurement Officer    drafts, publishes and evaluates, but cannot cancel a
+#                         live tender, change a vendor's standing, or read
+#                         anybody else's desk
+#
+# The one that matters most is tender.lifecycle. Cancelling a live competition
+# that vendors have already bid into is not a junior act, and it is irreversible
+# from the interface.
+SENIORITY_REVOKED = {
+    # Procurement Manager — the department's configuration is not his
+    "u6": ["team.invite", "team.org", "settings.rename",
+           "supplier.import", "finance.sync", "finance.dimensions"],
+    # Procurement Officer — the above, plus the irreversible and the supervisory
+    "u7": ["team.invite", "team.org", "settings.rename",
+           "supplier.import", "finance.sync", "finance.dimensions",
+           "tender.lifecycle", "supplier.suspend", "supplier.prequalify",
+           "desk.see_reports"],
+    # Head of Kitchen Operations — signs for his own unit's spend, but the
+    # approval matrix itself is the CFO's to set, not a unit head's.
+    "u8": ["settings.threshold"],
+}
 
 # The executive role, as configuration. Everything an oversight account needs to
 # read and nothing it needs to act: no tender.*, no bid.score, no award.decide.
@@ -86,28 +126,57 @@ def seed_all():
 
     Persona.objects.bulk_create([
         Persona(id="u0", name="Tunde Adeyemi", role=EXEC_ROLE, title="Chief Executive"),
+        # The procurement function, three deep. Same role, three reaches: see
+        # SENIORITY_REVOKED above for what separates them and why it is not
+        # three roles.
         Persona(id="u1", name="Amara Okafor", role="procurement", title="Head of Procurement"),
+        Persona(id="u6", name="Chidi Nwosu", role="procurement", title="Procurement Manager"),
+        Persona(id="u7", name="Funke Adebayo", role="procurement", title="Procurement Officer"),
+        # Evaluators are seconded from the business, not employed by procurement.
         Persona(id="u2", name="Deji Balogun", role="evaluator", title="Supply Quality Evaluator"),
         Persona(id="u3", name="Ngozi Eze", role="evaluator", title="Finance Evaluator"),
+        # Who signs. Two bands of the same role: a unit head for their own
+        # department's spend, the CFO above them for the rest.
+        Persona(id="u8", name="Bisi Ogunleye", role="approver", title="Head of Kitchen Operations"),
         Persona(id="u4", name="Mark Iyer", role="approver", title="Chief Financial Officer"),
         Persona(id="u5", name="Aisha Bello", role="auditor", title="Internal Audit"),
     ])
 
     # Reporting lines, set after the rows exist so the self-reference resolves.
+    # This is the OTHER axis: the roles above say what each person does, the
+    # tree says who they answer to. desk.see_reports follows this, not the role.
     #
-    #                      Tunde Adeyemi (CEO)
-    #                       │            │
-    #            Mark Iyer (CFO)      Aisha Bello (Internal Audit)
-    #                       │
-    #            Amara Okafor (Head of Procurement)
-    #                       │
-    #          Deji Balogun ─┴─ Ngozi Eze (evaluators)
+    #                          Tunde Adeyemi — Chief Executive
+    #           ┌───────────────────┬─────────────────────┬──────────────┐
+    #      Mark Iyer          Bisi Ogunleye          Aisha Bello
+    #      Chief Financial    Head of Kitchen        Internal Audit
+    #      Officer            Operations
+    #        │      │               │
+    #        │   Ngozi Eze       Deji Balogun
+    #        │   Finance         Supply Quality
+    #        │   Evaluator       Evaluator
+    #        │
+    #      Amara Okafor — Head of Procurement
+    #        │
+    #      Chidi Nwosu — Procurement Manager
+    #        │
+    #      Funke Adebayo — Procurement Officer
     #
-    # Audit reports to the chief executive and not to the CFO on purpose. An
-    # internal auditor whose appraisal is written by the person whose awards
-    # they review is not an independent auditor, and the reporting line is
-    # where that independence is either real or decorative.
-    for pid, mid in (("u4", "u0"), ("u5", "u0"), ("u1", "u4"), ("u2", "u1"), ("u3", "u1")):
+    # Two independence rules are drawn here rather than written down anywhere:
+    #
+    # Audit reports to the chief executive and not to the CFO. An internal
+    # auditor whose appraisal is written by the person whose awards they review
+    # is not an independent auditor, and the reporting line is where that
+    # independence is either real or decorative.
+    #
+    # The evaluators report into the business they were seconded from — finance
+    # to the CFO, supply quality to the unit that eats the outcome — and NOT to
+    # the Head of Procurement. Same argument one rung down: scoring is meant to
+    # be blind, and it is not blind in any way that matters if the person
+    # running the tender also writes the scorer's appraisal.
+    for pid, mid in (("u4", "u0"), ("u5", "u0"), ("u8", "u0"),
+                     ("u1", "u4"), ("u6", "u1"), ("u7", "u6"),
+                     ("u3", "u4"), ("u2", "u8")):
         Persona.objects.filter(pk=pid).update(manager_id=mid)
 
     sup = lambda **kw: Supplier(**kw)
@@ -179,7 +248,7 @@ def seed_all():
     )
     t3 = Tender(
         id="t3", ref="KST-RFQ-2026-019", title="Kitchen equipment for 12 new stores", ttype="RFQ",
-        category="Equipment & assets", owner_id="u1",
+        category="Equipment & assets", owner_id="u6",
         baseline=372_000_000, baseline_source="2025 store fit-out actuals, per-store × 12",
         budget=350_000_000, status="published", published_at=T - d(18), deadline=T - d(1),
         invited=["s4", "s9", "s10"], tech_weight=60, comm_weight=40, addenda=[],
@@ -200,7 +269,7 @@ def seed_all():
     )
     t4 = Tender(
         id="t4", ref="KST-RFQ-2026-008", title="Pizza boxes, cups & consumables — annual supply", ttype="RFQ",
-        category="Printing & packaging", owner_id="u1",
+        category="Printing & packaging", owner_id="u6",
         baseline=228_000_000, baseline_source="2025 annual spend with Crestpack",
         budget=210_000_000, status="awarded", published_at=T - d(60), deadline=T - d(40), opened_at=T - d(39),
         awarded_at=T - d(31), awarded_to="s5", awarded_amount=183_000_000,
@@ -222,7 +291,7 @@ def seed_all():
     }
     t5 = Tender(
         id="t5", ref="KST-RFP-2026-027", title="Integrated pest management — 128 stores", ttype="RFP",
-        category="Cleaning, pest & waste", owner_id="u1",
+        category="Cleaning, pest & waste", owner_id="u7",
         budget=96_000_000, status="approval", published_at=None, deadline=T + d(20),
         invited=["s6"], tech_weight=70, comm_weight=30, lines=[], addenda=[], two_stage=True, tech_threshold=70,
         criteria=[
@@ -236,7 +305,7 @@ def seed_all():
     )
     t6 = Tender(
         id="t6", ref="KST-RFP-2026-025", title="POS hardware refresh across 3 brands", ttype="RFP",
-        category="IT & telecoms", owner_id="u4",
+        category="IT & telecoms", owner_id="u6",
         baseline=268_000_000, baseline_source="OEM list price at 2025 volumes",
         budget=240_000_000, status="published", published_at=T - d(6), deadline=T + d(9),
         invited=["s7"], tech_weight=65, comm_weight=35,
@@ -259,7 +328,7 @@ def seed_all():
     )
     t7 = Tender(
         id="t7", ref="KST-AUC-2026-030", title="Diesel supply for store generators — reverse auction", ttype="AUC",
-        category="Fuel, diesel & gas", owner_id="u4",
+        category="Fuel, diesel & gas", owner_id="u7",
         baseline=97_500_000, baseline_source="Trailing 90-day average pump price × volume", budget=90_000_000, status="published", published_at=T - d(1), deadline=T + d(0.085),
         invited=["s2", "s3", "s7", "s6"], tech_weight=0, comm_weight=100, lines=[], addenda=[], criteria=[],
         auction_min_decrement=500_000,
@@ -366,7 +435,10 @@ def seed_all():
                                      password=settings.DEMO_PASSWORD)
         Profile.objects.create(user=u,
                                persona=Persona.objects.get(pk=pid) if pid else None,
-                               supplier=Supplier.objects.get(pk=sid) if sid else None)
+                               supplier=Supplier.objects.get(pk=sid) if sid else None,
+                               # the seniority ladder, as a subtraction from the
+                               # role rather than a role of its own
+                               perm_revoked=SENIORITY_REVOKED.get(pid, []))
 
     # The spend dimensions this workspace codes to, and two years of ledger
     # behind the awards. Last, because the ledger references the tenders and

@@ -1123,15 +1123,18 @@ def sec_reporting(ctx):
 
     r = line({"personId": "u1", "managerId": "u1"}, expect=400)
     yes("somebody cannot report to themselves", "themselves" in r["error"])
-    r = line({"personId": "u4", "managerId": "u2"}, expect=400)
+    # u4 <- u1 <- u6 <- u7: pointing the CFO at the Procurement Officer closes a
+    # four-node loop. Deliberately not a two-node swap, so this exercises the
+    # walk up the chain rather than a shallow equality check.
+    r = line({"personId": "u4", "managerId": "u7"}, expect=400)
     yes("a loop in the reporting line is refused", "loop" in r["error"])
     r = line({"personId": "u1", "managerId": "nope"}, expect=404)
     ok("an unknown manager is a 404, not a silent no-op")
 
     line({"personId": "u2", "managerId": "u4"})
     eq("a valid move is applied", Persona.objects.get(pk="u2").manager_id, "u4")
-    line({"personId": "u2", "managerId": "u1"})
-    eq("and can be moved back", Persona.objects.get(pk="u2").manager_id, "u1")
+    line({"personId": "u2", "managerId": "u8"})
+    eq("and can be moved back", Persona.objects.get(pk="u2").manager_id, "u8")
 
     line({"personId": "u5", "managerId": None})
     yes("somebody can be detached to the top of the chart",
@@ -1147,7 +1150,7 @@ def sec_reporting(ctx):
     mark = call("GET", "/api/bootstrap/", "mark")
     yes("a manager is told who reports to them", "u1" in mark["reports"])
     yes("and it follows the line at any depth, not just direct reports",
-        "u2" in mark["reports"] and "u3" in mark["reports"])
+        "u7" in mark["reports"] and "u3" in mark["reports"])
     signin("deji")
     deji = call("GET", "/api/bootstrap/", "deji")
     eq("somebody with no reports and no capability is told nothing", deji["reports"], [])
