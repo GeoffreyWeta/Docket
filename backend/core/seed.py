@@ -59,9 +59,13 @@ SENIORITY_REVOKED = {
            "supplier.import", "finance.sync", "finance.dimensions",
            "tender.lifecycle", "supplier.suspend", "supplier.prequalify",
            "desk.see_reports"],
-    # Head of Kitchen Operations — signs for his own unit's spend, but the
-    # approval matrix itself is the CFO's to set, not a unit head's.
-    "u8": ["settings.threshold"],
+    # Head of Kitchen Operations — signs for his own unit's spend, and that is
+    # the whole of it. The approver role carries two org-wide settings by
+    # default, and neither belongs to a unit head: the approval matrix is the
+    # CFO's to set, and renaming the organisation is nobody's business at unit
+    # level. Both are reachable from Settings, so leaving them was a real hole
+    # rather than an untidy one.
+    "u8": ["settings.threshold", "settings.rename"],
 }
 
 # The executive role, as configuration. Everything an oversight account needs to
