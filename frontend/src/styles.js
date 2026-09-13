@@ -912,7 +912,7 @@ export const THEME_CSS = `
 /* --- the house look: cards, the section band, pill controls -------------
    Behaviours rather than colours, which is why they are here and not in the
    token block. THEME_CSS is concatenated after CSS (see ALL_CSS in App.jsx),
-   so a plain `.card` selector wins on source order and none of these need a
+   so a plain \`.card\` selector wins on source order and none of these need a
    theme attribute to beat the shell rules. Both themes get them; what differs
    between light and dark is the tokens they read. */
 .card{
