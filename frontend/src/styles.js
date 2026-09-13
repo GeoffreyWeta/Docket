@@ -14,423 +14,23 @@ import { BP } from "./breakpoints";
 
 export const CSS = `
 /* ============================================================ tokens
-   Five themes live here and nowhere else. Every colour, radius, shadow AND
-   type role below is a variable, so a theme is a token block rather than a
-   fork of the stylesheet, which is what lets Material change the type
-   system (sans display at weight 400, sentence-case labels, pill badges)
-   and not just the palette.
+   TWO THEMES. Light on :root, dark behind one attribute, and nothing else.
 
-     studio         the default: cool neutrals, indigo primary  <- :root
-     paper          the house look: legal stationery, wax seals, serif
-     material       flat Material surface, ported from the DOCKET prototype
-     material-dark  the same on M3 dark neutrals, tonal green inverted
-     night          the editorial look after hours
+     light   the house look: a deep green band over white cards on a barely
+             tinted page. Written on bare :root, so it is also the fallback
+             for anything dark does not declare.
+     dark    the same product after hours: the band darkens, the cards become
+             raised green-black surfaces, and the accent brightens so it stays
+             the only saturated thing on the screen.
 
-   THE DEFAULT THEME OWNS :root. theme.js removes the data-theme attribute for
-   whichever theme is the default, so the block on bare :root and DEFAULT_THEME
-   must name the same thing. The other four are attribute blocks, which beat
-   :root on specificity no matter what order they appear in.
+   THE LIGHT THEME OWNS :root. theme.js removes the data-theme attribute for
+   it, so the block on bare :root and DEFAULT_THEME must name the same thing.
+   Dark is an attribute block, which beats :root on specificity no matter what
+   order they appear in.
 
-   :root is also the fallback for anything a theme does not declare, and the
-   attribute blocks lean on that: night declares no type roles, no radii and no
-   easing, material declares no seal colours. So the base carries paper's
-   STRUCTURE (serif display, mono micro-labels, the 5/7/10/14 radii) and only
-   its palette differs. Changing a structural token on :root changes night too.
-
-   Contrast and CVD separation are measured, not eyeballed: see the note in
-   ui.jsx before touching a status hue, then run node tools/palette-check.mjs.
-   It reads these blocks, resolves the var() chains the way the cascade
-   does, and reports every text-on-surface pair below WCAG AA plus the closest
-   status-stamp pair under protanopia and deuteranopia.
-
-   Two families, deliberately separate: --brand is the primary (buttons, focus
-   rings, links) and --green is positive state (sealed, leading, published).
-   They are the same green in every theme except studio, where the primary is
-   indigo and success stays emerald, so an "ok" chip never turns indigo.
-   ============================================================ */
-:root{
-  /* typefaces (structure: shared with every theme that does not override) */
-  --font-sans:'Geist Variable',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
-  --font-serif:'Source Serif 4 Variable',ui-serif,Charter,Georgia,serif;
-  --font-mono:'Geist Mono Variable',ui-monospace,SFMono-Regular,Menlo,monospace;
-  --font-display:var(--font-serif);
-
-  /* ---- studio: cool neutral surfaces, one warm-free accent axis ----
-     Neutrals sit on a faint blue axis rather than the sepia of paper, the
-     primary is indigo, and the seal cools to rose so the whole palette reads
-     on one temperature. */
-  --paper:#F7F8FA; --paper-2:#EFF1F5; --card:#FFFFFF; --sunk:#F8FAFC;
-  --ink:#0F1115; --muted:#4B5563; --faint:#6B7280;
-  --line:#E5E7EB; --line2:#D2D6DC; --hair:rgba(15,17,21,.07);
-  --on-brand:#FFFFFF;
-  --btn-hover:#F9FAFB;
-  --topbar-bg:rgba(255,255,255,.88);
-  --scrim:rgba(15,17,21,.45);
-  --skel-hi:#F3F4F6;
-  --tip-bg:#111827; --tip-ink:#FFFFFF;
-
-  /* primary */
-  --brand:#4F46E5; --brand-2:#6366F1; --brand-deep:#3730A3;
-  --brand-tint:#EEF2FF; --brand-ring:rgba(79,70,229,.24);
-
-  /* positive state */
-  --green:#047857; --green-2:#059669; --green-deep:#065F46;
-  --green-tint:#ECFDF5; --green-ring:rgba(4,120,87,.2);
-  /* critical, and the seal: cool rose, not wax red */
-  --wax:#BE123C; --wax-tint:#FFF1F2;
-  /* awarded */
-  --brass:#B45309; --brass-tint:#FFFBEB; --gold-ink:#92400E;
-
-  /* filled buttons */
-  --pri-from:#4F46E5; --pri-to:#4338CA; --pri-from-h:#6366F1; --pri-to-h:#4F46E5; --pri-line:#3730A3;
-  --wax-from:#E11D48; --wax-to:#BE123C; --wax-from-h:#F43F5E; --wax-to-h:#E11D48; --wax-line:#9F1239;
-
-  /* ---- categorical series slots (charts) ----
-     Eight hues in a fixed order, assigned by identity and never by rank. The
-     order is the colour-blindness safety mechanism, not a preference: this set
-     clears the adjacent-pair separation gate under protanopia and deuteranopia
-     in both light and dark, and re-ordering it silently breaks that.
-
-     Three of the light slots (aqua, yellow, magenta) sit just under 3:1 against
-     a white card. That is permitted only where the values are legible by some
-     other route, which is why every Figure in charts.jsx carries a table view
-     and why direct labels ride the marks. Do not use these as text colours. */
-  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
-  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
-
-  /* chips + stamps */
-  --chip-ok-line:#A7F3D0; --chip-warn-line:#FECDD3; --chip-gold-line:#FDE68A;
-
-  /* paper objects: letters, memos, ceremonies, addenda */
-  --letter-bg:#F8FAFC; --ceremony-from:#FFF1F2; --ceremony-line:#FDA4AF;
-  --addm-line:#FDE68A; --unread-bg:#EEF2FF; --login-glow:#FFFFFF;
-
-  /* seal */
-  --seal-hi:#FB7185; --seal-core:#E11D48; --seal-crack:#881337;
-
-  /* sidebar: dark slate, indigo active state */
-  --side:#111827; --side-from:#1B2436; --side-to:#0B111C;
-  /* --side-sec is a 9.5px uppercase label, so it is small text as far as WCAG
-     is concerned and has to clear 4.5 rather than 3.0. Hierarchy against
-     --side-dim comes from the type role, not from dimming it below legible. */
-  --side-ink:#E5E7EB; --side-dim:#9CA3AF; --side-sec:#8A94A4;
-  --side-hover:rgba(255,255,255,.055);
-  --side-on-bg:linear-gradient(90deg,rgba(99,102,241,.24),rgba(255,255,255,.02) 70%);
-  --side-on-ink:#FFFFFF; --side-on-line:#818CF8;
-  --side-edge:inset -1px 0 0 rgba(0,0,0,.4),1px 0 0 rgba(255,255,255,.04);
-  --newbtn-bg:rgba(255,255,255,.07); --newbtn-line:rgba(229,231,235,.2);
-  --newbtn-bg-h:rgba(255,255,255,.13); --newbtn-line-h:rgba(229,231,235,.34);
-  --wordmark-ink:#FFFFFF; --wordmark-rule:rgba(229,231,235,.12);
-  /* The wordmark is set, not drawn, so its face is a token. Studio sets DOCKET
-     in the sans at a tight track: wide-tracked serif caps are what reads as
-     stationery, and this theme is the one that does not want to. The other four
-     declare the editorial treatment themselves. */
-  --wordmark-font:var(--font-sans); --wordmark-weight:650; --wordmark-ls:.04em;
-
-  /* ---- role tokens (structure) ---- */
-  --h1-size:27px; --h1-weight:600; --h1-ls:-.018em;
-  --th-font:var(--font-mono); --th-size:9.5px; --th-tt:uppercase; --th-ls:.13em; --th-weight:550;
-  --k-font:var(--font-mono); --k-size:9.5px; --k-tt:uppercase; --k-ls:.14em; --k-weight:550;
-  --badge-font:var(--font-mono); --badge-size:9.5px; --badge-tt:uppercase; --badge-ls:.11em;
-  --badge-r:var(--r-xs); --badge-bd:1px; --badge-pad:3.5px 8px;
-  --field-bg:var(--card); --field-bd:var(--line2); --field-r:var(--r-sm);
-  --field-shadow:inset 0 1px 2px rgba(15,17,21,.04);
-  --stat-v-font:var(--font-display); --stat-v-weight:600; --stat-v-size:29px;
-  --card-bd:1px;
-  --btn-bg:var(--card); --btn-ink:var(--ink); --btn-bd:1px solid var(--line2); --btn-fw:550;
-  --nav-r:0; --nav-mx:0;
-  /* tonal roles stay indirect, so a theme that only swaps --brand-* gets its
-     own tonal pill without redeclaring these */
-  --p-container:var(--brand-tint); --on-p-container:var(--brand-deep);
-
-  /* layout metrics */
-  --gutter:14px; --tap:44px; --topbar-h:56px; --drawer-w:min(84vw,304px);
-  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
-  --sal:env(safe-area-inset-left,0px); --sar:env(safe-area-inset-right,0px);
-
-  /* radii */
-  --r-xs:5px; --r-sm:7px; --r:10px; --r-lg:14px; --r-btn:var(--r-sm);
-
-  /* elevation: neutral-cool, layered rather than a single drop */
-  --shadow:0 1px 2px rgba(15,17,21,.05),0 1px 3px rgba(15,17,21,.06);
-  --sh-2:0 2px 4px rgba(15,17,21,.05),0 6px 14px -3px rgba(15,17,21,.09);
-  --sh-3:0 4px 8px rgba(15,17,21,.06),0 18px 36px -10px rgba(15,17,21,.16);
-  --inset-hi:inset 0 1px 0 rgba(255,255,255,.12);
-  --btn-shadow:var(--shadow); --card-shadow:var(--shadow);
-
-  /* motion */
-  --ease:cubic-bezier(.4,0,.2,1); --t:150ms;
-}
-
-/* ---- paper: the house look, unchanged. A complete palette rather than a
-        delta, because it no longer owns :root. ---- */
-:root[data-theme="paper"]{
-  /* typefaces */
-  --font-sans:'Geist Variable',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
-  --font-serif:'Source Serif 4 Variable',ui-serif,Charter,Georgia,serif;
-  --font-mono:'Geist Mono Variable',ui-monospace,SFMono-Regular,Menlo,monospace;
-  --font-display:var(--font-serif);   /* page titles, stat values, letters */
-
-  /* surfaces + ink */
-  --paper:#F4F3ED; --paper-2:#EFEEE6; --card:#FFFFFF; --sunk:#FAF9F3;
-  --ink:#141F1B; --muted:#59645D; --faint:#828C85;
-  --line:#E3E1D5; --line2:#CFCDBF; --hair:rgba(20,31,27,.07);
-  --on-brand:#FFFFFF;                 /* ink on a filled brand surface */
-  --btn-hover:#FDFDFB;
-  --topbar-bg:rgba(255,255,255,.86);
-  --scrim:rgba(20,31,27,.42);
-  --skel-hi:#F7F6F0;
-  --tip-bg:#12241D; --tip-ink:#FFFFFF;
-
-  /* brand: here the primary and positive state are the same green, which is
-     what makes an "ok" chip and a filled button agree in the editorial look */
-  --green:#245C48; --green-2:#2E7259; --green-deep:#12362A;
-  --green-tint:#E2EDE7; --green-ring:rgba(36,92,72,.16);
-  --brand:var(--green); --brand-2:var(--green-2); --brand-deep:var(--green-deep);
-  --brand-tint:var(--green-tint); --brand-ring:var(--green-ring);
-  --wax:#A9331F; --wax-tint:#F7E7E1;
-  --brass:#8A6A14; --brass-tint:#F2EBD6; --gold-ink:#6B5215;
-
-  /* filled buttons */
-  --pri-from:#1B4838; --pri-to:#12362A; --pri-from-h:#26614B; --pri-to-h:#164033; --pri-line:#0C2A20;
-  --wax-from:#B93A24; --wax-to:#A9331F; --wax-from-h:#C6402A; --wax-to-h:#9E2F1C; --wax-line:#8E2A19;
-
-  /* chips + stamps */
-  --chip-ok-line:#BAD3C7; --chip-warn-line:#E4B7AC; --chip-gold-line:#DCCC9A;
-
-  /* paper objects: letters, memos, ceremonies, addenda */
-  --letter-bg:#FCFBF6; --ceremony-from:#FBF0EC; --ceremony-line:#D9A797;
-  --addm-line:#E4D6AC; --unread-bg:#FBFAF4; --login-glow:#FBFAF5;
-
-  /* wax seal */
-  --seal-hi:#E0674C; --seal-core:#A9331F; --seal-crack:#7C2415;
-
-  /* sidebar */
-  --side:#12241D; --side-from:#16291F; --side-to:#0E1F18;
-  --side-ink:#DCE5DE; --side-dim:#87998F; --side-sec:#6B7D74;
-  --side-hover:rgba(255,255,255,.035); --side-on-bg:linear-gradient(90deg,rgba(169,51,31,.16),rgba(255,255,255,.02) 70%);
-  --side-on-ink:#FFFFFF; --side-on-line:var(--wax); --side-edge:inset -1px 0 0 rgba(0,0,0,.35),1px 0 0 rgba(255,255,255,.03);
-  --newbtn-bg:rgba(255,255,255,.05); --newbtn-line:rgba(220,229,222,.22);
-  --newbtn-bg-h:rgba(255,255,255,.11); --newbtn-line-h:rgba(220,229,222,.36);
-  --wordmark-ink:#FFFFFF; --wordmark-rule:rgba(220,229,222,.11);
-  /* the editorial wordmark: serif caps, widely tracked */
-  --wordmark-font:var(--font-serif); --wordmark-weight:600; --wordmark-ls:.15em;
-
-  /* ---- role tokens ----
-     A theme is not just a palette: what makes the Material surface read as
-     Material is that the *type system* changes with it: sans display at
-     weight 400, sentence-case 12px table headers, pill badges, sans stat
-     figures. These roles let a theme restyle those without touching a rule.
-     The values here are the editorial (paper) originals. */
-  --h1-size:27px; --h1-weight:600; --h1-ls:-.018em;
-  --th-font:var(--font-mono); --th-size:9.5px; --th-tt:uppercase; --th-ls:.13em; --th-weight:550;
-  --k-font:var(--font-mono); --k-size:9.5px; --k-tt:uppercase; --k-ls:.14em; --k-weight:550;
-  --badge-font:var(--font-mono); --badge-size:9.5px; --badge-tt:uppercase; --badge-ls:.11em;
-  --badge-r:var(--r-xs); --badge-bd:1px; --badge-pad:3.5px 8px;
-  --field-bg:var(--card); --field-bd:var(--line2); --field-r:var(--r-sm);
-  --field-shadow:inset 0 1px 2px rgba(20,31,27,.04);
-  --stat-v-font:var(--font-display); --stat-v-weight:600; --stat-v-size:29px;
-  --card-bd:1px;
-  --btn-bg:var(--card); --btn-ink:var(--ink); --btn-bd:1px solid var(--line2); --btn-fw:550;
-  --nav-r:0; --nav-mx:0;
-  /* M3 tonal roles: the active-nav pill, tonal buttons, selection */
-  --p-container:var(--green-tint); --on-p-container:var(--green-deep);
-
-  /* ---- layout metrics ----
-     The shell reads these instead of hard numbers, so the phone→desktop
-     escalation at the bottom of this file is a handful of token overrides
-     rather than a second layout. --tap is the minimum comfortable touch
-     target (WCAG 2.5.5 asks 44px); the safe-area insets keep content clear
-     of the notch and home bar now that the viewport is viewport-fit=cover. */
-  /* --topbar-h is the real height of the phone app bar (44px tap target plus
-     6px above and below), because the notification sheet hangs off it */
-  --gutter:14px; --tap:44px; --topbar-h:56px; --drawer-w:min(84vw,304px);
-  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
-  --sal:env(safe-area-inset-left,0px); --sar:env(safe-area-inset-right,0px);
-
-  /* radii */
-  --r-xs:5px; --r-sm:7px; --r:10px; --r-lg:14px; --r-btn:var(--r-sm);
-
-  /* elevation: tinted to the paper, never neutral grey */
-  --shadow:0 1px 1px rgba(20,31,27,.04),0 1px 2px rgba(20,31,27,.05);
-  --sh-2:0 1px 2px rgba(20,31,27,.04),0 4px 10px -2px rgba(20,31,27,.07);
-  --sh-3:0 2px 4px rgba(20,31,27,.05),0 12px 28px -6px rgba(20,31,27,.13);
-  --inset-hi:inset 0 1px 0 rgba(255,255,255,.09);
-  --btn-shadow:var(--shadow); --card-shadow:var(--shadow);
-
-  /* motion */
-  --ease:cubic-bezier(.4,0,.2,1); --t:150ms;
-}
-
-/* ---- Material ------------------------------------------------------------
-   Ported from the DOCKET Material prototype, values intact. Flat means
-   elevation carries no shadow at rest: separation comes from surface tone,
-   and the display face drops to weight 400, which is the thing that stops a
-   Material page reading like a bolded editorial one. Table headers, stat
-   keys and badges lose the mono uppercase and become sentence-case sans;
-   fields fill with surface-variant; the nav marks its active item with a
-   tonal pill instead of a wax edge. ------------------------------------- */
-:root[data-theme="material"],:root[data-theme="material-dark"]{
-  --font-display:var(--font-sans);
-  --h1-size:28px; --h1-weight:400; --h1-ls:0;
-  --r-xs:8px; --r-sm:12px; --r:16px; --r-lg:28px; --r-btn:999px;
-  --th-font:var(--font-sans); --th-size:12px; --th-tt:none; --th-ls:.01em; --th-weight:500;
-  --k-font:var(--font-sans); --k-size:12px; --k-tt:none; --k-ls:.01em; --k-weight:500;
-  --badge-font:var(--font-sans); --badge-size:12px; --badge-tt:none; --badge-ls:.01em;
-  --badge-r:999px; --badge-bd:0; --badge-pad:5px 12px;
-  --field-bg:var(--paper-2); --field-bd:transparent; --field-r:var(--r-sm); --field-shadow:none;
-  --stat-v-font:var(--font-sans); --stat-v-weight:500; --stat-v-size:30px;
-  --card-bd:0; --card-shadow:none; --btn-shadow:none; --inset-hi:none;
-  --btn-bg:var(--paper-2); --btn-ink:var(--ink); --btn-bd:0 solid transparent; --btn-fw:500;
-  --nav-r:999px; --nav-mx:8px;
-  --ease:cubic-bezier(.2,0,0,1); --t:180ms;   /* M3 emphasized easing */
-  /* Material's primary is its green, as before the primary/positive split */
-  --brand:var(--green); --brand-2:var(--green-2); --brand-deep:var(--green-deep);
-  --brand-tint:var(--green-tint); --brand-ring:var(--green-ring);
-  --side-on-bg:var(--p-container); --side-on-ink:var(--on-p-container); --side-on-line:transparent;
-  --newbtn-bg:var(--p-container); --newbtn-line:transparent; --newbtn-line-h:transparent;
-  --wordmark-ink:var(--on-p-container);
-  /* Material sets the wordmark in its own display face, which is the sans. The
-     sidebar used to use the serif while the login screen used the sans; both
-     now agree. */
-  --wordmark-font:var(--font-display); --wordmark-weight:500; --wordmark-ls:.08em;
-}
-:root[data-theme="material"]{
-  --paper:#F6F5F9; --paper-2:#EDECF1; --card:#FFFFFF; --sunk:#F3F2F7;
-  --ink:#1B1B1F; --muted:#46464F; --faint:#74747E;
-  --line:#DFDEE4; --line2:#E9E8ED; --hair:#E9E8ED;
-  --btn-hover:#E6E5EB;
-  --topbar-bg:rgba(255,255,255,.92);
-  --scrim:rgba(27,27,31,.46);
-  --skel-hi:#F8F7FB;
-  --tip-bg:#2F2E33; --tip-ink:#FFFFFF;
-  --p-container:#CDE8D9; --on-p-container:#04291B;
-  /* Pinned from the editorial palette. These four families used to arrive from
-     :root while paper was the base; studio owns :root now, so the Material
-     surface states them itself rather than inheriting indigo and rose. */
-  --green:#245C48; --green-2:#2E7259; --green-deep:#12362A;
-  --wax:#A9331F; --brass:#8A6A14;
-  --seal-hi:#E0674C; --seal-core:#A9331F; --seal-crack:#7C2415;
-  --green-tint:#CDE8D9; --green-ring:rgba(36,92,72,.2);
-  --wax-tint:#F9E7E2; --brass-tint:#F6EFDC; --gold-ink:#75590E;
-  /* filled buttons are flat in Material: one tone, no gradient, no edge */
-  --pri-from:var(--green); --pri-to:var(--green); --pri-from-h:#2E7259; --pri-to-h:#2E7259; --pri-line:transparent;
-  --wax-from:var(--wax); --wax-to:var(--wax); --wax-from-h:#C6402A; --wax-to-h:#C6402A; --wax-line:transparent;
-  --chip-ok-line:transparent; --chip-warn-line:transparent; --chip-gold-line:transparent;
-  --letter-bg:#F3F2F7; --ceremony-from:#F9E7E2; --ceremony-line:transparent;
-  --addm-line:transparent; --unread-bg:#F3F2F7; --login-glow:#FFFFFF;
-  --side:#FFFFFF; --side-from:#FFFFFF; --side-to:#FFFFFF;
-  --side-ink:#1B1B1F; --side-dim:#46464F; --side-sec:#74747E;
-  --side-hover:rgba(27,27,31,.05);
-  --side-edge:inset -1px 0 0 #E9E8ED;
-  --newbtn-bg-h:#BCDDCB;
-  --wordmark-rule:#E9E8ED;
-  --shadow:none; --sh-2:none; --sh-3:0 2px 10px rgba(0,0,0,.14);
-}
-/* Material dark: M3 dark neutrals with the tonal green inverted, so the
-   primary reads *lighter* than its container rather than darker. */
-:root[data-theme="material-dark"]{
-  color-scheme:dark;
-  --paper:#121216; --paper-2:#28272D; --card:#1C1B1F; --sunk:#1F1E23;
-  --ink:#E5E1E6; --muted:#C6C4CD; --faint:#918F99;
-  --line:#35343A; --line2:#2C2B31; --hair:#2C2B31;
-  /* Series slots stepped for a dark surface — the same eight hues, not a
-     different palette, so a category keeps its identity when the theme flips.
-     All eight clear 3:1 here, so the light mode's relief caveat does not apply. */
-  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
-  --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
-  --on-brand:#06371F;
-  --btn-hover:#33323A;
-  --topbar-bg:rgba(18,18,22,.9);
-  --scrim:rgba(0,0,0,.6);
-  --skel-hi:#26252B;
-  --tip-bg:#E5E1E6; --tip-ink:#1C1B1F;
-  --primary:#8FD5B0;
-  --green:#8FD5B0; --green-2:#ABF2CB; --green-deep:#ABF2CB;
-  --p-container:#1F5340; --on-p-container:#ABF2CB;
-  --green-tint:rgba(143,213,176,.16); --green-ring:rgba(143,213,176,.26);
-  --wax:#F2B8A5; --wax-tint:rgba(242,184,165,.16);
-  --brass:#E6CA84; --brass-tint:rgba(230,202,132,.15); --gold-ink:#F0DDA8;
-  --pri-from:#8FD5B0; --pri-to:#8FD5B0; --pri-from-h:#A6E3C2; --pri-to-h:#A6E3C2; --pri-line:transparent;
-  --wax-from:#F2B8A5; --wax-to:#F2B8A5; --wax-from-h:#F7CBBC; --wax-to-h:#F7CBBC; --wax-line:transparent;
-  --chip-ok-line:rgba(143,213,176,.5); --chip-warn-line:rgba(242,184,165,.5); --chip-gold-line:rgba(230,202,132,.45);
-  --letter-bg:#1F1E23; --ceremony-from:#2A2229; --ceremony-line:transparent;
-  --addm-line:transparent; --unread-bg:#26252B; --login-glow:#1C1B1F;
-  --seal-hi:#F7CBBC; --seal-core:#C9705A; --seal-crack:#5A2418;
-  --side:#1C1B1F; --side-from:#1C1B1F; --side-to:#1C1B1F;
-  --side-ink:#E5E1E6; --side-dim:#C6C4CD; --side-sec:#918F99;
-  --side-hover:rgba(255,255,255,.06);
-  --side-edge:inset -1px 0 0 #2C2B31;
-  --newbtn-bg-h:#27614C;
-  --wordmark-rule:#2C2B31;
-  --shadow:none; --sh-2:none; --sh-3:0 2px 10px rgba(0,0,0,.5);
-}
-
-/* ---- night ledger: dark surfaces, brighter status hues (validated against
-        the dark card surface), brass kept as the accent ---- */
-:root[data-theme="night"]{
-  color-scheme:dark;
-  --paper:#0F1613; --paper-2:#0B120F; --card:#16211C; --sunk:#121B17;
-  --ink:#E4EBE6; --muted:#A3B0A8; --faint:#7C8A83;
-  --line:#253029; --line2:#35443C; --hair:rgba(228,235,230,.09);
-  /* Series slots stepped for a dark surface — the same eight hues, not a
-     different palette, so a category keeps its identity when the theme flips.
-     All eight clear 3:1 here, so the light mode's relief caveat does not apply. */
-  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
-  --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
-  /* night's filled buttons are a dark green gradient, so the label on them has
-     to be white: the near-black this used to be measured 2.45:1, which is
-     unreadable and predates the studio palette. */
-  --on-brand:#FFFFFF;
-  --btn-hover:#1C2822;
-  --topbar-bg:rgba(15,22,19,.86);
-  --scrim:rgba(4,8,6,.62);
-  --skel-hi:#1B2620;
-  --tip-bg:#E4EBE6; --tip-ink:#0F1613;
-  --green:#3FA97C; --green-2:#4FBE8C; --green-deep:#8FD9B6;
-  --green-tint:rgba(63,169,124,.16); --green-ring:rgba(63,169,124,.26);
-  /* night's primary is its green, as before the primary/positive split */
-  --brand:var(--green); --brand-2:var(--green-2); --brand-deep:var(--green-deep);
-  --brand-tint:var(--green-tint); --brand-ring:var(--green-ring);
-  --wax:#D8664C; --wax-tint:rgba(216,102,76,.16);
-  --brass:#D9B863; --brass-tint:rgba(217,184,99,.15); --gold-ink:#E6CA84;
-  --pri-from:#2E7259; --pri-to:#245C48; --pri-from-h:#37866A; --pri-to-h:#2A6A52; --pri-line:#4FBE8C;
-  --wax-from:#C2543C; --wax-to:#A9412C; --wax-from-h:#D06045; --wax-to-h:#B84832; --wax-line:#E4785C;
-  --chip-ok-line:rgba(63,169,124,.5); --chip-warn-line:rgba(216,102,76,.5); --chip-gold-line:rgba(217,184,99,.45);
-  --letter-bg:#1A241E; --ceremony-from:#22201C; --ceremony-line:#6B4436;
-  --addm-line:#5C4B25; --unread-bg:#1B2620; --login-glow:#16211C;
-  --seal-hi:#F08A6D; --seal-core:#C2543C; --seal-crack:#571A0F;
-  --side:#0A100D; --side-from:#0C1410; --side-to:#070C0A;
-  --side-ink:#D6E2DA; --side-dim:#8A9A91; --side-sec:#6E7E75;
-  --side-hover:rgba(255,255,255,.05); --side-on-bg:linear-gradient(90deg,rgba(216,102,76,.2),rgba(255,255,255,.02) 70%);
-  --side-on-ink:#FFFFFF; --side-on-line:var(--wax);
-  --side-edge:inset -1px 0 0 rgba(0,0,0,.5);
-  --wordmark-ink:#F2F7F4; --wordmark-rule:rgba(214,226,218,.13);
-  --wordmark-font:var(--font-serif); --wordmark-weight:600; --wordmark-ls:.15em;
-  --newbtn-bg:rgba(255,255,255,.06); --newbtn-line:rgba(214,226,218,.2);
-  --newbtn-bg-h:rgba(255,255,255,.12); --newbtn-line-h:rgba(214,226,218,.34);
-  --shadow:0 1px 2px rgba(0,0,0,.4);
-  --sh-2:0 2px 6px rgba(0,0,0,.45);
-  --sh-3:0 8px 26px -4px rgba(0,0,0,.6);
-  --inset-hi:inset 0 1px 0 rgba(255,255,255,.05);
-}
-
-
-/* ---- engo: the Eat N Go theme ----
-
-   A LIGHT theme built in sections, which is the actual structure of the
-   reference: the screens are not dark-mode, they are a page divided into a
-   deep tinted band at the top and white content sitting below it. The tint is
-   a section, not a background.
-
-   So this theme is:
-
-     the band     a deep green field carrying the page title and its headline
-                  figures, in white. One per page, at the top.
-     the content  white cards on a barely-tinted page, generous radii, soft
-                  shadows - the light sheet the reference slides up over its
-                  hero.
-     the accent   the house green, used for fills and marks.
+   :root also carries the STRUCTURE (radii, type roles, easing, layout
+   metrics), which dark inherits wholesale. Changing a structural token here
+   changes both themes.
 
    THE BRAND COLOUR LIVES IN ONE PLACE. --engo below is the only hex that
    encodes it; everything else derives. Change that line and the theme follows.
@@ -442,29 +42,38 @@ export const CSS = `
                           label on a green button. This is the one that carries
                           text.
 
-   Getting that backwards is the single most likely way to break this theme:
-   brand green as a text colour on white is unreadable and passes no check. */
-:root[data-theme="engo"]{
+   Getting that backwards is the single most likely way to break the theme:
+   brand green as a text colour on white is unreadable and passes no check.
+
+   Contrast and CVD separation are measured, not eyeballed: see the note in
+   ui.jsx before touching a status hue, then run node tools/palette-check.mjs.
+   It reads these blocks, resolves the var() chains the way the cascade does,
+   and reports every text-on-surface pair below WCAG AA plus the closest
+   status-stamp pair under protanopia and deuteranopia.
+
+   Two families, deliberately separate: --brand is the primary (buttons, focus
+   rings, links) and --green is positive state (sealed, leading, published).
+   Here they are the same green, because the house colour is a green and a
+   second accent would fight it.
+   ============================================================ */
+:root{
   color-scheme:light;
 
-  /* the one line that is the brand */
+  /* typefaces (structure: shared with dark) */
+  --font-sans:'Geist Variable',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-serif:'Source Serif 4 Variable',ui-serif,Charter,Georgia,serif;
+  --font-mono:'Geist Mono Variable',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-display:var(--font-serif);
+
+  /* ---- the brand, in one place ---- */
   --engo:#00A651;
   --engo-ink:#00803E;      /* the readable-on-white step */
   --engo-deep:#046B36;
   --engo-band:#0B3D24;     /* the section field: white on it measures 12.3:1 */
 
   --paper:#F2F6F3; --paper-2:#E8EFEA; --card:#FFFFFF; --sunk:#F5F9F6;
-  --ink:#0E1A15; --muted:#47564E; --faint:#6B7C73;
+  --ink:#0E1A15; --muted:#47564E; --faint:#63746B;
   --line:#DCE6DF; --line2:#C6D4CB; --hair:rgba(14,26,21,.07);
-
-  /* Series slots: the documented light palette, unchanged. Cards here are pure
-     white, which is the surface that palette was validated against, so the
-     chart colours are identical to Studio and a category keeps its identity
-     across a theme switch. Three slots sit under 3:1 on white - the relief
-     rule applies and is satisfied, because every Figure carries a table view. */
-  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
-  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
-
   --on-brand:#FFFFFF;
   --btn-hover:#F5F9F6;
   --topbar-bg:rgba(242,246,243,.88);
@@ -472,266 +81,201 @@ export const CSS = `
   --skel-hi:#EDF3EF;
   --tip-bg:#0E1A15; --tip-ink:#FFFFFF;
 
-  --green:var(--engo-ink); --green-2:var(--engo); --green-deep:#04562B;
-  --green-tint:#E6F6ED; --green-ring:rgba(0,166,81,.24);
+  /* ---- categorical series slots (charts) ----
+     Eight hues in a fixed order, assigned by identity and never by rank. The
+     order is the colour-blindness safety mechanism, not a preference: this set
+     clears the adjacent-pair separation gate under protanopia and deuteranopia
+     in both light and dark, and re-ordering it silently breaks that.
 
+     Cards here are pure white, which is the surface this palette was validated
+     against. Three slots (aqua, yellow, magenta) sit just under 3:1 there.
+     That is permitted only where the values are legible by some other route,
+     which is why every Figure in charts.jsx carries a table view and why direct
+     labels ride the marks. Do not use these as text colours. */
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+
+  /* primary */
   --brand:var(--engo-ink); --brand-2:var(--engo); --brand-deep:#04562B;
   --brand-tint:#E6F6ED; --brand-ring:rgba(0,166,81,.26);
 
+  /* positive state: the same family, because the house colour is a green */
+  --green:var(--engo-ink); --green-2:var(--engo); --green-deep:#04562B;
+  --green-tint:#E6F6ED; --green-ring:rgba(0,166,81,.24);
+
+  /* critical, and the seal */
   --wax:#C02A1E; --wax-tint:#FDECEA;
+  /* awarded */
   --brass:#A8620B; --brass-tint:#FEF6E7; --gold-ink:#8A4F08;
 
-  /* Filled buttons use the deep step so a white label clears 5:1. */
+  /* filled buttons: the deep step, so a white label clears 5:1 */
   --pri-from:#00A651; --pri-to:#00803E; --pri-from-h:#12B860; --pri-to-h:#008F46;
-  --pri-line:#04562B;
+  --pri-line:#04562B; --pri-glow:rgba(0,128,62,.42);
   --wax-from:#D0392B; --wax-to:#B3241A; --wax-from-h:#DC4536; --wax-to-h:#C22C20;
   --wax-line:#8E1A12;
 
+  /* chips + stamps */
   --chip-ok-line:#A5E3C2; --chip-warn-line:#F5C2BC; --chip-gold-line:#F3DCA6;
 
+  /* paper objects: letters, memos, ceremonies, addenda */
   --letter-bg:#F7FBF8; --ceremony-from:#FDECEA; --ceremony-line:#EFA79D;
   --addm-line:#F3DCA6; --unread-bg:#E6F6ED; --login-glow:#FFFFFF;
+
+  /* seal */
   --seal-hi:#7DE8AE; --seal-core:#00A651; --seal-crack:#04452A;
 
-  /* The sidebar is the other half of the section idea: a deep green rail
-     against the light page, the same field the page band uses. */
+  /* THE BAND. Every page head is the tinted section the house look opens
+     with: deep green, white type, the page's headline figures sitting on it.
+     One per page, at the top. The behaviour is in THEME_CSS; the field is
+     here so dark can restate it without restating the rule. */
+  --band-bg:
+    radial-gradient(700px 300px at 88% -40%, rgba(43,217,127,.28), transparent 62%),
+    linear-gradient(135deg,#0E4A2C 0%,var(--engo-band) 52%,#08301C 100%);
+  --band-ink:#FFFFFF; --band-dim:#A9D3BC; --band-soft:#D7EBE0;
+  --band-ctl:rgba(255,255,255,.14); --band-ctl-line:rgba(255,255,255,.26);
+  --band-ctl-h:rgba(255,255,255,.22); --band-ph:rgba(234,246,239,.6);
+
+  /* sidebar: the other half of the section idea, a deep green rail against
+     the light page, the same field the band uses */
   --side:#0B3D24; --side-from:#0E4A2C; --side-to:#08301C;
+  /* --side-sec is a 9.5px uppercase label, so it is small text as far as WCAG
+     is concerned and has to clear 4.5 rather than 3.0. Hierarchy against
+     --side-dim comes from the type role, not from dimming it below legible. */
   --side-ink:#EAF6EF; --side-dim:#9FC4AF; --side-sec:#7FAB92;
   --side-hover:rgba(255,255,255,.08);
   --side-on-bg:linear-gradient(90deg,rgba(255,255,255,.16),rgba(255,255,255,.03) 72%);
   --side-on-ink:#FFFFFF; --side-on-line:#2BD97F;
   --side-edge:inset -1px 0 0 rgba(0,0,0,.18);
-
+  --newbtn-bg:rgba(255,255,255,.12); --newbtn-line:rgba(234,246,239,.28);
+  --newbtn-bg-h:rgba(255,255,255,.2); --newbtn-line-h:rgba(234,246,239,.44);
+  /* The wordmark is set, not drawn, so its face is a token. */
   --wordmark-ink:#FFFFFF; --wordmark-rule:rgba(234,246,239,.18);
   --wordmark-font:var(--font-sans); --wordmark-weight:700; --wordmark-ls:.02em;
 
-  --newbtn-bg:rgba(255,255,255,.12); --newbtn-line:rgba(234,246,239,.28);
-  --newbtn-bg-h:rgba(255,255,255,.2); --newbtn-line-h:rgba(234,246,239,.44);
+  /* ---- role tokens (structure) ---- */
+  --h1-size:27px; --h1-weight:600; --h1-ls:-.018em;
+  --th-font:var(--font-mono); --th-size:9.5px; --th-tt:uppercase; --th-ls:.13em; --th-weight:550;
+  --k-font:var(--font-mono); --k-size:9.5px; --k-tt:uppercase; --k-ls:.14em; --k-weight:550;
+  --badge-font:var(--font-mono); --badge-size:9.5px; --badge-tt:uppercase; --badge-ls:.11em;
+  --badge-r:var(--r-xs); --badge-bd:1px; --badge-pad:3.5px 8px;
+  --field-bg:var(--card); --field-bd:var(--line2); --field-r:var(--r-sm);
+  --field-shadow:inset 0 1px 2px rgba(14,26,21,.04);
+  --stat-v-font:var(--font-display); --stat-v-weight:600; --stat-v-size:29px;
+  --card-bd:1px;
+  --btn-bg:var(--card); --btn-ink:var(--ink); --btn-bd:1px solid var(--line2); --btn-fw:550;
+  --nav-r:0; --nav-mx:0;
+  /* tonal roles stay indirect, so a change to --brand-* gets its own tonal
+     pill without redeclaring these */
+  --p-container:var(--brand-tint); --on-p-container:var(--brand-deep);
 
+  /* layout metrics */
+  --gutter:14px; --tap:44px; --topbar-h:56px; --drawer-w:min(84vw,304px);
+  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+  --sal:env(safe-area-inset-left,0px); --sar:env(safe-area-inset-right,0px);
+
+  /* radii */
+  --r-xs:5px; --r-sm:7px; --r:10px; --r-lg:14px; --r-btn:var(--r-sm);
+  --radius-lg:20px;
+
+  /* elevation: soft and layered rather than a single drop */
   --shadow:0 1px 2px rgba(14,26,21,.06);
   --sh-2:0 2px 10px rgba(14,26,21,.07);
   --sh-3:0 16px 40px -10px rgba(14,26,21,.18);
   --inset-hi:none;
+  --btn-shadow:var(--shadow); --card-shadow:var(--shadow);
 
-  --radius-lg:20px;
+  /* motion */
+  --ease:cubic-bezier(.4,0,.2,1); --t:150ms;
 }
 
-/* Cards: white sheets with generous radii and a soft shadow, the way the
-   reference floats its content over the tint. */
-:root[data-theme="engo"] .card{
-  background:var(--card);
-  border:1px solid var(--line);
-  border-radius:var(--radius-lg);
-  box-shadow:var(--sh-2);
-}
-:root[data-theme="engo"] .stat{
-  background:var(--card);
-  border:1px solid var(--line);
-  border-radius:16px;
-  box-shadow:var(--shadow);
-}
-:root[data-theme="engo"] .statlink:hover{
-  border-color:var(--engo);
-  box-shadow:var(--sh-2);
-}
+/* ---- dark ----
+   Not an inversion. Three things change in kind rather than in value, and
+   none of them is optional:
 
-/* THE BAND. Every page head becomes the tinted section the reference opens
-   with: deep green, white type, the page's stat row sitting on it as glass.
-   Scoped to .pagehead so it is one element per page and never repeats. */
-:root[data-theme="engo"] .pagehead{
-  background:
-    radial-gradient(700px 300px at 88% -40%, rgba(43,217,127,.28), transparent 62%),
-    linear-gradient(135deg,#0E4A2C 0%,#0B3D24 52%,#08301C 100%);
-  margin:-18px -18px 18px;
-  padding:26px 22px 22px;
-  border-radius:0 0 var(--radius-lg) var(--radius-lg);
-  box-shadow:var(--sh-2);
-}
-:root[data-theme="engo"] .pagehead h1{color:#FFFFFF}
-:root[data-theme="engo"] .pagehead .sub,
-:root[data-theme="engo"] .pagehead .mono{color:#A9D3BC}
-/* Controls that ride in the band have to invert with it. */
-:root[data-theme="engo"] .pagehead .btn{
-  background:rgba(255,255,255,.14);
-  border-color:rgba(255,255,255,.26);
-  color:#FFFFFF;
-}
-:root[data-theme="engo"] .pagehead .btn:hover{background:rgba(255,255,255,.22)}
-:root[data-theme="engo"] .pagehead .in{
-  background:rgba(255,255,255,.14);
-  border-color:rgba(255,255,255,.26);
-  color:#FFFFFF;
-}
-:root[data-theme="engo"] .pagehead .in::placeholder{color:rgba(234,246,239,.6)}
-:root[data-theme="engo"] .pagehead .checkline{color:#D7EBE0}
+   1. THE ACCENT CLIMBS. #00A651 is a fill on white and unreadable as text on
+      it; on a dark card the readable step is LIGHTER than the fill, so
+      --engo-ink becomes the brighter green and --brand follows it. A filled
+      button keeps a mid green with a white label, because white on #0C6E3C
+      still clears 5:1 and an ink-on-bright-green button does not.
+   2. THE CARD IS RAISED, THE PAGE IS NOT. --card sits above --paper here, so
+      a sheet reads as a sheet. --paper-2 is DARKER than the page on purpose:
+      it is the recessed tone (segmented tracks, receipts), never a surface.
+   3. THE BAND STAYS A BAND. It darkens rather than disappearing, so the page
+      keeps the section structure the whole look is built on. Losing it makes
+      dark mode a different product.
 
-@media(max-width:720px){
-  :root[data-theme="engo"] .pagehead{margin:-12px -12px 14px;padding:20px 14px 16px}
-}
+   Everything not declared here is inherited from :root, which is where the
+   type roles, radii, easing and layout metrics live. ---- */
+:root[data-theme="dark"]{
+  color-scheme:dark;
 
-:root[data-theme="engo"] .in,
-:root[data-theme="engo"] .dk textarea,
-:root[data-theme="engo"] .dk select{border-radius:11px}
-:root[data-theme="engo"] .btn{border-radius:999px}
-:root[data-theme="engo"] .chip{border-radius:999px}
-:root[data-theme="engo"] .btn.pri{
-  box-shadow:0 3px 12px -3px rgba(0,128,62,.42);
-}
-:root[data-theme="engo"] .segmented,
-:root[data-theme="engo"] .antabs{background:var(--paper-2);border-color:var(--line)}
-:root[data-theme="engo"] .segmented button.on,
-:root[data-theme="engo"] .antab.on{background:var(--card);box-shadow:var(--shadow)}
+  --engo:#2FC46E;
+  --engo-ink:#5FD98F;      /* the readable-on-dark step: 8.1:1 on --card */
+  --engo-deep:#8FE8B5;
+  --engo-band:#08281A;
 
-/* ---- circle: the default. A white console floating on a slate canvas ----
-   The other five themes are palettes; this one is also a SHAPE. From the
-   desktop rung the page stops being a full-bleed two-pane app and becomes one
-   rounded white container inset from a muted slate-blue field, with the
-   navigation rail living inside that container rather than beside it. Below
-   that rung a phone has no room to give away, so the frame is not drawn and
-   only the palette applies: the shell rules are in the ladder, at the desk
-   rung, with every other width-conditional rule in the file.
-
-   Consequences worth knowing before editing:
-     - --paper is WHITE here, not a tint. The container interior and a card are
-       the same colour, so a card is told apart by its line and its soft
-       shadow, never by a fill. --card-shadow carries that and is not optional.
-     - --side is white too. The rail is ink-on-white, so --side-dim and
-       --side-sec had to be re-measured against white rather than dimmed off a
-       dark slate: both clear 4.5 there, which the 13.5px item labels and the
-       10px section caps need.
-     - the display face is the sans, not the serif. This look is a dashboard,
-       and a Source Serif page title reads as stationery in the middle of it.
-   The series slots are deliberately IDENTICAL to studio and engo: those eight
-   were measured for adjacent-pair separation under protanopia and deuteranopia
-   against a white card, which is exactly the surface they sit on here, and a
-   category has to keep its colour when somebody switches theme. */
-:root[data-theme="circle"]{
-  color-scheme:light;
-
-  /* the canvas the console floats on, and the console's own corner */
-  --canvas:#4A6572;
-  --canvas-bg:radial-gradient(1200px 680px at 50% -12%,#57727F 0%,#4A6572 46%,#3E5765 100%);
-  --shell-r:26px;
-
-  /* the two accents the look is built from */
-  --navy:#1B2A4A; --navy-deep:#101B33;
-  --teal:#3F8E8E;
-  --peach:#F5D6BC; --peach-line:#EFC09A; --peach-ink:#7A3E16;
-
-  --paper:#FFFFFF; --paper-2:#F1F3F7; --card:#FFFFFF; --sunk:#F7F8FB;
-  --ink:#16213E; --muted:#4E5A70; --faint:#697488;
-  --line:#E9ECF1; --line2:#DBE0E8; --hair:rgba(22,33,62,.065);
+  --paper:#0C1511; --paper-2:#081009; --card:#132019; --sunk:#0F1A14;
+  --ink:#E6EFE9; --muted:#A4B3AA; --faint:#7D8D84;
+  --line:#213029; --line2:#31443A; --hair:rgba(230,239,233,.09);
   --on-brand:#FFFFFF;
-  --btn-hover:#F7F8FB;
-  --topbar-bg:rgba(255,255,255,.9);
-  --scrim:rgba(14,22,38,.5);
-  --skel-hi:#F1F3F7;
-  --tip-bg:#16213E; --tip-ink:#FFFFFF;
+  --btn-hover:#1A2A21;
+  --topbar-bg:rgba(12,21,17,.86);
+  --scrim:rgba(3,8,5,.62);
+  --skel-hi:#1B2A22;
+  --tip-bg:#E6EFE9; --tip-ink:#0C1511;
 
-  /* the validated eight, unchanged: see the note above */
-  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
-  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  /* Series slots stepped for a dark surface: the same eight hues, not a
+     different palette, so a category keeps its identity when the theme flips.
+     All eight clear 3:1 here, so the light mode's relief caveat does not apply. */
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+  --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
 
-  /* primary: the navy the reference fills its buttons and avatars with */
-  --brand:#26406E; --brand-2:#33538A; --brand-deep:var(--navy-deep);
-  --brand-tint:#EEF1F7; --brand-ring:rgba(38,64,110,.22);
+  --brand:var(--engo-ink); --brand-2:var(--engo); --brand-deep:var(--engo-deep);
+  --brand-tint:rgba(47,196,110,.16); --brand-ring:rgba(47,196,110,.3);
 
-  /* positive state stays its own family, on the teal axis so it belongs here */
-  --green:#137A5F; --green-2:#189A78; --green-deep:#0D5946;
-  --green-tint:#E6F5F0; --green-ring:rgba(19,122,95,.22);
+  --green:var(--engo-ink); --green-2:var(--engo); --green-deep:var(--engo-deep);
+  --green-tint:rgba(47,196,110,.16); --green-ring:rgba(47,196,110,.28);
 
-  /* critical: a warm coral rather than a wax red, so it lives with the peach */
-  --wax:#BE3A2E; --wax-tint:#FDEDEA;
-  --brass:#9C6414; --brass-tint:#FDF4E5; --gold-ink:#7A4E0F;
+  --wax:#F08A7E; --wax-tint:rgba(192,42,30,.18);
+  --brass:#E0A44B; --brass-tint:rgba(168,98,11,.2); --gold-ink:#EFC684;
 
-  --pri-from:#33538A; --pri-to:#26406E; --pri-from-h:#3D6099; --pri-to-h:#2C497B;
-  --pri-line:var(--navy-deep);
-  --wax-from:#CE4638; --wax-to:#BE3A2E; --wax-from-h:#D95243; --wax-to-h:#C63E32;
-  --wax-line:#93281E;
+  --pri-from:#128A4C; --pri-to:#0C6E3C; --pri-from-h:#169C57; --pri-to-h:#0F7C45;
+  --pri-line:#2FC46E; --pri-glow:rgba(0,0,0,.5);
+  --wax-from:#B33A2C; --wax-to:#992B20; --wax-from-h:#C24435; --wax-to-h:#A93326;
+  --wax-line:#F08A7E;
 
-  --chip-ok-line:#A8DECE; --chip-warn-line:#F2BFB8; --chip-gold-line:#EFD6A4;
+  --chip-ok-line:rgba(47,196,110,.5); --chip-warn-line:rgba(240,138,126,.45);
+  --chip-gold-line:rgba(224,164,75,.45);
 
-  --letter-bg:#F8FAFC; --ceremony-from:#FBE3CE; --ceremony-line:var(--peach-line);
-  --addm-line:#EFD6A4; --unread-bg:#F1F5FA; --login-glow:rgba(255,255,255,.14);
+  --letter-bg:#16241C; --ceremony-from:#241A18; --ceremony-line:#7A4034;
+  --addm-line:#5C4B25; --unread-bg:#16241C; --login-glow:#132019;
 
-  /* the mark: a teal disc, which is what "circle" means here */
-  --seal-hi:#7FD4C4; --seal-core:var(--teal); --seal-crack:#1F5A5A;
+  --seal-hi:#7DE8AE; --seal-core:#2FC46E; --seal-crack:#04331F;
 
-  /* ---- the rail, INSIDE the white console: ink on white, not a dark slab.
-          --side-dim and --side-sec are measured against #FFFFFF, because on
-          this theme that is the surface they land on. ---- */
-  --side:#FFFFFF; --side-from:#FFFFFF; --side-to:#FFFFFF;
-  --side-ink:var(--ink); --side-dim:#5A6478; --side-sec:#6B7488;
-  --side-hover:rgba(22,33,62,.05);
-  --side-on-bg:transparent;
-  --side-on-ink:var(--navy-deep); --side-on-line:transparent;
-  /* a hairline seam between rail and content, plus the console's cast shadow
-     on its left edge: .side already paints var(--side-edge) at the desk rung */
-  --side-edge:inset -1px 0 0 var(--line),-12px 0 34px -14px rgba(12,20,36,.5);
-  --newbtn-bg:#F2F4F8; --newbtn-line:#E1E5EC;
-  --newbtn-bg-h:#E9EDF3; --newbtn-line-h:#D5DBE4;
-  --wordmark-ink:var(--ink); --wordmark-rule:rgba(22,33,62,.09);
-  --wordmark-font:var(--font-sans); --wordmark-weight:700; --wordmark-ls:-.012em;
+  --band-bg:
+    radial-gradient(700px 300px at 88% -40%, rgba(47,196,110,.2), transparent 62%),
+    linear-gradient(135deg,#0B3823 0%,var(--engo-band) 52%,#061E14 100%);
+  --band-ink:#EAF6EF; --band-dim:#9FC4AF; --band-soft:#C4DED1;
+  --band-ctl:rgba(255,255,255,.1); --band-ctl-line:rgba(255,255,255,.2);
+  --band-ctl-h:rgba(255,255,255,.17); --band-ph:rgba(234,246,239,.5);
 
-  /* ---- type: a dashboard, so the display face is the sans and the micro
-          labels are letter-spaced sans caps rather than mono ---- */
-  --font-display:var(--font-sans);
-  --h1-size:26px; --h1-weight:650; --h1-ls:-.022em;
-  --th-font:var(--font-sans); --th-size:10px; --th-tt:uppercase; --th-ls:.11em; --th-weight:600;
-  --k-font:var(--font-sans); --k-size:10px; --k-tt:uppercase; --k-ls:.12em; --k-weight:600;
-  --badge-font:var(--font-sans); --badge-size:10px; --badge-tt:uppercase; --badge-ls:.08em;
-  --badge-weight:600; --badge-r:999px; --badge-bd:1px; --badge-pad:4px 10px;
-  --stat-v-font:var(--font-sans); --stat-v-weight:700; --stat-v-size:30px;
+  --side:#071410; --side-from:#0A1B14; --side-to:#050F0B;
+  --side-ink:#DCE9E1; --side-dim:#8DA095; --side-sec:#76897E;
+  --side-hover:rgba(255,255,255,.06);
+  --side-on-bg:linear-gradient(90deg,rgba(47,196,110,.22),rgba(255,255,255,.02) 70%);
+  --side-on-ink:#FFFFFF; --side-on-line:#2FC46E;
+  --side-edge:inset -1px 0 0 rgba(0,0,0,.5);
+  --newbtn-bg:rgba(255,255,255,.07); --newbtn-line:rgba(220,233,225,.2);
+  --newbtn-bg-h:rgba(255,255,255,.13); --newbtn-line-h:rgba(220,233,225,.34);
+  --wordmark-ink:#F1F8F4; --wordmark-rule:rgba(220,233,225,.14);
 
-  --field-bg:var(--card); --field-bd:var(--line2); --field-r:12px; --field-shadow:none;
-  --btn-bd:1px solid var(--line2); --btn-fw:600;
-  --nav-r:999px; --nav-mx:10px;
+  --field-shadow:inset 0 1px 2px rgba(0,0,0,.25);
 
-  /* everything is a pill or a generous corner */
-  --r-xs:8px; --r-sm:10px; --r:16px; --r-lg:22px; --r-btn:999px;
-
-  /* soft and layered: the shadow is what separates a white card from a white
-     page, so it does more work here than in any other theme */
-  --shadow:0 1px 2px rgba(22,33,62,.05);
-  --sh-2:0 2px 6px rgba(22,33,62,.05),0 10px 24px -10px rgba(22,33,62,.14);
-  --sh-3:0 24px 60px -20px rgba(22,33,62,.3);
-  --inset-hi:none;
-  --card-shadow:0 1px 3px rgba(22,33,62,.05),0 8px 20px -12px rgba(22,33,62,.16);
-  --btn-shadow:0 1px 2px rgba(22,33,62,.06);
+  --shadow:0 1px 2px rgba(0,0,0,.4);
+  --sh-2:0 2px 8px rgba(0,0,0,.45);
+  --sh-3:0 16px 40px -10px rgba(0,0,0,.6);
+  --inset-hi:inset 0 1px 0 rgba(255,255,255,.05);
 }
-
-/* Cards and stats: the generous corner and the soft lift. */
-:root[data-theme="circle"] .card{border-radius:var(--r-lg)}
-:root[data-theme="circle"] .stat{border-radius:var(--r-lg);box-shadow:var(--card-shadow)}
-/* pills all the way down: .sm re-declares its own radius in the base */
-:root[data-theme="circle"] .btn.sm{border-radius:999px}
-:root[data-theme="circle"] .btn.pri{box-shadow:0 4px 14px -5px rgba(16,27,51,.55)}
-/* the rail's current item is a tonal pill, the way Material's is, rather than
-   the left-edge rule the paper themes draw */
-:root[data-theme="circle"] .navi{width:auto;border-left:0;border-radius:var(--nav-r);
-  margin:2px var(--nav-mx);padding:9px 14px;font-weight:500}
-:root[data-theme="circle"] .navi.on{background:transparent;font-weight:650}
-:root[data-theme="circle"] .navind{left:var(--nav-mx);right:var(--nav-mx);width:auto;
-  background:var(--brand-tint);border-radius:var(--nav-r)}
-/* the one filled control in the rail, so it cannot take the rail's own tokens */
-:root[data-theme="circle"] .newbtn{background:linear-gradient(180deg,var(--pri-from) 0%,var(--pri-to) 100%);
-  border-color:transparent;color:var(--on-brand);border-radius:999px;font-weight:600;
-  box-shadow:0 6px 16px -7px rgba(16,27,51,.55)}
-:root[data-theme="circle"] .tab.on{border-bottom-color:var(--brand);border-bottom-width:2.5px}
-:root[data-theme="circle"] .segmented,
-:root[data-theme="circle"] .antabs{background:var(--paper-2);border-color:var(--line)}
-:root[data-theme="circle"] .segmented button.on,
-:root[data-theme="circle"] .antab.on{background:var(--card);box-shadow:var(--shadow)}
-/* the award surface is where the peach lives: one warm sheet in a cool app */
-:root[data-theme="circle"] .ceremony{border-style:solid;border-width:1px;border-radius:var(--r-lg)}
-:root[data-theme="circle"] .receipt,:root[data-theme="circle"] .letter,
-:root[data-theme="circle"] .aihint{border-radius:var(--r-lg)}
-/* the sign-in page gets the canvas too: the card is the console, in miniature */
-:root[data-theme="circle"] .loginwrap{background:var(--canvas-bg)}
-:root[data-theme="circle"] .loginwrap .card{border-color:transparent;border-radius:var(--shell-r)}
-:root[data-theme="circle"] .loginlogo b{color:#FFFFFF}
-:root[data-theme="circle"] .booting{background:var(--canvas-bg);color:#DDE5EA}
-
 *{box-sizing:border-box}
 html,body{margin:0}
 /* the drawer is open: stop the page behind it scrolling under the finger */
@@ -896,8 +440,9 @@ body.navopen{overflow:hidden}
   border:var(--badge-bd) solid color-mix(in srgb,currentColor 33%,transparent);white-space:nowrap;
   background:var(--st-bg,transparent);color:var(--st-fg,var(--muted))}
 /* Status stamps: foregrounds darkened against their own tint so the small
-   uppercase label clears WCAG AA on the badge, in every theme. The unprefixed
-   set belongs to whichever theme owns :root, so this one is studio.
+   uppercase label clears WCAG AA on the badge, in both themes. The unprefixed
+   set belongs to whichever theme owns :root, so this one is light; dark
+   restates all nine below.
 
    Six stages on one colour axis is the hard part. Paper reuses gold for both
    approval and awarded and green for both published and evaluation; studio
@@ -916,46 +461,20 @@ body.navopen{overflow:hidden}
 .st-closing{--st-fg:#9A3412;--st-bg:#FFEDD5}
 .st-paused{--st-fg:#1E3A5F;--st-bg:#DBE6F3}
 .st-cancelled{--st-fg:#7F1D1D;--st-bg:#F5D0CE}
-/* paper keeps the editorial set it always had */
-:root[data-theme="paper"] .st-draft{--st-fg:#4E5852;--st-bg:#ECEBE3}
-:root[data-theme="paper"] .st-approval{--st-fg:#75590E;--st-bg:#F6EFDC}
-:root[data-theme="paper"] .st-published{--st-fg:#1E5240;--st-bg:#E1EDE6}
-:root[data-theme="paper"] .st-closed{--st-fg:#962B19;--st-bg:#F8E8E2}
-:root[data-theme="paper"] .st-evaluation{--st-fg:#0E3527;--st-bg:#DBE8E0}
-:root[data-theme="paper"] .st-awarded{--st-fg:#6B5215;--st-bg:#F3ECD9}
-:root[data-theme="paper"] .st-closing{--st-fg:#8A4A16;--st-bg:#F7EBDD}
-:root[data-theme="paper"] .st-paused{--st-fg:#24455F;--st-bg:#DDE6EC}
-:root[data-theme="paper"] .st-cancelled{--st-fg:#7A2113;--st-bg:#F1DCD6}
-/* Material maps the lifecycle onto the prototype's reserved status roles:
-   neutral / warn / ok / crit, plus a primary-tonal for evaluation and a
-   deeper brass for the awarded terminal state so it never reads as "pending". */
-:root[data-theme="material"] .st-draft{--st-fg:#46464F;--st-bg:#EDECF1}
-:root[data-theme="material"] .st-approval{--st-fg:#75590E;--st-bg:#F6EFDC}
-:root[data-theme="material"] .st-published{--st-fg:#1E5240;--st-bg:#DCEDE4}
-:root[data-theme="material"] .st-closed{--st-fg:#962B19;--st-bg:#F9E7E2}
-:root[data-theme="material"] .st-evaluation{--st-fg:#04291B;--st-bg:#CDE8D9}
-:root[data-theme="material"] .st-awarded{--st-fg:#4A3A0C;--st-bg:#EFE3BE}
-:root[data-theme="material"] .st-closing{--st-fg:#8A4A16;--st-bg:#F9EADB}
-:root[data-theme="material"] .st-paused{--st-fg:#1F4664;--st-bg:#DCE7F1}
-:root[data-theme="material"] .st-cancelled{--st-fg:#7A2113;--st-bg:#F3DBD5}
-:root[data-theme="material-dark"] .st-draft{--st-fg:#C6C4CD;--st-bg:#33323A}
-:root[data-theme="material-dark"] .st-approval{--st-fg:#E6CA84;--st-bg:#3A3218}
-:root[data-theme="material-dark"] .st-published{--st-fg:#8FD5B0;--st-bg:#1F3D30}
-:root[data-theme="material-dark"] .st-closed{--st-fg:#F2B8A5;--st-bg:#43281F}
-:root[data-theme="material-dark"] .st-evaluation{--st-fg:#ABF2CB;--st-bg:#1F5340}
-:root[data-theme="material-dark"] .st-awarded{--st-fg:#F0DDA8;--st-bg:#453A18}
-:root[data-theme="material-dark"] .st-closing{--st-fg:#F2C08D;--st-bg:#43331F}
-:root[data-theme="material-dark"] .st-paused{--st-fg:#9FC9EA;--st-bg:#1B3247}
-:root[data-theme="material-dark"] .st-cancelled{--st-fg:#F5AFA0;--st-bg:#4E2019}
-:root[data-theme="night"] .st-draft{--st-fg:#C3CDC7;--st-bg:rgba(195,205,199,.14)}
-:root[data-theme="night"] .st-approval{--st-fg:#E6CA84;--st-bg:rgba(217,184,99,.16)}
-:root[data-theme="night"] .st-published{--st-fg:#6FD3A6;--st-bg:rgba(63,169,124,.18)}
-:root[data-theme="night"] .st-closed{--st-fg:#F09479;--st-bg:rgba(216,102,76,.18)}
-:root[data-theme="night"] .st-evaluation{--st-fg:#8FD9B6;--st-bg:rgba(63,169,124,.14)}
-:root[data-theme="night"] .st-awarded{--st-fg:#E6CA84;--st-bg:rgba(217,184,99,.14)}
-:root[data-theme="night"] .st-closing{--st-fg:#F0B27A;--st-bg:rgba(216,140,76,.18)}
-:root[data-theme="night"] .st-paused{--st-fg:#8FBEDD;--st-bg:rgba(110,168,208,.16)}
-:root[data-theme="night"] .st-cancelled{--st-fg:#F09479;--st-bg:rgba(216,76,76,.22)}
+/* Dark keeps the same nine states and the same separations, stepped for a
+   dark ground: the foreground is the light end of each hue and the fill is
+   that hue at low alpha, so a stamp reads as tinted rather than painted.
+   Published and closed are still separated by lightness, not only hue, for
+   the same deuteranopia reason as above. */
+:root[data-theme="dark"] .st-draft{--st-fg:#C3CDC7;--st-bg:rgba(195,205,199,.14)}
+:root[data-theme="dark"] .st-approval{--st-fg:#F7DDB0;--st-bg:rgba(224,164,75,.09)}
+:root[data-theme="dark"] .st-published{--st-fg:#5FD98F;--st-bg:rgba(47,196,110,.18)}
+:root[data-theme="dark"] .st-closed{--st-fg:#F5B9A8;--st-bg:rgba(240,138,126,.30)}
+:root[data-theme="dark"] .st-evaluation{--st-fg:#A7C4F5;--st-bg:rgba(57,135,229,.18)}
+:root[data-theme="dark"] .st-awarded{--st-fg:#EFC684;--st-bg:rgba(224,164,75,.24)}
+:root[data-theme="dark"] .st-closing{--st-fg:#F0B27A;--st-bg:rgba(217,140,76,.32)}
+:root[data-theme="dark"] .st-paused{--st-fg:#8FBEDD;--st-bg:rgba(110,168,208,.16)}
+:root[data-theme="dark"] .st-cancelled{--st-fg:#F5AFA0;--st-bg:rgba(216,76,76,.22)}
 /* status vocabulary is always a stamp; the tone variants carry their own colour
    where there is no STATUS entry to read one from (e.g. award approval). */
 .stamp.gold{color:var(--gold-ink);background:var(--brass-tint);border-color:var(--chip-gold-line)}
@@ -1348,36 +867,6 @@ label.btn{cursor:pointer}
   .topbar .crumb{flex:0 0 auto;overflow:visible;text-overflow:clip}
   .topbar .btn{white-space:nowrap}
   .content{flex:1;overflow-y:auto;padding:28px 26px 40px}
-
-  /* ---- circle only: the console ----
-     The shell stops being full-bleed and becomes one rounded white container
-     inset from the slate canvas, with the navigation rail inside it. The inset
-     is padding on .dk rather than a margin on its children, because .dk already
-     owns overflow:hidden here; the two children then meet with no seam and make
-     one silhouette, the rail rounding the left pair of corners and the content
-     pane the right pair.
-
-     Nothing is clipped to achieve that: .main paints the rounded background and
-     leaves its own children transparent, so the app bar's dropdowns still hang
-     out of the pane. An overflow:hidden on .main would have rounded the corner
-     just as well and cut the notification sheet off at the same time. */
-  :root[data-theme="circle"] .dk{padding:18px;background:var(--canvas-bg)}
-  :root[data-theme="circle"] .side{width:212px;padding:22px 0 16px;
-    border-radius:var(--shell-r) 0 0 var(--shell-r)}
-  :root[data-theme="circle"] .main{background:var(--paper);
-    border-radius:0 var(--shell-r) var(--shell-r) 0;
-    box-shadow:14px 0 34px -16px rgba(12,20,36,.5)}
-  /* the bar is inside the console now, so it stops being a pinned surface with
-     its own fill and blur and becomes a ruled row of the page */
-  :root[data-theme="circle"] .topbar{background:transparent;backdrop-filter:none;
-    box-shadow:none;padding:14px 26px}
-  /* the pane scrolls, so its own radius is what keeps a long table from
-     painting into the console's bottom-right corner */
-  :root[data-theme="circle"] .content{border-radius:0 0 var(--shell-r) 0;padding:24px 26px 34px}
-  :root[data-theme="circle"] .wordmark{padding:0 20px 16px;margin-bottom:10px}
-  :root[data-theme="circle"] .orgline{padding:0 20px 14px}
-  :root[data-theme="circle"] .navsec{padding:14px 20px 6px}
-  :root[data-theme="circle"] .sidefoot{padding:14px 20px 0}
 }
 
 /* ---- ${BP.wide}px · room for a four-up figure row ---- */
@@ -1406,10 +895,6 @@ label.btn{cursor:pointer}
   .tbl tr.click:hover td{background:var(--sunk)}
   .stat:hover{box-shadow:var(--sh-2);border-color:var(--line2)}
   .tab:hover{color:var(--ink)}
-  /* circle's rail button is a filled pill, so it cannot take the tonal hover
-     the other themes give .newbtn */
-  :root[data-theme="circle"] .newbtn:hover{border-color:transparent;
-    background:linear-gradient(180deg,var(--pri-from-h) 0%,var(--pri-to-h) 100%)}
 }
 
 @media(prefers-reduced-motion:reduce){
@@ -1424,58 +909,76 @@ label.btn{cursor:pointer}
    and a navigation drawer of pills rather than a left-edge marker.
    ============================================================ */
 export const THEME_CSS = `
-/* --- Material control behaviour, mirroring the prototype ---------------- */
-[data-theme^="material"] .btn{position:relative;overflow:hidden;letter-spacing:.005em;padding:9px 18px}
-[data-theme^="material"] .btn.sm{padding:6px 13px;font-size:12.5px}
-/* the press ripple, and M3's tonal active state underneath it */
-[data-theme^="material"] .btn::after{content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;
-  background:radial-gradient(circle at center,currentColor 14%,transparent 14.5%);
-  opacity:0;transform:scale(.35);transition:transform .5s var(--ease),opacity .55s var(--ease)}
-[data-theme^="material"] .btn:active::after{opacity:.16;transform:scale(2.8);transition-duration:0s,0s}
-[data-theme^="material"] .btn:active{transform:none;background:var(--p-container);color:var(--on-p-container)}
-[data-theme^="material"] .btn.pri{background:var(--green);color:var(--on-brand);border:0}
-[data-theme^="material"] .btn.pri:active{filter:brightness(1.12);background:var(--green);color:var(--on-brand)}
-[data-theme^="material"] .btn.wax{background:var(--wax);color:var(--on-brand);border:0}
-[data-theme^="material"] .btn.wax:active{filter:brightness(1.12);background:var(--wax);color:var(--on-brand)}
-[data-theme^="material"] .btn:disabled{opacity:.38}
-/* filled fields: the focus ring is an inner stroke, not an outer glow */
-[data-theme^="material"] .in:focus,[data-theme^="material"] .dk textarea:focus,
-[data-theme^="material"] .dk select.in:focus{border-color:var(--green);
-  box-shadow:inset 0 0 0 1px var(--green)}
-/* navigation drawer of pills */
-[data-theme^="material"] .navi{width:auto;border-left:0;border-radius:var(--nav-r);
-  margin:2px var(--nav-mx);padding:9px 15px;font-weight:500}
-[data-theme^="material"] .navi.on{font-weight:600}
-[data-theme^="material"] .newbtn{border-radius:var(--r-btn);font-weight:500;color:var(--on-p-container)}
-[data-theme^="material"] .side{padding-top:16px}
-[data-theme^="material"] .tbl td{padding:12px}
-[data-theme^="material"] .tbl th{border-bottom-color:var(--line)}
-[data-theme^="material"] .tab.on{border-bottom-width:3px;border-bottom-color:var(--green)}
-[data-theme^="material"] .stat{border-radius:var(--r-lg)}
-[data-theme^="material"] .stamp{font-weight:500}
-[data-theme^="material"] .chip{border-radius:999px}
-/* flat means flat: no letterpress edge on the seal, no dashed ceremony frame */
-[data-theme^="material"] .wordmark .seal{box-shadow:0 0 0 2.5px color-mix(in srgb,var(--seal-hi) 26%,transparent)}
-[data-theme^="material"] .ceremony{border-style:solid;border-width:0;border-radius:var(--r-lg)}
-[data-theme^="material"] .receipt{border-width:0;border-radius:var(--r-lg);background:var(--paper-2)}
-[data-theme^="material"] .letter,[data-theme^="material"] .aihint,[data-theme^="material"] .addm{
-  border-width:0;border-left-width:3px;border-radius:var(--r-xs)}
-[data-theme^="material"] .dlg{border:0}
-/* night: paper objects need a touch more edge definition on dark surfaces */
-:root[data-theme="night"] .letter,:root[data-theme="night"] .aihint{border-color:var(--line2)}
-:root[data-theme="night"] .ceremony{background:var(--ceremony-from)}
-:root[data-theme="night"] .receipt{background:var(--card)}
-
-/* Material's hover tones, gated with the rest of them: a tap on a phone must
-   not leave the control it landed on looking permanently hovered. */
-@media(hover:hover) and (pointer:fine){
-  [data-theme^="material"] .btn:hover{background:var(--btn-hover)}
-  [data-theme^="material"] .btn.pri:hover{background:var(--pri-from-h)}
-  [data-theme^="material"] .btn.wax:hover{background:var(--wax-from-h)}
-  [data-theme^="material"] .in:hover,[data-theme^="material"] .dk textarea:hover{border-color:transparent;background:var(--sunk)}
-  [data-theme^="material"] .navi:hover{background:var(--paper-2)}
-  [data-theme^="material"] .navi.on:hover{background:var(--p-container)}
+/* --- the house look: cards, the section band, pill controls -------------
+   Behaviours rather than colours, which is why they are here and not in the
+   token block. THEME_CSS is concatenated after CSS (see ALL_CSS in App.jsx),
+   so a plain `.card` selector wins on source order and none of these need a
+   theme attribute to beat the shell rules. Both themes get them; what differs
+   between light and dark is the tokens they read. */
+.card{
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:var(--radius-lg);
+  box-shadow:var(--sh-2);
 }
+.stat{
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:16px;
+  box-shadow:var(--shadow);
+}
+.statlink:hover{border-color:var(--brand-2);box-shadow:var(--sh-2)}
+
+/* THE BAND. Every page head is the tinted section the look opens with: deep
+   green, white type, the page's headline figures sitting on it. Scoped to
+   .pagehead so it is one element per page and never repeats. The field itself
+   is --band-bg, so dark restates the colour without restating the rule. */
+.pagehead{
+  background:var(--band-bg);
+  margin:-18px -18px 18px;
+  padding:26px 22px 22px;
+  border-radius:0 0 var(--radius-lg) var(--radius-lg);
+  box-shadow:var(--sh-2);
+}
+.pagehead h1{color:var(--band-ink)}
+.pagehead .sub,
+.pagehead .mono{color:var(--band-dim)}
+/* Controls that ride in the band have to invert with it. */
+.pagehead .btn{
+  background:var(--band-ctl);
+  border-color:var(--band-ctl-line);
+  color:var(--band-ink);
+}
+.pagehead .btn:hover{background:var(--band-ctl-h)}
+.pagehead .in{
+  background:var(--band-ctl);
+  border-color:var(--band-ctl-line);
+  color:var(--band-ink);
+}
+.pagehead .in::placeholder{color:var(--band-ph)}
+.pagehead .checkline{color:var(--band-soft)}
+
+@media(max-width:720px){
+  .pagehead{margin:-12px -12px 14px;padding:20px 14px 16px}
+}
+
+.in,
+.dk textarea,
+.dk select{border-radius:11px}
+.btn{border-radius:999px}
+.chip{border-radius:999px}
+.btn.pri{box-shadow:0 3px 12px -3px var(--pri-glow)}
+.segmented,
+.antabs{background:var(--paper-2);border-color:var(--line)}
+.segmented button.on,
+.antab.on{background:var(--card);box-shadow:var(--shadow)}
+
+/* dark: paper objects need a touch more edge definition on dark surfaces,
+   and the recessed tone is darker than the page rather than lighter. */
+:root[data-theme="dark"] .letter,
+:root[data-theme="dark"] .aihint{border-color:var(--line2)}
+:root[data-theme="dark"] .ceremony{background:var(--ceremony-from)}
+:root[data-theme="dark"] .receipt{background:var(--card)}
 `;
 
 export const EXTRA_CSS = `

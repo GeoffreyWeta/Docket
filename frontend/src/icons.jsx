@@ -60,6 +60,13 @@ const P = {
   exit: <><path d="M12 5.5V3.6H4v12.8h8v-1.9" /><path d="M8.6 10h8.4M14.2 7.4 16.8 10l-2.6 2.6" /></>,
   sound: <><path d="M4 8h2.4L10 4.8v10.4L6.4 12H4V8Z" /><path d="M13 7.6a3.4 3.4 0 0 1 0 4.8M15.3 5.4a6.6 6.6 0 0 1 0 9.2" /></>,
   mute: <><path d="M4 8h2.4L10 4.8v10.4L6.4 12H4V8Z" /><path d="M13.2 8.4l3.6 3.2M16.8 8.4l-3.6 3.2" /></>,
+
+  /* --- the two themes ---
+     Deliberately close cousins of the seal above: same 6.2 outer radius, same
+     centred disc, so the theme toggle sits in a row of chrome buttons without
+     announcing itself as a different family of mark. */
+  sun: <><circle cx="10" cy="10" r="4" /><path d="M10 2.6v1.8M10 15.6v1.8M2.6 10h1.8M15.6 10h1.8M4.8 4.8l1.3 1.3M13.9 13.9l1.3 1.3M15.2 4.8l-1.3 1.3M6.1 13.9l-1.3 1.3" /></>,
+  moon: <><path d="M16.2 11.6A6.8 6.8 0 0 1 8.4 3.8a6.9 6.9 0 1 0 7.8 7.8Z" /></>,
 };
 
 export const ICON_NAMES = Object.keys(P);

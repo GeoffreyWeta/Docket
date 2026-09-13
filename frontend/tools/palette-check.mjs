@@ -28,25 +28,15 @@ function blockAt(selector, from = 0) {
   return out;
 }
 const base = blockAt(":root");
-const paper = blockAt(':root[data-theme="paper"]');
-const matShared = blockAt(':root[data-theme="material"],:root[data-theme="material-dark"]');
-const matLight = blockAt(':root[data-theme="material"]', src.indexOf(':root[data-theme="material"],'));
-const matDark = blockAt(':root[data-theme="material-dark"]', src.indexOf(':root[data-theme="material"]{'));
-const night = blockAt(':root[data-theme="night"]');
-const engo = blockAt(':root[data-theme="engo"]');
-const circle = blockAt(':root[data-theme="circle"]');
+const dark = blockAt(':root[data-theme="dark"]');
 
 /* Every theme in theme.js belongs here, or it ships unmeasured. Each entry is
    its cascade, innermost last: :root is the fallback layer for whatever a theme
-   does not declare, exactly as the browser resolves it. */
+   does not declare, exactly as the browser resolves it. Light IS :root, so its
+   cascade is one layer deep. */
 const THEMES = {
-  circle: [base, circle],
-  studio: [base],
-  paper: [base, paper],
-  material: [base, matShared, matLight],
-  "material-dark": [base, matShared, matDark],
-  night: [base, night],
-  engo: [base, engo],
+  light: [base],
+  dark: [base, dark],
 };
 
 /* status stamp values live in rules, not the token blocks */
@@ -58,18 +48,12 @@ function stamps(themeSel) {
   for (const m of src.matchAll(re)) out[m[1]] = { fg: m[2].trim(), bg: m[3].trim() };
   return out;
 }
-/* circle and engo declare no stamp rules of their own, so they inherit the
-   unprefixed set, which is studio's: those pairs are already measured for AA
-   and for CVD separation, and both themes put them on a white card, which is
-   the surface they were measured against. */
+/* Light declares no stamp rules of its own, so it takes the unprefixed set.
+   Those pairs are measured for AA and for CVD separation against a white card,
+   which is the surface light puts them on. */
 const STAMPS = {
-  circle: stamps(null),
-  studio: stamps(null),
-  paper: stamps("paper"),
-  material: stamps("material"),
-  "material-dark": stamps("material-dark"),
-  night: stamps("night"),
-  engo: stamps(null),
+  light: stamps(null),
+  dark: stamps("dark"),
 };
 
 /* ---------- colour maths ---------- */
@@ -210,13 +194,19 @@ for (const [name, chain] of Object.entries(THEMES)) {
   console.log(stampBad.length ? `  stamps below AA: ${stampBad.join(", ")}` : `  ${keys.length} status stamps all AA on their own tint`);
   failures += stampBad.length;
 
-  /* CVD separation between stamp backgrounds */
+  /* CVD separation between stamp backgrounds.
+
+     Composited over the theme's OWN card, not over white. Every stamp tint is
+     a low-alpha fill, so on a dark card it resolves to a dark colour; measuring
+     it against white reported a light theme's numbers for a dark one and made
+     the dark figures meaningless. */
+  const cardRGB = parse(resolve("var(--card)", chain)) || [255, 255, 255, 1];
   for (const kind of ["protan", "deutan"]) {
     let worst = { d: Infinity, pair: "" };
     for (let i = 0; i < keys.length; i++) {
       for (let j = i + 1; j < keys.length; j++) {
-        const A = cvd(over(parse(resolve(st[keys[i]].bg, chain)), [255, 255, 255, 1]), kind);
-        const B = cvd(over(parse(resolve(st[keys[j]].bg, chain)), [255, 255, 255, 1]), kind);
+        const A = cvd(over(parse(resolve(st[keys[i]].bg, chain)), cardRGB), kind);
+        const B = cvd(over(parse(resolve(st[keys[j]].bg, chain)), cardRGB), kind);
         const d = deltaE(A, B);
         if (d < worst.d) worst = { d, pair: `${keys[i]}/${keys[j]}` };
       }

@@ -14,7 +14,7 @@ import { DESKTOP_Q } from "./breakpoints";
 import { DUR, EASE, cue, fmtRemaining, reducedMotion, setSoundEnabled, soundEnabled, tickRateFor, useCountUp, useTicker } from "./motion";
 import { fmtDateTime, fmtMoney } from "./helpers";
 import { Icon } from "./icons";
-import { THEMES, getTheme, setTheme } from "./theme";
+import { THEMES, getTheme, otherTheme, setTheme } from "./theme";
 
 /* ---------------- viewport ----------------
    The stylesheet handles every *appearance* difference between a phone and a
@@ -556,17 +556,20 @@ export const RADAR_CSS = `
 
 /* ---------------- theme switch ---------------- */
 
-/** Cycles paper → material → night. One click, no menu: three themes is few
-    enough that a cycle beats a dropdown, and the label always says what you
-    get next. */
+/** Light or dark, and nothing else. With two themes a cycle IS a toggle, so
+    this is a switch rather than a menu: the icon and the label both name the
+    theme you will get, not the one you are in, because a control says what
+    happens when you press it. aria-pressed carries the current state for a
+    screen reader, which the visible label deliberately does not. */
 export function ThemeSwitch() {
   const [cur, setCur] = useState(getTheme);
-  const next = THEMES[(THEMES.findIndex((t) => t.id === cur) + 1) % THEMES.length];
-  const now = THEMES.find((t) => t.id === cur) || THEMES[0];
+  const next = THEMES.find((t) => t.id === otherTheme(cur)) || THEMES[0];
+  const dark = cur === "dark";
   return (
-    <button className="btn sm" onClick={() => setCur(setTheme(next.id))}
-            title={`${now.hint}. Click for ${next.label}`}>
-      <Icon n={now.icon} s={14} />{now.label}
+    <button className="btn sm" aria-pressed={dark}
+            onClick={() => setCur(setTheme(next.id))}
+            title={`${next.hint}`}>
+      <Icon n={next.icon} s={14} />{next.label}
     </button>
   );
 }

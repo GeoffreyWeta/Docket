@@ -379,12 +379,11 @@ export const MENU_CSS = `
    is concatenated after CSS) and quietly unstick
    the app bar on phones — which also unmoors the notification sheet, since that
    is placed a fixed distance below a bar it assumes is pinned. */
-/* the navigation indicator: a rail on paper, a tonal pill in Material */
+/* the navigation indicator: a bright rail down the left edge of the current
+   item, in the accent rather than the seal red, because the rail it rides on
+   is the house green and a red marker on it reads as an alert */
 .navlist{position:relative}
-.navind{width:2.5px;background:var(--wax);border-radius:0 2px 2px 0}
-:root[data-theme^="material"] .navind{left:var(--nav-mx);right:var(--nav-mx);width:auto;
-  background:var(--p-container);border-radius:var(--nav-r)}
-:root[data-theme^="material"] .navi.on{background:transparent}
+.navind{width:2.5px;background:var(--side-on-line);border-radius:0 2px 2px 0}
 .navi.on{border-left-color:transparent}
 
 .acctwrap{position:relative;display:flex}

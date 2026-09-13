@@ -5,11 +5,11 @@
    empty card. Both are drawn rather than shipped, so there is nothing to
    optimise, nothing to lazy-load, and nothing that goes stale at a CDN.
 
-   THREE RULES, and they are what let one drawing survive seven themes:
+   THREE RULES, and they are what let one drawing survive both themes:
 
    1. NO LITERAL COLOURS. Every fill is one of the six --il-* variables below,
-      which resolve from theme tokens. A scene drawn with #1B2A4A would be
-      invisible on night. The only exception is opacity on a themed colour,
+      which resolve from theme tokens. A scene drawn with #0B3D24 would be
+      invisible on dark. The only exception is opacity on a themed colour,
       which is safe because it composites against whatever is behind it.
 
    2. NO FACES, NO SKIN. Figures are single-colour silhouettes. That is a
@@ -204,30 +204,19 @@ export const ILLUS_CSS = `
   --il-cool:var(--green-2);
   --il-warm:var(--brass)}
 
-/* Circle draws these the way the reference does: a navy figure, a teal seal
-   and one peach accent, on a tint of the primary. */
-:root[data-theme="circle"] .illus{
-  --il-tint:#EEF1F7;
-  --il-ink:var(--navy);
-  --il-ink-2:var(--navy-deep);
-  --il-cool:var(--teal);
-  --il-warm:var(--peach-line);
-  --il-line:#DBE0E8}
+/* Dark. Three things change here and none of them are optional:
 
-/* Dark themes. Three things invert here and none of them are optional:
-
-   1. --il-paper takes --card, NOT --paper-2. On night, --paper-2 (#0B120F) is
+   1. --il-paper takes --card, NOT --paper-2. On dark, --paper-2 (#081009) is
       DARKER than the page it sits on, so every sheet in every scene became a
       hole punched in the card. --card is the surface that is genuinely raised.
    2. The neutrals climb rather than fall: the figure is the brightest neutral,
       furniture a step back, outlines between the two. On a dark ground the
       silhouette has to be light or there is no silhouette.
-   3. --il-ink stops being the brand. Both dark themes set --brand to their
-      green, so --il-ink and --il-cool resolved to the SAME colour and the
-      figure and the seal it is reaching for were indistinguishable. The
-      accent has to be the only saturated thing in the picture. */
-:root[data-theme="night"] .illus,
-:root[data-theme="material-dark"] .illus{
+   3. --il-ink stops being the brand. Dark sets --brand to its green, so
+      --il-ink and --il-cool resolved to the SAME colour and the figure and the
+      seal it is reaching for were indistinguishable. The accent has to be the
+      only saturated thing in the picture. */
+:root[data-theme="dark"] .illus{
   --il-tint:color-mix(in srgb,var(--brand) 18%,transparent);
   --il-paper:var(--card);
   --il-ink:var(--ink);

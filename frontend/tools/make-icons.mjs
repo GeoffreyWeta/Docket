@@ -9,10 +9,11 @@
    and box-filtered, encoded with node's own zlib. No image library, and no
    headless browser either, so it runs anywhere node does.
 
-   The mark is the same seal the app draws (SealMark in icons.jsx, the inline
-   favicon in index.html): rose disc, darker rim, inner ring, one off-centre
-   specular that clears both. Keep the three in step by hand; they are five
-   numbers and they change rarely.
+   The mark is the same seal the app draws (the .seal in styles.js, the inline
+   favicon in index.html): a green wax seal on the deep green field the rail and
+   the page band are painted in. Disc, darker rim, light inner ring, one
+   off-centre specular that clears both. Keep the three in step by hand; they
+   are five numbers and they change rarely.
 
    usage: node tools/make-icons.mjs
    then:  npm run build      (vite copies public/ into dist/) */
@@ -24,8 +25,11 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(HERE, "..", "public");
 
-/* studio's seal on studio's navigation slate: the --seal-* and --side tokens */
-const SLATE = "#111827", CORE = "#E11D48", RIM = "#881337", RING = "#FB7185", HI = "#FDA4AF";
+/* The house seal on the house field: the --seal-* and --side tokens from the
+   light theme in styles.js. GROUND is --engo-band, CORE is --engo, RING is
+   --seal-hi. The specular is near-white on purpose: it has to clear the ring
+   AND the disc, and a green light on green wax reads as a smudge. */
+const GROUND = "#0B3D24", CORE = "#00A651", RIM = "#04452A", RING = "#7DE8AE", HI = "#EAFBF2";
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 
 /* ---------------- the mark, in a 32-unit square ---------------- */
@@ -44,7 +48,7 @@ function layers(maskable) {
     return Math.min(Math.max(dx, dy), 0) + Math.hypot(ox, oy) - tileR;
   };
   return [
-    { colour: rgb(SLATE), hit: (x, y) => roundRect(x, y) <= 0 },
+    { colour: rgb(GROUND), hit: (x, y) => roundRect(x, y) <= 0 },
     { colour: rgb(CORE), hit: (x, y) => dist(x, y, c, c) <= r },
     { colour: rgb(RIM), hit: (x, y) => Math.abs(dist(x, y, c, c) - r) <= 0.6 },
     { colour: rgb(RING), hit: (x, y) => Math.abs(dist(x, y, c, c) - r * 0.49) <= 0.65 },
@@ -148,8 +152,8 @@ const MANIFEST = {
   start_url: "/",
   scope: "/",
   display: "standalone",
-  background_color: "#F7F8FA",
-  theme_color: SLATE,
+  background_color: "#F2F6F3",
+  theme_color: GROUND,
   /* icon paths stay RELATIVE, so they resolve against wherever the manifest is
      served from (/static/) rather than the site root, and keep working if that
      base ever changes. An absolute "/icon-192.png" 404s in this deployment. */
