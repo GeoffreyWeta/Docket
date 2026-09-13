@@ -63,7 +63,11 @@ export const CSS = `
   --font-sans:'Geist Variable',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
   --font-serif:'Source Serif 4 Variable',ui-serif,Charter,Georgia,serif;
   --font-mono:'Geist Mono Variable',ui-monospace,SFMono-Regular,Menlo,monospace;
-  --font-display:var(--font-serif);
+  /* The display face is the SANS. Source Serif set the page titles and the
+     headline figures, and a serif title over a dashboard reads as stationery
+     sitting on top of software. The serif is still loaded and still available
+     as --font-serif for anything that genuinely wants it. */
+  --font-display:var(--font-sans);
 
   /* ---- the brand, in one place ---- */
   --engo:#00A651;
@@ -152,15 +156,32 @@ export const CSS = `
   --wordmark-ink:#FFFFFF; --wordmark-rule:rgba(234,246,239,.18);
   --wordmark-font:var(--font-sans); --wordmark-weight:700; --wordmark-ls:.02em;
 
-  /* ---- role tokens (structure) ---- */
-  --h1-size:27px; --h1-weight:600; --h1-ls:-.018em;
-  --th-font:var(--font-mono); --th-size:9.5px; --th-tt:uppercase; --th-ls:.13em; --th-weight:550;
-  --k-font:var(--font-mono); --k-size:9.5px; --k-tt:uppercase; --k-ls:.14em; --k-weight:550;
-  --badge-font:var(--font-mono); --badge-size:9.5px; --badge-tt:uppercase; --badge-ls:.11em;
-  --badge-r:var(--r-xs); --badge-bd:1px; --badge-pad:3.5px 8px;
+  /* ---- role tokens (structure) ----
+     THE MICRO-LABELS ARE SENTENCE CASE NOW, and this is the single change that
+     does most of the work on how the product feels. They used to be 9.5px
+     uppercase mono at .13em tracking, applied to every table header, every
+     stat key, the nav section caps and every status stamp: nine and a half
+     pixels, shouted, on a tracked-out typewriter face. That is what read as a
+     court filing rather than an app, and it was also the least legible type in
+     the interface.
+
+     Mono survives where the glyphs genuinely have to line up or be
+     transcribed: money, timestamps and reference codes, which is what the
+     .mono class is for. It is no longer the voice of the whole chrome.
+
+     The sizes went UP with the case change. Sentence case at 9.5px would have
+     been quieter and no more readable; the point was legibility, not volume.
+     --k-size in particular is the sidebar section cap, which WCAG counts as
+     small text, so 11.5px buys real headroom on that contrast requirement. */
+  --h1-size:28px; --h1-weight:680; --h1-ls:-.022em;
+  --th-font:var(--font-sans); --th-size:11.5px; --th-tt:none; --th-ls:.005em; --th-weight:600;
+  --k-font:var(--font-sans); --k-size:11.5px; --k-tt:none; --k-ls:.005em; --k-weight:600;
+  --badge-font:var(--font-sans); --badge-size:11px; --badge-tt:none; --badge-ls:.005em;
+  --badge-weight:600;
+  --badge-r:999px; --badge-bd:1px; --badge-pad:4px 10px;
   --field-bg:var(--card); --field-bd:var(--line2); --field-r:var(--r-sm);
   --field-shadow:inset 0 1px 2px rgba(14,26,21,.04);
-  --stat-v-font:var(--font-display); --stat-v-weight:600; --stat-v-size:29px;
+  --stat-v-font:var(--font-display); --stat-v-weight:700; --stat-v-size:30px;
   --card-bd:1px;
   --btn-bg:var(--card); --btn-ink:var(--ink); --btn-bd:1px solid var(--line2); --btn-fw:550;
   --nav-r:0; --nav-mx:0;
@@ -527,7 +548,7 @@ label.btn{cursor:pointer}
 .lbl{display:block;font-size:12px;font-weight:600;color:var(--muted);margin:0 0 6px;letter-spacing:.005em;line-height:1.4}
 /* The sentence under a field that explains what it is for. Distinct from a
    validation message: this is always present and never red. */
-.hint{font-size:11.5px;color:var(--faint);line-height:1.5;margin-top:5px}
+.hint{font-size:12.5px;color:var(--faint);line-height:1.5;margin-top:5px}
 .lbl .faint{font-weight:400;text-transform:none;letter-spacing:0}
 .in:disabled{opacity:.55;cursor:not-allowed}
 .frow{margin-bottom:14px}

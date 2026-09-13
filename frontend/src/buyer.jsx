@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 import { downloadDoc, downloadUrl, raw } from "./api";
+import { BP } from "./breakpoints";
 import { orgIndex, savingsSplit } from "./analytics-model";
 import { Countdown, Empty, MiniBars, Money, Stamp, Stat, StageTracker } from "./atoms";
 import { BaselineHint } from "./baselines";
@@ -17,7 +18,7 @@ import {
 } from "./lifecycle";
 import { Icon, SealMark } from "./icons";
 import { can, homePage, navPages } from "./perms";
-import { DUR, cue, useFlip } from "./motion";
+import { DUR, cue, reducedMotion, useFlip } from "./motion";
 import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwitch, TopProgress } from "./ui";
 
 /* How many register rows reach the DOM before the reader asks for more. The
@@ -2183,6 +2184,33 @@ function ItemPick({ line, onPick }) {
   );
 }
 
+/* ---------------- drafting a tender ----------------
+
+   THE RULE THIS SCREEN IS BUILT ON: never disable a control without saying
+   why. `ready` below is one boolean AND of eight conditions, and for a long
+   time the only thing the interface did with it was grey the button out. A
+   person who had filled in sixteen fields and still could not submit had no
+   way to find out which of the eight was unmet except to scroll and guess.
+
+   So the boolean is now a LIST. Every condition names itself, says what to do
+   about it, and clicking it scrolls to the field and flashes it. The button is
+   still disabled — the server would reject an incomplete tender anyway — but
+   it is no longer silent.
+
+   Two other things follow from the same idea:
+
+     Specialist questions moved. Two-stage envelope openings, auction
+     decrements, savings baselines and priced line items are real features that
+     a handful of tenders need. They used to sit at the same visual weight as
+     the title, so a store manager buying syrup was asked about technical
+     thresholds. They are behind Advanced options now. Nothing was removed.
+
+     The weights cannot be wrong. Criteria had to total exactly 100, typed as
+     free numbers, and told you off in red when they did not. They are sliders
+     that redistribute, so the rule is now impossible to break rather than
+     something you get scolded about. A tender in the register with weights
+     that do not sum to 100 still edits cleanly: the first drag normalises it. */
+
 export function NewTender({ api, editId }) {
   const { state, act, ai, go } = api;
   const editing = editId ? state.tenders.find((t) => t.id === editId) : null;
@@ -2214,6 +2242,82 @@ export function NewTender({ api, editId }) {
                    && Number(f.projectedCost) > Number(f.budget));
   const ready = f.title.trim() && f.category && Number(f.budget) > 0 && f.deadline && f.invited.length > 0 && linesOk && projOk
     && (isAuction ? Number(f.minDecrement) > 0 && f.lines.length === 0 : weightSum === 100);
+
+  /* Move one weight and let the others absorb the difference, proportionally,
+     so the total is always exactly 100. The rounding drift lands on the first
+     other criterion rather than being spread, because spreading it makes every
+     number twitch on every drag. */
+  const rebalance = (id, val) => {
+    const next = Math.max(0, Math.min(100, Math.round(Number(val) || 0)));
+    const others = f.criteria.filter((c) => c.id !== id);
+    if (!others.length) { set("criteria", f.criteria.map((c) => ({ ...c, weight: 100 }))); return; }
+    const oldRest = others.reduce((s, c) => s + Number(c.weight || 0), 0);
+    const rest = 100 - next;
+    const shared = others.map((c, i) => ({
+      ...c,
+      weight: oldRest > 0 ? Math.max(0, Math.round(Number(c.weight || 0) / oldRest * rest))
+                          : (i === 0 ? rest : 0),
+    }));
+    const drift = 100 - next - shared.reduce((s, c) => s + c.weight, 0);
+    if (drift) shared[0].weight = Math.max(0, shared[0].weight + drift);
+    const byId = new Map(shared.map((c) => [c.id, c]));
+    set("criteria", f.criteria.map((c) => (c.id === id ? { ...c, weight: next } : byId.get(c.id))));
+  };
+
+  /* Scroll to the field a checklist line names and flash it, so the answer to
+     "which one?" is a place on the screen rather than a sentence to parse. */
+  const jump = (id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" });
+    el.classList.remove("jumped");
+    void el.offsetWidth;
+    el.classList.add("jumped");
+    const focusable = el.matches("input,select,textarea") ? el : el.querySelector("input,select,textarea,button");
+    if (focusable) focusable.focus({ preventScroll: true });
+  };
+
+  /* The eight conditions of `ready`, each one able to explain itself. Order
+     follows the form, so the list reads top to bottom the way the page does.
+     `quiet` entries are conditions that only exist once you have opted into
+     the thing they guard, so they stay out of the list until they can fail. */
+  const checks = [
+    { key: "title", ok: !!f.title.trim(), to: "nt-title",
+      todo: "Say what you are buying", done: "Title set" },
+    { key: "cat", ok: !!f.category, to: "nt-cat",
+      todo: "Pick a category", done: "Category picked",
+      note: "It decides which vendors we suggest." },
+    { key: "budget", ok: Number(f.budget) > 0, to: "nt-budget",
+      todo: "Set the most you can spend",
+      done: "Ceiling " + fmtMoney(Number(f.budget) || 0) },
+    { key: "deadline", ok: !!f.deadline, to: "nt-deadline",
+      todo: "Choose a closing date", done: "Closes " + fmtDeadline(f.deadline),
+      note: "Vendors need a date before they can be invited." },
+    { key: "invited", ok: f.invited.length > 0, to: "nt-invite",
+      todo: "Invite at least one vendor",
+      done: f.invited.length + (f.invited.length === 1 ? " vendor invited" : " vendors invited") },
+    isAuction
+      ? { key: "decrement", ok: Number(f.minDecrement) > 0, to: "nt-decrement",
+          todo: "Set the minimum decrement", done: "Each bid undercuts by " + fmtMoney(Number(f.minDecrement) || 0),
+          note: "An auction needs a step size before it can open." }
+      : { key: "weights", ok: weightSum === 100, to: "nt-weights",
+          todo: "Scoring adds up to " + weightSum + ", not 100", done: "Scoring adds up to 100",
+          note: "Move any slider and the rest will follow." },
+    { key: "lines", ok: linesOk, to: "nt-lines", quiet: linesOk,
+      todo: "Finish the priced line items", done: "Line items complete",
+      note: "Every line needs a description and a quantity above zero." },
+    { key: "auclines", ok: !(isAuction && f.lines.length > 0), to: "nt-lines", quiet: !isAuction || f.lines.length === 0,
+      todo: "Remove the line items", done: "No line items",
+      note: "A reverse auction is price-only, so it cannot carry priced lines." },
+    { key: "proj", ok: projOk, to: "nt-proj", quiet: projOk,
+      todo: "Projected cost is above the ceiling", done: "Projection sits under the ceiling",
+      note: "Raise the ceiling, or revise the projection." },
+  ].filter((c) => !(c.quiet && c.ok));
+
+  const outstanding = checks.filter((c) => !c.ok);
+  const pct = Math.round((checks.length - outstanding.length) / checks.length * 100);
+  const threshold = Number(state.org.approvalThreshold) || 0;
+  const needsApproval = threshold > 0 && Number(f.budget) >= threshold;
 
   const draftScope = async () => {
     setBusy(true);
@@ -2255,186 +2359,414 @@ export function NewTender({ api, editId }) {
   };
 
   return (
-    <div style={{ maxWidth: 760 }}>
-      <button className="btn sm" style={{ marginBottom: 14 }} onClick={() => go({ page: "tenders" })}>← Back</button>
-      <div className="pagehead"><h1>{editing ? "Edit draft" : "New tender"}</h1><span className="sub">draft → approval → published, sealed from day one</span></div>
+    <div>
+      <div className="pagehead">
+        <button className="btn sm" onClick={() => go({ page: "tenders" })}>
+          <Icon n="chev" s={14} style={{ transform: "rotate(180deg)" }} />Tenders
+        </button>
+        <h1>{editing ? "Edit draft" : "New tender"}</h1>
+        <span className="sub">Draft it here. Nothing goes out until you send it on.</span>
+      </div>
 
-      <div className="card" style={{ marginBottom: 14 }}>
-        <div className="chead"><h3>Basics</h3></div>
-        <div className="cbody">
-          <div className="frow"><label className="lbl" htmlFor="nt-title">Title</label>
-            <input id="nt-title" className="in" placeholder="e.g. Annual supply of beverage syrups" value={f.title} onChange={(e) => set("title", e.target.value)} /></div>
-          <div className="grid g3">
-            <div className="frow"><label className="lbl">Type</label>
-              <select className="in" value={f.type} onChange={(e) => set("type", e.target.value)}>
-                <option value="RFQ">RFQ: sealed quotation</option>
-                <option value="RFP">RFP: sealed proposal</option>
-                <option value="RFI">RFI: information</option>
-                <option value="AUC">Reverse auction: live price competition</option>
-              </select></div>
-            {isAuction ? (
-              <div className="frow">
-                <label className="lbl">Minimum decrement (NGN): each new bid must undercut the bidder's previous price by at least this</label>
-                <input className="in" type="number" value={f.minDecrement} onChange={(e) => set("minDecrement", e.target.value)} placeholder="e.g. 500000" />
-                <div className="muted" style={{ fontSize: 12, marginTop: 5 }}>
-                  Price-only competition: the budget acts as the opening ceiling, bidders see live rank (never
-                  competitor prices), and bids in the final two minutes extend the close. No criteria, no line items.
+      <div className="ntcols">
+        <div>
+          <div className="card">
+            <div className="chead"><h3>The basics</h3></div>
+            <div className="cbody">
+              <div className="frow"><label className="lbl" htmlFor="nt-title">What are you buying?</label>
+                <input id="nt-title" className="in" placeholder="e.g. Annual supply of beverage syrups"
+                       value={f.title} onChange={(e) => set("title", e.target.value)} /></div>
+
+              <div className="grid g2">
+                <div className="frow"><label className="lbl" htmlFor="nt-cat">Category</label>
+                  <select id="nt-cat" className="in" value={f.category} onChange={(e) => set("category", e.target.value)}>
+                    <option value="">Choose a category…</option>
+                    {(state.taxonomy || []).map((fam) => (
+                      <optgroup key={fam.key} label={fam.label}>
+                        {fam.categories.map((c) => (
+                          <option key={c.key} value={c.key}>
+                            {c.label}{c.count ? ` (${c.count} vendors)` : ""}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                  <div className="hint">It decides which vendors we suggest below.</div></div>
+
+                <div className="frow"><label className="lbl" htmlFor="nt-budget">Most you can spend</label>
+                  <input id="nt-budget" className="in" type="number" min="0" placeholder="120000000"
+                         value={f.budget} onChange={(e) => set("budget", e.target.value)} />
+                  <div className="hint">In naira. Bids above this are rejected automatically.</div></div>
+              </div>
+
+              <div className="grid g2">
+                <div className="frow"><label className="lbl" htmlFor="nt-deadline">Bids close on</label>
+                  <input id="nt-deadline" className="in" type="date" min={new Date().toISOString().slice(0, 10)}
+                         value={f.deadline} onChange={(e) => set("deadline", e.target.value)} />
+                  <div className="hint">Vendors can bid until 5pm on this date. Nobody sees a price before then, including you.</div></div>
+
+                <div className="frow"><label className="lbl" htmlFor="nt-type">Kind of tender</label>
+                  <select id="nt-type" className="in" value={f.type} onChange={(e) => set("type", e.target.value)}>
+                    <option value="RFQ">Request for quotation</option>
+                    <option value="RFP">Request for proposal</option>
+                    <option value="RFI">Request for information</option>
+                    <option value="AUC">Reverse auction</option>
+                  </select>
+                  <div className="hint">{TYPE_HINT[f.type]}</div></div>
+              </div>
+
+              {isAuction && (
+                <div className="frow"><label className="lbl" htmlFor="nt-decrement">Minimum decrement</label>
+                  <input id="nt-decrement" className="in" type="number" min="0" placeholder="e.g. 500000"
+                         value={f.minDecrement} onChange={(e) => set("minDecrement", e.target.value)} />
+                  <div className="hint">
+                    How much each new bid must undercut that bidder's own previous price by. The budget acts
+                    as the opening ceiling, bidders see their live rank but never a competitor's price, and a
+                    bid in the last two minutes extends the close.
+                  </div></div>
+              )}
+
+              <div className="frow" style={{ marginBottom: 0 }}>
+                <label className="lbl" htmlFor="nt-scope">Scope of work <span className="faint">optional, you can add it later</span></label>
+                <textarea id="nt-scope" className="in" placeholder="What is being bought, at what service level, under which compliance rules…"
+                          value={f.scope} onChange={(e) => set("scope", e.target.value)} />
+                <button className="btn sm" style={{ marginTop: 8 }} onClick={draftScope} disabled={busy}>
+                  {busy ? "Drafting…" : "Draft scope for me"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {!isAuction && (
+            <div className="card" id="nt-weights">
+              <div className="chead"><h3>How you will score the bids</h3>
+                <button className="btn sm" style={{ marginLeft: "auto" }} onClick={suggestCriteria} disabled={busyC}>
+                  {busyC ? "Suggesting…" : "Suggest criteria"}
+                </button></div>
+              <div className="cbody">
+                <div className="wt">
+                  {f.criteria.map((c, i) => (
+                    <div className="wtrow" key={c.id}>
+                      <input className="in wtname" aria-label={"Criterion " + (i + 1)} value={c.name}
+                             onChange={(e) => set("criteria", f.criteria.map((x) => x.id === c.id ? { ...x, name: e.target.value } : x))} />
+                      <span className="wtpc">{c.weight}%</span>
+                      <button className="btn sm wtdel" aria-label={"Remove " + (c.name || "criterion " + (i + 1))}
+                              disabled={f.criteria.length < 2}
+                              onClick={() => {
+                                const rest = f.criteria.filter((x) => x.id !== c.id);
+                                const share = Math.floor(100 / rest.length);
+                                set("criteria", rest.map((x, k) => ({ ...x, weight: k === 0 ? 100 - share * (rest.length - 1) : share })));
+                              }}><Icon n="close" s={13} /></button>
+                      <input className="wtrange" type="range" min="0" max="100" step="5" value={c.weight}
+                             aria-label={(c.name || "Criterion " + (i + 1)) + " weight"}
+                             onChange={(e) => rebalance(c.id, e.target.value)} />
+                    </div>
+                  ))}
+                </div>
+                <div className="wtsum"><Icon n="check" s={14} />These always add up to 100. Move one and the others adjust.</div>
+                <button className="btn sm" style={{ marginTop: 12 }}
+                        onClick={() => {
+                          const share = Math.floor(100 / (f.criteria.length + 1));
+                          const added = [...f.criteria, { id: uid(), name: "", weight: 0 }];
+                          set("criteria", added.map((x, k) => ({ ...x, weight: k === 0 ? 100 - share * (added.length - 1) : share })));
+                        }}>Add a criterion</button>
+
+                <div className="frow" style={{ marginTop: 16, marginBottom: 0 }}>
+                  <label className="lbl" htmlFor="nt-tw">Technical against commercial</label>
+                  <input id="nt-tw" className="in" type="range" min="30" max="90" step="5"
+                         value={f.techWeight} onChange={(e) => set("techWeight", e.target.value)} />
+                  <div className="hint">{f.techWeight}% of the final score comes from the criteria above, {100 - f.techWeight}% from price.</div>
                 </div>
               </div>
-            ) : (
-              <div className="frow">
-                <label style={{ display: "flex", gap: 9, alignItems: "center", fontSize: 13, cursor: "pointer" }}>
-                  <input type="checkbox" checked={f.twoStage} onChange={(e) => set("twoStage", e.target.checked)} />
-                  Two-stage opening: technical envelopes first; commercial envelopes only for bidders scoring ≥
-                  <input className="in numin" type="number" min="0" max="100" style={{ margin: "0 4px" }}
-                         value={f.techThreshold} onChange={(e) => set("techThreshold", e.target.value)}
-                         onClick={(e) => e.stopPropagation()} /> /100
-                </label>
-                <div className="muted" style={{ fontSize: 12, marginTop: 5 }}>Failed bidders' pricing is never decrypted: their commercial envelope is returned unopened. Standard in public-sector procurement.</div>
-              </div>
-            )}
-            {/* Grouped by family, and driven by the register's own taxonomy
-                rather than a list typed into this file — the seven words that
-                used to live here matched nothing the vendor register knew, so
-                spend by category could never be checked against the vendors
-                that make it up. */}
-            <div className="frow"><label className="lbl">Category</label>
-              <select className="in" value={f.category} onChange={(e) => set("category", e.target.value)}>
-                <option value="">Choose a category…</option>
-                {(state.taxonomy || []).map((fam) => (
-                  <optgroup key={fam.key} label={fam.label}>
-                    {fam.categories.map((c) => (
-                      <option key={c.key} value={c.key}>
-                        {c.label}{c.count ? ` (${c.count} vendors)` : ""}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select></div>
-            <div className="frow"><label className="lbl">Budget ceiling (₦)</label>
-              <input className="in" type="number" min="0" placeholder="120000000" value={f.budget} onChange={(e) => set("budget", e.target.value)} /></div>
-            {/* The ceiling and the expectation are different numbers and the
-                evaluation panel is judged against the second one. A bid under
-                the ceiling but over the projection is a win against a budget
-                and a miss against the business case, and until this field
-                existed there was no way to tell those apart. */}
-            <div className="frow"><label className="lbl" htmlFor="nt-proj">
-              Projected cost (₦) <span className="faint">optional</span></label>
-              <input id="nt-proj" className="in" type="number" min="0" placeholder="e.g. 108000000"
-                     value={f.projectedCost} onChange={(e) => set("projectedCost", e.target.value)} />
-              <div className="hint">
-                What you actually expect this to land at, as opposed to the ceiling it must not cross.
-                {Number(f.projectedCost) > 0 && Number(f.budget) > 0 && Number(f.projectedCost) > Number(f.budget)
-                  ? " This is above the ceiling — raise the ceiling or revise the projection."
-                  : ""}
-              </div></div>
-          </div>
-
-          {/* The baseline is what makes a saving on this tender defensible.
-              Optional, and deliberately not pre-filled from the budget: a
-              baseline that quietly equals the ceiling turns every saving into
-              zero and reads as a bug. */}
-          <div className="grid g2">
-            <div className="frow"><label className="lbl" htmlFor="nt-base">
-              What we pay now (₦) <span className="faint">optional</span></label>
-              <input id="nt-base" className="in" type="number" min="0" placeholder="e.g. 505000000"
-                     value={f.baseline} onChange={(e) => set("baseline", e.target.value)} />
-              <div className="hint">
-                Last year's contract, the incumbent's renewal quote, or the current price.
-                With it, the saving on this tender is measured against what the business
-                actually pays — without it, only against the budget above.
-              </div>
-              {/* If the finance ledger already knows what this category cost,
-                  offer it rather than making somebody look it up in NAV. The
-                  suggestion fills the source line too, so the comparison stays
-                  checkable by whoever reviews the saving later. */}
-              <BaselineHint api={api} category={f.category} current={f.baseline}
-                            onAdopt={(amount, source) => {
-                              set("baseline", String(amount));
-                              set("baselineSource", source);
-                            }} /></div>
-            <div className="frow"><label className="lbl" htmlFor="nt-basesrc">Where that figure comes from</label>
-              <input id="nt-basesrc" className="in" placeholder="e.g. 2025 contract with Harmattan Foods, annualised"
-                     value={f.baselineSource} disabled={!Number(f.baseline)}
-                     onChange={(e) => set("baselineSource", e.target.value)} />
-              <div className="hint">Recorded with the saving, so anyone reviewing it can check the comparison.</div></div>
-          </div>
-          <div className="grid g2">
-            <div className="frow"><label className="lbl">Submission deadline</label>
-              <input className="in" type="date" min={new Date().toISOString().slice(0, 10)} value={f.deadline} onChange={(e) => set("deadline", e.target.value)} /></div>
-            <div className="frow"><label className="lbl">Technical weight: {f.techWeight}% technical / {100 - f.techWeight}% commercial</label>
-              <input className="in" type="range" min="30" max="90" step="5" value={f.techWeight} onChange={(e) => set("techWeight", e.target.value)} /></div>
-          </div>
-          <div className="frow" style={{ marginBottom: 0 }}>
-            <label className="lbl" htmlFor="nt-scope">Scope of work</label>
-            <textarea id="nt-scope" className="in" placeholder="What is being bought, at what service level, under which compliance rules…" value={f.scope} onChange={(e) => set("scope", e.target.value)} />
-            <button className="btn sm" style={{ marginTop: 8 }} onClick={draftScope} disabled={busy}>{busy ? "Drafting…" : "Draft scope with AI"}</button>
-          </div>
-        </div>
-      </div>
-
-      <div className="card" style={{ marginBottom: 14 }}>
-        <div className="chead"><h3>Priced line items</h3><span className="mono faint" style={{ marginLeft: "auto" }}>optional, leave empty for a lump-sum bid</span></div>
-        <div className="cbody">
-          {f.lines.map((l, i) => (
-            <div key={l.id} className="lineedit">
-              <ItemPick line={l}
-                        onPick={(it) => set("lines", f.lines.map((x) => x.id === l.id
-                          ? { ...x, itemCode: it ? it.code : "",
-                              desc: it && !x.desc.trim() ? it.label : x.desc,
-                              unit: it && it.uom ? it.uom.toLowerCase() : x.unit }
-                          : x))} />
-              <input className="in desc" placeholder="Line description" aria-label={"Line " + (i + 1)} value={l.desc} onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, desc: e.target.value } : x))} />
-              <input className="in" type="number" min="1" placeholder="Qty" aria-label="Quantity" value={l.qty} onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, qty: e.target.value } : x))} />
-              <input className="in" placeholder="Unit" aria-label="Unit" value={l.unit} onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, unit: e.target.value } : x))} />
-              <button className="btn sm" aria-label="Remove line" onClick={() => set("lines", f.lines.filter((x) => x.id !== l.id))}>✕</button>
             </div>
-          ))}
-          <button className="btn sm" onClick={() => set("lines", [...f.lines, { id: uid(), desc: "", qty: "", unit: "unit", itemCode: "" }])}>+ Add line item</button>
-          {!linesOk && <div className="notice" style={{ marginTop: 10 }}>Every line needs a description and a quantity above zero, or remove the empty lines.</div>}
-        </div>
-      </div>
+          )}
 
-      <div className="card" style={{ marginBottom: 14 }}>
-        <div className="chead"><h3>Evaluation criteria</h3>
-          <button className="btn sm" onClick={suggestCriteria} disabled={busyC}>{busyC ? "Suggesting…" : "Suggest with AI"}</button>
-          <span className="mono" style={{ marginLeft: "auto", color: weightSum === 100 ? "var(--green)" : "var(--wax)" }}>{weightSum}/100%</span></div>
-        <div className="cbody">
-          {f.criteria.map((c, i) => (
-            <div key={c.id} className="critedit">
-              <input className="in cname" aria-label={"Criterion " + (i + 1)} value={c.name} onChange={(e) => set("criteria", f.criteria.map((x) => x.id === c.id ? { ...x, name: e.target.value } : x))} />
-              <input className="in" type="number" min="0" max="100" aria-label="Weight %" value={c.weight} onChange={(e) => set("criteria", f.criteria.map((x) => x.id === c.id ? { ...x, weight: e.target.value } : x))} />
-              <button className="btn sm" aria-label="Remove criterion" onClick={() => set("criteria", f.criteria.filter((x) => x.id !== c.id))}>✕</button>
+          <div className="card" id="nt-invite">
+            <div className="chead"><h3>Who gets invited</h3>
+              <span className="hint" style={{ marginLeft: "auto", marginTop: 0 }}>
+                {f.invited.length ? f.invited.length + " selected" : "none yet"}</span></div>
+            <div className="cbody">
+              {f.invited.length === 0 && (
+                <Empty art="sealed">Nobody is invited yet. Pick the vendors who should get a sealed invitation.</Empty>
+              )}
+              <div className="chiprow">
+                {state.suppliers.map((s) => {
+                  const on = f.invited.includes(s.id);
+                  return (
+                    <button key={s.id} className={"chip" + (on ? " on" : "")} aria-pressed={on}
+                            onClick={() => set("invited", on ? f.invited.filter((x) => x !== s.id) : [...f.invited, s.id])}>
+                      {on && <Icon n="check" s={12} />}
+                      {s.name}
+                      <small>{s.category}{!s.prequalified ? " · unverified" : ""}</small>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="hint">
+                An unverified vendor can still be invited and can still bid. Verification gates
+                prequalification, not participation.
+              </div>
             </div>
-          ))}
-          <button className="btn sm" onClick={() => set("criteria", [...f.criteria, { id: uid(), name: "", weight: 0 }])}>+ Add criterion</button>
-          {weightSum !== 100 && <div className="notice" style={{ marginTop: 10 }}>Weights must total exactly 100% before this can be submitted.</div>}
-        </div>
-      </div>
+          </div>
 
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="chead"><h3>Invite suppliers</h3><span className="mono faint" style={{ marginLeft: "auto" }}>{f.invited.length} selected</span></div>
-        <div className="cbody" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {state.suppliers.map((s) => {
-            const on = f.invited.includes(s.id);
-            return (
-              <button key={s.id} className="chip" aria-pressed={on}
-                style={on ? { borderColor: "var(--green)", color: "var(--green)", background: "var(--green-tint)" } : null}
-                onClick={() => set("invited", on ? f.invited.filter((x) => x !== s.id) : [...f.invited, s.id])}>
-                {s.name} · {s.category}{!s.prequalified ? " · not prequalified" : ""}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+          {/* Everything a handful of tenders need and most do not. Still here,
+              one click away, and no longer the first thing anybody reads. */}
+          <details className="adv">
+            <summary>
+              <Icon n="chev" s={13} className="advcaret" />
+              Advanced options
+              <span className="advtag">
+                {isAuction ? "savings baseline" : "two-stage opening, line items, savings baseline"}
+              </span>
+            </summary>
+            <div className="cbody">
+              {!isAuction && (
+                <div className="frow">
+                  <label className="checkline" htmlFor="nt-two">
+                    <input id="nt-two" type="checkbox" checked={f.twoStage}
+                           onChange={(e) => set("twoStage", e.target.checked)} />
+                    <span>
+                      <b>Open technical envelopes first</b>
+                      <span className="hint">
+                        Only bidders scoring at least
+                        <input className="in numin" type="number" min="0" max="100" aria-label="Technical threshold"
+                               style={{ margin: "0 5px" }} value={f.techThreshold}
+                               onClick={(e) => e.stopPropagation()}
+                               onChange={(e) => set("techThreshold", e.target.value)} />
+                        out of 100 have their pricing decrypted. Everyone else has their commercial
+                        envelope returned unopened. Standard in public-sector procurement.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              )}
 
-      <div style={{ display: "flex", gap: 8 }}>
-        <button className="btn pri" disabled={!ready} onClick={() => save(true)}>Submit for approval</button>
-        <button className="btn" disabled={!f.title.trim()} onClick={() => save(false)}>{editing ? "Save draft" : "Save as draft"}</button>
+              <div className="grid g2">
+                <div className="frow"><label className="lbl" htmlFor="nt-proj">
+                  Projected cost <span className="faint">optional</span></label>
+                  <input id="nt-proj" className="in" type="number" min="0" placeholder="e.g. 108000000"
+                         value={f.projectedCost} onChange={(e) => set("projectedCost", e.target.value)} />
+                  <div className="hint">
+                    What you actually expect this to land at, as opposed to the ceiling it must not cross.
+                    The evaluation panel is judged against this figure.
+                  </div></div>
+
+                <div className="frow"><label className="lbl" htmlFor="nt-base">
+                  What we pay now <span className="faint">optional</span></label>
+                  <input id="nt-base" className="in" type="number" min="0" placeholder="e.g. 505000000"
+                         value={f.baseline} onChange={(e) => set("baseline", e.target.value)} />
+                  <div className="hint">
+                    Last year's contract, the incumbent's renewal quote, or the current price. With it, the
+                    saving is measured against what the business actually pays rather than against the ceiling.
+                  </div>
+                  <BaselineHint api={api} category={f.category} current={f.baseline}
+                                onAdopt={(amount, source) => {
+                                  set("baseline", String(amount));
+                                  set("baselineSource", source);
+                                }} /></div>
+              </div>
+
+              <div className="frow"><label className="lbl" htmlFor="nt-basesrc">Where that figure comes from</label>
+                <input id="nt-basesrc" className="in" placeholder="e.g. 2025 contract with Harmattan Foods, annualised"
+                       value={f.baselineSource} disabled={!Number(f.baseline)}
+                       onChange={(e) => set("baselineSource", e.target.value)} />
+                <div className="hint">Recorded with the saving, so anyone reviewing it can check the comparison.</div></div>
+
+              {!isAuction && (
+                <div className="frow" style={{ marginBottom: 0 }} id="nt-lines">
+                  <label className="lbl">Priced line items <span className="faint">optional, leave empty for a lump-sum bid</span></label>
+                  {f.lines.map((l, i) => (
+                    <div key={l.id} className="lineedit">
+                      <ItemPick line={l}
+                                onPick={(it) => set("lines", f.lines.map((x) => x.id === l.id
+                                  ? { ...x, itemCode: it ? it.code : "",
+                                      desc: it && !x.desc.trim() ? it.label : x.desc,
+                                      unit: it && it.uom ? it.uom.toLowerCase() : x.unit }
+                                  : x))} />
+                      <input className="in desc" placeholder="Line description" aria-label={"Line " + (i + 1)} value={l.desc}
+                             onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, desc: e.target.value } : x))} />
+                      <input className="in" type="number" min="1" placeholder="Qty" aria-label="Quantity" value={l.qty}
+                             onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, qty: e.target.value } : x))} />
+                      <input className="in" placeholder="Unit" aria-label="Unit" value={l.unit}
+                             onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, unit: e.target.value } : x))} />
+                      <button className="btn sm" aria-label="Remove line"
+                              onClick={() => set("lines", f.lines.filter((x) => x.id !== l.id))}><Icon n="close" s={13} /></button>
+                    </div>
+                  ))}
+                  <button className="btn sm" style={{ marginTop: f.lines.length ? 8 : 0 }}
+                          onClick={() => set("lines", [...f.lines, { id: uid(), desc: "", qty: "", unit: "unit", itemCode: "" }])}>
+                    Add a line item</button>
+                </div>
+              )}
+            </div>
+          </details>
+        </div>
+
+        {/* What is still missing, and nothing else. */}
+        <aside className={"ready" + (ready ? " done" : "")} aria-live="polite">
+          <div className="readytop">
+            <div className="readyhl">
+              {ready ? "Ready to send"
+                     : outstanding.length === 1 ? "One thing left"
+                     : outstanding.length + " things left"}
+            </div>
+            <div className="readywhy">
+              {ready ? "Nothing is missing. No price is visible to anyone until bids close."
+                     : "Pick any line to jump straight to that field."}
+            </div>
+            <div className="readybar"><i style={{ width: pct + "%" }} /></div>
+          </div>
+
+          <ul className="readylist">
+            {checks.map((c) => (
+              <li key={c.key} className={c.ok ? "ok" : "todo"}>
+                <button type="button" tabIndex={c.ok ? -1 : 0}
+                        onClick={() => { if (!c.ok) jump(c.to); }}>
+                  <span className="readytick" aria-hidden="true"><Icon n="check" s={11} /></span>
+                  <span>
+                    {c.ok ? c.done : c.todo}
+                    {!c.ok && c.note && <em>{c.note}</em>}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          <div className="readyfoot">
+            <button className="btn pri" disabled={!ready} onClick={() => save(true)}>
+              {needsApproval ? "Send for approval" : "Publish this tender"}
+            </button>
+            <button className="btn" disabled={!f.title.trim()} onClick={() => save(false)}>
+              {editing ? "Save draft" : "Save as draft"}
+            </button>
+            <div className="readyroute">
+              {!Number(f.budget) || !threshold
+                ? "Drafts are private to you until you send them on."
+                : needsApproval
+                  ? `${fmtMoney(Number(f.budget))} is at or above the ${fmtMoney(threshold)} sign-off threshold, so this goes to an approver instead of publishing straight away.`
+                  : `Below the ${fmtMoney(threshold)} sign-off threshold, so it publishes as soon as you press the button.`}
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   );
 }
+
+/* One line each, in the words a buyer would use rather than the acronym. */
+const TYPE_HINT = {
+  RFQ: "Sealed quotations for something you can specify precisely.",
+  RFP: "Sealed proposals, scored on approach as well as price.",
+  RFI: "Information only. No award, no prices compared.",
+  AUC: "Live price competition. Bidders see their rank, never a rival's price.",
+};
+
+const fmtDeadline = (d) => {
+  if (!d) return "";
+  const dt = new Date(d + "T17:00:00");
+  return isNaN(dt) ? d : dt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+};
+
+/* ============================================================ drafting
+   The New tender screen: a form beside a panel that says what is still
+   missing. Mobile first like everything else, so the panel is a block above
+   the form on a phone and only becomes a sticky column beside it once there
+   is a second column to be beside.
+   ============================================================ */
+export const DRAFT_CSS = `
+.ntcols{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start}
+
+/* ---- the readiness panel ---- */
+.ready{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);
+  overflow:hidden;box-shadow:var(--sh-2);transition:border-color var(--t) var(--ease)}
+.ready.done{border-color:var(--green-2)}
+.readytop{padding:15px 16px 13px;border-bottom:1px solid var(--line);
+  transition:background var(--t) var(--ease),border-color var(--t) var(--ease)}
+.ready.done .readytop{background:var(--green-tint);border-bottom-color:var(--green-2)}
+.readyhl{font-size:15.5px;font-weight:680;letter-spacing:-.015em;line-height:1.25}
+.ready.done .readyhl{color:var(--green)}
+.readywhy{font-size:12.5px;color:var(--muted);margin-top:5px;line-height:1.45}
+.readybar{height:5px;border-radius:99px;background:var(--line);margin-top:11px;overflow:hidden}
+.readybar i{display:block;height:100%;border-radius:99px;background:var(--green-2);
+  transition:width 620ms cubic-bezier(.16,1,.3,1)}
+
+.readylist{list-style:none;margin:0;padding:8px}
+.readylist li{margin:0}
+.readylist button{width:100%;display:flex;gap:9px;align-items:flex-start;text-align:left;
+  font:inherit;font-size:13px;line-height:1.4;color:var(--ink);cursor:pointer;
+  background:transparent;border:0;border-radius:var(--r-sm);padding:8px 9px;
+  transition:background var(--t) var(--ease)}
+.readylist li.ok button{color:var(--muted);cursor:default}
+.readylist em{display:block;font-style:normal;font-size:12px;color:var(--faint);margin-top:2px}
+.readytick{width:18px;height:18px;border-radius:50%;flex-shrink:0;margin-top:0;
+  display:inline-flex;align-items:center;justify-content:center;
+  border:1.5px dashed var(--brass);color:transparent;
+  transition:background var(--t) var(--ease),border-color var(--t) var(--ease),color var(--t) var(--ease)}
+.readylist li.ok .readytick{background:var(--green-2);border:1.5px solid var(--green-2);color:var(--on-brand);
+  animation:dk-tickpop 320ms cubic-bezier(.34,1.56,.64,1)}
+@keyframes dk-tickpop{from{transform:scale(.4)}to{transform:scale(1)}}
+
+.readyfoot{padding:12px 14px 14px;border-top:1px solid var(--line);
+  display:flex;flex-direction:column;gap:8px}
+.readyfoot .btn{width:100%;justify-content:center}
+.readyroute{font-size:12px;color:var(--faint);line-height:1.45;text-align:center}
+
+/* the field a checklist line points at, when you arrive on it */
+.jumped{animation:dk-jumped 620ms cubic-bezier(.16,1,.3,1)}
+@keyframes dk-jumped{from{box-shadow:0 0 0 4px var(--brand-ring)}to{box-shadow:0 0 0 12px transparent}}
+
+/* ---- self-balancing criteria weights ---- */
+.wt{display:flex;flex-direction:column;gap:14px}
+.wtrow{display:grid;grid-template-columns:minmax(0,1fr) 48px 34px;gap:6px 9px;align-items:center}
+.wtname{min-width:0}
+.wtpc{font-variant-numeric:tabular-nums;font-weight:700;font-size:14px;text-align:right;color:var(--green)}
+.wtdel{padding:7px 0;display:inline-flex;align-items:center;justify-content:center}
+.wtrange{grid-column:1/-1;width:100%;margin:0;accent-color:var(--green-2);height:20px}
+.wtsum{display:flex;align-items:center;gap:7px;margin-top:13px;
+  font-size:12.5px;color:var(--green);background:var(--green-tint);
+  border-radius:var(--r-sm);padding:8px 11px}
+
+/* ---- advanced options ---- */
+.adv{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);
+  margin-bottom:14px;box-shadow:var(--sh-2)}
+.adv summary{cursor:pointer;padding:14px 16px;font-weight:600;font-size:14px;
+  display:flex;align-items:center;gap:9px;list-style:none;
+  transition:background var(--t) var(--ease)}
+.adv summary::-webkit-details-marker{display:none}
+.advcaret{color:var(--faint);flex-shrink:0;transition:transform var(--t) var(--ease)}
+.adv[open] summary .advcaret{transform:rotate(90deg)}
+.advtag{margin-left:auto;font-size:12px;color:var(--faint);font-weight:400;text-align:right}
+.adv .cbody{border-top:1px solid var(--line)}
+
+/* ---- vendor chips ---- */
+.chiprow{display:flex;flex-wrap:wrap;gap:7px}
+.chiprow .chip{cursor:pointer;text-align:left;gap:6px;
+  transition:background var(--t) var(--ease),border-color var(--t) var(--ease),color var(--t) var(--ease)}
+.chiprow .chip small{color:var(--faint);font-size:11px;font-weight:400}
+.chiprow .chip.on{background:var(--green-tint);border-color:var(--green-2);color:var(--green);font-weight:600}
+.chiprow .chip.on small{color:var(--green);opacity:.8}
+
+/* a checkbox whose label is a sentence and a paragraph, not a word */
+.checkline{display:flex;gap:9px;align-items:flex-start;font-size:13.5px;line-height:1.55;cursor:pointer}
+.checkline input[type=checkbox]{margin-top:3px;flex-shrink:0}
+.checkline b{font-weight:600}
+.checkline .hint{margin-top:3px}
+
+@media(min-width:${BP.desk}px){
+  .ntcols{grid-template-columns:minmax(0,1fr) 304px}
+  /* sticky under the app bar, so the list of what is missing stays on screen
+     while you scroll the form it is describing */
+  .ready{position:sticky;top:16px}
+}
+@media(max-width:${BP.desk - 1}px){
+  /* on a phone the panel leads: what is missing is the reason you are here */
+  .ready{order:-1}
+  .ntcols > aside{order:-1}
+}
+@media(prefers-reduced-motion:reduce){
+  .readybar i,.readytick,.jumped{transition:none;animation:none}
+}
+`;
 
 /* ---------------- suppliers ---------------- */
 
