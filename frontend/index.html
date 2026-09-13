@@ -45,18 +45,24 @@
 
          This is the ONLY place a remembered theme is restored on load — the
          bundle's applyTheme runs when somebody clicks the switcher, not at boot.
-         So this script must not carry a list of the themes it will accept: it
-         used to, and a theme added everywhere else silently failed to survive a
-         reload, because the id fell through an allowlist nobody thought to
-         update. It now stamps whatever was stored and lets CSS decide what that
-         means, which is where the per-theme knowledge already lives.
 
-         The pattern check is shape-only — this reads the visitor's own browser
-         storage, so the concern is a malformed attribute selector, not a hostile
-         one. An unknown id simply matches no rule and the default paints.
+         It DOES carry the list of ids it will accept, and that is a deliberate
+         reversal. The script used to stamp whatever was in storage, on the
+         reasoning that an allowlist here would drift from the themes and a new
+         theme would silently fail to survive a reload. Removing themes turned
+         that around: a browser still remembering `circle` or `engo` got the
+         dead id stamped on <html>, where it matches no block. The page painted
+         anyway, because :root carries the light theme, but the attribute was a
+         lie and anything keyed off it did the wrong thing quietly.
 
-         Adding a theme: one line in the <style> above (its pre-paint background
-         and colour-scheme), and the token block in styles.js. Nothing here.
+         Both failure modes are drift; only one of them is visible. A theme you
+         forgot to add here simply does not restore, which you notice the first
+         time you reload. A dead id you forgot to remove is invisible.
+
+         So: ADDING OR RENAMING A THEME MEANS THREE PLACES — the token block in
+         styles.js, one line in the <style> above (its pre-paint background and
+         colour-scheme), and the id check below. THEMES in theme.js is the
+         canonical list; this is the pre-paint copy of it.
 
          Nothing stored means the light theme, which owns :root and the bare
          html rule above, so there is nothing to stamp and we leave early
@@ -65,7 +71,13 @@
         try {
           var t = localStorage.getItem("docket.theme");
           if (!t) return;
-          if (!/^[a-z][a-z0-9-]{0,23}$/.test(t)) return;
+          /* Only ids this stylesheet actually has a block for. A browser that
+             remembers a theme we have since deleted would otherwise get it
+             stamped on <html>, where it matches nothing: the page still paints,
+             because :root carries the light theme, but the attribute is a lie
+             and anything keyed off it silently does the wrong thing. Unknown
+             ids fall through to the default rather than being honoured. */
+          if (t !== "dark") return;
           document.documentElement.setAttribute("data-theme", t);
           /* Read the scheme back out of the stylesheet above rather than
              matching the id against a second list that could drift from it. */

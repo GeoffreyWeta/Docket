@@ -18,8 +18,13 @@
    first visit can leave <html> bare, and the pre-paint script in index.html
    only has to stamp anything at all when the stored choice is `dark`.
 
-   Adding a theme later means: a token block in styles.js, an entry here, and
-   a line in the pre-paint script. Nothing else reads this list. */
+   Adding or renaming a theme means FOUR places, and the pre-paint script is
+   the one that is easy to forget: a token block in styles.js, an entry in
+   THEMES below, the pre-paint background rule in index.html, and the id check
+   in the pre-paint script beside it. That script cannot import this file — it
+   runs before the bundle — so it keeps its own copy of the accepted ids, and a
+   theme missing from it will not survive a reload. Nothing else reads this
+   list. */
 
 export const THEMES = [
   { id: "light", label: "Light", icon: "sun",

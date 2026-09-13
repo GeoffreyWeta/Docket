@@ -224,8 +224,37 @@ export function BidRoom({ api, id }) {
   const myDocs = (state.documents || []).filter((x) => x.kind === "bid" && x.tenderId === t.id);
   const tenderDocs = (state.documents || []).filter((x) => x.kind === "tender" && x.tenderId === t.id);
   const hasTechDoc = myDocs.some((x) => x.envelope === "technical");
-  const steps = [amountValid, hasTechDoc, form.decl, ...addenda.map((a) => !!acks[a.id])];
-  const pct = Math.round((steps.filter(Boolean).length / steps.length) * 100);
+  /* The same conditions the submit button is gated on, each able to name
+     itself. The button used to be disabled behind a bare "62% complete" meter,
+     which tells a vendor that something is missing and not what, on the one
+     form in the product where getting it wrong means missing a deadline. */
+  const steps = [
+    { ok: amountValid, to: "sb-price",
+      todo: hasLines ? "Price every line" : "Enter your bid amount",
+      done: hasLines ? "Every line priced" : "Amount entered" },
+    { ok: hasTechDoc, to: "sb-docs",
+      todo: "Upload your technical proposal", done: "Technical proposal attached",
+      note: "PDF, Office or image, up to 10 MB." },
+    { ok: form.decl, to: "sb-decl",
+      todo: "Sign the conflict-of-interest declaration", done: "Declaration signed" },
+    ...addenda.map((a) => ({
+      ok: !!acks[a.id], to: "sb-ack-" + a.id,
+      todo: "Acknowledge " + a.title, done: "Acknowledged " + a.title,
+      note: "The buyer changed the tender after it opened.",
+    })),
+  ];
+  const outstanding = steps.filter((x) => !x.ok);
+  const pct = Math.round(((steps.length - outstanding.length) / steps.length) * 100);
+  const jumpTo = (id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.remove("jumped");
+    void el.offsetWidth;
+    el.classList.add("jumped");
+    const f = el.matches("input,textarea") ? el : el.querySelector("input,textarea,button,label");
+    if (f && f.focus) f.focus({ preventScroll: true });
+  };
   const uploadDoc = (envelope) => (e) => {
     const f = e.target.files[0];
     if (f) act.upload(`/tenders/${t.id}/bid_docs/`, f, { envelope });
@@ -397,14 +426,13 @@ export function BidRoom({ api, id }) {
       ) : st === "published" ? (
         <div className="card" style={{ marginBottom: 14 }}>
           <div className="chead"><h3>Your sealed bid</h3>
-            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-              <span className="mono faint" style={{ fontSize: 11 }}>{pct}% complete</span>
-              <div className="meter" style={{ width: 110 }}><div style={{ width: pct + "%" }} /></div>
-            </div>
+            <span className="hint" style={{ marginLeft: "auto", marginTop: 0 }}>
+              {outstanding.length === 0 ? "ready to seal" : outstanding.length + " left"}
+            </span>
           </div>
           <div className="cbody">
             {hasLines ? (
-              <div className="frow">
+              <div className="frow" id="sb-price">
                 <label className="lbl">Unit rates (₦, fixed for the term)</label>
                 {t.lines.map((l) => (
                   /* .priceline stacks the line above its rate and running total
@@ -437,7 +465,7 @@ export function BidRoom({ api, id }) {
                   <button className="btn sm iconly" aria-label="Remove document" onClick={() => act.deleteDoc(x.id)}><Icon n="close" s={12} /></button>
                 </div>
               ))}
-              <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+              <div id="sb-docs" style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                 <label className="btn sm">
                   {hasTechDoc ? "Add technical document" : "Upload technical proposal (required)"}
                   <input type="file" hidden onChange={uploadDoc("technical")} />
@@ -449,20 +477,46 @@ export function BidRoom({ api, id }) {
               </div>
               <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>PDF, Office or image files up to 10 MB. Documents are sealed with your bid and cannot be seen by the buyer until the recorded opening.</div>
             </div>
-            <div className="frow">
+            <div className="frow" id="sb-decl">
               <label className="lbl">Declaration</label>
               <label style={{ display: "flex", gap: 9, alignItems: "center", padding: "6px 0", fontSize: 13, cursor: "pointer" }}>
                 <input type="checkbox" checked={form.decl} onChange={(e) => setForm({ ...form, decl: e.target.checked })} />
                 No conflict of interest, signed electronically in my name
               </label>
               {addenda.map((a) => (
-                <label key={a.id} style={{ display: "flex", gap: 9, alignItems: "center", padding: "6px 0", fontSize: 13, cursor: "pointer" }}>
+                <label key={a.id} id={"sb-ack-" + a.id} style={{ display: "flex", gap: 9, alignItems: "center", padding: "6px 0", fontSize: 13, cursor: "pointer" }}>
                   <input type="checkbox" checked={!!acks[a.id]} onChange={(e) => setAcks((x) => ({ ...x, [a.id]: e.target.checked }))} />
                   I have read and priced for <b style={{ margin: "0 4px" }}>{a.title}</b>
                 </label>
               ))}
             </div>
             {aiFb && <div className="aihint" style={{ marginBottom: 12 }}>{aiFb}</div>}
+            <div className={"ready bidready" + (outstanding.length ? "" : " done")} aria-live="polite">
+              <div className="readytop">
+                <div className="readyhl">
+                  {outstanding.length === 0 ? "Ready to seal"
+                    : outstanding.length === 1 ? "One thing left"
+                    : outstanding.length + " things left"}
+                </div>
+                <div className="readywhy">
+                  {outstanding.length === 0
+                    ? "Sealing encrypts your prices and documents until the recorded opening."
+                    : "Pick any line to jump straight to it."}
+                </div>
+                <div className="readybar"><i style={{ width: pct + "%" }} /></div>
+              </div>
+              <ul className="readylist">
+                {steps.map((x) => (
+                  <li key={x.to} className={x.ok ? "ok" : "todo"}>
+                    <button type="button" tabIndex={x.ok ? -1 : 0}
+                            onClick={() => { if (!x.ok) jumpTo(x.to); }}>
+                      <span className="readytick" aria-hidden="true"><Icon n="check" s={11} /></span>
+                      <span>{x.ok ? x.done : x.todo}{!x.ok && x.note && <em>{x.note}</em>}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button className="btn wax" disabled={pct < 100} onClick={submit}><Icon n="stamp" s={15} />Seal & submit bid</button>
               <button className="btn" onClick={reviewAI} disabled={busy}>{busy ? "Reviewing…" : "Review my bid with AI"}</button>

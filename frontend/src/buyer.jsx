@@ -2752,6 +2752,12 @@ export const DRAFT_CSS = `
 .checkline b{font-weight:600}
 .checkline .hint{margin-top:3px}
 
+/* the same panel inside the vendor's bid form, where it is a block in the
+   flow rather than a column: the form is already narrow and there is nothing
+   to sit beside */
+.bidready{margin:4px 0 14px;box-shadow:none}
+.bidready .readylist{padding:6px}
+
 @media(min-width:${BP.desk}px){
   .ntcols{grid-template-columns:minmax(0,1fr) 304px}
   /* sticky under the app bar, so the list of what is missing stays on screen
