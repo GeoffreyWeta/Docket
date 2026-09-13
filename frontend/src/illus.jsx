@@ -164,6 +164,80 @@ const S = {
       <circle cx="146" cy="32" r="5" fill="var(--il-warm)" />
     </>
   ),
+
+  /* A DRAFT WAITING FOR ITS SEAL, and the one scene here that is not a still
+     life: the seal is a separate group so the New tender panel can stamp it
+     down when the draft becomes complete (see DRAFT_CSS in buyer.jsx). Three
+     parts carry class names for that reason and only that reason:
+
+       .il-spot   the empty ring, dashed, marching while something is missing
+       .il-shock  the ring that pushes out from under the seal as it lands
+       .il-seal   the seal itself, which drops in from above and overshoots
+
+     Everything else follows the file's rules: no literal colours, no faces,
+     ground line at y=128, and a plant, because every one of these has a plant. */
+  draft: (
+    <>
+      <circle cx="124" cy="56" r="46" fill="var(--il-tint)" />
+      <ellipse cx="112" cy="133" rx="72" ry="5" fill="var(--il-ink)" opacity=".09" />
+
+      <path d="M17 112h18l-2.3 13.6a2 2 0 0 1-2 1.7h-9.4a2 2 0 0 1-2-1.7Z" fill="var(--il-warm)" />
+      <path d="M26 112V95" stroke="var(--il-cool)" strokeWidth="2" strokeLinecap="round" />
+      <ellipse cx="18.5" cy="95" rx="7" ry="4.4" transform="rotate(-30 18.5 95)" fill="var(--il-cool)" />
+      <ellipse cx="33.5" cy="89" rx="7.5" ry="4.7" transform="rotate(26 33.5 89)" fill="var(--il-cool)" />
+      <ellipse cx="26" cy="82" rx="5" ry="7.8" fill="var(--il-cool)" opacity=".72" />
+
+      <g className="il-sheet">
+        <rect x="64" y="34" width="98" height="94" rx="6" fill="var(--il-paper)"
+              stroke="var(--il-line)" strokeWidth="2" />
+        <rect x="78" y="50" width="70" height="5" rx="2.5" fill="var(--il-line)" />
+        <rect x="78" y="63" width="70" height="5" rx="2.5" fill="var(--il-line)" />
+        <rect x="78" y="76" width="46" height="5" rx="2.5" fill="var(--il-line)" />
+
+        <circle className="il-spot" cx="130" cy="103" r="15" fill="none"
+                stroke="var(--il-line)" strokeWidth="2" strokeDasharray="5 5" />
+
+        <g className="il-shock">
+          <circle cx="130" cy="103" r="15" fill="none" stroke="var(--il-cool)" strokeWidth="2.5" />
+        </g>
+
+        <g className="il-seal">
+          <path d="M118 112l-5 16 10-4 7 4 7-4 10 4-5-16Z" fill="var(--il-cool)" opacity=".55" />
+          <circle cx="130" cy="103" r="15" fill="var(--il-cool)" />
+          <circle cx="130" cy="103" r="10.5" fill="none" stroke="var(--il-paper)"
+                  strokeWidth="2" opacity=".85" />
+          <path d="M124.5 103.5l4 4 7.5-8" fill="none" stroke="var(--il-paper)"
+                strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+        </g>
+      </g>
+
+      <g className="il-pen">
+        <g transform="rotate(24 186 96)">
+          <rect x="181" y="58" width="10" height="52" rx="5" fill="var(--il-warm)" />
+          <rect x="181" y="58" width="10" height="10" rx="5" fill="var(--il-ink-2)" opacity=".55" />
+          <path d="M181 110h10l-5 11Z" fill="var(--il-ink-2)" />
+        </g>
+      </g>
+    </>
+  ),
+
+  /* NOTHING SENT YET: an envelope that is still only an outline, over the tray
+     it would land in. The dashes are the whole point, so this scene is wrong
+     the moment anything HAS been sent. */
+  tray: (
+    <>
+      <circle cx="112" cy="60" r="44" fill="var(--il-tint)" />
+      <ellipse cx="110" cy="133" rx="70" ry="5" fill="var(--il-ink)" opacity=".09" />
+      <rect x="76" y="36" width="70" height="46" rx="4" fill="none"
+            stroke="var(--il-line)" strokeWidth="2" strokeDasharray="6 5" />
+      <path d="M78 40l33 24 33-24" fill="none" stroke="var(--il-line)"
+            strokeWidth="2" strokeDasharray="6 5" strokeLinecap="round" />
+      <path d="M56 100h108l-12 24H68Z" fill="var(--il-ink-2)" opacity=".5" />
+      <rect x="52" y="94" width="116" height="9" rx="4.5" fill="var(--il-ink)" />
+      <path d="M110 70v18" stroke="var(--il-cool)" strokeWidth="2.5"
+            strokeLinecap="round" strokeDasharray="3 5" />
+    </>
+  ),
 };
 
 export const ILLUS_NAMES = Object.keys(S);

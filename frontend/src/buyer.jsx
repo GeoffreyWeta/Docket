@@ -5,6 +5,7 @@ import { BP } from "./breakpoints";
 import { orgIndex, savingsSplit } from "./analytics-model";
 import { Countdown, Empty, MiniBars, Money, Stamp, Stat, StageTracker } from "./atoms";
 import { BaselineHint } from "./baselines";
+import { Illus } from "./illus";
 import { CampaignDialog } from "./campaign";
 import { MyDesk } from "./mydesk";
 import {
@@ -18,7 +19,7 @@ import {
 } from "./lifecycle";
 import { Icon, SealMark } from "./icons";
 import { can, homePage, navPages } from "./perms";
-import { DUR, cue, reducedMotion, useFlip } from "./motion";
+import { DUR, cue, reducedMotion, useCountUp, useFlip } from "./motion";
 import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwitch, TopProgress } from "./ui";
 
 /* How many register rows reach the DOM before the reader asks for more. The
@@ -2316,6 +2317,14 @@ export function NewTender({ api, editId }) {
 
   const outstanding = checks.filter((c) => !c.ok);
   const pct = Math.round((checks.length - outstanding.length) / checks.length * 100);
+  /* Outstanding first, cleared underneath, so what is left to do stays where
+     the eye already is. The rows animate to their new places rather than
+     jumping, which is what makes a line visibly LEAVE the list when you
+     satisfy it instead of just changing colour in place. */
+  const ordered = [...outstanding, ...checks.filter((c) => c.ok)];
+  const listRef = useRef(null);
+  useFlip(listRef, ordered.map((c) => c.key).join("|"));
+  const shownPct = useCountUp(pct, DUR.ceremony, pct);
   const threshold = Number(state.org.approvalThreshold) || 0;
   const needsApproval = threshold > 0 && Number(f.budget) >= threshold;
 
@@ -2487,7 +2496,7 @@ export function NewTender({ api, editId }) {
                 {f.invited.length ? f.invited.length + " selected" : "none yet"}</span></div>
             <div className="cbody">
               {f.invited.length === 0 && (
-                <Empty art="sealed">Nobody is invited yet. Pick the vendors who should get a sealed invitation.</Empty>
+                <Empty art="tray">Nobody is invited yet. Pick the vendors who should get a sealed invitation.</Empty>
               )}
               <div className="chiprow">
                 {state.suppliers.map((s) => {
@@ -2495,7 +2504,9 @@ export function NewTender({ api, editId }) {
                   return (
                     <button key={s.id} className={"chip" + (on ? " on" : "")} aria-pressed={on}
                             onClick={() => set("invited", on ? f.invited.filter((x) => x !== s.id) : [...f.invited, s.id])}>
-                      {on && <Icon n="check" s={12} />}
+                      {/* always rendered, so it can widen into place rather
+                          than appearing and shoving the label sideways */}
+                      <span className="chipck" aria-hidden="true"><Icon n="check" s={12} /></span>
                       {s.name}
                       <small>{s.category}{!s.prequalified ? " · unverified" : ""}</small>
                     </button>
@@ -2605,6 +2616,7 @@ export function NewTender({ api, editId }) {
         {/* What is still missing, and nothing else. */}
         <aside className={"ready" + (ready ? " done" : "")} aria-live="polite">
           <div className="readytop">
+            <Illus n="draft" w={152} />
             <div className="readyhl">
               {ready ? "Ready to send"
                      : outstanding.length === 1 ? "One thing left"
@@ -2614,12 +2626,15 @@ export function NewTender({ api, editId }) {
               {ready ? "Nothing is missing. No price is visible to anyone until bids close."
                      : "Pick any line to jump straight to that field."}
             </div>
-            <div className="readybar"><i style={{ width: pct + "%" }} /></div>
+            <div className="readybarrow">
+              <div className="readybar"><i style={{ width: pct + "%" }} /></div>
+              <span className="readypct">{shownPct}%</span>
+            </div>
           </div>
 
-          <ul className="readylist">
-            {checks.map((c) => (
-              <li key={c.key} className={c.ok ? "ok" : "todo"}>
+          <ul className="readylist" ref={listRef}>
+            {ordered.map((c) => (
+              <li key={c.key} data-flip={c.key} className={c.ok ? "ok" : "todo"}>
                 <button type="button" tabIndex={c.ok ? -1 : 0}
                         onClick={() => { if (!c.ok) jump(c.to); }}>
                   <span className="readytick" aria-hidden="true"><Icon n="check" s={11} /></span>
@@ -2711,6 +2726,54 @@ export const DRAFT_CSS = `
 .readyfoot .btn{width:100%;justify-content:center}
 .readyroute{font-size:12px;color:var(--faint);line-height:1.45;text-align:center}
 
+/* ---- the scene in the panel ----
+   The seal is the reward, and it is a wax seal rather than confetti because
+   that is what this product is about: illus.jsx says stationery, not generic
+   SaaS celebration, and it is right. Nothing here fires until the draft is
+   actually complete, so it stays a moment rather than a decoration.
+
+   Durations and curves are DUR/EASE from motion.js, spelled out because CSS
+   cannot import them: 620ms is DUR.ceremony, the overshoot is EASE.press and
+   the settle is EASE.out. */
+.ready .illus{max-width:152px;margin:0 auto 10px}
+.il-seal{opacity:0}
+.ready.done .il-seal{animation:dk-stamp 620ms cubic-bezier(.34,1.56,.64,1) both}
+.il-shock{opacity:0;transform-origin:130px 103px}
+.ready.done .il-shock{animation:dk-shock 620ms cubic-bezier(.16,1,.3,1) both}
+/* the empty ring marches while something is still missing, and is replaced by
+   the seal rather than sitting under it */
+.il-spot{animation:dk-ants 2.4s linear infinite}
+.ready.done .il-spot{display:none}
+.il-pen{transform-origin:186px 96px;animation:dk-drift 5s ease-in-out infinite alternate}
+.ready.done .il-sheet{animation:dk-lift 620ms cubic-bezier(.16,1,.3,1) both}
+
+@keyframes dk-stamp{
+  0%{opacity:0;transform:translateY(-28px) scale(2.4) rotate(-17deg)}
+  58%{opacity:1}
+  100%{opacity:1;transform:none}
+}
+@keyframes dk-shock{
+  0%{opacity:0;transform:scale(1)}
+  28%{opacity:.5}
+  100%{opacity:0;transform:scale(2.9)}
+}
+@keyframes dk-ants{to{stroke-dashoffset:-40}}
+@keyframes dk-drift{from{transform:none}to{transform:translateY(-3px) rotate(-1.5deg)}}
+@keyframes dk-lift{to{transform:translateY(-3px)}}
+
+/* the percentage rides beside the bar and counts rather than snapping */
+.readybarrow{display:flex;align-items:center;gap:9px;margin-top:11px}
+.readybarrow .readybar{flex:1;margin-top:0}
+.readypct{font-family:var(--font-mono);font-size:10.5px;color:var(--faint);
+  font-variant-numeric:tabular-nums;letter-spacing:.02em;flex-shrink:0}
+
+/* the check widens into the chip instead of appearing and shoving the label */
+.chipck{display:inline-flex;align-items:center;width:0;overflow:hidden;opacity:0;
+  color:var(--green-2);transform:scale(.4);
+  transition:width var(--t) cubic-bezier(.16,1,.3,1),opacity var(--t) var(--ease),
+             transform 320ms cubic-bezier(.34,1.56,.64,1)}
+.chiprow .chip.on .chipck{width:13px;opacity:1;transform:none}
+
 /* the field a checklist line points at, when you arrive on it */
 .jumped{animation:dk-jumped 620ms cubic-bezier(.16,1,.3,1)}
 @keyframes dk-jumped{from{box-shadow:0 0 0 4px var(--brand-ring)}to{box-shadow:0 0 0 12px transparent}}
@@ -2770,7 +2833,13 @@ export const DRAFT_CSS = `
   .ntcols > aside{order:-1}
 }
 @media(prefers-reduced-motion:reduce){
-  .readybar i,.readytick,.jumped{transition:none;animation:none}
+  .readybar i,.readytick,.jumped,.chipck{transition:none;animation:none}
+  .il-seal,.il-shock,.il-spot,.il-pen,.il-sheet{animation:none}
+  /* the seal is the state, not the flourish: with motion off it is simply
+     there once the draft is complete, and absent before */
+  .il-seal{opacity:0}
+  .ready.done .il-seal{opacity:1}
+  .ready.done .il-spot{display:none}
 }
 `;
 

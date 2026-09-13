@@ -7,7 +7,7 @@ import {
   fmtDateTime, fmtMoney, regStatusOf, roundsOf, verifyStatusOf,
 } from "./helpers";
 import { Icon, SealMark } from "./icons";
-import { cue, usePrev } from "./motion";
+import { DUR, useCountUp, useFlip } from "./motion";
 import { ConfirmDialog, CountUp, LiveCountdown, RollNumber, Sparkline, TypeOut } from "./ui";
 
 /* ---------------- supplier portal ---------------- */
@@ -245,6 +245,12 @@ export function BidRoom({ api, id }) {
   ];
   const outstanding = steps.filter((x) => !x.ok);
   const pct = Math.round(((steps.length - outstanding.length) / steps.length) * 100);
+  /* Same reordering as the buyer's draft panel: what is left rises, what is
+     done sinks, and the rows travel rather than blink. */
+  const orderedSteps = [...outstanding, ...steps.filter((x) => x.ok)];
+  const stepsRef = useRef(null);
+  useFlip(stepsRef, orderedSteps.map((x) => x.to).join("|"));
+  const shownPct = useCountUp(pct, DUR.ceremony, pct);
   const jumpTo = (id) => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -503,11 +509,14 @@ export function BidRoom({ api, id }) {
                     ? "Sealing encrypts your prices and documents until the recorded opening."
                     : "Pick any line to jump straight to it."}
                 </div>
-                <div className="readybar"><i style={{ width: pct + "%" }} /></div>
+                <div className="readybarrow">
+                  <div className="readybar"><i style={{ width: pct + "%" }} /></div>
+                  <span className="readypct">{shownPct}%</span>
+                </div>
               </div>
-              <ul className="readylist">
-                {steps.map((x) => (
-                  <li key={x.to} className={x.ok ? "ok" : "todo"}>
+              <ul className="readylist" ref={stepsRef}>
+                {orderedSteps.map((x) => (
+                  <li key={x.to} data-flip={x.to} className={x.ok ? "ok" : "todo"}>
                     <button type="button" tabIndex={x.ok ? -1 : 0}
                             onClick={() => { if (!x.ok) jumpTo(x.to); }}>
                       <span className="readytick" aria-hidden="true"><Icon n="check" s={11} /></span>
