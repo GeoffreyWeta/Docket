@@ -187,7 +187,7 @@ export const CSS = `
 
   /* radii */
   --r-xs:5px; --r-sm:7px; --r:10px; --r-lg:14px; --r-btn:var(--r-sm);
-  --radius-lg:14px;
+  --radius-lg:12px;
 
   /* elevation: soft and layered rather than a single drop */
   --shadow:0 1px 2px rgba(14,26,21,.06);
@@ -890,7 +890,9 @@ label.btn{cursor:pointer}
   .dk *::-webkit-scrollbar-track{background:transparent}
   .dk *::-webkit-scrollbar-thumb{background:var(--line2);border-radius:99px;border:3px solid transparent;background-clip:content-box}
   .dk *::-webkit-scrollbar-thumb:hover{background:var(--faint);background-clip:content-box}
-  .btn:hover{border-color:var(--faint);background:var(--btn-hover);box-shadow:var(--sh-2)}
+  /* the lift is what makes a control feel pressable before it is pressed */
+  .btn:hover{border-color:var(--faint);background:var(--btn-hover);box-shadow:var(--sh-2);transform:translateY(-1px)}
+  .btn:active{transform:translateY(0) scale(.98)}
   .btn:disabled:hover{background:var(--btn-bg);border-color:var(--line2);box-shadow:none}
   .iconbtn:hover{background:var(--sunk);border-color:var(--line)}
   .navi:hover{color:var(--side-ink);background:var(--side-hover)}
@@ -967,6 +969,33 @@ export const THEME_CSS = `
 .dk select{border-radius:9px}
 .btn{border-radius:9px}
 .chip{border-radius:999px}
+
+/* ---- the rest of the approved design, applied to every page ----
+
+   These are the pieces that make a screen look like the one that was signed
+   off, and they are all shared components, so setting them here reaches the
+   dashboard, the register, evaluation, approvals and the vendor portal at
+   once rather than one screen at a time.
+
+   A FIELD LABEL IS INK, NOT GREY. Labels were --muted at 12px, which put the
+   question and its answer at similar weight and made a form read as a wall.
+   At 13px in --ink the label leads and the input follows. This is the single
+   biggest difference between the two on any screen carrying a form, which is
+   most of them.
+
+   A CARD TITLE DOES NOT SHRINK WHEN THE SCREEN GROWS. The ladder took .chead
+   h3 DOWN to 13px from the tablet rung up, so card titles were smallest
+   exactly where there was most room. 14.5px throughout, which is where the
+   design has them.
+
+   Cards at 12 rather than 14, and stat tiles at the same radius as the cards
+   they sit beside: two radii in one row is a difference the eye reads as an
+   accident. */
+.lbl{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:6px}
+.lbl .faint{color:var(--faint)}
+.card .chead h3{font-size:14.5px}
+.card{border-radius:12px}
+.stat{border-radius:12px}
 .btn.pri{box-shadow:0 3px 12px -3px var(--pri-glow)}
 .segmented,
 .antabs{background:var(--paper-2);border-color:var(--line)}
