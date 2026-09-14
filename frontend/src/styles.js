@@ -73,7 +73,9 @@ export const CSS = `
   --engo:#00A651;
   --engo-ink:#00803E;      /* the readable-on-white step */
   --engo-deep:#046B36;
-  --engo-band:#0B3D24;     /* the section field: white on it measures 12.3:1 */
+  /* The one dark field in the interface: the navigation rail. White on it
+     measures 12.3:1. Named here because it is a brand colour, used once. */
+  --engo-band:#0B3D24;
 
   --paper:#F2F6F3; --paper-2:#E8EFEA; --card:#FFFFFF; --sunk:#F5F9F6;
   --ink:#0E1A15; --muted:#47564E; --faint:#63746B;
@@ -128,20 +130,9 @@ export const CSS = `
   /* seal */
   --seal-hi:#7DE8AE; --seal-core:#00A651; --seal-crack:#04452A;
 
-  /* THE BAND. Every page head is the tinted section the house look opens
-     with: deep green, white type, the page's headline figures sitting on it.
-     One per page, at the top. The behaviour is in THEME_CSS; the field is
-     here so dark can restate it without restating the rule. */
-  --band-bg:
-    radial-gradient(700px 300px at 88% -40%, rgba(43,217,127,.28), transparent 62%),
-    linear-gradient(135deg,#0E4A2C 0%,var(--engo-band) 52%,#08301C 100%);
-  --band-ink:#FFFFFF; --band-dim:#A9D3BC; --band-soft:#D7EBE0;
-  --band-ctl:rgba(255,255,255,.14); --band-ctl-line:rgba(255,255,255,.26);
-  --band-ctl-h:rgba(255,255,255,.22); --band-ph:rgba(234,246,239,.6);
-
   /* sidebar: the other half of the section idea, a deep green rail against
      the light page, the same field the band uses */
-  --side:#0B3D24; --side-from:#0E4A2C; --side-to:#08301C;
+  --side:var(--engo-band); --side-from:#0E4A2C; --side-to:#08301C;
   /* --side-sec is a 9.5px uppercase label, so it is small text as far as WCAG
      is concerned and has to clear 4.5 rather than 3.0. Hierarchy against
      --side-dim comes from the type role, not from dimming it below legible. */
@@ -196,7 +187,7 @@ export const CSS = `
 
   /* radii */
   --r-xs:5px; --r-sm:7px; --r:10px; --r-lg:14px; --r-btn:var(--r-sm);
-  --radius-lg:20px;
+  --radius-lg:14px;
 
   /* elevation: soft and layered rather than a single drop */
   --shadow:0 1px 2px rgba(14,26,21,.06);
@@ -221,9 +212,10 @@ export const CSS = `
    2. THE CARD IS RAISED, THE PAGE IS NOT. --card sits above --paper here, so
       a sheet reads as a sheet. --paper-2 is DARKER than the page on purpose:
       it is the recessed tone (segmented tracks, receipts), never a surface.
-   3. THE BAND STAYS A BAND. It darkens rather than disappearing, so the page
-      keeps the section structure the whole look is built on. Losing it makes
-      dark mode a different product.
+   3. THE RAIL STAYS THE ONE DARK FIELD. On light it is the only dark surface
+      in the interface; on dark it has to stay distinguishable from a page that
+      is now also dark, which is why --side sits BELOW --paper rather than
+      above it. A rail that merges into the page loses the shape of the app.
 
    Everything not declared here is inherited from :root, which is where the
    type roles, radii, easing and layout metrics live. ---- */
@@ -233,7 +225,7 @@ export const CSS = `
   --engo:#2FC46E;
   --engo-ink:#5FD98F;      /* the readable-on-dark step: 8.1:1 on --card */
   --engo-deep:#8FE8B5;
-  --engo-band:#08281A;
+  --engo-band:#071410;
 
   --paper:#0C1511; --paper-2:#081009; --card:#132019; --sunk:#0F1A14;
   --ink:#E6EFE9; --muted:#A4B3AA; --faint:#7D8D84;
@@ -273,14 +265,7 @@ export const CSS = `
 
   --seal-hi:#7DE8AE; --seal-core:#2FC46E; --seal-crack:#04331F;
 
-  --band-bg:
-    radial-gradient(700px 300px at 88% -40%, rgba(47,196,110,.2), transparent 62%),
-    linear-gradient(135deg,#0B3823 0%,var(--engo-band) 52%,#061E14 100%);
-  --band-ink:#EAF6EF; --band-dim:#9FC4AF; --band-soft:#C4DED1;
-  --band-ctl:rgba(255,255,255,.1); --band-ctl-line:rgba(255,255,255,.2);
-  --band-ctl-h:rgba(255,255,255,.17); --band-ph:rgba(234,246,239,.5);
-
-  --side:#071410; --side-from:#0A1B14; --side-to:#050F0B;
+  --side:var(--engo-band); --side-from:#0A1B14; --side-to:#050F0B;
   --side-ink:#DCE9E1; --side-dim:#8DA095; --side-sec:#76897E;
   --side-hover:rgba(255,255,255,.06);
   --side-on-bg:linear-gradient(90deg,rgba(47,196,110,.22),rgba(255,255,255,.02) 70%);
@@ -950,43 +935,37 @@ export const THEME_CSS = `
 }
 .statlink:hover{border-color:var(--brand-2);box-shadow:var(--sh-2)}
 
-/* THE BAND. Every page head is the tinted section the look opens with: deep
-   green, white type, the page's headline figures sitting on it. Scoped to
-   .pagehead so it is one element per page and never repeats. The field itself
-   is --band-bg, so dark restates the colour without restating the rule. */
+/* NO BAND ON THE PAGE HEAD.
+
+   The Eat N Go look opened every page with a deep green field carrying the
+   title in white. While it was one theme among seven that was a striking thing
+   to pick. Promoted to the only theme it became the first thing on every
+   screen, and it is not what the approved design does: there the page is
+   light, the heading is ink on it, and the ONE dark surface in the interface
+   is the navigation rail. One dark field, not two.
+
+   The green has not gone anywhere. It is the rail, the primary, the seal and
+   the positive state, which is plenty for a house colour. A green slab behind
+   every title on top of all that is the product shouting its own brand at
+   somebody who already works there.
+
+   What survives is a rule under the title rather than a field behind it. */
 .pagehead{
-  background:var(--band-bg);
-  margin:-18px -18px 18px;
-  padding:26px 22px 22px;
-  border-radius:0 0 var(--radius-lg) var(--radius-lg);
-  box-shadow:var(--sh-2);
+  margin:0 0 18px;
+  padding:0 0 13px;
+  border-bottom:1px solid var(--line);
 }
-.pagehead h1{color:var(--band-ink)}
-.pagehead .sub,
-.pagehead .mono{color:var(--band-dim)}
-/* Controls that ride in the band have to invert with it. */
-.pagehead .btn{
-  background:var(--band-ctl);
-  border-color:var(--band-ctl-line);
-  color:var(--band-ink);
-}
-.pagehead .btn:hover{background:var(--band-ctl-h)}
-.pagehead .in{
-  background:var(--band-ctl);
-  border-color:var(--band-ctl-line);
-  color:var(--band-ink);
-}
-.pagehead .in::placeholder{color:var(--band-ph)}
-.pagehead .checkline{color:var(--band-soft)}
+.pagehead h1{color:var(--ink)}
+.pagehead .sub{color:var(--muted)}
 
-@media(max-width:720px){
-  .pagehead{margin:-12px -12px 14px;padding:20px 14px 16px}
-}
-
+/* Radii follow the approved design rather than the theme they arrived with:
+   controls at 9 instead of 11, and no pill on .btn. A 20px card next to a
+   fully round button reads as a consumer app, which this is not. Chips stay
+   round, because a chip genuinely is a pill. */
 .in,
 .dk textarea,
-.dk select{border-radius:11px}
-.btn{border-radius:999px}
+.dk select{border-radius:9px}
+.btn{border-radius:9px}
 .chip{border-radius:999px}
 .btn.pri{box-shadow:0 3px 12px -3px var(--pri-glow)}
 .segmented,
