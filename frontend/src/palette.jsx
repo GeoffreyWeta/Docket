@@ -55,7 +55,7 @@ export function buildCommands({ api, allowed, chrome }) {
   const out = [];
 
   for (const page of allowed) {
-    if (page === "tender") continue;                 // reached through a tender, not by name
+    if (page === "tender" || page === "auction") continue;   // reached through a tender, not by name
     out.push({
       id: "page:" + page, group: "Go to", icon: PAGE_ICONS[page] || "tender",
       label: PAGE_LABELS[page] || page,
@@ -71,7 +71,9 @@ export function buildCommands({ api, allowed, chrome }) {
       meta: `${t.status} · ${fmtCompact(t.budget)}`,
       run: () => go(user.role === "supplier"
         ? { page: "bidroom", id: t.id }
-        : { page: "tender", id: t.id }),
+        : t.type === "AUC" && !t.openedAt
+          ? { page: "auction", id: t.id }
+          : { page: "tender", id: t.id }),
     });
   }
 
