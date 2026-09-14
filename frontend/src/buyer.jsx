@@ -8,6 +8,7 @@ import { BaselineHint } from "./baselines";
 import { Illus } from "./illus";
 import { CampaignDialog } from "./campaign";
 import { MyDesk } from "./mydesk";
+import { Figures, Guide, More, Page, Quiet, Row, Rows } from "./page";
 import {
   DAY, REG_STATUS, VERIFY_STATUS, abnormallyLow, commScore, daysLeft, displayStatus,
   effStatus, fmtCompact, fmtDate, fmtDateTime, fmtMoney, mean, median, regStatusOf,
@@ -573,61 +574,54 @@ export function Dashboard({ api }) {
   state.suppliers.forEach((s) => s.docs.forEach((d) => { const dl = daysLeft(d.expiry); if (dl <= 60) expiring.push({ s, d, dl }); }));
   expiring.sort((a, b) => a.dl - b.dl);
 
+  /* The guide IS the work queue. What needs you, as a list you can act on, and
+     under it the four figures that used to be a row of tiles across the page.
+     Everything else the dashboard used to show at once is below, and most of
+     it behind a disclosure. */
+  const guide = (
+    <Guide art={mine.length ? "desk" : "clear"}
+           tone={mine.length ? undefined : "good"}
+           headline={mine.length
+             ? `${mine.length} ${mine.length === 1 ? "thing needs" : "things need"} you`
+             : "Nothing needs you"}
+           why={mine.length
+             ? "Oldest first. Pick one to go straight to it."
+             : theirs.length
+               ? `${theirs.length} ${theirs.length === 1 ? "item is" : "items are"} with other people.`
+               : "The workspace is clear."}
+           items={mine.map((it) => ({ key: it.key, label: it.title, note: it.why, onPick: () => go(it.to) }))}>
+      <Figures>
+        <Quiet n={<CountUp n={open.length} />} label="open for bids"
+               onClick={() => go({ page: "tenders", filter: "live" })} />
+        <Quiet n={<CountUp n={sealed.length} />} label="sealed, awaiting opening"
+               tone={sealed.length ? "var(--wax)" : undefined}
+               onClick={() => go({ page: "tenders", filter: "live" })} />
+        <Quiet n={<CountUp n={evaluating.length} />} label="in evaluation"
+               onClick={() => go({ page: "tenders", filter: "evaluation" })} />
+        <Quiet n={<CountUp n={sav.hardTotal} format={fmtCompact} />} label="verified savings this year"
+               tone={sav.hardTotal > 0 ? "var(--green)" : undefined}
+               onClick={() => go({ page: "analytics" })} />
+      </Figures>
+    </Guide>
+  );
+
   return (
-    <div>
+    <Page guide={guide}>
       <div className="pagehead">
         <h1>Dashboard</h1>
-        <span className="sub">
-          {mine.length
-            ? `${mine.length} ${mine.length === 1 ? "thing needs" : "things need"} you`
-            : "Nothing needs you right now."}
-        </span>
+        <span className="sub">What you are carrying, and what is coming up.</span>
       </div>
 
-      {/* What you can act on, before anything you can only look at. */}
-      <div className="card" style={{ marginBottom: 16, borderLeft: mine.length ? "3px solid var(--brass)" : undefined }}>
-        <div className="chead">
-          <h3>Needs you</h3>
-          {mine.length > 0 && <span className="mono faint" style={{ marginLeft: "auto" }}>oldest first</span>}
-        </div>
-        <div className="cbody stagger" style={{ paddingTop: 2 }}>
-          {mine.map((it) => <WorkRow key={it.key} it={it} mine go={go} />)}
-          {!mine.length && (
-            <Empty art="clear">
-              Nothing is waiting on you. {theirs.length > 0
-                ? `${theirs.length} ${theirs.length === 1 ? "item is" : "items are"} with other people.`
-                : "The workspace is clear."}
-            </Empty>
-          )}
-        </div>
-      </div>
+      {/* Everything you are carrying. "Needs you" is about this minute and
+          lives in the guide; this is about the week. */}
+      <MyDesk api={api} />
 
-      <div className="grid g4" style={{ marginBottom: 16 }}>
-        <Stat k="Open for bids" v={<CountUp n={open.length} />} d="live tenders with suppliers bidding"
-              onClick={() => go({ page: "tenders", filter: "live" })} hint="Show live tenders" />
-        <Stat k="Sealed, awaiting opening" v={<CountUp n={sealed.length} />} d="deadline passed, seals unbroken"
-              tone={sealed.length ? "var(--wax)" : null}
-              onClick={() => go({ page: "tenders", filter: "live" })} hint="Show tenders past their deadline" />
-        <Stat k="In evaluation" v={<CountUp n={evaluating.length} />} d="panels scoring"
-              onClick={() => go({ page: "tenders", filter: "evaluation" })} hint="Show tenders in evaluation" />
-        <Stat k="Verified savings" v={<CountUp n={sav.hardTotal} format={fmtCompact} />}
-              d={sav.hard.length
-                   ? `${sav.hard.length} award${sav.hard.length === 1 ? "" : "s"} vs a prior price`
-                   + (sav.softTotal ? ` · ${fmtCompact(sav.softTotal)} more vs budget` : "")
-                   : awardedThisYear.length
-                     ? `no prior prices on file · ${fmtCompact(sav.softTotal)} vs budget`
-                     : "no awards yet this year"}
-              tone={sav.hardTotal > 0 ? "var(--green)" : null}
-              onClick={() => go({ page: "analytics" })} hint="Open the savings analysis" />
-      </div>
+      <More title="Coming up" summary={`deadlines and document expiries in the next ${RADAR_HORIZON} days`}>
+        <Radar api={api} open={open} expiring={expiring} register={register} held={held} />
+      </More>
 
-      {/* Everything you are carrying, before the ambient radars. "Needs you" is
-          about this minute; this is about the week. */}
-      <div style={{ marginBottom: 16 }}>
-        <MyDesk api={api} />
-      </div>
-
-      <Radar api={api} open={open} expiring={expiring} register={register} held={held} />
+      <More title="Waiting on other people, and recent activity"
+            summary={theirs.length ? `${theirs.length} ${theirs.length === 1 ? "item" : "items"} with someone else` : "nothing is held up elsewhere"}>
 
       {/* `dashpair` stops these two stretching to the taller one. The dead space
           under a short "Waiting on others" was half of what made the old
@@ -637,7 +631,8 @@ export function Dashboard({ api }) {
         <WaitingOnOthers api={api} items={theirs} />
         <RecentActivity api={api} tenders={tenders} />
       </div>
-    </div>
+      </More>
+    </Page>
   );
 }
 
@@ -955,73 +950,79 @@ export function TendersPage({ api }) {
     return [t.ref, t.title, t.category].some((x) => (x || "").toLowerCase().includes(n));
   };
   const rows = [...state.tenders].filter(match).sort((a, b) => (b.publishedAt || b.deadline) - (a.publishedAt || a.deadline));
+  /* One row per tender, one line of meta, the status on the right, and the
+     documents problem only when it IS a problem. The eight-column table put
+     the reference, the category, the budget, the deadline, the document count,
+     the bid count and the status at the same weight as the title, on every
+     row, for a list you scan by title. */
+  const live = rows.filter((t) => ["published", "closing"].includes(displayStatus(t))).length;
+  const sealedN = rows.filter((t) => displayStatus(t) === "closed").length;
+  const guide = (
+    <Guide art="draft"
+           headline={rows.length
+             ? `${rows.length} ${rows.length === 1 ? "tender" : "tenders"}${statusF !== "all" || q.trim() ? " match" : ""}`
+             : "No tenders here yet"}
+           why={rows.length
+             ? `${live} open for bids · ${sealedN} sealed and waiting to be opened`
+             : "Anything you draft stays private until you send it on."}
+           action={can(user, "tender.create") && (
+             <button className="btn pri" onClick={() => go({ page: "new" })}>New tender</button>
+           )}>
+      <input className="in" placeholder="Search by title, reference or category"
+             aria-label="Search tenders" value={q} onChange={(e) => setQ(e.target.value)} />
+      <select className="in" aria-label="Filter by status"
+              value={statusF} onChange={(e) => setStatusF(e.target.value)}>
+        <option value="all">Everything</option>
+        <option value="active">Hide awarded</option>
+        <option value="live">Open for bids</option>
+        <option value="evaluation">Being evaluated</option>
+        <option value="awarded">Awarded</option>
+        <option value="paused">Paused</option>
+        <option value="cancelled">Cancelled</option>
+      </select>
+    </Guide>
+  );
   return (
-    <div>
+    <Page guide={guide}>
       <div className="pagehead">
-        <h1>Tenders</h1><span className="sub">{rows.length} shown</span>
-        <div className="grow" />
-        <div className="pagetools">
-          <input className="in" placeholder="Search ref, title, category…"
-                 aria-label="Search tenders" value={q} onChange={(e) => setQ(e.target.value)} />
-          <select className="in" aria-label="Filter by status"
-                  value={statusF} onChange={(e) => setStatusF(e.target.value)}>
-            <option value="all">All statuses</option>
-            <option value="active">Hide awarded</option>
-            <option value="live">Live (open for bids)</option>
-            <option value="evaluation">In evaluation</option>
-            <option value="awarded">Awarded</option>
-            <option value="paused">Paused</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-          {can(user, "tender.create") && <button className="btn pri" onClick={() => go({ page: "new" })}>New tender</button>}
-        </div>
+        <h1>Tenders</h1>
+        <span className="sub">Every competition this workspace is running or has run.</span>
       </div>
       <div className="card">
-        {/* data-l names each cell for the phone layout, where the table becomes
-            a list of records. The title and the status stamp carry the record
-            rather than a field, so they stay unlabelled. */}
-        <table className="tbl">
-          <thead><tr><th>Ref</th><th>Title</th><th>Category</th><th className="num">Budget</th><th>Deadline</th><th>Documents</th><th>Bids</th><th>Status</th>{can(user, "tender.edit") && <th />}</tr></thead>
-          <tbody>
-            {rows.map((t) => {
-              const st = displayStatus(t);
-              const nBids = state.bids.filter((b) => b.tenderId === t.id).length;
-              return (
-                <tr key={t.id} className="click" onClick={() => go({ page: "tender", id: t.id })}>
-                  <td className="mono muted">{t.ref}</td>
-                  <td><b>{t.title}</b>{t.awardRec && t.status === "evaluation" && <span className="chip gold" style={{ marginLeft: 8 }}>With approver</span>}</td>
-                  <td className="muted" data-l="Category">{t.category}</td>
-                  <td className="num" data-l="Budget"><Money n={t.budget} /></td>
-                  <td data-l="Deadline">{t.status === "approval" || t.status === "draft" ? <span className="faint">-</span> : <Countdown t={t.deadline} />}</td>
-                  {/* Whether the pack a bidder is meant to price against is
-                      actually attached. A published RFP with no RFP on it is
-                      the single most common thing to discover too late, and
-                      until now the list gave no way to notice it. */}
-                  <td data-l="Documents">{(() => {
-                    const n = (state.documents || []).filter((d) => d.kind === "tender" && d.tenderId === t.id).length;
-                    if (n) return <span className="chip ok">{n} attached</span>;
-                    return ["published", "closed", "closing", "paused"].includes(st)
-                      ? <span className="chip warn">{t.type} not attached</span>
-                      : <span className="faint">-</span>;
-                  })()}</td>
-                  <td className="mono" data-l="Bids">
-                    {["published", "closing", "closed", "paused"].includes(st) ? nBids + " sealed" : nBids || "-"}
-                    {(t.rounds || []).length > 1 && <span className="faint"> · R{t.currentRound}</span>}
-                  </td>
-                  <td><Stamp s={st} /></td>
-                  {can(user, "tender.edit") && (
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <button className="btn sm" title="Create a draft copy: dates cleared, structure carried over"
-                              onClick={async () => { if (await act.duplicate(t.id)) go({ page: "tenders" }); }}>Duplicate</button>
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <Rows empty={<Empty art="search">Nothing matches that. Clear the search or the filter to see everything.</Empty>}>
+          {rows.map((t) => {
+            const st = displayStatus(t);
+            const nBids = state.bids.filter((b) => b.tenderId === t.id).length;
+            const nDocs = (state.documents || []).filter((d) => d.kind === "tender" && d.tenderId === t.id).length;
+            const inFlight = ["published", "closed", "closing", "paused"].includes(st);
+            const bidsWord = inFlight ? `${nBids} sealed` : nBids ? `${nBids} bids` : null;
+            return (
+              <Row key={t.id} onOpen={() => go({ page: "tender", id: t.id })}
+                   title={t.title}
+                   meta={<>
+                     <span className="mono">{t.ref}</span>
+                     <span>{t.category}</span>
+                     <span><Money n={t.budget} /></span>
+                     {!["approval", "draft"].includes(t.status) && <span><Countdown t={t.deadline} /></span>}
+                     {bidsWord && <span>{bidsWord}{(t.rounds || []).length > 1 ? ` · round ${t.currentRound}` : ""}</span>}
+                   </>}
+                   right={<>
+                     {t.awardRec && t.status === "evaluation" && <span className="chip gold">With approver</span>}
+                     {/* a published pack with nothing attached is the single
+                         most common thing to discover too late, so it is the
+                         one column that survives as a chip, and only when wrong */}
+                     {inFlight && !nDocs && <span className="chip warn">{t.type} not attached</span>}
+                     <Stamp s={st} />
+                     {can(user, "tender.edit") && (
+                       <button className="btn sm" title="Create a draft copy: dates cleared, structure carried over"
+                               onClick={async () => { if (await act.duplicate(t.id)) go({ page: "tenders" }); }}>Duplicate</button>
+                     )}
+                   </>} />
+            );
+          })}
+        </Rows>
       </div>
-    </div>
+    </Page>
   );
 }
 
@@ -1917,34 +1918,54 @@ export function AuditTab({ api, t }) {
 export function EvalsPage({ api }) {
   const { state, go, user } = api;
   const rows = state.tenders.filter((t) => t.status === "evaluation");
-  const progress = (t) => {
+  const progressOf = (t) => {
     const bids = state.bids.filter((b) => b.tenderId === t.id);
     const done = bids.filter((b) => {
       const mine = b.scores?.[user.id] || {};
       return t.criteria.every((c) => mine[c.id] != null && mine[c.id] !== "");
     }).length;
-    return `${done}/${bids.length} bids fully scored`;
+    return { done, total: bids.length };
   };
+  const pending = rows.filter((t) => { const p = progressOf(t); return p.done < p.total; });
+  const guide = (
+    <Guide art={pending.length ? "draft" : "clear"} tone={pending.length ? undefined : "good"}
+           headline={pending.length
+             ? `${pending.length} ${pending.length === 1 ? "tender is" : "tenders are"} waiting for your scores`
+             : rows.length ? "You have scored everything" : "Nothing to score"}
+           why={pending.length
+             ? "Score on your own. Nobody on the panel sees another member's numbers until consensus."
+             : rows.length ? "The panel chair will call consensus when everyone has finished."
+                           : "When a tender you sit on is opened, it appears here."}
+           items={pending.map((t) => {
+             const p = progressOf(t);
+             return { key: t.id, label: t.title, note: `${p.done} of ${p.total} bids scored`,
+                      onPick: () => go({ page: "tender", id: t.id, tab: "eval" }) };
+           })} />
+  );
   return (
-    <div>
-      <div className="pagehead"><h1>My evaluations</h1><span className="sub">Score on your own. Nobody on the panel sees another member's numbers until consensus.</span></div>
-      <div className="card">
-        <table className="tbl">
-          <thead><tr><th>Ref</th><th>Title</th><th>Your progress</th><th></th></tr></thead>
-          <tbody>
-            {rows.map((t) => (
-              <tr key={t.id} className="click" onClick={() => go({ page: "tender", id: t.id, tab: "eval" })}>
-                <td className="mono muted">{t.ref}</td>
-                <td><b>{t.title}</b></td>
-                <td className="mono muted" data-l="Progress">{progress(t)}</td>
-                <td><button className="btn sm">Score →</button></td>
-              </tr>
-            ))}
-            {!rows.length && <tr><td colSpan="4"><Empty>Nothing to score right now. When a tender you sit on is opened, it appears here.</Empty></td></tr>}
-          </tbody>
-        </table>
+    <Page guide={guide}>
+      <div className="pagehead">
+        <h1>My evaluations</h1>
+        <span className="sub">The tenders you sit on the panel for.</span>
       </div>
-    </div>
+      <div className="card">
+        <Rows empty={<Empty art="clear">Nothing to score right now. When a tender you sit on is opened, it appears here.</Empty>}>
+          {rows.map((t) => {
+            const p = progressOf(t);
+            const finished = p.total > 0 && p.done === p.total;
+            return (
+              <Row key={t.id} onOpen={() => go({ page: "tender", id: t.id, tab: "eval" })}
+                   title={t.title}
+                   meta={<><span className="mono">{t.ref}</span><span>{p.done} of {p.total} bids fully scored</span></>}
+                   right={<>
+                     {finished ? <span className="chip ok">Scored</span> : <span className="chip warn">{p.total - p.done} left</span>}
+                     <button className="btn sm pri">{finished ? "Review" : "Score"}</button>
+                   </>} />
+            );
+          })}
+        </Rows>
+      </div>
+    </Page>
   );
 }
 
@@ -1997,8 +2018,31 @@ export function ApprovalsPage({ api }) {
     if (done) api.toast.info("Returned to the panel", "Procurement has been asked to revisit the recommendation.");
   };
 
+  /* The guide is the queue: one line per thing waiting for a signature, each
+     one a way to the card below. The spend totals and the threshold setting,
+     which the old page put at the top at the same weight as the decisions,
+     are behind a disclosure: you change the threshold a few times a year and
+     you look at committed spend when someone asks. */
+  const queue = [
+    ...awards.map((t) => ({ key: "a" + t.id, label: t.title,
+      note: `Award · ${state.suppliers.find((s) => s.id === t.awardRec.supplierId)?.name} at ${fmtCompact(t.awardRec.amount)}`,
+      onPick: () => document.getElementById("appr-a" + t.id)?.scrollIntoView({ behavior: "smooth", block: "start" }) })),
+    ...pubs.map((t) => ({ key: "p" + t.id, label: t.title,
+      note: `Publish · ceiling ${fmtCompact(t.budget)}`,
+      onPick: () => document.getElementById("appr-p" + t.id)?.scrollIntoView({ behavior: "smooth", block: "start" }) })),
+  ];
+  const guide = (
+    <Guide art={queue.length ? "draft" : "clear"} tone={queue.length ? undefined : "good"}
+           headline={queue.length
+             ? `${queue.length} ${queue.length === 1 ? "thing needs" : "things need"} your sign-off`
+             : "Nothing is waiting for your sign-off"}
+           why={queue.length
+             ? "Nothing reaches a supplier without a named signature. Pick one to go to it."
+             : "Tenders at or above the threshold come here before they publish. Awards always do."}
+           items={queue} />
+  );
   return (
-    <div>
+    <Page guide={guide}>
       {awardT && (() => {
         const rec = awardT.awardRec;
         const winner = state.suppliers.find((s) => s.id === rec.supplierId);
@@ -2016,91 +2060,96 @@ export function ApprovalsPage({ api }) {
           </ConfirmDialog>
         );
       })()}
-      <div className="pagehead"><h1>Approvals</h1><span className="sub">Nothing reaches a supplier without a named sign-off. The threshold below decides what lands here.</span></div>
-      <div className="grid2" style={{ alignItems: "stretch", marginBottom: 14 }}>
-        <div className="card">
-          <div className="chead"><h3>Committed spend</h3></div>
-          <div className="cbody">
-            <div className="rowline"><span className="muted" style={{ flex: 1 }}>Awarded to date</span><Money n={committed} strong /></div>
-            <div className="rowline"><span className="muted" style={{ flex: 1 }}>Pending your approval</span><Money n={pending} /></div>
-            <div className="rowline"><span className="muted" style={{ flex: 1 }}>Total budget ceilings in play</span><Money n={ceilings} /></div>
-            <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Approve everything pending and committed spend becomes <b>{fmtCompact(committed + pending)}</b>.</div>
-          </div>
-        </div>
-        <div className="card">
-          <div className="chead"><h3>When a tender needs your sign-off</h3><span className="mono faint" style={{ marginLeft: "auto" }}>only you can change this</span></div>
-          <div className="cbody">
-            <div className="frow">
-              <label className="lbl">Sign-off threshold</label>
-              <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>In naira. A tender at or above this comes to you before it publishes. Below it, publishing is immediate.</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input className="in" type="number" value={thr} onChange={(e) => setThr(e.target.value)} />
-                <button className="btn pri" onClick={saveThr} disabled={!Number(thr)}>Save</button>
-              </div>
-              {!Number(thr) && <div className="hint">Enter an amount in naira to save.</div>}
-            </div>
-            {thrMsg && <div className="notice" style={{ marginBottom: 0 }}>{thrMsg}</div>}
-          </div>
-        </div>
+      <div className="pagehead">
+        <h1>Approvals</h1>
+        <span className="sub">Awards to sign off, and tenders waiting to be published.</span>
       </div>
 
-      {awards.length > 0 && <div className="navsec" style={{ color: "var(--faint)", padding: "0 0 8px" }}>AWARD APPROVALS</div>}
       {awards.map((t) => {
         const rec = t.awardRec;
         const winner = state.suppliers.find((s) => s.id === rec.supplierId);
         const bids = state.bids.filter((b) => b.tenderId === t.id);
+        const ranked = bids.map((b) => ({ b, tot: totalScore(t, b, bids) })).sort((x, y) => (y.tot ?? -1) - (x.tot ?? -1));
         return (
-          <div className="card" key={"a" + t.id} style={{ marginBottom: 14, borderLeft: "3px solid var(--brass)" }}>
+          <div className="card" key={"a" + t.id} id={"appr-a" + t.id} style={{ marginBottom: 14 }}>
             <div className="chead">
-              <h3>{t.title}</h3><span className="mono faint">{t.ref}</span>
+              <h3>{t.title}</h3>
               <span className="chip gold" style={{ marginLeft: "auto" }}>Award · {winner.name} · {fmtCompact(rec.amount)}</span>
             </div>
             <div className="cbody">
-              <div className="aihint" style={{ marginBottom: 12 }}>{rec.memo}</div>
-              <button className="btn sm" style={{ marginBottom: 12 }} onClick={() => downloadUrl(`/tenders/${t.id}/export/memo.pdf`, `${t.ref}-award-memo.pdf`)}>Download memo as PDF</button>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-                {bids
-                  .map((b) => ({ b, tot: totalScore(t, b, bids) }))
-                  .sort((x, y) => (y.tot ?? -1) - (x.tot ?? -1))
-                  .map(({ b, tot }) => {
+              <div className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
+                {rec.by} recommends <b>{winner.name}</b> at <b>{fmtMoney(rec.amount)}</b>, {fmtCompact(t.budget - rec.amount)} under
+                the ceiling, from {bids.length} sealed {bids.length === 1 ? "bid" : "bids"}. {fmtDateTime(rec.at)}.
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button className="btn pri" onClick={() => setAwardT(t)}>Approve award &amp; issue letters</button>
+                <button className="btn" onClick={() => returnAward(t)}>Return to panel</button>
+              </div>
+              <More title="The recommendation in full" summary="the memo, every bidder's total, and the PDF">
+                <div className="aihint" style={{ marginBottom: 12 }}>{rec.memo}</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                  {ranked.map(({ b, tot }) => {
                     const s = state.suppliers.find((x) => x.id === b.supplierId);
                     return <span key={b.id} className={"chip" + (b.supplierId === rec.supplierId ? " gold" : "")}>{s.name} · {fmtCompact(b.amount)} · total {tot != null ? tot.toFixed(1) : "-"}</span>;
                   })}
-              </div>
-              <div className="mono faint" style={{ marginBottom: 12 }}>Recommended by {rec.by} · {fmtDateTime(rec.at)}</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn pri" onClick={() => setAwardT(t)}>Approve award & issue letters…</button>
-                <button className="btn" onClick={() => returnAward(t)}>Return to panel</button>
-              </div>
+                </div>
+                <button className="btn sm" onClick={() => downloadUrl(`/tenders/${t.id}/export/memo.pdf`, `${t.ref}-award-memo.pdf`)}>Download memo as PDF</button>
+              </More>
             </div>
           </div>
         );
       })}
 
-      {pubs.length > 0 && <div className="navsec" style={{ color: "var(--faint)", padding: "8px 0" }}>TENDERS TO PUBLISH</div>}
       {pubs.map((t) => (
-        <div className="card" key={t.id} style={{ marginBottom: 14 }}>
+        <div className="card" key={t.id} id={"appr-p" + t.id} style={{ marginBottom: 14 }}>
           <div className="chead">
-            <h3>{t.title}</h3><span className="mono faint">{t.ref}</span>
-            <span className="mono" style={{ marginLeft: "auto" }}><Money n={t.budget} strong /></span>
+            <h3>{t.title}</h3>
+            <span className="chip" style={{ marginLeft: "auto" }}>Publish · ceiling {fmtCompact(t.budget)}</span>
           </div>
           <div className="cbody">
-            <p style={{ margin: "0 0 10px", fontSize: 13.5, lineHeight: 1.6 }}>{t.scope}</p>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-              {t.criteria.map((c) => <span key={c.id} className="chip">{c.name} · {c.weight}%</span>)}
-              <span className="chip">{t.techWeight}/{t.commWeight} tech–commercial split</span>
-              <span className="chip">Deadline {fmtDate(t.deadline)}</span>
-              {t.lines && t.lines.length > 0 && <span className="chip">{t.lines.length} priced lines</span>}
+            <div className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
+              Closes {fmtDate(t.deadline)} · {t.invited.length} {t.invited.length === 1 ? "vendor" : "vendors"} invited
+              · scored {t.techWeight}% technical, {t.commWeight}% commercial
+              {t.lines && t.lines.length > 0 ? ` · ${t.lines.length} priced lines` : ""}.
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn pri" onClick={() => decidePub(t, true)}>Approve & publish</button>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button className="btn pri" onClick={() => decidePub(t, true)}>Approve &amp; publish</button>
               <button className="btn" onClick={() => decidePub(t, false)}>Return to draft</button>
             </div>
+            <More title="Scope and criteria" summary="what is being bought, and how bids will be scored">
+              <p style={{ margin: "0 0 10px", fontSize: 13.5, lineHeight: 1.6 }}>{t.scope}</p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {t.criteria.map((c) => <span key={c.id} className="chip">{c.name} · {c.weight}%</span>)}
+              </div>
+            </More>
           </div>
         </div>
       ))}
-      {!pubs.length && !awards.length && <div className="card"><Empty>Nothing is waiting for your sign-off.</Empty></div>}
-    </div>
+
+      {!pubs.length && !awards.length && (
+        <div className="card"><Empty art="clear">Nothing is waiting for your sign-off.</Empty></div>
+      )}
+
+      <More title="When a tender needs your sign-off" summary={thr ? `at or above ${fmtCompact(Number(thr))}` : "no threshold set"}>
+        <div className="frow" style={{ marginBottom: 0 }}>
+          <label className="lbl">Sign-off threshold</label>
+          <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>In naira. A tender at or above this comes to you before it publishes. Below it, publishing is immediate. Only you can change this.</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input className="in" type="number" value={thr} onChange={(e) => setThr(e.target.value)} />
+            <button className="btn pri" onClick={saveThr} disabled={!Number(thr)}>Save</button>
+          </div>
+          {!Number(thr) && <div className="hint">Enter an amount in naira to save.</div>}
+          {thrMsg && <div className="notice" style={{ marginTop: 10, marginBottom: 0 }}>{thrMsg}</div>}
+        </div>
+      </More>
+
+      <More title="Committed spend" summary={`${fmtCompact(committed)} awarded to date · ${fmtCompact(pending)} pending your approval`}>
+        <div className="rowline"><span className="muted" style={{ flex: 1 }}>Awarded to date</span><Money n={committed} strong /></div>
+        <div className="rowline"><span className="muted" style={{ flex: 1 }}>Pending your approval</span><Money n={pending} /></div>
+        <div className="rowline"><span className="muted" style={{ flex: 1 }}>Total budget ceilings in play</span><Money n={ceilings} /></div>
+        <div className="hint">Approve everything pending and committed spend becomes <b>{fmtCompact(committed + pending)}</b>.</div>
+      </More>
+    </Page>
   );
 }
 
@@ -2919,8 +2968,44 @@ export function SuppliersPage({ api }) {
   });
   useEffect(() => { setShown(PAGE); }, [sq, cat, loc, preOnly, vstate]);
   const page = visible.slice(0, shown);
+  /* One row per vendor: name, one line of meta, verification on the right,
+     and paperwork only when it is about to lapse. The seven-column table put
+     registration, verification, every document, on-time and quality at the
+     same weight as the name, for 1,400 rows nobody reads as a table. The
+     tools for bringing vendors in - register, import, invite, the campaign -
+     are behind one disclosure, because they are used a few times a year and
+     the register is used every day. */
+  const filtered = visible.length !== state.suppliers.length;
+  const guide = (
+    <Guide art={queue.length && canPrequalify ? "draft" : "tray"}
+           headline={filtered
+             ? `${visible.length.toLocaleString()} of ${state.suppliers.length.toLocaleString()} vendors`
+             : `${state.suppliers.length.toLocaleString()} vendors on the register`}
+           why={canPrequalify && queue.length
+             ? `${queue.length} ${queue.length === 1 ? "has" : "have"} registered and ${queue.length === 1 ? "is" : "are"} waiting for your review.`
+             : "An unverified vendor can still be invited and can still bid. Verification gates prequalification, not participation."}
+           items={canPrequalify ? queue.slice(0, 6).map((s) => ({
+             key: s.id, label: s.name, note: `${s.category} · ${s.location}`,
+             onPick: () => document.getElementById("vq-" + s.id)?.scrollIntoView({ behavior: "smooth", block: "center" }),
+           })) : []}
+           action={canRegister && (
+             <button className="btn pri" onClick={() => setRegisterOpen(true)}><Icon n="plus" /> Register a vendor</button>
+           )}>
+      <input className="in" placeholder="Search by name or vendor code"
+             aria-label="Search suppliers" value={sq} onChange={(e) => setSq(e.target.value)} />
+      <select className="in" aria-label="Filter by category" value={cat} onChange={(e) => setCat(e.target.value)}>
+        <option value="">Every category</option>
+        {categories.map(([c, n]) => <option key={c} value={c}>{c} ({n})</option>)}
+      </select>
+      <select className="in" aria-label="Filter by verification status" value={vstate}
+              onChange={(e) => setVstate(e.target.value)}>
+        <option value="">Any verification status</option>
+        {Object.entries(VERIFY_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+      </select>
+    </Guide>
+  );
   return (
-    <div>
+    <Page guide={guide}>
       {preS && (
         <ConfirmDialog title={`Prequalify ${preS.name}?`} confirmLabel="Prequalify" onClose={() => setPreS(null)}
                        onConfirm={async () => {
@@ -2933,6 +3018,7 @@ export function SuppliersPage({ api }) {
       {declineS && (
         <Dialog title={`Decline ${declineS.name}`} onClose={() => setDeclineS(null)} footer={
           <>
+            {!reason.trim() && <span className="hint gatehint">Give the reason first. The vendor reads it word for word.</span>}
             <button className="btn" onClick={() => setDeclineS(null)}>Cancel</button>
             <button className="btn wax" disabled={!reason.trim()}
                     onClick={async () => {
@@ -2941,7 +3027,7 @@ export function SuppliersPage({ api }) {
                       if (await act.prequalDecision(s.id, false, reason.trim())) {
                         toast.ok(`${s.name} declined`, "The reason has been sent to the vendor and recorded in the audit trail.");
                       }
-                    }}>Decline & send the reason</button>
+                    }}>Decline &amp; send the reason</button>
           </>
         }>
           The vendor sees this reason verbatim and can fix it and come back, so make it specific and actionable.
@@ -2953,6 +3039,7 @@ export function SuppliersPage({ api }) {
       {inviteOpen && (
         <Dialog title="Invite a vendor to register" onClose={() => setInviteOpen(false)} footer={
           <>
+            {!email.includes("@") && <span className="hint gatehint">Enter their email address to send.</span>}
             <button className="btn" onClick={() => setInviteOpen(false)}>Cancel</button>
             <button className="btn pri" disabled={!email.includes("@")}
                     onClick={async () => {
@@ -2971,45 +3058,92 @@ export function SuppliersPage({ api }) {
       {campaign && <CampaignDialog api={api} onClose={() => setCampaign(false)} />}
       {registerOpen && <RegisterVendorDialog api={api} onClose={() => setRegisterOpen(false)} />}
       {suspending && <SuspendDialog api={api} supplier={suspending} onClose={() => setSuspending(null)} />}
-      <div className="pagehead"><h1>Suppliers</h1>
-        <span className="sub">
-          {visible.length === state.suppliers.length
-            ? `${state.suppliers.length.toLocaleString()} on the register`
-            : `${visible.length.toLocaleString()} of ${state.suppliers.length.toLocaleString()}`}
-        </span>
-        <div className="grow" />
-        <div className="pagetools">
-          <input className="in" placeholder="Name or vendor code…"
-                 aria-label="Search suppliers" value={sq} onChange={(e) => setSq(e.target.value)} />
-          <select className="in" aria-label="Filter by category" value={cat} onChange={(e) => setCat(e.target.value)}>
-            <option value="">All categories</option>
-            {categories.map(([c, n]) => <option key={c} value={c}>{c} ({n})</option>)}
-          </select>
-          <select className="in" aria-label="Filter by location" value={loc} onChange={(e) => setLoc(e.target.value)}>
-            <option value="">Everywhere</option>
-            {locations.map(([l, n]) => <option key={l} value={l}>{l} ({n})</option>)}
-          </select>
-          <select className="in" aria-label="Filter by verification status" value={vstate}
-                  onChange={(e) => setVstate(e.target.value)}>
-            <option value="">Any verification status</option>
-            {Object.entries(VERIFY_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-          </select>
-          <label className="checkline">
-            <input type="checkbox" checked={preOnly} onChange={(e) => setPreOnly(e.target.checked)} /> Prequalified only
-          </label>
-          {/* Typing a vendor in is its own capability. Somebody trusted to email
-              an invitation is not automatically trusted to put a company on the
-              register without one being answered. */}
-          {canRegister && (
-            <button className="btn sm pri" onClick={() => setRegisterOpen(true)}>
-              <Icon n="plus" /> Register a vendor
-            </button>
-          )}
-          {canImport && (
-            <>
-              <button className="btn sm" onClick={() => setRegOpen(true)}>
-                <Icon n="upload" /> Update the register
-              </button>
+
+      <div className="pagehead">
+        <h1>Suppliers</h1>
+        <span className="sub">Every company that can be invited to bid.</span>
+      </div>
+
+      {canPrequalify && queue.length > 0 && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="chead"><h3>Waiting for your review</h3><span className="hint" style={{ marginLeft: "auto", marginTop: 0 }}>{queue.length} registered, not yet verified</span></div>
+          <Rows>
+            {queue.map((s) => {
+              const docs = complianceDocs(s.id);
+              return (
+                <Row key={s.id} title={s.name} tone="brass"
+                     meta={<><span>{s.category}</span><span>{s.location}</span><span>{s.contactEmail}</span></>}
+                     right={<>
+                       <button className="btn sm pri" onClick={() => prequalify(s)}>Prequalify</button>
+                       <button className="btn sm" onClick={() => decline(s)}>Decline</button>
+                     </>}>
+                  <div id={"vq-" + s.id} className="lrmeta" style={{ marginTop: 6 }}>
+                    {docs.map((x) => (
+                      <button key={x.id} className="doclink" onClick={() => downloadDoc(x.id, x.name)}><Icon n="file" s={12} />{x.name}</button>
+                    ))}
+                    {docs.length === 0 && <span className="faint">No compliance documents uploaded yet.</span>}
+                    {s.rejectedReason && <span className="faint">Previously declined: {s.rejectedReason}</span>}
+                  </div>
+                </Row>
+              );
+            })}
+          </Rows>
+        </div>
+      )}
+
+      <div className="card">
+        <Rows empty={<Empty art="search">Nothing on the register matches that. Clear the search or a filter to see everyone.</Empty>}>
+          {page.map((s) => {
+            const r = REG_STATUS[regStatusOf(s)];
+            const v = VERIFY_STATUS[verifyStatusOf(s)];
+            const lapsing = s.docs.filter((d) => d.expiry && daysLeft(d.expiry) <= 60);
+            return (
+              <Row key={s.id} onOpen={() => setOpenId(s.id)} title={s.name}
+                   meta={<>
+                     {s.code && <span className="mono">{s.code}</span>}
+                     <span>{s.category}</span>
+                     {s.location && <span>{s.location}</span>}
+                     {s.perf.onTime != null && <span>{s.perf.onTime}% on time</span>}
+                     {s.perf.quality != null && <span>{s.perf.quality}% quality</span>}
+                   </>}
+                   right={<>
+                     {/* paperwork survives as a chip only when it is about to
+                         lapse; "valid" on every row said nothing */}
+                     {lapsing.map((d, i) => (
+                       <span key={i} className="chip warn" title={d.name}>{d.name} · {daysLeft(d.expiry)}d left</span>
+                     ))}
+                     {r && regStatusOf(s) !== "registered" && <span className={"chip " + r.tone}>{r.label}</span>}
+                     <span className={"chip " + (v ? v.tone : "")}
+                           title={s.suspended ? s.suspendedReason : s.rejectedReason || undefined}>
+                       {v ? v.label : verifyStatusOf(s)}
+                     </span>
+                     {canPrequalify && !s.prequalified && !s.suspended && (
+                       <button className="btn sm" onClick={() => prequalify(s)}>Verify</button>
+                     )}
+                     {canSuspend && (s.suspended || s.prequalified) && (
+                       <button className="btn sm" onClick={() => setSuspending(s)}>{s.suspended ? "Reinstate" : "Suspend"}</button>
+                     )}
+                   </>} />
+            );
+          })}
+        </Rows>
+        {visible.length > page.length && (
+          <div className="cbody" style={{ display: "flex", alignItems: "center", gap: 12, borderTop: "1px solid var(--hair)" }}>
+            <span className="hint" style={{ marginTop: 0 }}>
+              Showing {page.length.toLocaleString()} of {visible.length.toLocaleString()}
+            </span>
+            <button className="btn sm" onClick={() => setShown(shown + PAGE)}>Show {PAGE} more</button>
+            <button className="btn sm" onClick={() => setShown(visible.length)}>Show all {visible.length.toLocaleString()}</button>
+          </div>
+        )}
+      </div>
+
+      {(canImport || canInvite) && (
+        <More title="Bring vendors in" summary="invite one, invite the register, add from CSV, or replace the register">
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {canInvite && <button className="btn sm" onClick={inviteVendor}><Icon n="mail" /> Invite a vendor</button>}
+            {canInvite && <button className="btn sm" onClick={() => setCampaign(true)}><Icon n="team" /> Invite the register</button>}
+            {canImport && (
               <label className="btn sm"><Icon n="upload" /> Add from CSV
                 <input type="file" accept=".csv" hidden onChange={async (e) => {
                   const f = e.target.files[0];
@@ -3019,134 +3153,34 @@ export function SuppliersPage({ api }) {
                   e.target.value = "";
                 }} />
               </label>
-            </>
-          )}
-          {/* inviting a vendor is its own capability: someone may be trusted to
-              email an invitation without being trusted to replace the register */}
-          {canInvite && (
-            <>
-              <button className="btn sm" onClick={inviteVendor}><Icon n="mail" /> Invite a vendor</button>
-              {/* The bulk drive is deliberately a separate button from the
-                  single invite above: one emails a company, the other emails
-                  the register, and they should never be one click apart in the
-                  reader's mind. */}
-              <button className="btn sm" onClick={() => setCampaign(true)}>
-                <Icon n="team" /> Invite the register…
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-      {canImport && (
-        <div className="muted" style={{ fontSize: 12, marginTop: -8, marginBottom: 12 }}>
-          <b>Update the register</b> replaces the whole register from the vendor master export (JSON);
-          it shows you what would change before writing anything.
-          {" "}<b>Add from CSV</b> appends a few vendors — columns: name, category, location, email,
-          prequalified (yes/no); duplicates are skipped.
-        </div>
-      )}
-      {canPrequalify && queue.length > 0 && (
-        <div className="card" style={{ marginBottom: 14, borderLeft: "3px solid var(--brass)" }}>
-          <div className="chead"><h3>Vendors waiting to be registered</h3><span className="mono faint" style={{ marginLeft: "auto" }}>{queue.length} awaiting review</span></div>
-          <div className="cbody">
-            {queue.map((s) => (
-              <div key={s.id} className="docrow" style={{ alignItems: "flex-start" }}>
-                <div style={{ flex: 1 }}>
-                  <b>{s.name}</b> <span className="muted" style={{ fontSize: 12 }}>· {s.category} · {s.location} · {s.contactEmail}</span>
-                  <div style={{ marginTop: 4 }}>
-                    {complianceDocs(s.id).map((x) => (
-                      <button key={x.id} className="doclink" style={{ fontSize: 12, marginRight: 10 }} onClick={() => downloadDoc(x.id, x.name)}>{x.name}</button>
-                    ))}
-                    {complianceDocs(s.id).length === 0 && <span className="muted" style={{ fontSize: 12 }}>No compliance documents uploaded yet.</span>}
-                  </div>
-                  {s.rejectedReason && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Previously declined: {s.rejectedReason}</div>}
-                </div>
-                <button className="btn sm pri" onClick={() => prequalify(s)}>Prequalify</button>
-                <button className="btn sm" onClick={() => decline(s)}>Decline…</button>
-              </div>
-            ))}
+            )}
+            {canImport && <button className="btn sm" onClick={() => setRegOpen(true)}><Icon n="upload" /> Update the register</button>}
           </div>
-        </div>
-      )}
-      <div className="card">
-        <div className="tscroll">
-          <table className="tbl">
-            <thead><tr><th>Supplier</th><th>Category</th><th>Registration</th><th>Verification</th><th>Paperwork</th><th className="num">On-time</th><th className="num">Quality</th></tr></thead>
-            <tbody>
-              {page.map((s) => (
-                <tr key={s.id} className="vrow" onClick={() => setOpenId(s.id)} title="Open the register record">
-                  <td>
-                    <b>{s.name}</b>
-                    <div className="muted" style={{ fontSize: 11.5 }}>
-                      {s.code ? <span className="mono">{s.code}</span> : null}
-                      {s.code && s.location ? " · " : ""}{s.location}
-                    </div>
-                  </td>
-                  <td className="muted" data-l="Category">{s.category}</td>
-                  <td data-l="Registration">
-                    {(() => {
-                      const r = REG_STATUS[regStatusOf(s)];
-                      return <span className={"chip " + (r ? r.tone : "")}>{r ? r.label : regStatusOf(s)}</span>;
-                    })()}
-                  </td>
-                  <td data-l="Verification">
-                    <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                      {(() => {
-                        const v = VERIFY_STATUS[verifyStatusOf(s)];
-                        return <span className={"chip " + (v ? v.tone : "")}
-                                     title={s.suspended ? s.suspendedReason : s.rejectedReason || undefined}>
-                          {v ? v.label : verifyStatusOf(s)}
-                        </span>;
-                      })()}
-                      {canPrequalify && !s.prequalified && !s.suspended && (
-                        <button className="btn sm" onClick={(e) => { e.stopPropagation(); prequalify(s); }}>Verify</button>
-                      )}
-                      {canSuspend && (s.suspended || s.prequalified) && (
-                        <button className="btn sm" onClick={(e) => { e.stopPropagation(); setSuspending(s); }}>
-                          {s.suspended ? "Reinstate" : "Suspend"}
-                        </button>
-                      )}
-                    </span>
-                  </td>
-                  <td data-l="Paperwork">
-                    {/* tender-linked vendors carry dated documents and keep
-                        their expiry chip; the rest of the register records that
-                        paperwork exists, not when it lapses, so it reads as a
-                        count rather than five identical chips */}
-                    {s.docs.length > 0
-                      ? s.docs.map((d, i) => {
-                          const dl = d.expiry ? daysLeft(d.expiry) : null;
-                          const label = `${d.name}${dl !== null ? (dl <= 60 ? ` · ${dl}d left` : " · valid") : ""}`;
-                          return d.docId
-                            ? <button key={i} className={"chip " + (dl !== null && dl <= 60 ? "warn" : "")} style={{ marginRight: 5, marginBottom: 3, cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); downloadDoc(d.docId, d.name); }}>{label}</button>
-                            : <span key={i} className={"chip " + (dl !== null && dl <= 60 ? "warn" : "")} style={{ marginRight: 5, marginBottom: 3 }}>{label}</span>;
-                        })
-                      : s.docCount
-                        ? <span className="muted" style={{ fontSize: 12 }}>{s.docCount} item(s) on file</span>
-                        : <span className="faint" style={{ fontSize: 12 }}>nothing on file</span>}
-                  </td>
-                  <td className="num mono" data-l="On-time">{s.perf.onTime != null ? s.perf.onTime + "%" : <span className="faint">-</span>}</td>
-                  <td className="num mono" data-l="Quality">{s.perf.quality != null ? s.perf.quality + "%" : <span className="faint">-</span>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {visible.length > page.length && (
-          <div className="cbody" style={{ display: "flex", alignItems: "center", gap: 12, borderTop: "1px solid var(--hair)" }}>
-            <span className="muted" style={{ fontSize: 12 }}>
-              Showing {page.length.toLocaleString()} of {visible.length.toLocaleString()}
-            </span>
-            <button className="btn sm" onClick={() => setShown(shown + PAGE)}>Show {PAGE} more</button>
-            <button className="btn sm" onClick={() => setShown(visible.length)}>Show all {visible.length.toLocaleString()}</button>
+          {canImport && (
+            <div className="hint" style={{ marginTop: 10 }}>
+              <b>Update the register</b> replaces the whole register from the vendor master export (JSON) and shows
+              you what would change before writing anything. <b>Add from CSV</b> appends a few vendors: columns are
+              name, category, location, email, prequalified (yes/no); duplicates are skipped.
+            </div>
+          )}
+          <div className="checkline" style={{ marginTop: 12 }}>
+            <input type="checkbox" id="sp-preonly" checked={preOnly} onChange={(e) => setPreOnly(e.target.checked)} />
+            <label htmlFor="sp-preonly">Show prequalified vendors only</label>
           </div>
-        )}
-        {visible.length === 0 && <div className="cbody"><Empty art="search">Nothing on the register matches that.</Empty></div>}
-      </div>
+          <div className="frow" style={{ marginTop: 10, marginBottom: 0 }}>
+            <label className="lbl" htmlFor="sp-loc">Location</label>
+            <select id="sp-loc" className="in" value={loc} onChange={(e) => setLoc(e.target.value)}>
+              <option value="">Everywhere</option>
+              {locations.map(([l, n]) => <option key={l} value={l}>{l} ({n})</option>)}
+            </select>
+          </div>
+        </More>
+      )}
+
       {openId && <VendorRecord row={state.suppliers.find((x) => x.id === openId)}
                                detail={detail} onClose={() => setOpenId(null)} />}
       {regOpen && <RegisterImport api={api} onClose={() => setRegOpen(false)} />}
-    </div>
+    </Page>
   );
 }
 
@@ -3508,74 +3542,89 @@ export function TeamPage({ api }) {
   /* The four built-ins plus whatever roles this workspace has invented — the
      server is the one that knows, so the list comes from it. */
   const ROLES = (team?.roles || []).map((r) => [r.value, r.label]);
+  const members = team?.members || [];
+  const invites = team?.invites || [];
+  const guide = (
+    <Guide art="desk"
+           headline={members.length
+             ? `${members.length} ${members.length === 1 ? "person" : "people"} in this workspace`
+             : "Nobody here yet"}
+           why={invites.length
+             ? `${invites.length} ${invites.length === 1 ? "invitation is" : "invitations are"} waiting to be accepted.`
+             : "Invite a colleague and they set their own password from a single-use link."}
+           action={
+             <div className="gaterow" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
+               <input className="in" placeholder="Their work email" aria-label="Work email"
+                      value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
+               <select className="in" aria-label="Role" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>
+                 {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+               </select>
+               <button className="btn pri" onClick={invite} disabled={!f.email.trim()}>Send invitation</button>
+               {!f.email.trim() && <span className="hint gatehint">Enter their work email to send.</span>}
+               {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", margin: 0 }}>{msg}</div>}
+               {link && (
+                 <div className="notice" style={{ margin: 0 }}>
+                   Demo mode: the invitation email prints to the server log, so here is the link to try the flow yourself:{" "}
+                   <span className="mono" style={{ fontSize: 11, wordBreak: "break-all" }}>{link}</span>
+                 </div>
+               )}
+             </div>
+           } />
+  );
   return (
-    <div>
-      <div className="pagehead"><h1>Team</h1><span className="sub">Who is here, and what each person can do.</span></div>
-      <WorkspaceCard api={api} />
-      <div className="grid2" style={{ alignItems: "start" }}>
-        <div className="card">
-          <div className="chead"><h3>Who is here</h3></div>
-          <div className="tscroll">
-            <table className="tbl">
-              <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Access</th></tr></thead>
-              <tbody>
-                {(team?.members || []).map((m) => (
-                  <tr key={m.username}>
-                    <td><b>{m.name}</b><div className="muted" style={{ fontSize: 11.5 }}>{m.title}</div></td>
-                    <td className="muted" data-l="Email">{m.email}</td>
-                    <td data-l="Role"><span className="chip">{m.roleLabel || m.role}</span></td>
-                    <td data-l="Access">
-                      {!m.active
-                        ? <span className="chip warn">disabled</span>
-                        : m.custom ? <span className="chip">adjusted</span> : <span className="muted" style={{ fontSize: 11.5 }}>role defaults</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {(team?.invites || []).length > 0 && (
-            <div className="cbody" style={{ borderTop: "1px solid var(--line)" }}>
-              <div className="lbl" style={{ marginBottom: 6 }}>Invitations awaiting acceptance</div>
-              {team.invites.map((i, k) => (
-                <div key={k} className="docrow"><span>{i.email}</span><span className="chip">{i.roleLabel || i.role}</span><span className="mono faint">{fmtDate(i.at)}</span></div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="card">
-          <div className="chead"><h3>Bring someone in</h3></div>
-          <div className="cbody">
-            <div className="frow"><label className="lbl">Work email</label>
-              <input className="in" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></div>
-            <div className="frow"><label className="lbl">Role</label>
-              <select className="in" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>
-                {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select></div>
-            <div className="frow"><label className="lbl">Name <span className="faint">optional</span></label>
-              <input className="in" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
-            <div className="frow"><label className="lbl">Job title <span className="faint">optional</span></label>
-              <input className="in" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
-            {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 12 }}>{msg}</div>}
-            <div className="gaterow">
-              <button className="btn pri" onClick={invite} disabled={!f.email.trim()}>Send invitation</button>
-              {!f.email.trim() && <span className="hint gatehint">Enter their work email to send.</span>}
-            </div>
-            {link && (
-              <div className="notice" style={{ marginTop: 12 }}>
-                Demo mode: the invitation email prints to the server log, so here's the link to try the flow yourself:{" "}
-                <span className="mono" style={{ fontSize: 11, wordBreak: "break-all" }}>{link}</span>
-              </div>
-            )}
-            <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-              Separation of duties is enforced by the server: evaluators can't publish or award, approvers can't score, auditors can't change anything.
-            </div>
-          </div>
-        </div>
-
-        {can(user, "team.view") && <ReportingLines api={api} team={team} />}
+    <Page guide={guide}>
+      <div className="pagehead">
+        <h1>Team</h1>
+        <span className="sub">Who is here, and what each person can do.</span>
       </div>
-    </div>
+      <div className="card">
+        <Rows empty={<Empty art="desk">Nobody has been invited yet. Use the panel to bring the first person in.</Empty>}>
+          {members.map((m) => (
+            <Row key={m.username}
+                 title={m.name}
+                 meta={<>{m.title && <span>{m.title}</span>}<span>{m.email}</span></>}
+                 right={<>
+                   <span className="chip">{m.roleLabel || m.role}</span>
+                   {!m.active
+                     ? <span className="chip warn">disabled</span>
+                     : m.custom ? <span className="chip" title="Permissions adjusted from the role defaults">adjusted</span> : null}
+                 </>} />
+          ))}
+        </Rows>
+        {invites.length > 0 && (
+          <div className="cbody" style={{ borderTop: "1px solid var(--line)" }}>
+            <div className="lbl" style={{ marginBottom: 6 }}>Invitations waiting to be accepted</div>
+            {invites.map((i, k) => (
+              <div key={k} className="docrow"><span>{i.email}</span><span className="chip">{i.roleLabel || i.role}</span><span className="mono faint">{fmtDate(i.at)}</span></div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <More title="More about the invitation" summary="name, job title, and how permissions work">
+        <div className="grid g2">
+          <div className="frow"><label className="lbl">Name <span className="faint">optional</span></label>
+            <input className="in" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+            <div className="hint">They can set it themselves when they accept.</div></div>
+          <div className="frow"><label className="lbl">Job title <span className="faint">optional</span></label>
+            <input className="in" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
+        </div>
+        <div className="hint">
+          Separation of duties is enforced by the server: evaluators cannot publish or award, approvers cannot
+          score, auditors cannot change anything.
+        </div>
+      </More>
+
+      <More title="Workspace name" summary="the name on letters, memos and tender references">
+        <WorkspaceCard api={api} />
+      </More>
+
+      {can(user, "team.view") && (
+        <More title="Reporting lines" summary="whose work rolls up to whom">
+          <ReportingLines api={api} team={team} />
+        </More>
+      )}
+    </Page>
   );
 }
 

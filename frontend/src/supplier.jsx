@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 
 import { downloadDoc, raw } from "./api";
 import { Countdown, Empty, Money, Stat } from "./atoms";
+import { Figures, Guide, More, Page, Quiet, Row, Rows } from "./page";
 import {
   REG_STATUS, VERIFY_STATUS, activeRound, effStatus, fmtCompact, fmtDate,
   fmtDateTime, fmtMoney, regStatusOf, roundsOf, verifyStatusOf,
@@ -40,15 +41,52 @@ export function PortalHome({ api }) {
         || (t.status === "cancelled" && state.bids.some((b) => b.tenderId === t.id && b.supplierId === me)))
     && (t.status === "cancelled" || state.bids.some((b) => b.tenderId === t.id && b.supplierId === me)));
 
+  /* The vendor opens this page to find out one thing: is there anything to
+     bid on, and when does it close. So that is the guide - the open
+     invitations as a list you can act on, the nearest deadline as the
+     headline - and the company profile, the documents and the win/loss record
+     are behind disclosures. They used to be the first two cards on the page. */
+  const openNow = invitations.filter((t) => effStatus(t) === "published");
+  const notStarted = openNow.filter((t) => {
+    const rnd = activeRound(t);
+    return !state.bids.some((b) => b.tenderId === t.id && b.supplierId === me && (rnd && rnd.id ? b.roundId === rnd.id : true));
+  });
+  const soonest = openNow.length ? openNow.reduce((a, t) => (t.deadline < a.deadline ? t : a)) : null;
+  const invited = state.tenders.filter((t) => t.invited.includes(me));
+  const bidsMade = state.bids.filter((b) => b.supplierId === me);
+  const wins = state.tenders.filter((t) => t.awardedTo === me);
+  const decided = state.tenders.filter((t) => t.status === "awarded" && bidsMade.some((b) => b.tenderId === t.id));
+  const losses = decided.length - wins.length;
+  const value = wins.reduce((s2, t) => s2 + (t.awardedAmount || 0), 0);
+
+  const guide = (
+    <Guide art={notStarted.length ? "draft" : openNow.length ? "clear" : "tray"}
+           tone={openNow.length && !notStarted.length ? "good" : undefined}
+           headline={notStarted.length
+             ? `${notStarted.length} ${notStarted.length === 1 ? "tender is" : "tenders are"} waiting for your bid`
+             : openNow.length ? "Every open bid is sealed" : "Nothing to bid on right now"}
+           why={soonest
+             ? <>The nearest closes {fmtDate(soonest.deadline)}. Nothing you seal is visible to the buyer before then.</>
+             : "When a buyer invites you, it appears here with its closing date."}
+           items={notStarted.map((t) => ({ key: t.id, label: t.title, note: <Countdown t={t.deadline} />,
+                                           onPick: () => go({ page: "bidroom", id: t.id }) }))}>
+      <Figures>
+        <Quiet n={<CountUp n={invited.length} />} label="invitations" />
+        <Quiet n={<CountUp n={wins.length} />} label="won" tone={wins.length ? "var(--green)" : undefined} />
+        <Quiet n={decided.length ? Math.round((wins.length / decided.length) * 100) + "%" : "-"} label="win rate" />
+        <Quiet n={<CountUp n={value} format={fmtCompact} />} label="awarded value" />
+      </Figures>
+    </Guide>
+  );
+
   return (
-    <div>
+    <Page guide={guide}>
       <div className="pagehead">
-        <div><div className="mono muted" style={{ marginBottom: 3 }}>SUPPLIER PORTAL</div><h1>{supplier.name}</h1></div>
+        <div>
+          <h1>{supplier.name}</h1>
+          <span className="sub">Supplier portal with {state.org.name}.</span>
+        </div>
         <div className="grow" />
-        {/* Two facts, because they are two facts. A vendor who is registered
-            but unverified is eligible to bid and needs to be told so — the old
-            single "pending" chip read as a bar and led to support calls asking
-            when they would be allowed to submit. */}
         <span className={"chip " + (REG_STATUS[regStatusOf(supplier)] || {}).tone}>
           {(REG_STATUS[regStatusOf(supplier)] || {}).label || "Registered"}
         </span>
@@ -62,134 +100,100 @@ export function PortalHome({ api }) {
       {!supplier.prequalified && (
         <div className="notice" style={{ marginBottom: 16, borderLeft: supplier.rejectedReason ? "3px solid var(--wax)" : undefined }}>
           {supplier.rejectedReason
-            ? <>The buyer reviewed your registration and needs more before prequalifying you: <b>{supplier.rejectedReason}</b>. Update your compliance documents below and they'll take another look.</>
-            : <>Your registration is with the buyer's procurement team. Upload your compliance documents below (tax clearance, certifications, insurance) to speed the review up. You'll be notified of the outcome.</>}
+            ? <>The buyer reviewed your registration and needs more before prequalifying you: <b>{supplier.rejectedReason}</b>. Update your documents below and they will take another look.</>
+            : <>Your registration is with the buyer's procurement team. You can already bid. Uploading your compliance documents below speeds their review up.</>}
         </div>
       )}
 
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="chead"><h3>Your company, and the documents that keep you eligible</h3>
-          <span className="mono faint" style={{ marginLeft: "auto" }}>{supplier.category} · {supplier.location}</span></div>
-        <div className="cbody">
-          <div className="formrow" style={{ borderBottom: "1px dashed var(--line)", paddingBottom: 12, marginBottom: 10 }}>
-            <div className="frow">
-              <label className="lbl">Company name</label>
-              <input className="in" value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} />
-            </div>
-            <div className="frow">
-              <label className="lbl">Category</label>
-              <input className="in" value={profileForm.category} onChange={(e) => setProfileForm({ ...profileForm, category: e.target.value })} />
-            </div>
-            <div className="frow">
-              <label className="lbl">Location</label>
-              <input className="in" value={profileForm.location} onChange={(e) => setProfileForm({ ...profileForm, location: e.target.value })} />
-            </div>
-            <button className="btn" disabled={profileForm.name.trim().length < 2}
-                    onClick={() => act.rename({ name: profileForm.name, category: profileForm.category, location: profileForm.location })}>Save</button>
-          </div>
-          {myComplianceDocs.map((x) => (
-            <div className="docrow" key={x.id}>
-              <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}><Icon n="file" s={13} />{x.name}</button>
-              {x.expiry ? <span className="mono faint">expires {fmtDate(x.expiry)}</span> : null}
-              <span style={{ flex: 1 }} />
-              <button className="btn sm iconly" aria-label="Remove document" onClick={() => act.deleteMyDoc(x.id)}><Icon n="close" s={12} /></button>
-            </div>
-          ))}
-          {myComplianceDocs.length === 0 && (supplier.docs || []).map((d, i) => (
-            <div className="docrow" key={"seeded" + i}><span>{d.name}</span><span className="mono faint">{d.expiry ? "expires " + fmtDate(d.expiry) : ""}</span></div>
-          ))}
-          <div className="formrow" style={{ marginTop: 10, alignItems: "center" }}>
-            <input className="in" placeholder="Document name (e.g. Tax clearance 2026)"
-                   value={docForm.label} onChange={(e) => setDocForm({ ...docForm, label: e.target.value })} />
-            <input className="in" type="date" aria-label="Expiry date"
-                   value={docForm.expiry} onChange={(e) => setDocForm({ ...docForm, expiry: e.target.value })} />
-            <label className="btn sm"><Icon n="upload" s={14} />Upload document<input type="file" hidden onChange={uploadCompliance} /></label>
-          </div>
-          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>The buyer's procurement team sees these when reviewing your prequalification, and DOCKET reminds them before anything expires.</div>
-        </div>
-      </div>
-
-      {(() => {
-        const invited = state.tenders.filter((t) => t.invited.includes(me));
-        const bidsMade = state.bids.filter((b) => b.supplierId === me);
-        const wins = state.tenders.filter((t) => t.awardedTo === me);
-        const decided = state.tenders.filter((t) => t.status === "awarded" && bidsMade.some((b) => b.tenderId === t.id));
-        const losses = decided.length - wins.length;
-        const value = wins.reduce((s2, t) => s2 + (t.awardedAmount || 0), 0);
-        return (
-          <div className="card" data-reveal style={{ marginBottom: 16 }}>
-            <div className="chead"><h3>How you have done here</h3><span className="mono faint" style={{ marginLeft: "auto" }}>with {state.org.name}</span></div>
-            <div className="cbody" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
-              <Stat k="Invitations" v={<CountUp n={invited.length} />} />
-              <Stat k="Bids submitted" v={<CountUp n={bidsMade.length} />} />
-              <Stat k="Won" v={<CountUp n={wins.length} />} />
-              <Stat k="Lost" v={<CountUp n={losses} />} />
-              <Stat k="Win rate" v={decided.length ? Math.round((wins.length / decided.length) * 100) + "%" : "-"} />
-              <Stat k="Awarded value" v={<CountUp n={value} format={fmtCompact} />} />
-            </div>
-          </div>
-        );
-      })()}
-
-      <div className="card" data-reveal style={{ marginBottom: 16 }}>
+      <div className="card" data-reveal style={{ marginBottom: 14 }}>
         <div className="chead"><h3>Tenders you can bid on</h3></div>
-        <div className="cbody" style={{ paddingTop: 6 }}>
+        <Rows empty={<Empty art="tray">Nothing to bid on right now. When a buyer invites you, it appears here with its closing date.</Empty>}>
           {invitations.map((t) => {
             const st = effStatus(t);
             const rnd = activeRound(t);
-            /* With rounds, a vendor can hold more than one bid on the same
-               event. "Have I submitted?" means "in the round that is open now". */
             const myBid = state.bids.find((b) => b.tenderId === t.id && b.supplierId === me
               && (rnd && rnd.id ? b.roundId === rnd.id : true));
             return (
-              <div className="rowline" key={t.id}>
-                <div style={{ flex: 1 }}>
-                  <b>{t.title}</b>
-                  <div className="muted" style={{ fontSize: 12 }}>
-                    {t.ref} · budget ceiling <Money n={t.budget} />
-                    {t.lines && t.lines.length > 0 ? ` · ${t.lines.length} priced lines` : ""}
-                    {(t.addenda || []).length > 0 ? ` · ${(t.addenda || []).length} addendum issued` : ""}
-                    {(t.rounds || []).length > 1 ? ` · round ${t.currentRound} of ${t.rounds.length}` : ""}
-                    {(t.deadlineChanges || []).length > 0 ? " · deadline extended" : ""}
-                  </div>
-                </div>
-                {st === "paused" ? <span className="chip warn">Paused by the buyer</span>
-                  : myBid ? <span className="chip ok">Submitted &amp; sealed</span>
-                  : st === "published" ? <span className="chip warn">Not started</span>
-                  : <span className="chip">Deadline passed</span>}
-                <Countdown t={t.deadline} />
-                {st === "published" && <button className="btn sm pri" onClick={() => go({ page: "bidroom", id: t.id })}>{myBid ? "View receipt" : "Enter bid room"}</button>}
-              </div>
+              <Row key={t.id} title={t.title}
+                   onOpen={st === "published" ? () => go({ page: "bidroom", id: t.id }) : undefined}
+                   meta={<>
+                     <span className="mono">{t.ref}</span>
+                     <span>ceiling <Money n={t.budget} /></span>
+                     {t.lines && t.lines.length > 0 && <span>{t.lines.length} priced lines</span>}
+                     {(t.rounds || []).length > 1 && <span>round {t.currentRound} of {t.rounds.length}</span>}
+                     {(t.addenda || []).length > 0 && <span>{(t.addenda || []).length} addendum</span>}
+                     {(t.deadlineChanges || []).length > 0 && <span>deadline extended</span>}
+                   </>}
+                   right={<>
+                     <Countdown t={t.deadline} />
+                     {st === "paused" ? <span className="chip warn">Paused by the buyer</span>
+                       : myBid ? <span className="chip ok">Sealed</span>
+                       : st === "published" ? <span className="chip warn">Not started</span>
+                       : <span className="chip">Closed</span>}
+                     {st === "published" && <button className="btn sm pri" onClick={() => go({ page: "bidroom", id: t.id })}>{myBid ? "View receipt" : "Bid"}</button>}
+                   </>} />
             );
           })}
-          {!invitations.length && <Empty>Nothing to bid on right now. When a buyer invites you, it appears here with its closing date.</Empty>}
-        </div>
+        </Rows>
       </div>
 
-      <div className="card" data-reveal>
-        <div className="chead"><h3>Outcomes</h3></div>
-        <div className="cbody" style={{ paddingTop: 6 }}>
+      <More title="Outcomes" summary={outcomes.length ? `${wins.length} won · ${losses} not successful · ${outcomes.filter((t) => t.status === "evaluation").length} being evaluated` : "nothing decided yet"}>
+        <Rows empty={<Empty>Nothing decided yet. Awards and outcomes for your bids land here.</Empty>}>
           {outcomes.map((t) => {
             const letter = t.letters && t.letters[me];
             const won = t.status === "awarded" && t.awardedTo === me;
             const lost = t.status === "awarded" && t.awardedTo !== me;
             return (
-              <div key={t.id} style={{ borderBottom: "1px solid var(--line)", padding: "10px 0" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ flex: 1 }}><b>{t.title}</b><div className="muted" style={{ fontSize: 12 }}>{t.ref}</div></div>
-                  {t.status === "evaluation" && <span className="chip">Under evaluation</span>}
-                  {won && <span className="chip gold">Awarded to you · {fmtCompact(t.awardedAmount)}</span>}
-                  {lost && <span className="chip">Not successful</span>}
-                  {letter && <button className="btn sm" onClick={() => setOpenL((o) => ({ ...o, [t.id]: !o[t.id] }))}>{openL[t.id] ? "Hide letter" : "View letter"}</button>}
-                </div>
-                {letter && openL[t.id] && <div className={"letter unfold" + (won ? " sheen" : "")}>{letter.text}</div>}
-              </div>
+              <Row key={t.id} title={t.title} meta={<span className="mono">{t.ref}</span>}
+                   right={<>
+                     {t.status === "evaluation" && <span className="chip">Being evaluated</span>}
+                     {won && <span className="chip gold">Awarded to you · {fmtCompact(t.awardedAmount)}</span>}
+                     {lost && <span className="chip">Not successful</span>}
+                     {letter && <button className="btn sm" onClick={() => setOpenL((o) => ({ ...o, [t.id]: !o[t.id] }))}>{openL[t.id] ? "Hide letter" : "Read the letter"}</button>}
+                   </>}>
+                {letter && openL[t.id] && <div className={"letter unfold" + (won ? " sheen" : "")} style={{ marginTop: 10 }}>{letter.text}</div>}
+              </Row>
             );
           })}
-          {!outcomes.length && <Empty>Nothing decided yet. Awards and outcomes for your bids land here.</Empty>}
+        </Rows>
+      </More>
+
+      <More title="Your company, and the documents that keep you eligible"
+            summary={`${supplier.category} · ${supplier.location} · ${myComplianceDocs.length || (supplier.docs || []).length} ${(myComplianceDocs.length || (supplier.docs || []).length) === 1 ? "document" : "documents"} on file`}>
+        <div className="grid g2" style={{ marginBottom: 12 }}>
+          <div className="frow"><label className="lbl">Company name</label>
+            <input className="in" value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} /></div>
+          <div className="frow"><label className="lbl">Category</label>
+            <input className="in" value={profileForm.category} onChange={(e) => setProfileForm({ ...profileForm, category: e.target.value })} /></div>
+          <div className="frow"><label className="lbl">Location</label>
+            <input className="in" value={profileForm.location} onChange={(e) => setProfileForm({ ...profileForm, location: e.target.value })} /></div>
         </div>
-      </div>
-    </div>
+        <div className="gaterow" style={{ marginBottom: 14 }}>
+          <button className="btn" disabled={profileForm.name.trim().length < 2}
+                  onClick={() => act.rename({ name: profileForm.name, category: profileForm.category, location: profileForm.location })}>Save details</button>
+          {profileForm.name.trim().length < 2 && <span className="hint gatehint">The company name needs at least two characters.</span>}
+        </div>
+        {myComplianceDocs.map((x) => (
+          <div className="docrow" key={x.id}>
+            <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}><Icon n="file" s={13} />{x.name}</button>
+            {x.expiry ? <span className="hint" style={{ marginTop: 0 }}>expires {fmtDate(x.expiry)}</span> : null}
+            <span style={{ flex: 1 }} />
+            <button className="btn sm iconly" aria-label="Remove document" onClick={() => act.deleteMyDoc(x.id)}><Icon n="close" s={12} /></button>
+          </div>
+        ))}
+        {myComplianceDocs.length === 0 && (supplier.docs || []).map((d, i) => (
+          <div className="docrow" key={"seeded" + i}><span>{d.name}</span><span className="hint" style={{ marginTop: 0 }}>{d.expiry ? "expires " + fmtDate(d.expiry) : ""}</span></div>
+        ))}
+        <div className="formrow" style={{ marginTop: 10, alignItems: "center" }}>
+          <input className="in" placeholder="What is this document? e.g. Tax clearance 2026"
+                 value={docForm.label} onChange={(e) => setDocForm({ ...docForm, label: e.target.value })} />
+          <input className="in" type="date" aria-label="Expiry date"
+                 value={docForm.expiry} onChange={(e) => setDocForm({ ...docForm, expiry: e.target.value })} />
+          <label className="btn sm"><Icon n="upload" s={14} />Upload<input type="file" hidden onChange={uploadCompliance} /></label>
+        </div>
+        <div className="hint">The buyer's procurement team sees these when reviewing your prequalification, and Docket reminds them before anything expires.</div>
+      </More>
+    </Page>
   );
 }
 
