@@ -159,11 +159,18 @@ export const PAGE_CSS = `
 .guidebox{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;
   box-shadow:var(--sh-2);transition:border-color var(--t) var(--ease)}
 .guidebox.good{border-color:var(--green-2)}
+/* The counterpart tone, for a guide whose headline is bad news. Only the audit
+   trail uses it today — a broken hash chain is the one state in the product
+   that has to stop somebody, and reporting it in the same calm grey as "42
+   entries recorded" would be the interface lying about what it found. */
+.guidebox.bad{border-color:var(--wax)}
 .guidetop{padding:16px 16px 14px;border-bottom:1px solid var(--line)}
 .guidebox.good .guidetop{background:var(--green-tint);border-bottom-color:var(--green-2)}
+.guidebox.bad .guidetop{background:var(--wax-tint);border-bottom-color:var(--wax)}
 .guidetop .illus{max-width:148px;margin:0 auto 10px}
 .guidehl{font-size:17px;font-weight:700;letter-spacing:-.018em;line-height:1.25;text-wrap:balance}
 .guidebox.good .guidehl{color:var(--green)}
+.guidebox.bad .guidehl{color:var(--wax)}
 .guidewhy{font-size:13px;color:var(--muted);margin-top:6px;line-height:1.5}
 .guidefoot{padding:12px 14px 14px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:9px}
 .guidefoot .btn{width:100%;justify-content:center}

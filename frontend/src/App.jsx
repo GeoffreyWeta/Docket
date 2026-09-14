@@ -13,7 +13,7 @@ import {
   AcceptInvite, ClaimVendor, ForgotPassword, RegisterVendor, ResetPassword, VerifyVendor,
 } from "./onboarding";
 import {
-  AnalyticsPage, ApprovalsPage, AuditPage, Dashboard, EvalsPage, NewTender,
+  AnalyticsPage, ApprovalsPage, AuctionPage, AuditPage, Dashboard, EvalsPage, NewTender,
   DRAFT_CSS, MENU_CSS, Sidebar, SuppliersPage, TeamPage, TenderDetail, TendersPage, Topbar,
 } from "./buyer";
 import { allowedPages, homePage } from "./perms";
@@ -418,6 +418,7 @@ export default function App() {
           {page === "dashboard" && <Dashboard api={api} />}
           {page === "tenders" && <TendersPage api={api} />}
           {page === "tender" && <TenderDetail key={route.id + (route.tab || "")} api={api} id={route.id} initialTab={route.tab} />}
+          {page === "auction" && <AuctionPage key={route.id} api={api} id={route.id} />}
           {page === "new" && <NewTender key={route.editId || "new"} api={api} editId={route.editId} />}
           {page === "suppliers" && <SuppliersPage api={api} />}
           {page === "team" && <TeamPage api={api} />}

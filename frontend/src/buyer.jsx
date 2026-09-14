@@ -57,6 +57,7 @@ export function Sidebar({ api, chrome, open, desktop, onClose }) {
   const isOn = (key) =>
     route.page === key ||
     (route.page === "tender" && key === "tenders") ||
+    (route.page === "auction" && key === "tenders") ||
     (route.page === "bidroom" && key === "portal") ||
     (route.page === "new" && key === "tenders");
 
@@ -1072,6 +1073,13 @@ export function TenderDetail({ api, id, initialTab }) {
           <h1>{t.title}</h1>
         </div>
         <div className="grow" />
+        {/* An auction in progress is somewhere to be, not something to read
+            about: from the file, the room is one button away. */}
+        {t.type === "AUC" && !t.openedAt && (
+          <button className="btn pri" onClick={() => go({ page: "auction", id: t.id })}>
+            <Icon n="analytics" s={15} />Auction room
+          </button>
+        )}
         <Stamp s={st} />
       </div>
       <StageTracker t={t} />
@@ -1382,8 +1390,21 @@ export function BidsTab({ api, t }) {
     }
   };
 
+  /* The auction has its own page. A live board inside a tab was a room behind a
+     door: you had to know it was there, and the tab strip above it kept
+     offering somewhere else to be. */
   if (t.type === "AUC" && !t.openedAt) {
-    return <AuctionBoard api={api} t={t} />;
+    return (
+      <div className="ceremony">
+        <Illus n="chart" w={180} />
+        <h3>This tender runs as a reverse auction</h3>
+        <p className="muted" style={{ maxWidth: 480, margin: "0 auto 16px", fontSize: 13 }}>
+          There are no sealed envelopes to break. Prices move live in the auction room, and the standings
+          become formal bids once the room closes and the results are recorded.
+        </p>
+        <button className="btn pri" onClick={() => api.go({ page: "auction", id: t.id })}>Open the auction room</button>
+      </div>
+    );
   }
 
   /* Once an event has run more than one round, the flat list of bids stops
@@ -3433,7 +3454,7 @@ import { OrgChart } from "./analytics";
 /* ---------------- audit page ---------------- */
 
 export function AuditPage({ api }) {
-  const { state } = api;
+  const { state, go } = api;
   const [f, setF] = useState("all");
   const [integrity, setIntegrity] = useState(null);
   const [aq, setAq] = useState("");
@@ -3447,72 +3468,115 @@ export function AuditPage({ api }) {
     setIntegrity({ busy: true });
     try { setIntegrity(await raw("/audit/integrity/")); } catch (e) { setIntegrity({ ok: false, error: e.message }); }
   };
+
+  /* Patterns worth a second look. Findings, not accusations — so each one names
+     the tender it came from and opens it, because the only honest thing a flag
+     can do is take you to the evidence and let you judge. They stay on the page
+     rather than in the guide: the guide is what you *do* here (verify, search,
+     export), and a flag is something to read, not a task to tick off. */
+  const flags = [];
+  const awarded = state.tenders.filter((t) => t.status === "awarded");
+  state.tenders.filter((t) => t.openedAt).forEach((t) => {
+    if (state.bids.filter((b) => b.tenderId === t.id).length === 1) {
+      flags.push({ key: "one-" + t.id, tenderId: t.id, title: "Only one bid was received",
+                   why: `${t.ref} · ${t.title}` });
+    }
+  });
+  const wins = {};
+  awarded.forEach((t) => { wins[t.awardedTo] = (wins[t.awardedTo] || 0) + 1; });
+  Object.entries(wins).forEach(([sid, n]) => {
+    if (awarded.length >= 2 && n / awarded.length > 0.5) {
+      const s = state.suppliers.find((x) => x.id === sid);
+      flags.push({ key: "conc-" + sid, title: `${s ? s.name : sid} holds ${n} of ${awarded.length} awards`,
+                   why: "One vendor winning most of what is let is worth a look." });
+    }
+  });
+  awarded.forEach((t) => {
+    if (t.budget && t.awardedAmount / t.budget > 0.97) {
+      flags.push({ key: "ceil-" + t.id, tenderId: t.id,
+                   title: `Awarded at ${((t.awardedAmount / t.budget) * 100).toFixed(1)}% of the ceiling`,
+                   why: `${t.ref} · barely under the budget it was set` });
+    }
+  });
+
+  /* Once the chain has been checked, that result *is* what the page is about,
+     so it becomes the headline rather than a notice under the toolbar. */
+  const checked = integrity && !integrity.busy;
+  const total = state.events.length;
+  const guide = (
+    <Guide art="sealed" tone={checked ? (integrity.ok ? "good" : "bad") : undefined}
+           headline={checked
+             ? (integrity.ok ? "The chain holds" : "The chain has been broken")
+             : `${total.toLocaleString()} ${total === 1 ? "entry" : "entries"} recorded`}
+           why={checked
+             ? (integrity.ok
+                 ? `Every one of the ${integrity.count} entries is linked to the one before it. Rewriting any of them would break every hash that follows, and none are broken.`
+                 : `Entry ${integrity.brokenAt ? "#" + integrity.brokenAt : "unknown"} does not match the hash before it, which means the recorded history has been altered. ${integrity.error || ""}`)
+             : "Nothing here can be edited quietly: each entry carries a hash of the one before it. Check it yourself — the answer is arithmetic, not a promise."}
+           action={
+             <button className="btn pri" onClick={verify} disabled={!!integrity?.busy}>
+               {integrity?.busy ? "Checking…" : checked ? "Check it again" : "Verify the chain"}
+             </button>
+           }>
+      <input className="in" placeholder="Search the trail" aria-label="Search the audit trail"
+             value={aq} onChange={(e) => setAq(e.target.value)} />
+      <select className="in" aria-label="Filter by tender" value={f} onChange={(e) => setF(e.target.value)}>
+        <option value="all">Every tender</option>
+        {state.tenders.map((t) => <option key={t.id} value={t.id}>{t.ref}</option>)}
+      </select>
+      <button className="btn" onClick={() => downloadUrl("/export/audit.csv", "docket-audit-trail.csv")}>
+        <Icon n="download" /> Export as CSV
+      </button>
+    </Guide>
+  );
+
   return (
-    <div>
+    <Page guide={guide}>
       <div className="pagehead">
-        <h1>Audit trail</h1><span className="sub">Every action, who did it and when. Each entry is chained to the one before, so nothing can be edited quietly.</span>
-        <div className="grow" />
-        <div className="pagetools">
-          <input className="in" placeholder="Search the trail…"
-                 aria-label="Search audit trail" value={aq} onChange={(e) => setAq(e.target.value)} />
-          <select className="in" aria-label="Filter by tender" value={f} onChange={(e) => setF(e.target.value)}>
-            <option value="all">All tenders</option>
-            {state.tenders.map((t) => <option key={t.id} value={t.id}>{t.ref}</option>)}
-          </select>
-          <button className="btn sm" onClick={verify}>Verify integrity</button>
-          <button className="btn sm" onClick={() => downloadUrl("/export/audit.csv", "docket-audit-trail.csv")}>Export CSV</button>
-        </div>
+        <h1>Audit trail</h1>
+        <span className="sub">Every action, who did it and when. Each entry is chained to the one before, so nothing can be edited quietly.</span>
       </div>
-      {(() => {
-        const awarded = state.tenders.filter((t) => t.status === "awarded");
-        const flags = [];
-        state.tenders.filter((t) => t.openedAt).forEach((t) => {
-          const n = state.bids.filter((b) => b.tenderId === t.id).length;
-          if (n === 1) flags.push(`${t.ref}: single-bidder competition: only one bid was received.`);
-        });
-        const wins = {};
-        awarded.forEach((t) => { wins[t.awardedTo] = (wins[t.awardedTo] || 0) + 1; });
-        Object.entries(wins).forEach(([sid, n]) => {
-          if (awarded.length >= 2 && n / awarded.length > 0.5) {
-            const s = state.suppliers.find((x) => x.id === sid);
-            flags.push(`${s ? s.name : sid} holds ${n} of ${awarded.length} awards, concentration worth a look.`);
-          }
-        });
-        awarded.forEach((t) => {
-          if (t.budget && t.awardedAmount / t.budget > 0.97) flags.push(`${t.ref}: awarded at ${((t.awardedAmount / t.budget) * 100).toFixed(1)}% of the ceiling, barely competitive.`);
-        });
-        return flags.length ? (
-          <div className="card" style={{ marginBottom: 14, borderLeft: "3px solid var(--brass)" }}>
-            <div className="chead"><h3>Worth a second look</h3><span className="mono faint" style={{ marginLeft: "auto" }}>patterns, not accusations</span></div>
-            <div className="cbody">
-              {flags.map((f, i) => <div key={i} className="rowline" style={{ fontSize: 13 }}>{f}</div>)}
-            </div>
+
+      {flags.length > 0 && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="chead">
+            <h3>Worth a second look</h3>
+            <span className="hint" style={{ marginLeft: "auto", marginTop: 0 }}>patterns, not accusations</span>
           </div>
-        ) : null;
-      })()}
-      {integrity && !integrity.busy && (
-        <div className="notice" style={{ marginBottom: 14, borderLeft: `3px solid ${integrity.ok ? "var(--green)" : "var(--wax)"}` }}>
-          {integrity.ok
-            ? <>Chain verified: {integrity.count} events, each cryptographically linked to the one before it. Rewriting any historical entry would break every hash after it.</>
-            : <>Integrity check FAILED{integrity.brokenAt ? ` at event #${integrity.brokenAt}` : ""}: the recorded history has been altered. {integrity.error || ""}</>}
+          <Rows>
+            {flags.map((x) => (
+              <Row key={x.key} tone="brass" title={x.title}
+                   meta={<span>{x.why}</span>}
+                   onOpen={x.tenderId ? () => go({ page: "tender", id: x.tenderId }) : undefined}
+                   right={x.tenderId ? <button className="btn sm">Open it</button> : null} />
+            ))}
+          </Rows>
         </div>
       )}
-      <div className="card"><div className="cbody">
-        <ul className="tline">
+
+      <div className="card">
+        <Rows empty={<Empty art="search">
+          {aq || f !== "all"
+            ? "Nothing matches that. Clear the search or the tender filter to see the whole trail."
+            : "Nothing has happened in this workspace yet. Every action anyone takes lands here."}
+        </Empty>}>
           {rows.map((e) => {
             const t = state.tenders.find((x) => x.id === e.tenderId);
             return (
-              <li key={e.id} className={/seal/i.test(e.action) ? "waxdot" : ""}>
-                <div className="when">{fmtDateTime(e.at)}{t ? " · " + t.ref : ""}</div>
-                <div className="what">{e.action}</div>
-                <div className="who">{e.actor} · {e.detail}</div>
-              </li>
+              <Row key={e.id} title={e.action}
+                   tone={/seal/i.test(e.action) ? "wax" : undefined}
+                   onOpen={t ? () => go({ page: "tender", id: t.id }) : undefined}
+                   meta={<>
+                     <span>{e.actor}</span>
+                     {t && <span className="mono">{t.ref}</span>}
+                     {e.detail && <span>{e.detail}</span>}
+                   </>}
+                   right={<span className="mono faint">{fmtDateTime(e.at)}</span>} />
             );
           })}
-          {!rows.length && <Empty>Nothing matches that filter.</Empty>}
-        </ul>
-      </div></div>
-    </div>
+        </Rows>
+      </div>
+    </Page>
   );
 }
 
@@ -3708,15 +3772,22 @@ function ReportingLines({ api, team }) {
   );
 }
 
-function AuctionBoard({ api, t }) {
-  const { state, user, act, toast } = api;
+/* ---------------- reverse auction ---------------- */
+
+/* The live board is its own page rather than a tab inside the tender. While an
+   auction is running it is the whole job: a tab strip above it kept implying
+   there was something else worth reading, and there isn't. */
+
+/* The poll, lifted out of the board so the page head, the side panel and the
+   table all read the same numbers from one request rather than three. */
+function useAuction(api, t) {
+  const { toast } = api;
   const [a, setA] = useState(null);
   const [extended, setExtended] = useState(0);
-  const body = useRef(null);
+  const [moved, setMoved] = useState(new Set());
   const prevAmounts = useRef(new Map());
   const prevLeader = useRef(null);
   const prevDeadline = useRef(null);
-  const [moved, setMoved] = useState(new Set());
 
   const poll = async () => {
     try {
@@ -3745,32 +3816,32 @@ function AuctionBoard({ api, t }) {
     } catch (e) { /* keep last */ }
   };
   useEffect(() => {
+    if (!t) return undefined;
     poll();
     const h = setInterval(poll, a?.live === false ? 10000 : 2500);
     return () => clearInterval(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t.id, a?.live]);
+  }, [t?.id, a?.live]);
 
+  return { a, moved, extended };
+}
+
+/** The standings themselves, and the closing ceremony under them. Everything
+    that explains the rules now lives in the page around it. */
+function AuctionBoard({ api, t, a, moved, extended }) {
+  const { user, act, toast } = api;
+  const body = useRef(null);
   const live = a?.live;
   const board = a?.leaderboard || [];
   useFlip(body, board.map((x) => x.supplierId).join("|"));
 
   return (
     <div>
-      <div className="notice" style={{ marginBottom: 14, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <span style={{ flex: 1, minWidth: 260 }}>
-          <b>Reverse auction.</b> Suppliers see only their own rank; this leaderboard is buyer-side only.
-          Bids inside the final two minutes extend the close by two minutes.
-        </span>
-        {extended === a?.deadline && live && <span className="extbadge">+2:00 anti-snipe</span>}
-        {live
-          ? <LiveCountdown deadline={a.deadline} />
-          : <span className="chip">{a?.recorded ? "Results recorded" : "Auction closed"}</span>}
-      </div>
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="chead"><h3>{live ? "Live standings" : "Final standings"}</h3>
+          {extended === a?.deadline && live && <span className="extbadge" style={{ marginLeft: 10 }}>+2:00 anti-snipe</span>}
           <span className="mono faint" style={{ marginLeft: "auto" }}>
-            {a ? <>{a.bidders} bidder(s) · <span className={moved.size ? "tickbump" : ""}>{a.movements} price movements</span> · ceiling {fmtCompact(a.ceiling)}</> : "loading…"}
+            {a ? <><span className={moved.size ? "tickbump" : ""}>{a.movements} price movements</span> · ceiling {fmtCompact(a.ceiling)}</> : "loading…"}
           </span>
         </div>
         <table className="tbl">
@@ -3809,6 +3880,87 @@ function AuctionBoard({ api, t }) {
       )}
       {live && <div className="muted" style={{ fontSize: 12 }}>This board refreshes every 2.5 seconds.</div>}
     </div>
+  );
+}
+
+/** The auction room, buyer-side: its own destination, reached from the tender.
+    A running auction wants the whole width and a countdown that is the first
+    thing on the page rather than a chip inside a tab. */
+export function AuctionPage({ api, id }) {
+  const { state, user, go } = api;
+  const t = state.tenders.find((x) => x.id === id);
+  const { a, moved, extended } = useAuction(api, t);
+  if (!t) return <Empty>Tender not found.</Empty>;
+  if (t.type !== "AUC") {
+    return (
+      <Empty>
+        This tender is not a reverse auction.{" "}
+        <button className="doclink" onClick={() => go({ page: "tender", id: t.id })}>Open the tender file</button>
+      </Empty>
+    );
+  }
+
+  const live = a?.live;
+  const board = a?.leaderboard || [];
+  const best = board[0];
+  const recorded = !!a?.recorded;
+
+  /* One next step, and only one. While the room is open there is nothing to do
+     but watch it; once it closes the standings have to be recorded before the
+     award flow can start. */
+  const items = live
+    ? [{ key: "wait", label: "Wait for the close",
+         note: "A bid inside the final two minutes pushes the deadline out by two." }]
+    : recorded
+      ? [{ key: "award", label: "Recommend an award", note: "The standings are formal bids now.",
+           onPick: () => go({ page: "tender", id: t.id, tab: "bids" }) }]
+      : can(user, "award.recommend")
+        ? [{ key: "record", label: "Record the final standings", note: "Turns them into formal bids." }]
+        : [];
+
+  const guide = (
+    <Guide art={live ? "chart" : "clear"} tone={recorded ? "good" : undefined}
+           headline={live ? "The room is open"
+                          : recorded ? "Results recorded" : "The auction has closed"}
+           why={live
+             ? "Suppliers see only their own rank, never a competitor's price. This leaderboard is buyer-side only."
+             : recorded
+               ? "The final standings are formal bids, and the award follows the usual recommendation → approval → letters flow."
+               : "No further bids can land. Recording the standings turns them into formal bids."}
+           items={items}>
+      <Figures>
+        <Quiet n={a ? a.bidders : "—"} label="bidders in the room" />
+        <Quiet n={a ? a.movements : "—"} label="price movements" />
+        <Quiet n={best ? fmtCompact(best.amount) : "—"} label="best price" tone={best ? "var(--green)" : undefined} />
+        <Quiet n={a ? fmtCompact(a.ceiling) : "—"} label="ceiling" />
+      </Figures>
+      <button className="btn sm" onClick={() => go({ page: "tender", id: t.id })}>Open the tender file</button>
+    </Guide>
+  );
+
+  return (
+    <Page guide={guide} wide>
+      <button className="btn sm" style={{ marginBottom: 14 }} onClick={() => go({ page: "tender", id: t.id })}>← Back to {t.ref}</button>
+      <div className="pagehead" style={{ marginBottom: 12 }}>
+        <div>
+          <div className="mono muted" style={{ marginBottom: 3 }}>{t.ref} · REVERSE AUCTION · {t.category}</div>
+          <h1>{t.title}</h1>
+        </div>
+        <div className="grow" />
+        {live
+          ? <LiveCountdown deadline={a.deadline} />
+          : <span className="chip">{recorded ? "Results recorded" : "Auction closed"}</span>}
+      </div>
+      <AuctionBoard api={api} t={t} a={a} moved={moved} extended={extended} />
+      <More title="How this auction runs" summary="decrement, anti-sniping, what suppliers can see">
+        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.6 }}>
+          <li>Every bid has to undercut that supplier's own last one by at least the minimum decrement{t.minDecrement ? ` (${fmtMoney(t.minDecrement)})` : ""}.</li>
+          <li>A bid landing inside the final two minutes extends the close by two minutes, so nobody can snipe the room.</li>
+          <li>Suppliers see their own rank and their own price, never a competitor's number. This board is buyer-side only.</li>
+          <li>A reverse auction is price-only, so there is nothing to score and no evaluation panel.</li>
+        </ul>
+      </More>
+    </Page>
   );
 }
 
