@@ -94,6 +94,9 @@ export const verifyVendor = (token) => raw("/register/verify/", { method: "POST"
 export const lookupClaim = (token) => raw(`/register/claim/?token=${encodeURIComponent(token)}`);
 export const claimVendor = (token, password) => raw("/register/claim/", { method: "POST", body: { token, password } });
 export const acceptInvite = (b) => raw("/register/accept_invite/", { method: "POST", body: b });
+/* first-run setup: open only while the workspace has no buyer accounts (or in demo) */
+export const setupStatus = () => raw("/setup/");
+export const setupWorkspace = (b) => raw("/setup/", { method: "POST", body: b });
 export const forgotPassword = (email) => raw("/auth/forgot/", { method: "POST", body: { email } });
 export const resetPassword = (token, password) => raw("/auth/reset_password/", { method: "POST", body: { token, password } });
 

@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import (account_views, admin_views, auth_views, export_views, finance_views,
+from . import (account_views, admin_views, auth_views, export_views, finance_views, setup_views,
                procurement, views)
 
 # The administration console. Its own sign-in, its own token check (superuser or
@@ -40,6 +40,7 @@ urlpatterns = admin_urlpatterns + [
     path("register/claim/", account_views.claim_vendor),
     path("register/verify/", account_views.verify_vendor),
     path("register/accept_invite/", account_views.accept_invite),
+    path("setup/", setup_views.setup_workspace),
 
     path("bootstrap/", views.bootstrap),
     path("finance/", finance_views.finance_state),

@@ -100,9 +100,12 @@ def _demo_accounts():
 
 @csrf_exempt
 def auth_config(request):
+    from .setup_views import needs_setup
     return JsonResponse({
         "demoLogin": settings.DEMO_LOGIN,
         "accounts": _demo_accounts() if settings.DEMO_LOGIN else [],
+        # an empty workspace sends the sign-in page to the setup wizard instead
+        "needsSetup": needs_setup(),
     })
 
 

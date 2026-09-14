@@ -12,6 +12,7 @@ import { SecurityPanel } from "./security";
 import {
   AcceptInvite, ClaimVendor, ForgotPassword, RegisterVendor, ResetPassword, VerifyVendor,
 } from "./onboarding";
+import { SetupWorkspace } from "./setup";
 import {
   AnalyticsPage, ApprovalsPage, AuctionPage, AuditPage, Dashboard, EvalsPage, NewTender,
   DRAFT_CSS, MENU_CSS, Sidebar, SuppliersPage, TeamPage, TenderDetail, TendersPage, Topbar,
@@ -83,6 +84,20 @@ function Login({ onLoggedIn, onScreen }) {
       <style>{ALL_CSS}</style>
       <div className="logincard">
         <div className="loginlogo"><span className="seal" aria-hidden="true" /><b>DOCKET</b></div>
+        {/* Nobody can sign in to an empty workspace, so the first thing it
+            offers is the way to make one. Sign-in stays underneath for the
+            administrator account that already exists. */}
+        {cfg && cfg.needsSetup && (
+          <div className="card" style={{ marginBottom: 14, borderColor: "var(--green-2)" }}>
+            <div className="cbody">
+              <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-.015em", marginBottom: 4 }}>This workspace has not been set up yet</div>
+              <div className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
+                Three short steps: you, your company, your team. It takes about two minutes and you land signed in.
+              </div>
+              <button className="btn pri" style={{ width: "100%" }} onClick={() => onScreen("setup")}>Set up your workspace</button>
+            </div>
+          </div>
+        )}
         <div className="card">
           <div className="chead"><h3>Sign in</h3><span className="mono faint" style={{ marginLeft: "auto" }}>sealed-bid tendering</span></div>
           <div className="cbody">
@@ -100,6 +115,9 @@ function Login({ onLoggedIn, onScreen }) {
             <div className="linkrow">
               <button className="doclink" onClick={() => onScreen("register")}>Register your company (vendors)</button>
               <button className="doclink" onClick={() => onScreen("forgot")}>Forgot password?</button>
+              {cfg && cfg.demoLogin && !cfg.needsSetup && (
+                <button className="doclink" onClick={() => onScreen("setup")}>Set up a new workspace</button>
+              )}
             </div>
           </div>
         </div>
@@ -126,6 +144,7 @@ function publicScreenFromUrl() {
   if (q.get("vtoken")) return { name: "verify", token: q.get("vtoken") };
   if (q.get("itoken")) return { name: "invite", token: q.get("itoken") };
   if (q.get("rtoken")) return { name: "reset", token: q.get("rtoken") };
+  if (q.get("setup")) return { name: "setup" };
   /* `?register=` carries a claim token from the registration drive, or the bare
      flag "1" from the older single-vendor invite. A token means the vendor is
      already on the register and is claiming that record; the flag means an
@@ -217,6 +236,8 @@ export default function App() {
     if (screen.name === "invite") return <AcceptInvite token={screen.token} onDone={toLogin} />;
     if (screen.name === "reset") return <ResetPassword token={screen.token} onDone={toLogin} />;
     if (screen.name === "forgot") return <ForgotPassword onDone={toLogin} />;
+    if (screen.name === "setup") return <SetupWorkspace onDone={toLogin}
+        onLoggedIn={(res, username) => { storeAuth(res.token, username); toLogin(); setToken(res.token); }} />;
   }
   if (!token) {
     return <Login onScreen={(name) => setScreen({ name })}
