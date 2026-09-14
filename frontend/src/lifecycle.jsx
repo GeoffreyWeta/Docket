@@ -195,6 +195,7 @@ function ExtendDialog({ api, t, reopening, onClose }) {
   return (
     <Dialog title={reopening ? `Reopen ${t.ref}` : `Extend the deadline on ${t.ref}`} onClose={onClose} footer={
       <>
+        {!ok && <span className="hint gatehint">Pick a date after the current deadline, and give a reason. Vendors will read it.</span>}
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn pri" disabled={!ok} onClick={async () => {
           onClose();
@@ -236,6 +237,7 @@ function ResumeDialog({ api, t, onClose }) {
   return (
     <Dialog title={`Resume ${t.ref}`} onClose={onClose} footer={
       <>
+        {!ok && <span className="hint gatehint">The old deadline has passed. Pick a new closing date first.</span>}
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn pri" disabled={!ok} onClick={async () => {
           onClose();
@@ -273,6 +275,7 @@ function NotifyDialog({ api, t, onClose }) {
   return (
     <Dialog title="Notify the event's vendors" onClose={onClose} footer={
       <>
+        {(!message.trim() || !n) && <span className="hint gatehint">{!n ? "Nobody is selected to receive this." : "Write the message first."}</span>}
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn pri" disabled={!message.trim() || !n} onClick={async () => {
           onClose();
@@ -465,6 +468,7 @@ function AddVendorsDialog({ api, t, invited, onClose, onDone }) {
   return (
     <Dialog wide title="Add vendors to this event" onClose={onClose} footer={
       <>
+        {!picked.length && <span className="hint gatehint">Pick at least one vendor.</span>}
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn pri" disabled={!picked.length} onClick={async () => {
           onClose();
@@ -637,6 +641,7 @@ function NewRoundDialog({ api, t, onClose }) {
   return (
     <Dialog title={`Open ${name || `round ${next}`}`} onClose={onClose} footer={
       <>
+        {!ok && <span className="hint gatehint">Give the round a name and a closing date in the future.</span>}
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn pri" disabled={!ok} onClick={async () => {
           onClose();
@@ -656,7 +661,7 @@ function NewRoundDialog({ api, t, onClose }) {
       </div>
       <DateTimeField id="nr-when" label="Submissions close" value={when} onChange={setWhen} />
       <div className="frow">
-        <label className="lbl" htmlFor="nr-inst">Instructions to bidders (optional)</label>
+        <label className="lbl" htmlFor="nr-inst">Instructions to bidders <span className="faint">optional</span></label>
         <textarea id="nr-inst" className="in" value={instructions} onChange={(e) => setInstructions(e.target.value)}
                   placeholder="e.g. Submit your best and final price for the same scope. Technical proposals already accepted stand — do not resubmit them." />
       </div>
@@ -730,7 +735,7 @@ export function BidBucket({ api, t }) {
   return (
     <div>
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="chead"><h3>Bid bucket</h3>
+        <div className="chead"><h3>Where the bids landed</h3>
           <span className="mono faint" style={{ marginLeft: "auto" }}>
             {total} submission(s) across {roundNumbers.length} round(s)
           </span>
@@ -787,7 +792,7 @@ export function BidBucket({ api, t }) {
 
       {multi && (
         <div className="card">
-          <div className="chead"><h3>Movement across rounds</h3>
+          <div className="chead"><h3>How prices moved between rounds</h3>
             <span className="mono faint" style={{ marginLeft: "auto" }}>what each round actually changed</span></div>
           <div className="tscroll">
             <table className="tbl wide">
@@ -880,7 +885,7 @@ export function RegisterVendorDialog({ api, onClose }) {
         <div className="frow"><label className="lbl" htmlFor="rv-name">Registered company name</label>
           <input id="rv-name" className="in" autoFocus value={f.name} onChange={(e) => set("name", e.target.value)}
                  placeholder="e.g. Adeola Industrial Services Ltd" /></div>
-        <div className="frow"><label className="lbl" htmlFor="rv-code">Vendor code (optional)</label>
+        <div className="frow"><label className="lbl" htmlFor="rv-code">Vendor code <span className="faint">optional</span></label>
           <input id="rv-code" className="in" value={f.code} onChange={(e) => set("code", e.target.value)}
                  placeholder="e.g. V-01842" /></div>
         <div className="frow"><label className="lbl" htmlFor="rv-email">Contact email</label>

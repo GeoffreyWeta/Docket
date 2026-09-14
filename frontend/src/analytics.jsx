@@ -105,9 +105,9 @@ function SpendTab({ api, tenders }) {
   return (
     <>
       <div className="grid g4" style={{ marginBottom: 14 }}>
-        <Stat k="Committed" v={<CountUp n={committed} format={fmtCompact} />}
+        <Stat k="Committed spend" v={<CountUp n={committed} format={fmtCompact} />}
               d={`${cats.reduce((n, r) => n + r.n, 0)} tenders`} />
-        <Stat k="In flight" v={fmtCompact(forecast)} d="median bid, evaluation stage" tone="var(--s4)" />
+        <Stat k="Still in flight" v={fmtCompact(forecast)} d="median bid, evaluation stage" tone="var(--s4)" />
         <Stat k="Categories touched" v={cats.length} d={`of ${(state.taxonomy || []).reduce((n, f) => n + f.categories.length, 0)} in the taxonomy`} />
         <Stat k="Families touched" v={fams.length} d={`of ${(state.taxonomy || []).length}`} />
       </div>
@@ -331,7 +331,7 @@ function PeopleTab({ api, tenders }) {
           {named.length ? (
             <Heatmap rows={named.map((r) => ({ key: r.id, label: r.name, ...r }))}
                      cols={heatCols} value={(r, c) => r[c.key]} format={(n) => String(n)} />
-          ) : <Empty>Nothing to chart.</Empty>}
+          ) : <Empty>Nothing to chart yet.</Empty>}
         </Figure>
 
         <div className="card" data-reveal style={{ gridColumn: "1 / -1" }}>
@@ -382,7 +382,7 @@ export function OrgChart({ users, org, rows = [], me, onPick }) {
     );
   };
 
-  if (!users.length) return <Empty>No people yet.</Empty>;
+  if (!users.length) return <Empty>Nobody is carrying a tender yet.</Empty>;
   return <div className="orgtree">{roots.map((u) => node(u, 0))}</div>;
 }
 

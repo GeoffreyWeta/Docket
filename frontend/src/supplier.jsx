@@ -68,7 +68,7 @@ export function PortalHome({ api }) {
       )}
 
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="chead"><h3>Company profile & compliance documents</h3>
+        <div className="chead"><h3>Your company, and the documents that keep you eligible</h3>
           <span className="mono faint" style={{ marginLeft: "auto" }}>{supplier.category} · {supplier.location}</span></div>
         <div className="cbody">
           <div className="formrow" style={{ borderBottom: "1px dashed var(--line)", paddingBottom: 12, marginBottom: 10 }}>
@@ -118,7 +118,7 @@ export function PortalHome({ api }) {
         const value = wins.reduce((s2, t) => s2 + (t.awardedAmount || 0), 0);
         return (
           <div className="card" data-reveal style={{ marginBottom: 16 }}>
-            <div className="chead"><h3>Your record here</h3><span className="mono faint" style={{ marginLeft: "auto" }}>with {state.org.name}</span></div>
+            <div className="chead"><h3>How you have done here</h3><span className="mono faint" style={{ marginLeft: "auto" }}>with {state.org.name}</span></div>
             <div className="cbody" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
               <Stat k="Invitations" v={<CountUp n={invited.length} />} />
               <Stat k="Bids submitted" v={<CountUp n={bidsMade.length} />} />
@@ -132,7 +132,7 @@ export function PortalHome({ api }) {
       })()}
 
       <div className="card" data-reveal style={{ marginBottom: 16 }}>
-        <div className="chead"><h3>Open invitations</h3></div>
+        <div className="chead"><h3>Tenders you can bid on</h3></div>
         <div className="cbody" style={{ paddingTop: 6 }}>
           {invitations.map((t) => {
             const st = effStatus(t);
@@ -162,7 +162,7 @@ export function PortalHome({ api }) {
               </div>
             );
           })}
-          {!invitations.length && <Empty>No open invitations right now.</Empty>}
+          {!invitations.length && <Empty>Nothing to bid on right now. When a buyer invites you, it appears here with its closing date.</Empty>}
         </div>
       </div>
 
@@ -186,7 +186,7 @@ export function PortalHome({ api }) {
               </div>
             );
           })}
-          {!outcomes.length && <Empty>Nothing decided yet.</Empty>}
+          {!outcomes.length && <Empty>Nothing decided yet. Awards and outcomes for your bids land here.</Empty>}
         </div>
       </div>
     </div>
@@ -439,7 +439,8 @@ export function BidRoom({ api, id }) {
           <div className="cbody">
             {hasLines ? (
               <div className="frow" id="sb-price">
-                <label className="lbl">Unit rates (₦, fixed for the term)</label>
+                <label className="lbl">Your rate for each line</label>
+                <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>In naira, per unit, fixed for the contract term. The total works itself out below.</div>
                 {t.lines.map((l) => (
                   /* .priceline stacks the line above its rate and running total
                      on a phone, and lays all three out in a row from 600px up */
@@ -456,7 +457,8 @@ export function BidRoom({ api, id }) {
               </div>
             ) : (
               <div className="frow">
-                <label className="lbl" htmlFor="bid-amt">Total bid amount (₦)</label>
+                <label className="lbl" htmlFor="bid-amt">Your total bid</label>
+                <div className="hint" style={{ marginTop: 0, marginBottom: 6 }}>In naira. This is the figure that gets sealed.</div>
                 <input id="bid-amt" className="in" type="number" min="0" placeholder="e.g. 540000000" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
               </div>
             )}
@@ -664,7 +666,7 @@ export function AuctionRoom({ api, id }) {
       <div className="grid2" style={{ alignItems: "start" }}>
         <div>
           <div className="card" style={{ marginBottom: 14 }}>
-            <div className="chead"><h3>Your position</h3><span className="mono faint" style={{ marginLeft: "auto" }}>rank only, competitor prices are never shown</span></div>
+            <div className="chead"><h3>Where you stand</h3><span className="mono faint" style={{ marginLeft: "auto" }}>rank only, competitor prices are never shown</span></div>
             <div className="cbody" style={{ textAlign: "center", padding: "20px 18px" }}>
               {a?.myRank
                 ? <>
@@ -692,7 +694,8 @@ export function AuctionRoom({ api, id }) {
               </div>
               <div className="cbody">
                 <div className="frow" style={{ marginBottom: 9 }}>
-                  <label className="lbl" htmlFor="auc-amt">Your lump-sum price (₦), must be ≤ <Money n={Math.max(0, floor)} /></label>
+                  <label className="lbl" htmlFor="auc-amt">Your price</label>
+                  <div className="hint" style={{ marginTop: 0, marginBottom: 6 }}>In naira. It has to come in under <Money n={Math.max(0, floor)} />, the current floor.</div>
                   <input id="auc-amt" className="in" type="number" value={amount} onChange={(e) => setAmount(e.target.value)}
                          onKeyDown={(e) => e.key === "Enter" && Number(amount) && place()} placeholder={String(Math.max(0, floor))} />
                 </div>
@@ -717,7 +720,7 @@ export function AuctionRoom({ api, id }) {
         </div>
 
         <div className="card">
-          <div className="chead"><h3>Your price movements</h3>
+          <div className="chead"><h3>How your price has moved</h3>
             <span className="mono faint" style={{ marginLeft: "auto" }}>yours only, never a competitor's</span>
           </div>
           <div className="cbody" style={{ paddingTop: 12 }}>

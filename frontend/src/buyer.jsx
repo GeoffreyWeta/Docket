@@ -910,7 +910,7 @@ function RecentActivity({ api, tenders }) {
             </div>
           );
         })}
-        {!events.length && <Empty>Nothing has happened yet.</Empty>}
+        {!events.length && <Empty>Nothing has happened yet. The first thing anyone does in this workspace shows up here.</Empty>}
       </div>
     </div>
   );
@@ -1349,7 +1349,7 @@ export function ClarTab({ api, t }) {
             </div>
           );
         })}
-        {!items.length && <Empty>No questions yet.</Empty>}
+        {!items.length && <Empty>No questions yet. Anything a vendor asks appears here, and your answer goes to every invited vendor at once.</Empty>}
       </div>
     </div>
   );
@@ -1466,7 +1466,7 @@ export function BidsTab({ api, t }) {
               </div>
             );
           })}
-          {!bids.length && <Empty art="sealed">No bids received yet.</Empty>}
+          {!bids.length && <Empty art="sealed">No bids yet. They arrive sealed, so you will see the count grow here, never a price.</Empty>}
         </div>
         {st === "closed" && can(user, "bid.open") && bids.length > 0 && (
           <div className="ceremony">
@@ -1502,7 +1502,7 @@ export function BidsTab({ api, t }) {
   return (
     <div>
       <div className="card" style={{ marginBottom: hasLines ? 14 : 0 }}>
-        <div className="chead"><h3>Opened bids</h3><span className="mono faint" style={{ marginLeft: "auto" }}>seals broken {fmtDateTime(t.openedAt)}</span>
+        <div className="chead"><h3>What each vendor bid</h3><span className="mono faint" style={{ marginLeft: "auto" }}>seals broken {fmtDateTime(t.openedAt)}</span>
           {can(user, "export.comparison") &&
             <button className="btn sm" style={{ marginLeft: 10 }} onClick={() => downloadUrl(`/tenders/${t.id}/export/comparison.xlsx`, `${t.ref}-comparison.xlsx`)}>Export to Excel</button>}
         </div>
@@ -1549,7 +1549,7 @@ export function BidsTab({ api, t }) {
       </div>
       {hasLines && (
         <div className="card">
-          <div className="chead"><h3>Line-item comparison</h3><span className="mono faint" style={{ marginLeft: "auto" }}>unit rates · lowest per line in green</span></div>
+          <div className="chead"><h3>Line by line</h3><span className="mono faint" style={{ marginLeft: "auto" }}>unit rates · lowest per line in green</span></div>
           <div className="tscroll">
             <table className="tbl wide">
               <thead>
@@ -1719,7 +1719,8 @@ export function EvalTab({ api, t }) {
                   </div>
                 ))}
                 <div style={{ marginTop: 12 }}>
-                  <label className="lbl" htmlFor={"note-" + b.id}>Justification (visible to the panel chair and auditors)</label>
+                  <label className="lbl" htmlFor={"note-" + b.id}>Your reasoning</label>
+                  <div className="hint" style={{ marginTop: 0, marginBottom: 6 }}>The panel chair and auditors can read this. Say what you saw, not just the number.</div>
                   <textarea id={"note-" + b.id} className="in" style={{ minHeight: 60 }}
                     placeholder="Why these scores? Auditors will ask."
                     value={myNotes[b.id] ?? ""}
@@ -1763,7 +1764,7 @@ export function EvalTab({ api, t }) {
       )}
       <EvalMoney t={t} bids={bids} />
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="chead"><h3>Consensus matrix</h3><span className="mono faint" style={{ marginLeft: "auto" }}>{t.techWeight}% technical · {t.commWeight}% commercial</span></div>
+        <div className="chead"><h3>Where the panel agrees, and where it does not</h3><span className="mono faint" style={{ marginLeft: "auto" }}>{t.techWeight}% technical · {t.commWeight}% commercial</span></div>
         <div className="tscroll">
           <table className="tbl wide">
             <thead><tr><th>Supplier</th><th className="num">Amount</th><th className="num">Saving</th><th className="num">Technical</th><th className="num">Commercial</th><th className="num">Total</th><th>Flags</th><th></th></tr></thead>
@@ -1905,7 +1906,7 @@ export function AuditTab({ api, t }) {
               </li>
             ))}
           </ul>
-        ) : <Empty>No events recorded yet.</Empty>}
+        ) : <Empty>Nothing recorded on this tender yet. Everything from here on is logged, and each entry is chained to the last.</Empty>}
       </div>
     </div>
   );
@@ -1926,7 +1927,7 @@ export function EvalsPage({ api }) {
   };
   return (
     <div>
-      <div className="pagehead"><h1>My evaluations</h1><span className="sub">score independently, the panel never sees each other's numbers</span></div>
+      <div className="pagehead"><h1>My evaluations</h1><span className="sub">Score on your own. Nobody on the panel sees another member's numbers until consensus.</span></div>
       <div className="card">
         <table className="tbl">
           <thead><tr><th>Ref</th><th>Title</th><th>Your progress</th><th></th></tr></thead>
@@ -1939,7 +1940,7 @@ export function EvalsPage({ api }) {
                 <td><button className="btn sm">Score →</button></td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan="4"><Empty>Nothing in evaluation right now.</Empty></td></tr>}
+            {!rows.length && <tr><td colSpan="4"><Empty>Nothing to score right now. When a tender you sit on is opened, it appears here.</Empty></td></tr>}
           </tbody>
         </table>
       </div>
@@ -2015,7 +2016,7 @@ export function ApprovalsPage({ api }) {
           </ConfirmDialog>
         );
       })()}
-      <div className="pagehead"><h1>Approvals</h1><span className="sub">nothing reaches suppliers without a named sign-off</span></div>
+      <div className="pagehead"><h1>Approvals</h1><span className="sub">Nothing reaches a supplier without a named sign-off. The threshold below decides what lands here.</span></div>
       <div className="grid2" style={{ alignItems: "stretch", marginBottom: 14 }}>
         <div className="card">
           <div className="chead"><h3>Committed spend</h3></div>
@@ -2027,14 +2028,16 @@ export function ApprovalsPage({ api }) {
           </div>
         </div>
         <div className="card">
-          <div className="chead"><h3>Approval matrix</h3><span className="mono faint" style={{ marginLeft: "auto" }}>only you can change this</span></div>
+          <div className="chead"><h3>When a tender needs your sign-off</h3><span className="mono faint" style={{ marginLeft: "auto" }}>only you can change this</span></div>
           <div className="cbody">
             <div className="frow">
-              <label className="lbl">Publication threshold (NGN): tenders at or above this need your sign-off; below publishes directly</label>
+              <label className="lbl">Sign-off threshold</label>
+              <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>In naira. A tender at or above this comes to you before it publishes. Below it, publishing is immediate.</div>
               <div style={{ display: "flex", gap: 8 }}>
                 <input className="in" type="number" value={thr} onChange={(e) => setThr(e.target.value)} />
                 <button className="btn pri" onClick={saveThr} disabled={!Number(thr)}>Save</button>
               </div>
+              {!Number(thr) && <div className="hint">Enter an amount in naira to save.</div>}
             </div>
             {thrMsg && <div className="notice" style={{ marginBottom: 0 }}>{thrMsg}</div>}
           </div>
@@ -2096,7 +2099,7 @@ export function ApprovalsPage({ api }) {
           </div>
         </div>
       ))}
-      {!pubs.length && !awards.length && <div className="card"><Empty>The approval queue is clear.</Empty></div>}
+      {!pubs.length && !awards.length && <div className="card"><Empty>Nothing is waiting for your sign-off.</Empty></div>}
     </div>
   );
 }
@@ -2774,6 +2777,15 @@ export const DRAFT_CSS = `
              transform 320ms cubic-bezier(.34,1.56,.64,1)}
 .chiprow .chip.on .chipck{width:13px;opacity:1;transform:none}
 
+/* A DISABLED BUTTON SAYS WHY. The rule the readiness panels follow, at the
+   scale of a dialog with two fields: one line beside the button, present only
+   while the button is dead. In a footer it takes the left and the buttons
+   keep the right; in a form row it wraps underneath. */
+.gatehint{font-size:12.5px;color:var(--faint);line-height:1.4;align-self:center}
+.dfoot{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.dfoot .gatehint{margin-right:auto;text-align:left;flex:1 1 180px}
+.gaterow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+
 /* the field a checklist line points at, when you arrive on it */
 .jumped{animation:dk-jumped 620ms cubic-bezier(.16,1,.3,1)}
 @keyframes dk-jumped{from{box-shadow:0 0 0 4px var(--brand-ring)}to{box-shadow:0 0 0 12px transparent}}
@@ -3035,7 +3047,7 @@ export function SuppliersPage({ api }) {
       )}
       {canPrequalify && queue.length > 0 && (
         <div className="card" style={{ marginBottom: 14, borderLeft: "3px solid var(--brass)" }}>
-          <div className="chead"><h3>Registration queue</h3><span className="mono faint" style={{ marginLeft: "auto" }}>{queue.length} awaiting review</span></div>
+          <div className="chead"><h3>Vendors waiting to be registered</h3><span className="mono faint" style={{ marginLeft: "auto" }}>{queue.length} awaiting review</span></div>
           <div className="cbody">
             {queue.map((s) => (
               <div key={s.id} className="docrow" style={{ alignItems: "flex-start" }}>
@@ -3404,7 +3416,7 @@ export function AuditPage({ api }) {
   return (
     <div>
       <div className="pagehead">
-        <h1>Audit trail</h1><span className="sub">hash-chained · every action, named and timestamped</span>
+        <h1>Audit trail</h1><span className="sub">Every action, who did it and when. Each entry is chained to the one before, so nothing can be edited quietly.</span>
         <div className="grow" />
         <div className="pagetools">
           <input className="in" placeholder="Search the trail…"
@@ -3437,7 +3449,7 @@ export function AuditPage({ api }) {
         });
         return flags.length ? (
           <div className="card" style={{ marginBottom: 14, borderLeft: "3px solid var(--brass)" }}>
-            <div className="chead"><h3>Anomaly scan</h3><span className="mono faint" style={{ marginLeft: "auto" }}>patterns, not accusations</span></div>
+            <div className="chead"><h3>Worth a second look</h3><span className="mono faint" style={{ marginLeft: "auto" }}>patterns, not accusations</span></div>
             <div className="cbody">
               {flags.map((f, i) => <div key={i} className="rowline" style={{ fontSize: 13 }}>{f}</div>)}
             </div>
@@ -3463,7 +3475,7 @@ export function AuditPage({ api }) {
               </li>
             );
           })}
-          {!rows.length && <Empty>No events for this filter.</Empty>}
+          {!rows.length && <Empty>Nothing matches that filter.</Empty>}
         </ul>
       </div></div>
     </div>
@@ -3498,11 +3510,11 @@ export function TeamPage({ api }) {
   const ROLES = (team?.roles || []).map((r) => [r.value, r.label]);
   return (
     <div>
-      <div className="pagehead"><h1>Team</h1><span className="sub">who can do what in this workspace</span></div>
+      <div className="pagehead"><h1>Team</h1><span className="sub">Who is here, and what each person can do.</span></div>
       <WorkspaceCard api={api} />
       <div className="grid2" style={{ alignItems: "start" }}>
         <div className="card">
-          <div className="chead"><h3>Members</h3></div>
+          <div className="chead"><h3>Who is here</h3></div>
           <div className="tscroll">
             <table className="tbl">
               <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Access</th></tr></thead>
@@ -3532,7 +3544,7 @@ export function TeamPage({ api }) {
           )}
         </div>
         <div className="card">
-          <div className="chead"><h3>Invite a team member</h3></div>
+          <div className="chead"><h3>Bring someone in</h3></div>
           <div className="cbody">
             <div className="frow"><label className="lbl">Work email</label>
               <input className="in" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></div>
@@ -3540,12 +3552,15 @@ export function TeamPage({ api }) {
               <select className="in" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>
                 {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select></div>
-            <div className="frow"><label className="lbl">Name (optional, they can set it themselves)</label>
+            <div className="frow"><label className="lbl">Name <span className="faint">optional</span></label>
               <input className="in" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
-            <div className="frow"><label className="lbl">Title (optional)</label>
+            <div className="frow"><label className="lbl">Job title <span className="faint">optional</span></label>
               <input className="in" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
             {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 12 }}>{msg}</div>}
-            <button className="btn pri" onClick={invite} disabled={!f.email.trim()}>Send invitation</button>
+            <div className="gaterow">
+              <button className="btn pri" onClick={invite} disabled={!f.email.trim()}>Send invitation</button>
+              {!f.email.trim() && <span className="hint gatehint">Enter their work email to send.</span>}
+            </div>
             {link && (
               <div className="notice" style={{ marginTop: 12 }}>
                 Demo mode: the invitation email prints to the server log, so here's the link to try the flow yourself:{" "}
@@ -3771,10 +3786,12 @@ function WorkspaceCard({ api }) {
             <input className="in" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="frow" style={{ flex: 1, minWidth: 130 }}>
-            <label className="lbl">Short name (top bar, ref prefix)</label>
+            <label className="lbl">Short name</label>
             <input className="in" value={short} onChange={(e) => setShort(e.target.value)} />
+            <div className="hint">Shown in the top bar, and used as the prefix on tender references.</div>
           </div>
           <button className="btn pri" onClick={save} disabled={name.trim().length < 2}>Rename</button>
+          {name.trim().length < 2 && <span className="hint gatehint">The name needs at least two characters.</span>}
         </div>
         {msg && <div className="notice" style={{ marginTop: 12, marginBottom: 0 }}>{msg}</div>}
       </div>

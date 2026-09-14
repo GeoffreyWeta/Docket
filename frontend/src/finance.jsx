@@ -386,7 +386,7 @@ function SpendTab({ d, api }) {
         <Stat k="Largest single line"
               v={slice.rows.length ? fmtCompact(slice.rows[0].value) : "—"}
               d={slice.rows.length ? `${slice.rows[0].label} — ${slice.label.toLowerCase()}` : ""} />
-        <Stat k="Unrecorded" v={unrecorded ? fmtCompact(unrecorded) : "none"}
+        <Stat k="Not yet recorded" v={unrecorded ? fmtCompact(unrecorded) : "none"}
               d={unrecorded ? `not coded to a ${slice.label.toLowerCase()}` : `every commitment carries a ${slice.label.toLowerCase()}`}
               tone={unrecorded ? "var(--wax)" : null} />
         <Stat k="This quarter"
@@ -425,7 +425,7 @@ function SpendTab({ d, api }) {
             ? <Donut data={foldTail(slice.rows.map((r) => ({
                 key: r.key, label: r.label, value: r.value, color: colour(r.key) })))}
                      centreLabel="committed" />
-            : <Empty>Nothing to chart.</Empty>}
+            : <Empty>Nothing to chart yet.</Empty>}
         </Figure>
 
         <Figure title="Monthly procurement spend" sub="value committed each month"
@@ -445,7 +445,7 @@ function SpendTab({ d, api }) {
                   rows={t.quarterly} />}>
           {t.quarterly.length
             ? <Columns data={columns(t.quarterly, TONE.committed)} tickEvery={1} />
-            : <Empty>Nothing yet.</Empty>}
+            : <Empty>Nothing here yet.</Empty>}
         </Figure>
 
         <Figure title="Top 10 suppliers by spend" sub="committed, all sources"
@@ -569,7 +569,7 @@ function ContractsTab({ d, api }) {
               <Meter key={r.id} label={r.title || r.ref} value={r.paid} max={r.value}
                      tone={r.utilisation >= 90 ? "var(--wax)" : TONE.paid} />
             ))}
-            {!c.live && <Empty>No live contracts.</Empty>}
+            {!c.live && <Empty>No live contracts. An award becomes a contract here once it is signed.</Empty>}
           </div>
         </Figure>
 
@@ -758,7 +758,7 @@ function PaymentsTab({ d, api }) {
                   rows={p.paidTrend} />}>
           {p.paidTrend.length
             ? <Columns data={columns(p.paidTrend, TONE.paid)} />
-            : <Empty>No payments on the ledger.</Empty>}
+            : <Empty>No payments on the ledger yet.</Empty>}
         </Figure>
 
         <Figure title="Overdue invoices" sub="longest overdue first"
@@ -1126,8 +1126,8 @@ function ExceptionsTab({ d, api }) {
               tone={tot.warn ? "var(--wax)" : null} />
         <Stat k="Value at stake" v={fmtCompact(tot.value)}
               d="overdue, duplicated, over budget or unapproved" />
-        <Stat k="Rules" v={EXCEPTION_KINDS.length} d="checked on every sweep" />
-        <Stat k="Firing" v={groups.length} d="rules with something to report" />
+        <Stat k="Checks running" v={EXCEPTION_KINDS.length} d="checked on every sweep" />
+        <Stat k="Checks firing" v={groups.length} d="rules with something to report" />
       </div>
 
       <div className="card" style={{ marginBottom: 14, borderLeft: "3px solid var(--s1)" }}>
