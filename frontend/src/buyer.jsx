@@ -485,10 +485,16 @@ function workItems(state, tenders) {
 
   for (const t of tenders) {
     if (effStatus(t) === "closed") {
+      /* An auction has no seals to break: what is outstanding is recording the
+         standings, and that happens in the auction room. */
+      const auc = t.type === "AUC";
       items.push({ key: "seal-" + t.id, cap: "bid.open", since: t.deadline,
-                   title: t.title, why: "Deadline passed. The seals are unbroken.",
-                   verb: "Open the bids", to: { page: "tender", id: t.id, tab: "bids" },
-                   tone: "wax", waiting: "an opening" });
+                   title: t.title,
+                   why: auc ? "The room has closed. The standings are not recorded yet."
+                            : "Deadline passed. The seals are unbroken.",
+                   verb: auc ? "Record the results" : "Open the bids",
+                   to: auc ? { page: "auction", id: t.id } : { page: "tender", id: t.id, tab: "bids" },
+                   tone: "wax", waiting: auc ? "results to be recorded" : "an opening" });
     }
     if (t.status === "approval") {
       items.push({ key: "appr-" + t.id, cap: "tender.publish_decision", since: lastMoved(t.id),
