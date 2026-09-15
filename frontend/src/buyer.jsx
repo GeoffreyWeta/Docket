@@ -3960,7 +3960,7 @@ export function AuctionPage({ api, id }) {
       <AuctionBoard api={api} t={t} a={a} moved={moved} extended={extended} />
       <More title="How this auction runs" summary="decrement, anti-sniping, what suppliers can see">
         <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.6 }}>
-          <li>Every bid has to undercut that supplier's own last one by at least the minimum decrement{t.minDecrement ? ` (${fmtMoney(t.minDecrement)})` : ""}.</li>
+          <li>Every bid has to undercut that supplier's own last one by at least the minimum decrement{(a?.minDecrement ?? t.minDecrement) ? ` (${fmtMoney(a?.minDecrement ?? t.minDecrement)})` : ""}.</li>
           <li>A bid landing inside the final two minutes extends the close by two minutes, so nobody can snipe the room.</li>
           <li>Suppliers see their own rank and their own price, never a competitor's number. This board is buyer-side only.</li>
           <li>A reverse auction is price-only, so there is nothing to score and no evaluation panel.</li>
