@@ -18,6 +18,10 @@ async function handle(r) {
   if (!r.ok) {
     const e = new Error((data && data.error) || `Request failed (${r.status})`);
     e.status = r.status;
+    /* The whole body, not just the sentence. A refusal sometimes carries the
+       way out of it — a duplicate vendor comes back with the record it clashed
+       with, so the caller can offer that one instead of a dead end. */
+    e.data = data;
     throw e;
   }
   return data;

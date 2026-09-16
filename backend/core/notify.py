@@ -10,7 +10,7 @@ from django.contrib.auth.models import User
 from django.core.mail import send_mail
 
 from .models import Notification
-from .util import now_ms, rid
+from .util import base_url, now_ms, org_name, rid
 
 log = logging.getLogger(__name__)
 
@@ -65,8 +65,56 @@ def notify_perm(key, subject, body, tender_id=None):
     notify_users(_users_for_perm(key), subject, body, tender_id)
 
 
+def _mail_unclaimed(supplier_id, subject, body):
+    """Reach a vendor who is on the register but holds no account yet.
+
+    A buyer can put a company on the register from inside a draft — they know
+    the company, and waiting for it to find the registration form is a week of
+    nothing. Until somebody at that company sets a password there is no `User`
+    row, so the per-user notification above reaches nobody, and an invitation to
+    tender addressed to a vendor with no account was silence.
+
+    So the register's own contact address is the fallback, and the mail carries
+    the claim link with it: the invitation and the way to act on it arrive
+    together, which is the only version of this that is any use to them.
+
+    The link is reused while it is still good rather than minted per message, or
+    a chatty event would leave a vendor holding five links and wondering which
+    one is live.
+    """
+    from .models import ActionToken, Supplier
+
+    s = Supplier.objects.filter(pk=supplier_id).first()
+    email = (s.contact_email or "").strip().lower() if s else ""
+    if not email:
+        return
+
+    from .account_views import CAMPAIGN_TTL_MS, _mail, _mint
+
+    fresh = now_ms() - CAMPAIGN_TTL_MS
+    tok = (ActionToken.objects
+           .filter(kind="vendor_claim", used_at__isnull=True, created__gt=fresh,
+                   payload__supplierId=supplier_id)
+           .order_by("-created").first())
+    if tok is None:
+        tok = _mint("vendor_claim", email, {"supplierId": supplier_id})
+
+    _mail(email, subject,
+          f"{body}\n\n"
+          f"{s.name} is on {org_name()}'s vendor register but nobody has claimed the account yet. "
+          f"Set a password to sign in, read the full terms and submit a sealed bid:\n\n"
+          f"{base_url()}/?register={tok.token}")
+
+
 def notify_supplier(supplier_id, subject, body, tender_id=None):
-    notify_users(_users_for_supplier(supplier_id), subject, body, tender_id)
+    users = list(_users_for_supplier(supplier_id))
+    if users:
+        notify_users(users, subject, body, tender_id)
+        return
+    try:
+        _mail_unclaimed(supplier_id, subject, body)
+    except Exception:
+        log.warning("could not reach unclaimed vendor %s", supplier_id, exc_info=True)
 
 
 def notify_suppliers(supplier_ids, subject, body, tender_id=None):

@@ -2291,6 +2291,266 @@ function ItemPick({ line, onPick }) {
      something you get scolded about. A tender in the register with weights
      that do not sum to 100 still edits cleanly: the first drag normalises it. */
 
+/* ---------------- who gets invited ---------------- */
+
+/* How many vendors reach the picker before it asks you to narrow instead of
+   scroll. The register runs to about 1,400 and a chip per row was a wall. */
+const PICK = 24;
+
+/** The vendors in the same family as a category, read off the taxonomy the
+    bootstrap already sent. Used for the middle rung of the scope control:
+    wider than the category, far narrower than the register. */
+function familyOf(taxonomy, category) {
+  return (taxonomy || []).find((fam) => fam.categories.some((c) => c.key === category)) || null;
+}
+
+/** The invitation step of the draft. Two things were wrong with the chip wall
+    it replaces: it offered all 1,400 vendors at once with no way in, and a
+    company that is not on the register yet was a dead end — you had to abandon
+    the draft, go to Suppliers, register them, and come back. */
+function InviteStep({ api, f, set }) {
+  const { state } = api;
+  const [scope, setScope] = useState("cat");   // cat | family | all
+  const [q, setQ] = useState("");
+  const [shown, setShown] = useState(PICK);
+  const [adding, setAdding] = useState(false);
+
+  const fam = familyOf(state.taxonomy, f.category);
+  /* A suspended vendor cannot be invited — the server refuses the whole event
+     if one is in the list — so it never appears here to be picked. */
+  const pool = state.suppliers.filter((s) => !s.suspended);
+  const inCat = pool.filter((s) => s.category === f.category);
+  const inFam = fam ? pool.filter((s) => fam.categories.some((c) => c.key === s.category)) : [];
+
+  /* Without a category there is nothing to narrow by, so the picker opens on
+     the whole register and says why. */
+  const effScope = !f.category ? "all" : scope;
+  const base = effScope === "cat" ? inCat : effScope === "family" ? inFam : pool;
+  const needle = q.trim().toLowerCase();
+  const matched = needle
+    ? base.filter((s) => [s.name, s.category, s.location, s.code]
+        .some((x) => (x || "").toLowerCase().includes(needle)))
+    : base;
+
+  /* Whoever is already invited stays on screen whatever the filter says, or
+     narrowing the list would hide the thing you are trying to undo. Read off
+     the whole register rather than the pool: a vendor suspended since the draft
+     was started has to be visible to be taken off it, and the server refuses
+     the whole event while they are still on the list. */
+  const chosen = f.invited.map((id) => state.suppliers.find((s) => s.id === id)).filter(Boolean);
+  const chosenIds = new Set(f.invited);
+  const rest = matched.filter((s) => !chosenIds.has(s.id));
+  const page = rest.slice(0, shown);
+
+  const toggle = (id) => set("invited", chosenIds.has(id)
+    ? f.invited.filter((x) => x !== id)
+    : [...f.invited, id]);
+
+  const chip = (s) => {
+    const on = chosenIds.has(s.id);
+    return (
+      <button key={s.id} className={"chip" + (on ? " on" : "")} aria-pressed={on}
+              onClick={() => toggle(s.id)}>
+        {/* always rendered, so it can widen into place rather than appearing
+            and shoving the label sideways */}
+        <span className="chipck" aria-hidden="true"><Icon n="check" s={12} /></span>
+        {s.name}
+        <small>
+          {s.suspended ? "suspended — remove to publish"
+                       : (s.category === f.category ? s.location : s.category)
+                         + (!s.prequalified ? " · unverified" : "")}
+        </small>
+      </button>
+    );
+  };
+
+  const scopes = [
+    ["cat", f.category || "This category", inCat.length],
+    ["family", fam ? fam.label : "Related", inFam.length],
+    ["all", "Every vendor", pool.length],
+  ];
+
+  return (
+    <div className="card" id="nt-invite">
+      {adding && (
+        <AddVendorDialog api={api} category={f.category}
+                         onClose={() => setAdding(false)}
+                         onAdded={(id) => { if (!chosenIds.has(id)) set("invited", [...f.invited, id]); }} />
+      )}
+      <div className="chead"><h3>Who gets invited</h3>
+        <span className="hint" style={{ marginLeft: "auto", marginTop: 0 }}>
+          {f.invited.length ? f.invited.length + " selected" : "none yet"}</span></div>
+      <div className="cbody">
+        {/* The category first, because that is the shortlist somebody actually
+            wants; the family and the register are there for the vendor who is
+            filed one leaf over. */}
+        <div className="pickbar">
+          <div className="scoper" role="group" aria-label="Which vendors to show">
+            {scopes.map(([k, label, n]) => (
+              <button key={k} type="button" className={"scopeb" + (effScope === k ? " on" : "")}
+                      aria-pressed={effScope === k} disabled={!f.category && k !== "all"}
+                      onClick={() => { setScope(k); setShown(PICK); }}>
+                {label}<small>{n.toLocaleString()}</small>
+              </button>
+            ))}
+          </div>
+          <input className="in picksearch" placeholder="Search by name, place or vendor code"
+                 aria-label="Search vendors" value={q}
+                 onChange={(e) => { setQ(e.target.value); setShown(PICK); }} />
+        </div>
+
+        {!f.category && (
+          <div className="hint" style={{ marginBottom: 10 }}>
+            Pick a category above and this narrows to the vendors who work in it.
+          </div>
+        )}
+
+        {chosen.length > 0 && (
+          <>
+            <div className="picklbl">Invited</div>
+            <div className="chiprow" style={{ marginBottom: 14 }}>{chosen.map(chip)}</div>
+          </>
+        )}
+
+        {rest.length > 0 && (
+          <>
+            <div className="picklbl">
+              {needle ? `${rest.length.toLocaleString()} match "${q.trim()}"`
+                      : effScope === "cat" ? `${rest.length.toLocaleString()} more in ${f.category}`
+                      : effScope === "family" ? `${rest.length.toLocaleString()} more in ${fam ? fam.label : "this family"}`
+                      : `${rest.length.toLocaleString()} more on the register`}
+            </div>
+            <div className="chiprow">{page.map(chip)}</div>
+            {rest.length > page.length && (
+              <button className="btn sm" style={{ marginTop: 10 }}
+                      onClick={() => setShown((n) => n + PICK * 2)}>
+                Show {Math.min(PICK * 2, rest.length - page.length)} more
+              </button>
+            )}
+          </>
+        )}
+
+        {rest.length === 0 && (
+          <Empty art="tray">
+            {needle
+              ? `Nobody here matches "${q.trim()}". Try a wider scope, or add the company below.`
+              : effScope === "cat" && f.category && inCat.length === 0
+                ? `No vendors are filed under ${f.category} yet. Widen the scope, or add the company below and they will be emailed an invitation to bid.`
+                : chosen.length
+                  ? "Everyone in this list is already invited."
+                  : "Nobody is on the register yet. Add the company below and they will be emailed an invitation to bid."}
+          </Empty>
+        )}
+
+        {/* The way out of "they are not on the register". It registers them,
+            mails them a link to claim their account, and ticks them into this
+            event — without losing the draft. */}
+        <div className="pickadd">
+          <button className="btn" onClick={() => setAdding(true)}>
+            <Icon n="plus" s={14} />Invite a vendor who isn't on the register
+          </button>
+          <span className="hint" style={{ marginTop: 0 }}>
+            They are emailed a link to set a password, and land in your prequalification queue.
+          </span>
+        </div>
+
+        <div className="hint">
+          An unverified vendor can still be invited and can still bid. Verification gates
+          prequalification, not participation.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Register a company from inside the draft and invite them in one step. The
+    full register form lives on the Suppliers page; this is the short version,
+    because the person filling it in is in the middle of writing a tender and
+    knows a name and an email, not a payment term. */
+function AddVendorDialog({ api, category, onClose, onAdded }) {
+  const { toast, refresh } = api;
+  const [f, setF] = useState({
+    name: "", email: "", contactPerson: "", phone: "", location: "", category: category || "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState(null);
+  const [clash, setClash] = useState(null);
+  const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
+  /* The email is not optional here as it is on the register form: the whole
+     point of adding them from a draft is that they get asked to bid, and that
+     is an email or it is nothing. */
+  const ok = f.name.trim().length > 1 && f.email.includes("@");
+
+  const submit = async () => {
+    setBusy(true); setProblem(null); setClash(null);
+    try {
+      const r = await raw("/suppliers/register/", {
+        method: "POST",
+        body: { ...f, name: f.name.trim(), email: f.email.trim().toLowerCase(), invite: true },
+      });
+      onAdded(r.id);
+      onClose();
+      await refresh();
+      toast.ok(`${r.name} invited`,
+               "They have been emailed a link to set a password, and they are ticked into this draft. "
+               + "They will get the sealed invitation when you publish.");
+    } catch (e) {
+      /* A duplicate comes back with the record it clashed with, so the answer
+         is one button rather than "go and look for them yourself". */
+      if (e.status === 409 && e.data?.existing) setClash(e.data.existing);
+      else setProblem(e.message || "Could not add this vendor.");
+    }
+    setBusy(false);
+  };
+
+  return (
+    <Dialog wide title="Invite a vendor who isn't on the register" onClose={onClose} footer={
+      <>
+        {!ok && <span className="hint gatehint">A company name and an email address, so there is somewhere to send the invitation.</span>}
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn pri" disabled={!ok || busy} onClick={submit}>
+          {busy ? "Sending…" : "Add and invite"}
+        </button>
+      </>
+    }>
+      They go onto the register as <b>unverified</b> — somebody typed them in and nobody has checked
+      them — and they are emailed a link to set a password. That does not hold up this tender: they can
+      be invited and can bid while prequalification runs its course.
+      {problem && <div className="notice wax" style={{ marginTop: 10 }}>{problem}</div>}
+      {clash && (
+        <div className="notice wax" style={{ marginTop: 10 }}>
+          <b>{clash.name}</b> is already on the register{clash.email ? ` (${clash.email})` : ""}.
+          Invite that record rather than creating a second one.
+          <div style={{ marginTop: 8 }}>
+            <button className="btn sm pri" onClick={() => { onAdded(clash.id); onClose(); }}>
+              Invite {clash.name} instead
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="grid g2" style={{ marginTop: 10 }}>
+        <div className="frow"><label className="lbl" htmlFor="av-name">Registered company name</label>
+          <input id="av-name" className="in" autoFocus value={f.name} onChange={(e) => set("name", e.target.value)}
+                 placeholder="e.g. Adeola Industrial Services Ltd" /></div>
+        <div className="frow"><label className="lbl" htmlFor="av-email">Where the invitation goes</label>
+          <input id="av-email" className="in" type="email" value={f.email} onChange={(e) => set("email", e.target.value)}
+                 placeholder="tenders@company.com" /></div>
+        <div className="frow"><label className="lbl" htmlFor="av-person">Contact person <span className="faint">optional</span></label>
+          <input id="av-person" className="in" value={f.contactPerson} onChange={(e) => set("contactPerson", e.target.value)} /></div>
+        <div className="frow"><label className="lbl" htmlFor="av-phone">Phone <span className="faint">optional</span></label>
+          <input id="av-phone" className="in" value={f.phone} onChange={(e) => set("phone", e.target.value)} /></div>
+        <div className="frow"><label className="lbl" htmlFor="av-loc">Location <span className="faint">optional</span></label>
+          <input id="av-loc" className="in" value={f.location} onChange={(e) => set("location", e.target.value)}
+                 placeholder="e.g. Lagos" /></div>
+        <div className="frow"><label className="lbl" htmlFor="av-cat">Category</label>
+          <input id="av-cat" className="in" value={f.category} onChange={(e) => set("category", e.target.value)}
+                 placeholder="e.g. Logistics & freight" />
+          <div className="hint">Prefilled from this tender. It decides where they sit in the register.</div></div>
+      </div>
+    </Dialog>
+  );
+}
+
 export function NewTender({ api, editId }) {
   const { state, act, ai, go } = api;
   const editing = editId ? state.tenders.find((t) => t.id === editId) : null;
@@ -2569,35 +2829,7 @@ export function NewTender({ api, editId }) {
             </div>
           )}
 
-          <div className="card" id="nt-invite">
-            <div className="chead"><h3>Who gets invited</h3>
-              <span className="hint" style={{ marginLeft: "auto", marginTop: 0 }}>
-                {f.invited.length ? f.invited.length + " selected" : "none yet"}</span></div>
-            <div className="cbody">
-              {f.invited.length === 0 && (
-                <Empty art="tray">Nobody is invited yet. Pick the vendors who should get a sealed invitation.</Empty>
-              )}
-              <div className="chiprow">
-                {state.suppliers.map((s) => {
-                  const on = f.invited.includes(s.id);
-                  return (
-                    <button key={s.id} className={"chip" + (on ? " on" : "")} aria-pressed={on}
-                            onClick={() => set("invited", on ? f.invited.filter((x) => x !== s.id) : [...f.invited, s.id])}>
-                      {/* always rendered, so it can widen into place rather
-                          than appearing and shoving the label sideways */}
-                      <span className="chipck" aria-hidden="true"><Icon n="check" s={12} /></span>
-                      {s.name}
-                      <small>{s.category}{!s.prequalified ? " · unverified" : ""}</small>
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="hint">
-                An unverified vendor can still be invited and can still bid. Verification gates
-                prequalification, not participation.
-              </div>
-            </div>
-          </div>
+          <InviteStep api={api} f={f} set={set} />
 
           {/* Everything a handful of tenders need and most do not. Still here,
               one click away, and no longer the first thing anybody reads. */}
@@ -2888,6 +3120,31 @@ export const DRAFT_CSS = `
 .adv[open] summary .advcaret{transform:rotate(90deg)}
 .advtag{margin-left:auto;font-size:12px;color:var(--faint);font-weight:400;text-align:right}
 .adv .cbody{border-top:1px solid var(--line)}
+
+/* ---- the vendor picker ---- */
+/* The register is 1,400 companies and the tender needs six of them. The scope
+   control is the shortlist: category first, then the family it sits in, then
+   everything, with the count on each so you can see before you click whether
+   there is anything there. */
+.pickbar{display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin-bottom:12px}
+.scoper{display:inline-flex;background:var(--sunk);border:1px solid var(--line);
+  border-radius:var(--r-sm);padding:2px;gap:2px;max-width:100%;overflow:auto}
+.scopeb{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;border:0;
+  background:transparent;color:var(--muted);font:inherit;font-size:12.5px;font-weight:600;
+  padding:6px 11px;border-radius:calc(var(--r-sm) - 2px);cursor:pointer;
+  transition:background var(--t) var(--ease),color var(--t) var(--ease)}
+.scopeb:hover:not(:disabled){color:var(--fg)}
+.scopeb.on{background:var(--card);color:var(--fg);box-shadow:var(--sh-2)}
+.scopeb:disabled{opacity:.45;cursor:not-allowed}
+.scopeb small{font-family:var(--font-mono);font-size:10.5px;font-weight:400;color:var(--faint);
+  font-variant-numeric:tabular-nums}
+.scopeb.on small{color:var(--muted)}
+.picksearch{flex:1 1 200px;min-width:0;margin:0}
+.picklbl{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);
+  font-weight:600;margin-bottom:7px}
+.pickadd{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:16px;
+  padding-top:14px;border-top:1px dashed var(--line)}
+.pickadd .hint{flex:1 1 220px}
 
 /* ---- vendor chips ---- */
 .chiprow{display:flex;flex-wrap:wrap;gap:7px}
