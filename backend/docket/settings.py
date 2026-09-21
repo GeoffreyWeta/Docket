@@ -11,10 +11,31 @@ FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-insecure-key")
 DEBUG = os.environ.get("DEBUG", "0") == "1"
-ALLOWED_HOSTS = ["*"]
 
+# ---- where this deployment lives ----------------------------------------
+#
+# One setting decides the public address, the CSRF origins and whether TLS is
+# enforced: PUBLIC_BASE_URL. Everything used to hang off RENDER_EXTERNAL_HOSTNAME
+# instead, which meant a deployment anywhere else silently ran with no HTTPS
+# redirect, insecure cookies, no trusted CSRF origin, and password-reset links
+# pointing at localhost. Render still fills this in for free (below); every other
+# host sets it once.
 RENDER_HOST = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
-CSRF_TRUSTED_ORIGINS = [f"https://{RENDER_HOST}"] if RENDER_HOST else []
+PUBLIC_BASE_URL = os.environ.get(
+    "PUBLIC_BASE_URL",
+    f"https://{RENDER_HOST}" if RENDER_HOST else "http://localhost:5173",
+).rstrip("/")
+
+# `*` is the default because managed load balancers (Render, Lightsail, an ALB)
+# health-check the container on an internal address whose Host header is not the
+# public domain — pinning the list without including that address returns 400 to
+# the health check and the deployment never goes live. Pin it only when you know
+# what the prober sends, and keep the public domain in the list.
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get("ALLOWED_HOSTS", "*").split(",") if h.strip()]
+
+CSRF_TRUSTED_ORIGINS = [PUBLIC_BASE_URL] if PUBLIC_BASE_URL.startswith("https://") else []
+if RENDER_HOST and f"https://{RENDER_HOST}" not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_HOST}")
 
 INSTALLED_APPS = [
     "django.contrib.auth",
@@ -95,6 +116,19 @@ BC_ENVIRONMENT = os.environ.get("BC_ENVIRONMENT", "production")
 DEMO_LOGIN = os.environ.get("DEMO_LOGIN", "1") == "1"
 DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD", "docket-demo")
 
+# Where somebody who has seen the demo goes to start a workspace of their own.
+# DOCKET is single-tenant — one org row, no tenant key on tenders or suppliers —
+# so on the demo deployment this must point at the real one. Running the setup
+# wizard against the demo database renames the demo org and gives the newcomer
+# the demo's tenders and suppliers as their own. Unset means "the wizard on this
+# server", which is right for the real deployment and for local development.
+SIGNUP_URL = os.environ.get("SIGNUP_URL", "").rstrip("/")
+
+# The other direction: where the landing page sends somebody who wants to look
+# before they commit. Set on the real deployment to the demo's address, and left
+# empty on the demo itself — it is already the demo.
+DEMO_URL = os.environ.get("DEMO_URL", "").rstrip("/")
+
 # ---- uploads ----
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", 10 * 1024 * 1024))  # 10 MB
 ALLOWED_UPLOAD_EXTENSIONS = {
@@ -114,21 +148,27 @@ else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "DOCKET <no-reply@docket.local>")
 
-# Where this workspace lives, for links in mail sent outside a request. Anything
-# triggered by a request builds its links from that request; the background
-# sweep has none, so a registration drive has to be told once. Falls back to the
-# Render host, then to the dev server.
-PUBLIC_BASE_URL = os.environ.get(
-    "PUBLIC_BASE_URL",
-    f"https://{RENDER_HOST}" if RENDER_HOST else "http://localhost:5173",
-).rstrip("/")
-
-# ---- proxy / security on Render ----
-if RENDER_HOST:
+# ---- proxy / TLS ---------------------------------------------------------
+#
+# PUBLIC_BASE_URL (set at the top of this file) is what decides this: an https
+# address means the deployment sits behind a TLS-terminating proxy, which is true
+# of Render, Lightsail container services, an ALB and nginx alike. Override with
+# SECURE_SSL=0 only when you are deliberately running plain HTTP.
+SECURE_SSL = os.environ.get("SECURE_SSL", "1" if PUBLIC_BASE_URL.startswith("https://") else "0") == "1"
+if SECURE_SSL:
+    # Every one of those proxies terminates TLS and forwards plain HTTP with the
+    # original scheme in this header. Without it Django sees http, and with
+    # SECURE_SSL_REDIRECT on that is an infinite redirect loop.
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    # The health check is the exception, and it has to be. A container prober
+    # hits the container directly over HTTP with no X-Forwarded-Proto, so with
+    # the redirect on it gets a 301, reads it as unhealthy, and the deployment
+    # is rolled back — with the application working perfectly. Patterns match
+    # request.path with the leading slash stripped.
+    SECURE_REDIRECT_EXEMPT = [r"^api/health/?$"]
 
 # ---- logging ----
 LOGGING = {

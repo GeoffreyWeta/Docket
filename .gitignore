@@ -11,3 +11,7 @@ frontend/dist/
 # the importer reads it locally, the database keeps a masked copy, and it
 # never belongs in version control.
 backend/data/vendors*.json
+
+# Per-deployment settings: SECRET_KEY (which is the bid encryption key),
+# DATABASE_URL, SMTP credentials. The .example files are the ones that travel.
+deploy/*.env

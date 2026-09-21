@@ -101,11 +101,23 @@ def _demo_accounts():
 @csrf_exempt
 def auth_config(request):
     from .setup_views import needs_setup
+    from .views import org_settings
     return JsonResponse({
         "demoLogin": settings.DEMO_LOGIN,
         "accounts": _demo_accounts() if settings.DEMO_LOGIN else [],
         # an empty workspace sends the sign-in page to the setup wizard instead
         "needsSetup": needs_setup(),
+        # Where a visitor goes to start a workspace of their own. DOCKET is
+        # single-tenant, so on the demo deployment that is NOT this server —
+        # running setup here would rename the demo org and hand the newcomer the
+        # demo's tenders. Set SIGNUP_URL on the demo to the real deployment's
+        # address; leave it unset everywhere else and the local wizard is used.
+        "signupUrl": settings.SIGNUP_URL,
+        # Where "see the demo" goes. The landing page only offers it when this
+        # is set, so a deployment with no demo beside it simply does not mention
+        # one rather than linking somewhere that does not exist.
+        "demoUrl": settings.DEMO_URL,
+        "orgName": org_settings()["name"],
     })
 
 

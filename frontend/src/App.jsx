@@ -94,7 +94,10 @@ function Login({ onLoggedIn, onScreen }) {
               <div className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
                 Three short steps: you, your company, your team. It takes about two minutes and you land signed in.
               </div>
-              <button className="btn pri" style={{ width: "100%" }} onClick={() => onScreen("setup")}>Set up your workspace</button>
+              {cfg.signupUrl
+                ? <a className="btn pri" style={{ width: "100%", justifyContent: "center" }}
+                     href={cfg.signupUrl + "/?setup=1"}>Set up your workspace</a>
+                : <button className="btn pri" style={{ width: "100%" }} onClick={() => onScreen("setup")}>Set up your workspace</button>}
             </div>
           </div>
         )}
@@ -115,22 +118,26 @@ function Login({ onLoggedIn, onScreen }) {
             <div className="linkrow">
               <button className="doclink" onClick={() => onScreen("register")}>Register your company (vendors)</button>
               <button className="doclink" onClick={() => onScreen("forgot")}>Forgot password?</button>
-              {cfg && cfg.demoLogin && !cfg.needsSetup && (
+              {cfg && cfg.demoLogin && !cfg.needsSetup && !cfg.signupUrl && (
                 <button className="doclink" onClick={() => onScreen("setup")}>Set up a new workspace</button>
               )}
             </div>
           </div>
         </div>
+        {/* The personas moved to /demo. A sign-in screen whose most prominent
+            control is a way in without a password reads as a door left open,
+            and on a deployment holding real bids it would be one. The link is
+            here; the way in is one deliberate step away. */}
         {cfg && cfg.demoLogin && cfg.accounts.length > 0 && (
           <div className="card" style={{ marginTop: 14 }}>
-            <div className="chead"><h3>Demo accounts</h3><span className="mono faint" style={{ marginLeft: "auto" }}>one click, no password</span></div>
-            <div className="cbody">
-              <div className="demogrid">
-                {cfg.accounts.map((a) => (
-                  <button key={a.username} className="btn" disabled={busy} onClick={() => quick(a.username)}>{a.label}</button>
-                ))}
+            <div className="cbody" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
+              <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                <b style={{ fontSize: 14 }}>Just looking?</b>
+                <div className="hint" style={{ marginTop: 2 }}>
+                  Walk the whole product as any of {cfg.accounts.length} people, with a workspace already in motion.
+                </div>
               </div>
-              <div className="muted" style={{ fontSize: 11.5, marginTop: 10 }}>Demo logins can be disabled by setting DEMO_LOGIN=0 on the server.</div>
+              <button className="btn" onClick={() => onScreen("demo")}>Open the demo</button>
             </div>
           </div>
         )}
@@ -139,7 +146,118 @@ function Login({ onLoggedIn, onScreen }) {
   );
 }
 
+/** /demo — the way into the demo workspace, and the way out of it to a real one.
+
+    Kept off the sign-in screen deliberately. A password-free door is fine on a
+    deployment seeded with invented tenders and wrong on one holding sealed bids,
+    and the difference between those two is a single environment variable. Making
+    the demo a place you go, rather than the first thing on the front page, means
+    the real deployment's sign-in screen has nothing to hide. */
+function DemoDoor({ onBack, onLoggedIn }) {
+  const [cfg, setCfg] = useState(null);
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    authConfig().then(setCfg).catch(() => setCfg({ demoLogin: false, accounts: [] }));
+  }, []);
+
+  const enter = async (username) => {
+    setBusy(username); setMsg("");
+    try {
+      const res = await demoLogin(username);
+      onLoggedIn(res, username);
+    } catch (e) {
+      setMsg(e.message || "Could not open the demo.");
+      setBusy("");
+    }
+  };
+
+  const off = cfg && !cfg.demoLogin;
+
+  return (
+    <div className="loginwrap">
+      <style>{ALL_CSS}</style>
+      <div className="logincard">
+        <div className="loginlogo"><span className="seal" aria-hidden="true" /><b>DOCKET</b></div>
+
+        {!cfg && <div className="card"><div className="cbody muted">Loading…</div></div>}
+
+        {off && (
+          <div className="card">
+            <div className="chead"><h3>No demo here</h3></div>
+            <div className="cbody">
+              <p style={{ marginTop: 0 }}>
+                This deployment holds a real workspace, so there are no one-click accounts.
+                Sign in, or ask a colleague to invite you.
+              </p>
+              <button className="btn pri" style={{ width: "100%" }} onClick={onBack}>Go to sign in</button>
+            </div>
+          </div>
+        )}
+
+        {cfg && cfg.demoLogin && (
+          <>
+            <div className="card">
+              <div className="chead"><h3>Open the demo</h3>
+                <span className="mono faint" style={{ marginLeft: "auto" }}>one click, no password</span></div>
+              <div className="cbody">
+                <p style={{ marginTop: 0, fontSize: 13.5, lineHeight: 1.6 }}>
+                  A workspace already in motion: tenders open for bids, envelopes sealed and waiting,
+                  a panel mid-scoring, an award waiting on a signature. Pick whose desk you want to
+                  see it from — <b>separation of duties is the product</b>, so each of these people
+                  can do genuinely different things.
+                </p>
+                {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 12 }}>{msg}</div>}
+                <div className="demogrid">
+                  {cfg.accounts.map((a) => (
+                    <button key={a.username} className="btn" disabled={!!busy}
+                            onClick={() => enter(a.username)}>
+                      {busy === a.username ? "Opening…" : a.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 10 }}>
+                  Everything here is invented. Nothing you do to it matters, and it can be reset from
+                  the account menu at any time.
+                </div>
+              </div>
+            </div>
+
+            {/* The point of a demo. On this deployment the wizard would rename
+                the demo org and hand over its tenders, so when SIGNUP_URL names
+                the real deployment the button goes there instead. */}
+            <div className="card" style={{ marginTop: 14, borderColor: "var(--green-2)" }}>
+              <div className="cbody">
+                <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-.015em", marginBottom: 4 }}>
+                  Seen enough?
+                </div>
+                <div className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
+                  Three short steps — you, your company, your team — and you land signed in to an
+                  empty workspace of your own. About two minutes.
+                </div>
+                {cfg.signupUrl
+                  ? <a className="btn pri" style={{ width: "100%", justifyContent: "center" }}
+                       href={cfg.signupUrl + "/?setup=1"}>Set up your company</a>
+                  : <button className="btn pri" style={{ width: "100%" }}
+                            onClick={() => { window.location.href = "/?setup=1"; }}>Set up your company</button>}
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="linkrow" style={{ justifyContent: "center", marginTop: 14 }}>
+          <button className="doclink" onClick={onBack}>← Back to sign in</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function publicScreenFromUrl() {
+  /* A path rather than a query flag, because this one gets written down and
+     read out: "the demo is at docket.example.com/demo". */
+  if (window.location.pathname.replace(/\/+$/, "").toLowerCase() === "/demo") return { name: "demo" };
   const q = new URLSearchParams(window.location.search);
   if (q.get("vtoken")) return { name: "verify", token: q.get("vtoken") };
   if (q.get("itoken")) return { name: "invite", token: q.get("itoken") };
@@ -236,6 +354,8 @@ export default function App() {
     if (screen.name === "invite") return <AcceptInvite token={screen.token} onDone={toLogin} />;
     if (screen.name === "reset") return <ResetPassword token={screen.token} onDone={toLogin} />;
     if (screen.name === "forgot") return <ForgotPassword onDone={toLogin} />;
+    if (screen.name === "demo") return <DemoDoor onBack={toLogin}
+        onLoggedIn={(res, username) => { storeAuth(res.token, username); toLogin(); setToken(res.token); }} />;
     if (screen.name === "setup") return <SetupWorkspace onDone={toLogin}
         onLoggedIn={(res, username) => { storeAuth(res.token, username); toLogin(); setToken(res.token); }} />;
   }
