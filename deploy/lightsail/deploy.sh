@@ -5,6 +5,10 @@
 #     sudo bash /srv/docket/deploy/lightsail/deploy.sh app
 #     sudo bash /srv/docket/deploy/lightsail/deploy.sh demo --bootstrap
 #     sudo bash /srv/docket/deploy/lightsail/deploy.sh --all
+#     sudo bash /srv/docket/deploy/lightsail/deploy.sh --all --no-build
+#
+# --no-build skips npm and uses the bundle already in frontend/dist, for the
+# 1 GB instance where a vite build does not fit. See the check further down.
 #
 # --bootstrap additionally seeds the workspace and imports the vendor register.
 # It is for a database that starts empty and nothing else: on the real workspace
@@ -28,15 +32,17 @@ note() { printf '    %s\n' "$*"; }
 
 ROLES=""
 BOOTSTRAP=no
+BUILD=yes
 for arg in "$@"; do
   case "$arg" in
     app|demo)    ROLES="$ROLES $arg" ;;
     --all)       ROLES="app demo" ;;
     --bootstrap) BOOTSTRAP=yes ;;
+    --no-build)  BUILD=no ;;
     *) echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
 done
-[ -n "$ROLES" ] || { echo "Usage: sudo bash deploy.sh <app|demo|--all> [--bootstrap]" >&2; exit 1; }
+[ -n "$ROLES" ] || { echo "Usage: sudo bash deploy.sh <app|demo|--all> [--bootstrap] [--no-build]" >&2; exit 1; }
 
 # --all with --bootstrap would seed the real workspace too. Refuse rather than
 # ask: the damage is invented tenders sitting beside real ones in an audit trail
@@ -119,10 +125,34 @@ run "$APP_DIR/.venv/bin/pip" install --quiet -r "$APP_DIR/requirements.txt"
 # This is the memory-hungry step on a 2GB box. provision.sh adds 2GB of swap for
 # it; without that, a vite build is a plausible way to have the OOM killer take
 # Postgres instead.
-say "Building the interface"
-run env -C "$APP_DIR/frontend" HOME="$APP_HOME" npm ci --silent --no-audit --no-fund
-run env -C "$APP_DIR/frontend" HOME="$APP_HOME" npm run build
-note "bundle: $(du -sh "$APP_DIR/frontend/dist" | cut -f1)"
+# --no-build is for the 1 GB instance. A vite build of this app peaks at about
+# 1.4 GB resident — measured, not estimated — so on the $7 plan it either dies
+# with "JavaScript heap out of memory" or swaps for ten minutes while the OOM
+# killer eyes Postgres. Build the bundle on a machine that has the memory and
+# send the result up:
+#
+#     npm --prefix frontend ci && npm --prefix frontend run build
+#     rsync -av --delete frontend/dist/ ubuntu@<ip>:/tmp/dist/
+#     ssh ubuntu@<ip> 'sudo rsync -av --delete --chown=docket:docket #         /tmp/dist/ /srv/docket/frontend/dist/'
+#     ssh ubuntu@<ip> 'sudo bash /srv/docket/deploy/lightsail/deploy.sh --all --no-build'
+#
+# The bundle is 1.2 MB, so the copy is faster than the build would have been on
+# any plan.
+if [ "$BUILD" = no ]; then
+  # Refuse rather than serve yesterday's interface against today's API. A stale
+  # bundle is the failure this flag makes possible, so it is the one it checks.
+  [ -f "$APP_DIR/frontend/dist/index.html" ] || {
+    echo "--no-build, but $APP_DIR/frontend/dist/index.html is not there." >&2
+    echo "Build the bundle elsewhere and rsync it in — see the comment above this check." >&2
+    exit 1; }
+  say "Using the bundle already on disk (--no-build)"
+  note "built $(date -r "$APP_DIR/frontend/dist/index.html" '+%Y-%m-%d %H:%M') · $(du -sh "$APP_DIR/frontend/dist" | cut -f1)"
+else
+  say "Building the interface"
+  run env -C "$APP_DIR/frontend" HOME="$APP_HOME" npm ci --silent --no-audit --no-fund
+  run env -C "$APP_DIR/frontend" HOME="$APP_HOME" npm run build
+  note "bundle: $(du -sh "$APP_DIR/frontend/dist" | cut -f1)"
+fi
 
 # ---------------------------------------------------------------- per workspace
 for role in $ROLES; do
