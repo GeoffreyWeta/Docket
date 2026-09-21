@@ -1,0 +1,34 @@
+#!/bin/sh
+# Run a management command against one workspace, with its environment.
+# Installed to /usr/local/bin/docket-manage by provision.sh.
+#
+#     sudo -u docket docket-manage app  migrate
+#     sudo -u docket docket-manage demo seed_demo
+#     sudo -u docket docket-manage app  run_sweep
+#
+# It exists so the cron lines and a person at the keyboard run the command
+# exactly the same way, against the workspace they meant. Getting this wrong by
+# hand is easy and quiet — manage.py with no DATABASE_URL in the shell falls back
+# to SQLite and writes to a file nothing serves, reporting success throughout.
+set -eu
+
+ROLE="${1:-}"
+case "$ROLE" in
+  app|demo) shift ;;
+  *) echo "Usage: docket-manage <app|demo> <command> [args]" >&2; exit 1 ;;
+esac
+
+ENV_FILE="/etc/docket/env.$ROLE"
+APP_DIR=/srv/docket
+
+[ -r "$ENV_FILE" ] || { echo "docket-manage: cannot read $ENV_FILE" >&2; exit 1; }
+
+# set -a exports everything the file defines, which is what Django reads. The
+# values are written without quotes or spaces (see provision.sh) so plain
+# sourcing is safe.
+set -a
+. "$ENV_FILE"
+set +a
+
+cd "$APP_DIR/backend"
+exec "$APP_DIR/.venv/bin/python" manage.py "$@"

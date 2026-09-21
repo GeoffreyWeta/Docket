@@ -1,0 +1,27 @@
+# The background sweep. Installed to /etc/cron.d/docket by provision.sh.
+#
+# The sweep sends deadline reminders, marks events sealed when their deadline
+# passes, and warns on compliance documents about to lapse. It also runs
+# opportunistically from the bootstrap endpoint, throttled to once every ten
+# minutes — which is enough while people are using the workspace and no use at
+# all at 6am on a Sunday, when the deadline that just passed is exactly the one
+# somebody needs to have been told about. Hence a real schedule.
+#
+# Every effect is keyed in TaskMark, so a run that overlaps the opportunistic one
+# cannot double-send. Times are the instance's own clock, which provision.sh sets
+# to Africa/Lagos.
+#
+# `nice`d and `ionice`d, because the sweep shares two burstable cores with the
+# thing people are reading. Housekeeping must not be the reason a page will not
+# load.
+#
+# Format is cron.d's: the extra field before the command is the user to run as.
+
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin
+MAILTO=""
+
+# Every fifteen minutes. A deadline is a legal moment and "sealed within the
+# quarter hour" is the tightest promise worth making on one box.
+*/15 * * * *  docket  nice -n 10 ionice -c 3 /usr/local/bin/docket-manage app  run_sweep >> /var/log/docket/sweep.log 2>&1
+*/15 * * * *  docket  nice -n 10 ionice -c 3 /usr/local/bin/docket-manage demo run_sweep >> /var/log/docket/sweep.log 2>&1

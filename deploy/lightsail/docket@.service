@@ -1,0 +1,67 @@
+# gunicorn, kept alive by systemd. A template unit: `docket@app` and
+# `docket@demo` are the same code reading different environment files, which is
+# what lets one box carry both workspaces without either knowing about the other.
+#
+# Installed to /etc/systemd/system/docket@.service by provision.sh.
+# `systemctl status docket@app` and `journalctl -u docket@app` are the two
+# commands worth remembering.
+
+[Unit]
+Description=DOCKET (%i workspace, gunicorn)
+# The app opens Postgres on the loopback at startup, so the database comes first.
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
+
+[Service]
+User=docket
+Group=docket
+
+# backend/, not the repo root: docket.wsgi is only importable from here.
+WorkingDirectory=/srv/docket/backend
+EnvironmentFile=/etc/docket/env.%i
+
+# --max-requests recycles a worker after roughly this many requests, which is the
+# only thing that hands its accumulated heap back to the OS. CPython does not
+# return freed memory readily, and this app parses a 434KB bootstrap payload on
+# every refresh and holds whole uploaded documents in memory on the way to
+# Postgres. Without this, worker RSS climbs until the OOM killer picks it.
+#
+# The jitter stops both workers reaching the limit on the same request. Two
+# workers rather than one for the same reason: a recycle takes a second or two to
+# load Django, and with a single worker that window is a 502 mid-upload.
+#
+# 2 workers x 4 threads. On the $12 plan's two burstable cores that is the number
+# that leaves room for Postgres and, on a deploy, a vite build — three workers
+# per workspace across two workspaces is what takes the box off the network
+# entirely, ssh included.
+#
+# --timeout 120 is above nginx's proxy_read_timeout so the worker gives up first
+# and the error says which request died.
+ExecStart=/srv/docket/.venv/bin/gunicorn \
+    --bind 127.0.0.1:${PORT} \
+    --workers ${WEB_CONCURRENCY} \
+    --threads 4 \
+    --timeout 120 \
+    --max-requests 200 \
+    --max-requests-jitter 40 \
+    --access-logfile - \
+    --error-logfile - \
+    docket.wsgi:application
+
+# Logs to the journal rather than a file nobody rotates.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=docket-%i
+
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

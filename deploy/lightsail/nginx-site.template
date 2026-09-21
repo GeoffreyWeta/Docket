@@ -1,0 +1,61 @@
+# One DOCKET workspace behind nginx. provision.sh substitutes __DOMAIN__,
+# __PORT__, __ROLE__ and __DEFAULT__ and installs the result as
+# /etc/nginx/sites-available/docket-__ROLE__.
+#
+# A file per workspace rather than one file with two server blocks: provisioning
+# or re-provisioning one workspace must not rewrite the other's, and once certbot
+# has edited a site file, that file has to be left alone. Two files means the
+# certbot guard can be per-site instead of all-or-nothing.
+
+server {
+    listen 80__DEFAULT__;
+    listen [::]:80__DEFAULT__;
+
+    # The real name is listed so `certbot --nginx` has a block to attach the
+    # certificate to. On the default site `_` stays beside it so the bare static
+    # IP keeps answering while DNS spreads. Django is still the one enforcing
+    # which hostnames are allowed, through ALLOWED_HOSTS.
+    server_name __DOMAIN__;
+
+    # settings.py allows 10MB uploads and nginx's default cap is 1MB, so without
+    # this a tender pack dies at the proxy with a bare 413 and never reaches the
+    # code that would explain itself. 16m leaves room for the multipart envelope.
+    client_max_body_size 16m;
+
+    # nginx's mime.types predates .webmanifest, so the PWA manifest would go out
+    # as application/octet-stream and the install prompt would never appear.
+    # settings.py teaches WhiteNoise the same thing; nginx has to be told
+    # separately, because here it is nginx doing the serving.
+    location = /static/manifest.webmanifest {
+        alias /srv/docket/backend/staticfiles/manifest.webmanifest;
+        default_type application/manifest+json;
+        access_log off;
+    }
+
+    # Served straight off disk rather than through WhiteNoise. WhiteNoise stays
+    # in the middleware and still works — this just means the bundle never
+    # occupies a gunicorn worker. Path is collectstatic's STATIC_ROOT.
+    location /static/ {
+        alias /srv/docket/backend/staticfiles/;
+        access_log off;
+        expires 30d;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:__PORT__;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        # Django reads this to decide whether a request arrived over TLS
+        # (SECURE_PROXY_SSL_HEADER). It says http today and certbot rewrites the
+        # server block to say https, so the app follows the certificate without
+        # a code change.
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Above gunicorn's --timeout so the worker gives up first and the error
+        # says which request died.
+        proxy_read_timeout 120s;
+        proxy_connect_timeout 10s;
+    }
+}
