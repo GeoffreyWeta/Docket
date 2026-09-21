@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 
-import { downloadDoc, downloadUrl, raw } from "./api";
+import { clearLogo, downloadDoc, downloadUrl, raw, setApprovalLevel, uploadLogo } from "./api";
 import { BP } from "./breakpoints";
 import { orgIndex, savingsSplit } from "./analytics-model";
 import { Countdown, Empty, MiniBars, Money, Stamp, Stat, StageTracker } from "./atoms";
@@ -19,6 +19,7 @@ import {
   BidBucket, LifecycleBar, RegisterVendorDialog, RoundsTab, SuspendDialog, VendorsTab,
 } from "./lifecycle";
 import { Icon, SealMark } from "./icons";
+import { Mark, OrgMark } from "./logo";
 import { can, homePage, navPages } from "./perms";
 import { DUR, cue, reducedMotion, useCountUp, useFlip } from "./motion";
 import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwitch, TopProgress } from "./ui";
@@ -75,13 +76,20 @@ export function Sidebar({ api, chrome, open, desktop, onClose }) {
   return (
     <nav id="dk-nav" className={"side" + (open ? " open" : "")} aria-label="Main"
          aria-hidden={desktop ? undefined : !open}>
+      {/* The company's mark, not ours. Once a workspace has been set up it is
+          somebody's company, and putting our seal at the top of every screen of
+          it is a small constant claim that the software is the point. Ours goes
+          on the front door; theirs goes here. It falls back to their initials,
+          and to our seal only while the workspace has no identity yet. */}
       <div className="wordmark">
-        <span className="seal" aria-hidden="true" /><b>DOCKET</b>
+        <OrgMark org={api.state.org} s={26} withName />
         <button className="drawerx" aria-label="Close navigation" onClick={onClose}>
           <Icon n="close" s={17} />
         </button>
       </div>
-      <div className="orgline">{api.state.org.name}<br />{api.state.org.note}</div>
+      <div className="orgline">
+        {api.state.org.profile?.legalName || api.state.org.note || "Sealed-bid tendering"}
+      </div>
       <div className="navsec">Workspace</div>
       <div className="navlist" ref={navRef}>
         {/* One indicator that slides between items rather than a marker that
@@ -440,6 +448,7 @@ export function Topbar({ api, chrome, desktop, onMenu, navOpen, busy }) {
           <Icon n="menu" s={20} />
         </button>
       )}
+      {!desktop && <OrgMark org={state.org} s={22} />}
       <span className="crumb">{state.org.short.toUpperCase()} / PROCUREMENT</span>
       <div className="grow" />
       {/* The bar carries two things: what needs your attention, and who you are.
@@ -496,14 +505,25 @@ function workItems(state, tenders) {
                    to: auc ? { page: "auction", id: t.id } : { page: "tender", id: t.id, tab: "bids" },
                    tone: "wax", waiting: auc ? "results to be recorded" : "an opening" });
     }
+    /* Where a chain is running, the work queue names the rung it is on rather
+       than saying "waiting for approval" for a fortnight. Which signature it is
+       stuck at is the whole of what somebody chasing it needs. */
+    const atStep = (chain) => {
+      if (!chain || !chain.currentId) return "";
+      const cur = chain.steps.find((x) => x.id === chain.currentId);
+      if (!cur) return "";
+      return ` Signature ${chain.signed + 1} of ${chain.total}, with ${cur.personaName || "the " + cur.level}.`;
+    };
     if (t.status === "approval") {
       items.push({ key: "appr-" + t.id, cap: "tender.publish_decision", since: lastMoved(t.id),
-                   title: t.title, why: "Waiting to be approved for publication.",
+                   title: t.title,
+                   why: "Waiting to be approved for publication." + atStep(t.publishChain),
                    verb: "Review it", to: { page: "approvals" }, waiting: "approval to publish" });
     }
     if (t.status === "evaluation" && t.awardRec) {
       items.push({ key: "rec-" + t.id, cap: "award.decide", since: t.awardRec.at,
-                   title: t.title, why: "An award has been recommended and needs a decision.",
+                   title: t.title,
+                   why: "An award has been recommended and needs a decision." + atStep(t.awardChain),
                    verb: "Decide", to: { page: "tender", id: t.id, tab: "bids" },
                    waiting: "an award decision" });
     }
@@ -1998,10 +2018,202 @@ export function EvalsPage({ api }) {
 
 /* ---------------- approvals (publication + awards) ---------------- */
 
+/* ---------------- the signature chain ---------------- */
+
+/** Can this person sign this step?
+
+    A deliberate mirror of `approvals.may_sign` on the server, and the server
+    is the one that decides — this only governs whether a button is offered.
+    Showing somebody a control that will come back 403 is worse than not
+    showing it, and hiding a control they are entitled to is worse still, so
+    the two implementations have to agree. Any change here belongs in both.
+
+    Four ways to be the signature, and the order is the control: the person the
+    reporting line named, somebody pinned to the level, somebody standing on
+    that rung, and - only for a rung nobody stands on - anybody holding the
+    level's role. The role is last because most workspaces give every rung the
+    same one, and checking it first would make all the rungs interchangeable.
+    See the long note on the server. */
+export function canSignStep(step, me, users) {
+  if (!step || step.decidedAt) return false;
+  if (step.personaId) {
+    if (step.personaId === me.id) return true;
+    /* A named signatory who has left must not strand the chain; one who is
+       still here owns the step alone. */
+    if ((users || []).some((u) => u.id === step.personaId)) {
+      return (step.holders || []).includes(me.id);
+    }
+  }
+  if ((step.holders || []).includes(me.id)) return true;
+  if ((step.holders || []).length) return false;
+  if (step.levelId) {
+    if (me.approvalLevel === step.levelId) return true;
+    /* Somebody does stand on this rung, and it is not you. */
+    if ((users || []).some((u) => u.approvalLevel === step.levelId)) return false;
+  }
+  return !!step.role && me.role === step.role;
+}
+
+/** Who a pending step is waiting on, in words. */
+function stepWho(step, users) {
+  if (step.personaName) return step.personaName;
+  if (step.personaId) {
+    const u = (users || []).find((x) => x.id === step.personaId);
+    if (u) return u.name;
+  }
+  const pinned = (step.holders || [])
+    .map((h) => (users || []).find((x) => x.id === h))
+    .filter(Boolean).map((x) => x.name);
+  if (pinned.length) return pinned.join(" or ");
+  const onRung = (users || []).filter((u) => u.approvalLevel === step.levelId);
+  if (onRung.length) return onRung.map((u) => u.name).join(" or ");
+  return "any " + step.level;
+}
+
+/** The chain as a vertical run of signatures: what has been signed, what is
+    being waited on, and what comes after it.
+
+    Shown to everybody on the buying side, not only to the signatories. "Who is
+    this sitting with" is the single most asked question about a submitted
+    tender, and an answer only the approvers can see is an answer to nobody. */
+export function ApprovalChain({ chain, users, me, compact = false }) {
+  if (!chain || !chain.steps || !chain.steps.length) return null;
+  const done = chain.currentId == null;
+  return (
+    <div className={"sigchain" + (compact ? " compact" : "")}>
+      <div className="sigtop">
+        <Icon n="stamp" s={14} />
+        <b>{done
+          ? `Signed by all ${chain.total}`
+          : `Signature ${chain.signed + 1} of ${chain.total}`}</b>
+        <span className="faint">
+          {done ? "the chain is complete"
+                : "each level signs before it reaches the next"}
+        </span>
+      </div>
+      <ol className="sigsteps">
+        {chain.steps.map((st) => {
+          const state = st.decision === "approved" ? "done"
+            : st.decision === "rejected" ? "no"
+            : st.id === chain.currentId ? "now" : "next";
+          const mine = state === "now" && me && canSignStep(st, me, users);
+          return (
+            <li className={"sigstep " + state + (mine ? " mine" : "")} key={st.id}>
+              <span className="sigdot" aria-hidden="true">
+                {state === "done" ? <Icon n="check" s={11} />
+                  : state === "no" ? <Icon n="close" s={11} />
+                  : state === "now" ? <Icon n="clock" s={11} /> : st.seq}
+              </span>
+              <div className="sigbody">
+                <b>{st.level}
+                  <i className="siglimit mono">
+                    {st.limit ? `up to ${fmtCompact(st.limit)}` : "unlimited"}
+                  </i>
+                </b>
+                <span>
+                  {state === "done"
+                    ? `${st.decidedBy} signed · ${fmtDateTime(st.decidedAt)}`
+                    : state === "no"
+                      ? `${st.decidedBy} returned it · ${fmtDateTime(st.decidedAt)}`
+                      : state === "now"
+                        ? (mine ? "Waiting on you" : `Waiting on ${stepWho(st, users)}`)
+                        : `Then ${stepWho(st, users)}`}
+                </span>
+                {st.note && <em className="signote">&ldquo;{st.note}&rdquo;</em>}
+              </div>
+              {mine && <span className="chip green sigyou">yours to sign</span>}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+export const CHAIN_CSS = `
+.sigchain{border:1px solid var(--line);border-radius:12px;background:var(--sunk);
+  padding:11px 13px;margin:12px 0}
+.sigchain.compact{margin:0 0 10px;padding:9px 11px}
+.sigtop{display:flex;align-items:center;gap:7px;font-size:12.5px;margin-bottom:9px;
+  flex-wrap:wrap}
+.sigtop svg{color:var(--brand);flex-shrink:0}
+.sigtop b{letter-spacing:-.01em}
+.sigtop .faint{font-size:11.5px}
+.sigsteps{list-style:none;margin:0;padding:0;display:grid;gap:0}
+.sigstep{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;
+  align-items:start;padding:7px 0;position:relative}
+.sigstep + .sigstep::before{content:"";position:absolute;left:10px;top:-4px;height:11px;
+  width:1.5px;background:var(--line2)}
+.sigstep.done + .sigstep::before{background:var(--green-2)}
+.sigdot{width:21px;height:21px;border-radius:50%;display:inline-flex;flex-shrink:0;
+  align-items:center;justify-content:center;font-size:10.5px;font-weight:700;
+  background:var(--card);border:1px solid var(--line2);color:var(--faint)}
+.sigstep.done .sigdot{background:var(--green-tint);border-color:var(--green-2);color:var(--green)}
+.sigstep.no .sigdot{background:var(--wax-tint);border-color:var(--wax);color:var(--wax)}
+.sigstep.now .sigdot{background:var(--brand);border-color:var(--brand);color:var(--on-brand)}
+.sigbody{min-width:0}
+.sigbody b{display:flex;gap:7px;align-items:baseline;flex-wrap:wrap;font-size:13px;
+  letter-spacing:-.012em}
+.siglimit{font-style:normal;font-size:11px;color:var(--faint);font-weight:400}
+.sigbody > span{display:block;font-size:12px;color:var(--muted);line-height:1.45;
+  margin-top:1px}
+.sigstep.now .sigbody > span{color:var(--ink)}
+.signote{display:block;font-size:11.8px;color:var(--muted);margin-top:3px;line-height:1.45}
+.sigyou{flex-shrink:0;align-self:center}
+.sigstep.next{opacity:.66}
+.elsewhere{padding:10px 0}
+.elsewhere + .elsewhere{border-top:1px solid var(--line)}
+.elsehead{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:2px}
+.elsehead b{font-size:13.5px;letter-spacing:-.012em}
+.logoedit{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.logoedit .orgmark .orginit,.logoedit .orgmark .orglogo{border-radius:11px}
+.ladrow2{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;
+  align-items:start;padding:9px 0;border-top:1px solid var(--line)}
+.ladrow2 > .sigdot{margin-top:7px}
+.ladrow2 > .btn{grid-row:1;grid-column:3}
+.ladrow2 > div{grid-column:2}
+@media(min-width:700px){
+  .ladrow2{grid-template-columns:auto minmax(0,1.5fr) minmax(0,1fr) 36px;align-items:center}
+  .ladrow2 > .btn{grid-column:auto}
+  .ladrow2 > div{grid-column:auto}
+  .ladrow2 > .sigdot{margin-top:0}
+}
+`;
+
+
 export function ApprovalsPage({ api }) {
   const { state, act } = api;
-  const pubs = state.tenders.filter((t) => t.status === "approval");
-  const awards = state.tenders.filter((t) => t.status === "evaluation" && t.awardRec);
+  const me = state.me;
+  const users = state.users || [];
+  const ladder = state.org.approvalLevels || [];
+
+  /* With a ladder configured, "waiting for approval" and "waiting for YOU" stop
+     being the same list. Both are shown — a queue that hides what it is waiting
+     on is how a tender sits for a fortnight with nobody able to say where — but
+     only the ones you can actually sign carry buttons. The alternative, offering
+     everyone every control and letting the server return 403, teaches people
+     that the buttons are a lie. */
+  const step = (t, kind) => {
+    const chain = kind === "award" ? t.awardChain : t.publishChain;
+    if (!chain || !chain.currentId) return null;
+    return chain.steps.find((x) => x.id === chain.currentId) || null;
+  };
+  const isMine = (t, kind) => {
+    const cur = step(t, kind);
+    /* No chain means the workspace runs on the single threshold, where the
+       capability is the whole authorisation — see approvals.py. */
+    if (!cur) return kind === "award" ? can(me, "award.decide") : can(me, "tender.publish_decision");
+    return canSignStep(cur, me, users);
+  };
+
+  const allPubs = state.tenders.filter((t) => t.status === "approval");
+  const allAwards = state.tenders.filter((t) => t.status === "evaluation" && t.awardRec);
+  const pubs = allPubs.filter((t) => isMine(t, "publish"));
+  const awards = allAwards.filter((t) => isMine(t, "award"));
+  const elsewhere = [
+    ...allAwards.filter((t) => !isMine(t, "award")).map((t) => ({ t, kind: "award" })),
+    ...allPubs.filter((t) => !isMine(t, "publish")).map((t) => ({ t, kind: "publish" })),
+  ];
   const [thr, setThr] = useState(String(state.org.approvalThreshold || ""));
   const [thrMsg, setThrMsg] = useState("");
   const [awardT, setAwardT] = useState(null);   // tender queued for award sign-off
@@ -2065,7 +2277,9 @@ export function ApprovalsPage({ api }) {
              : "Nothing is waiting for your sign-off"}
            why={queue.length
              ? "Nothing reaches a supplier without a named signature. Pick one to go to it."
-             : "Tenders at or above the threshold come here before they publish. Awards always do."}
+             : elsewhere.length
+               ? `Nothing is yours to sign. ${elsewhere.length} ${elsewhere.length === 1 ? "request is" : "requests are"} with somebody else in the chain — they are listed below.`
+               : "Tenders above your authority come here before they publish. Awards always do."}
            items={queue} />
   );
   return (
@@ -2108,8 +2322,12 @@ export function ApprovalsPage({ api }) {
                 {rec.by} recommends <b>{winner.name}</b> at <b>{fmtMoney(rec.amount)}</b>, {fmtCompact(t.budget - rec.amount)} under
                 the ceiling, from {bids.length} sealed {bids.length === 1 ? "bid" : "bids"}. {fmtDateTime(rec.at)}.
               </div>
+              <ApprovalChain chain={t.awardChain} users={users} me={me} compact />
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button className="btn pri" onClick={() => setAwardT(t)}>Approve award &amp; issue letters</button>
+                <button className="btn pri" onClick={() => setAwardT(t)}>
+                  {t.awardChain && t.awardChain.total > t.awardChain.signed + 1
+                    ? "Sign and pass it up" : "Approve award & issue letters"}
+                </button>
                 <button className="btn" onClick={() => returnAward(t)}>Return to panel</button>
               </div>
               <More title="The recommendation in full" summary="the memo, every bidder's total, and the PDF">
@@ -2139,8 +2357,12 @@ export function ApprovalsPage({ api }) {
               · scored {t.techWeight}% technical, {t.commWeight}% commercial
               {t.lines && t.lines.length > 0 ? ` · ${t.lines.length} priced lines` : ""}.
             </div>
+            <ApprovalChain chain={t.publishChain} users={users} me={me} compact />
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button className="btn pri" onClick={() => decidePub(t, true)}>Approve &amp; publish</button>
+              <button className="btn pri" onClick={() => decidePub(t, true)}>
+                {t.publishChain && t.publishChain.total > t.publishChain.signed + 1
+                  ? "Sign and pass it up" : "Approve & publish"}
+              </button>
               <button className="btn" onClick={() => decidePub(t, false)}>Return to draft</button>
             </div>
             <More title="Scope and criteria" summary="what is being bought, and how bids will be scored">
@@ -2157,18 +2379,81 @@ export function ApprovalsPage({ api }) {
         <div className="card"><Empty art="clear">Nothing is waiting for your sign-off.</Empty></div>
       )}
 
-      <More title="When a tender needs your sign-off" summary={thr ? `at or above ${fmtCompact(Number(thr))}` : "no threshold set"}>
-        <div className="frow" style={{ marginBottom: 0 }}>
-          <label className="lbl">Sign-off threshold</label>
-          <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>In naira. A tender at or above this comes to you before it publishes. Below it, publishing is immediate. Only you can change this.</div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input className="in" type="number" value={thr} onChange={(e) => setThr(e.target.value)} />
-            <button className="btn pri" onClick={saveThr} disabled={!Number(thr)}>Save</button>
+      {/* Everything in the building that is waiting on a signature, and whose.
+          Read-only, and here rather than hidden because the question this
+          answers — "where has it got to" — is asked of procurement, not of the
+          approver who happens to be holding it. */}
+      {elsewhere.length > 0 && (
+        <More title={`${elsewhere.length} more waiting on somebody else`}
+              summary="where each one has got to in its chain">
+          {elsewhere.map(({ t, kind }) => (
+            <div className="elsewhere" key={kind + t.id}>
+              <div className="elsehead">
+                <b>{t.title}</b>
+                <span className="chip">
+                  {kind === "award" ? `Award · ${fmtCompact(t.awardRec.amount)}`
+                                    : `Publish · ceiling ${fmtCompact(t.budget)}`}
+                </span>
+              </div>
+              <ApprovalChain chain={kind === "award" ? t.awardChain : t.publishChain}
+                             users={users} me={me} compact />
+            </div>
+          ))}
+        </More>
+      )}
+
+      {/* The rule itself. A workspace on the ladder sees the ladder; one still
+          on the single threshold sees the threshold and a word about what it
+          could have instead. Editing the ladder is Team's job — it is half org
+          chart, and splitting it across two pages would mean neither page
+          could show you the consequence of a change. */}
+      {ladder.length > 0 ? (
+        <More title="Who signs what"
+              summary={`${ladder.length} level${ladder.length === 1 ? "" : "s"} of delegated authority`}>
+          <div className="hint" style={{ marginTop: 0, marginBottom: 10 }}>
+            A request walks up the reporting line of whoever raised it, collecting a
+            signature at every rung it passes, and stops at the first person whose limit
+            covers the amount. Nobody signs their own request. Change the rungs, and who
+            stands on them, from the Team page.
           </div>
-          {!Number(thr) && <div className="hint">Enter an amount in naira to save.</div>}
-          {thrMsg && <div className="notice" style={{ marginTop: 10, marginBottom: 0 }}>{thrMsg}</div>}
-        </div>
-      </More>
+          {ladder.map((l, i) => {
+            const on = users.filter((u) => u.approvalLevel === l.id);
+            return (
+              <div className="rowline" key={l.id}>
+                <span className="sigdot" style={{ marginRight: 9 }}>{i + 1}</span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <b>{l.name}</b>
+                  <span className="hint" style={{ marginTop: 1 }}>
+                    {on.length ? on.map((u) => u.name).join(", ")
+                               : <em className="faint">nobody stands on this rung</em>}
+                  </span>
+                </span>
+                <span className="mono faint" style={{ fontSize: 12 }}>
+                  {l.limit ? `up to ${fmtCompact(l.limit)}` : "unlimited"}
+                </span>
+              </div>
+            );
+          })}
+        </More>
+      ) : (
+        <More title="When a tender needs your sign-off" summary={thr ? `at or above ${fmtCompact(Number(thr))}` : "no threshold set"}>
+          <div className="frow" style={{ marginBottom: 0 }}>
+            <label className="lbl">Sign-off threshold</label>
+            <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>In naira. A tender at or above this comes to you before it publishes. Below it, publishing is immediate. Only you can change this.</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input className="in" type="number" value={thr} onChange={(e) => setThr(e.target.value)} />
+              <button className="btn pri" onClick={saveThr} disabled={!Number(thr)}>Save</button>
+            </div>
+            {!Number(thr) && <div className="hint">Enter an amount in naira to save.</div>}
+            {thrMsg && <div className="notice" style={{ marginTop: 10, marginBottom: 0 }}>{thrMsg}</div>}
+            <div className="hint" style={{ marginTop: 10 }}>
+              One threshold and one approver is the simple case. If your delegation of
+              authority has several levels, build the ladder on the Team page and this
+              threshold stops being used.
+            </div>
+          </div>
+        </More>
+      )}
 
       <More title="Committed spend" summary={`${fmtCompact(committed)} awarded to date · ${fmtCompact(pending)} pending your approval`}>
         <div className="rowline"><span className="muted" style={{ flex: 1 }}>Awarded to date</span><Money n={committed} strong /></div>
@@ -3942,18 +4227,168 @@ export function TeamPage({ api }) {
         </div>
       </More>
 
-      <More title="Workspace name" summary="the name on letters, memos and tender references">
+      <More title="Company record" summary="names, registered details, logo — what goes on letters and memos">
         <WorkspaceCard api={api} />
       </More>
 
       {can(user, "team.view") && (
-        <More title="Reporting lines" summary="whose work rolls up to whom">
-          <ReportingLines api={api} team={team} />
-        </More>
+        <>
+          <More title="Reporting lines and signing authority"
+                summary="whose work rolls up to whom, and who may commit what">
+            <ReportingLines api={api} team={team} onReload={load} />
+          </More>
+
+          <More title="Delegation of authority"
+                summary={(team?.levels || []).length
+                  ? `${team.levels.length} level${team.levels.length === 1 ? "" : "s"}, lowest first`
+                  : "not set up — one threshold applies"}>
+            <AuthorityLadder api={api} team={team} onReload={load} />
+          </More>
+        </>
       )}
     </Page>
   );
 }
+
+/* The delegation-of-authority ladder.
+
+   Editing it is a settings form and it is on the Team page anyway, because the
+   ladder is only half a rule: the other half is which people stand on which
+   rung, and that is two rows further down this same page. A workspace changing
+   its authority limits almost always has to move somebody at the same time.
+
+   Two refusals are worth the reader's attention because they are the ones the
+   server also makes, in approvals.normalise:
+
+     EXACTLY ONE RUNG IS UNLIMITED, and it is the top. Without it, a large
+     enough request reaches the end of the ladder with nobody able to sign, and
+     a tender that cannot be approved by anybody is a worse outcome than a
+     tender approved by the wrong person.
+
+     THE ORDER IS THE LIMITS, not the order the rows were typed. Rows are
+     re-sorted on save, so a manager with a small limit cannot end up above a
+     director with a large one because somebody added them last. */
+function AuthorityLadder({ api, team, onReload }) {
+  const { user, toast, refresh, state } = api;
+  const editable = can(user, "settings.threshold");
+  const saved = (team && team.levels) || state.org.approvalLevels || [];
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const current = rows || saved.map((l) => ({ ...l }));
+  const dirty = rows !== null;
+  const gaps = (team && team.levelGaps) || [];
+
+  const edit = (id, patch) =>
+    setRows(current.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  const add = () =>
+    setRows([...current, { id: "new" + uid(), name: "", limit: 0, role: "approver", holders: [] }]);
+  const drop = (id) => setRows(current.filter((l) => l.id !== id));
+
+  const unlimited = current.filter((l) => !Number(l.limit)).length;
+  const unnamed = current.some((l) => !String(l.name || "").trim());
+  const problem = !current.length ? null
+    : unnamed ? "Give every level a name."
+    : unlimited === 0 ? "One level must have unlimited authority, so a large enough request always has a signatory."
+    : unlimited > 1 ? "Only the top level may be unlimited."
+    : null;
+
+  const save = async () => {
+    setBusy(true); setMsg("");
+    try {
+      await raw("/settings/", { method: "POST", body: {
+        approvalLevels: current.map((l) => ({
+          id: String(l.id).startsWith("new") ? undefined : l.id,
+          name: String(l.name).trim(), limit: Number(l.limit) || 0,
+          role: l.role || "", holders: l.holders || [],
+        })),
+      } });
+      setRows(null);
+      toast.ok("Delegation of authority saved",
+               current.length ? `${current.length} level(s). Requests raised from now on follow the new ladder; anything already in a chain keeps the one it was raised under.`
+                              : "The ladder was cleared; the single threshold applies again.");
+      if (onReload) onReload();
+      refresh();
+    } catch (e) { setMsg(e.message || "Could not save."); }
+    setBusy(false);
+  };
+
+  if (!editable) {
+    return (
+      <div className="hint" style={{ marginTop: 0 }}>
+        {saved.length
+          ? saved.map((l) => `${l.name} ${l.limit ? "up to " + fmtCompact(l.limit) : "unlimited"}`).join(" · ")
+          : "This workspace uses a single sign-off threshold."}
+        {" "}Only somebody who can set the approval matrix may change it.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
+        A request walks up the reporting line of whoever raised it, collecting a signature at
+        every rung it passes, and stops at the first person whose limit covers the amount.
+        Nobody signs their own request. A chain already under way keeps the ladder it was
+        raised under — changing this never rewrites who was meant to sign something.
+      </div>
+
+      {gaps.length > 0 && !dirty && (
+        <div className="notice" style={{ borderLeft: "3px solid var(--brass)" }}>
+          Nobody currently holds <b>{gaps.join(", ")}</b>. Requests that reach {gaps.length === 1 ? "that level" : "those levels"} will
+          have no named signatory. Put somebody on the rung under Reporting lines above.
+        </div>
+      )}
+
+      {current.map((l, i) => (
+        <div className="ladrow2" key={l.id}>
+          <span className="sigdot">{i + 1}</span>
+          <input className="in" placeholder="e.g. Head of Department" value={l.name}
+                 aria-label={`Level ${i + 1} name`}
+                 onChange={(e) => edit(l.id, { name: e.target.value })} />
+          <div>
+            <input className="in" type="number" min="0" step="1000000" placeholder="0 = unlimited"
+                   aria-label={`Level ${i + 1} limit`} value={l.limit || ""}
+                   onChange={(e) => edit(l.id, { limit: e.target.value })} />
+            <span className="hint" style={{ marginTop: 2 }}>
+              {Number(l.limit) > 0 ? "up to " + fmtMoney(Number(l.limit)) : "unlimited authority"}
+            </span>
+          </div>
+          <button className="btn sm" aria-label={`Remove level ${i + 1}`} onClick={() => drop(l.id)}>
+            <Icon n="close" s={13} />
+          </button>
+        </div>
+      ))}
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+        <button className="btn sm" onClick={add} disabled={current.length >= 8}>
+          <Icon n="plus" s={13} /> Add a level
+        </button>
+        {dirty && (
+          <>
+            <button className="btn pri sm" onClick={save} disabled={busy || !!problem}>
+              {busy ? "Saving…" : "Save the ladder"}
+            </button>
+            <button className="btn sm" onClick={() => { setRows(null); setMsg(""); }}>Discard changes</button>
+          </>
+        )}
+      </div>
+
+      {problem && dirty && (
+        <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginTop: 10 }}>{problem}</div>
+      )}
+      {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginTop: 10 }}>{msg}</div>}
+      {!current.length && (
+        <div className="hint" style={{ marginTop: 10 }}>
+          With no levels, publication falls back to the single sign-off threshold on the
+          Approvals page and any approver may sign.
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 /* Who reports to whom.
 
@@ -3965,12 +4400,35 @@ export function TeamPage({ api }) {
    Changing a line is guarded server-side against cycles — see
    views.set_reporting_line — because a loop here is not a strange-looking chart,
    it is a rollup that never terminates. */
-function ReportingLines({ api, team }) {
+function ReportingLines({ api, team, onReload }) {
   const { state, user, act, toast, refresh } = api;
   const members = (team && team.members) || [];
   const editable = can(user, "team.org");
   const org = React.useMemo(() => orgIndex(state.users || []), [state.users]);
   const [busy, setBusy] = useState("");
+  const levels = (team && team.levels) || state.org.approvalLevels || [];
+
+  /* Signing authority is edited here, beside the reporting line, because the
+     two only mean anything together: a rung decides how much somebody can
+     commit, and the line decides whose requests reach them. Split across two
+     pages, neither page could show you the consequence of a change. They are
+     still two separate grants server-side, and two separate audit entries. */
+  const changeLevel = async (personId, levelId) => {
+    setBusy(personId);
+    try {
+      await setApprovalLevel(personId, levelId || null);
+      const who = (state.users || []).find((u) => u.id === personId);
+      const lvl = levels.find((l) => l.id === levelId);
+      toast.ok("Signing authority updated",
+               lvl ? `${who ? who.name : "They"} can now commit ${lvl.limit ? "up to " + fmtCompact(lvl.limit) : "any amount"} as ${lvl.name}.`
+                   : `${who ? who.name : "They"} no longer hold signing authority.`);
+      if (onReload) onReload();
+      refresh();
+    } catch (e) {
+      toast.warn("That didn't go through", e.message || "");
+    }
+    setBusy("");
+  };
 
   const change = async (personId, managerId) => {
     setBusy(personId);
@@ -4022,6 +4480,21 @@ function ReportingLines({ api, team }) {
                     .filter((u) => u.id !== m.id)
                     .map((u) => <option key={u.id} value={u.id}>{u.name} · {u.title}</option>)}
                 </select>
+                {levels.length > 0 && (
+                  <>
+                    <span className="oearrow">and may sign as</span>
+                    <select className="in" value={m.approvalLevel || ""} disabled={busy === m.id}
+                            aria-label={`${m.name}'s signing authority`}
+                            onChange={(e) => changeLevel(m.id, e.target.value)}>
+                      <option value="">— no signing authority —</option>
+                      {levels.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.name} · {l.limit ? "up to " + fmtCompact(l.limit) : "unlimited"}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )}
               </div>
             ))}
             <div className="muted" style={{ fontSize: 11.5, marginTop: 10, lineHeight: 1.55 }}>
@@ -4228,33 +4701,131 @@ export function AuctionPage({ api, id }) {
 }
 
 
+/* The company's own record: what it is called, what it is called on a
+   certificate, where it is, and the mark that goes in the chrome.
+
+   The setup wizard collects all of this, and this is where it is corrected
+   afterwards — which is most of the time, because an RC number gets typed
+   wrong once and read a hundred times. Grouped as one card rather than
+   scattered across a settings tree: it is one form about one thing, and the
+   fields that matter (the registered name, the RC number) are the ones people
+   only look for when a letter is already going out.
+
+   The logo posts separately. It is a file, the rest is JSON, and bundling a
+   quarter-megabyte data URI into every rename would be a strange thing to do
+   to a text field. */
+const PROFILE_FIELDS = [
+  ["legalName",    "Registered name",    "text",  "As on the CAC certificate"],
+  ["rcNumber",     "RC number",          "mono",  "RC 1234567"],
+  ["tin",          "Tax identification", "mono",  "01234567-0001"],
+  ["industry",     "Industry",           "text",  ""],
+  ["addressLine1", "Registered address", "text",  "Street and number"],
+  ["addressLine2", "Address, continued", "text",  "Building, floor, district"],
+  ["city",         "City",               "text",  ""],
+  ["state",        "State",              "text",  ""],
+  ["country",      "Country",            "text",  ""],
+  ["phone",        "Switchboard",        "text",  "+234 …"],
+  ["email",        "Procurement email",  "text",  "tenders@company.com"],
+  ["website",      "Website",            "text",  "company.com"],
+  ["currency",     "Reporting currency", "mono",  "NGN"],
+  ["fiscalYearStart", "Financial year starts", "mono", "01-01"],
+  ["timezone",     "Time zone",          "text",  "Africa/Lagos"],
+];
+
 function WorkspaceCard({ api }) {
-  const { state } = api;
+  const { state, refresh, toast } = api;
   const [name, setName] = useState(state.org.name);
   const [short, setShort] = useState(state.org.short || "");
+  const [profile, setProfile] = useState(state.org.profile || {});
   const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const logoInput = useRef(null);
+
   const save = async () => {
+    setMsg(""); setBusy(true);
+    try {
+      const r = await raw("/settings/", { method: "POST", body: { name, short, profile } });
+      setMsg(`Saved. This workspace is now "${r.name}". New tender references will start with ${ (r.short || r.name).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3) }-; existing references are unchanged.`);
+      refresh();
+    } catch (e) { setMsg(e.message); }
+    setBusy(false);
+  };
+
+  const setLogo = async (file) => {
+    if (!file) return;
     setMsg("");
     try {
-      const r = await raw("/settings/", { method: "POST", body: { name, short } });
-      setMsg(`Saved. This workspace is now "${r.name}". New tender references will start with ${ (r.short || r.name).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3) }-; existing references are unchanged.`);
-    } catch (e) { setMsg(e.message); }
+      await uploadLogo(file);
+      toast.ok("Logo set", "It replaces the DOCKET seal in the sidebar and the top bar.");
+      refresh();
+    } catch (e) { setMsg(e.message || "Could not upload that image."); }
   };
+  const dropLogo = async () => {
+    try {
+      await clearLogo();
+      toast.ok("Logo removed", "The workspace shows your initials again.");
+      refresh();
+    } catch (e) { setMsg(e.message || "Could not remove the logo."); }
+  };
+
   return (
     <div className="card" style={{ marginBottom: 14 }}>
-      <div className="chead"><h3>Workspace</h3><span className="mono faint" style={{ marginLeft: "auto" }}>appears on invitations, letters and memos</span></div>
+      <div className="chead"><h3>Company</h3>
+        <span className="mono faint" style={{ marginLeft: "auto" }}>on invitations, letters and memos</span></div>
       <div className="cbody">
         <div className="formrow">
           <div className="frow" style={{ flex: 2, minWidth: 220 }}>
-            <label className="lbl">Organisation name</label>
+            <label className="lbl">Trading name</label>
             <input className="in" value={name} onChange={(e) => setName(e.target.value)} />
+            <div className="hint">What the interface calls you. The registered name below goes on letters.</div>
           </div>
           <div className="frow" style={{ flex: 1, minWidth: 130 }}>
             <label className="lbl">Short name</label>
             <input className="in" value={short} onChange={(e) => setShort(e.target.value)} />
             <div className="hint">Shown in the top bar, and used as the prefix on tender references.</div>
           </div>
-          <button className="btn pri" onClick={save} disabled={name.trim().length < 2}>Rename</button>
+        </div>
+
+        <div className="frow">
+          <label className="lbl">Company logo</label>
+          <div className="logoedit">
+            <OrgMark org={state.org} s={52} />
+            <input ref={logoInput} type="file" hidden
+                   accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif"
+                   onChange={(e) => setLogo(e.target.files && e.target.files[0])} />
+            <button className="btn sm" onClick={() => logoInput.current && logoInput.current.click()}>
+              <Icon n="upload" s={13} /> {state.org.logo ? "Replace" : "Upload"}
+            </button>
+            {state.org.logo && <button className="btn sm" onClick={dropLogo}>Remove</button>}
+            <span className="hint" style={{ marginTop: 0, flex: "1 1 200px" }}>
+              PNG, JPEG, SVG or WebP, up to 256 KB. It replaces the DOCKET seal in the
+              sidebar and top bar; without one your initials are used.
+            </span>
+          </div>
+        </div>
+
+        <div className="grid g2">
+          {PROFILE_FIELDS.map(([k, label, kind, ph]) => (
+            <div className="frow" key={k}>
+              <label className="lbl" htmlFor={"orgp-" + k}>{label}</label>
+              <input id={"orgp-" + k} className={"in" + (kind === "mono" ? " mono" : "")}
+                     placeholder={ph} value={profile[k] || ""}
+                     onChange={(e) => setProfile({ ...profile, [k]: e.target.value })} />
+            </div>
+          ))}
+        </div>
+
+        <div className="frow" style={{ marginBottom: 0 }}>
+          <label className="lbl" htmlFor="orgp-desc">What the company does</label>
+          <textarea id="orgp-desc" className="in" rows={3} value={profile.description || ""}
+                    placeholder="One or two sentences. Appears on the vendor-facing registration page."
+                    onChange={(e) => setProfile({ ...profile, description: e.target.value })} />
+        </div>
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+          <button className="btn pri" onClick={save} disabled={busy || name.trim().length < 2}>
+            {busy ? "Saving…" : "Save the company record"}
+          </button>
           {name.trim().length < 2 && <span className="hint gatehint">The name needs at least two characters.</span>}
         </div>
         {msg && <div className="notice" style={{ marginTop: 12, marginBottom: 0 }}>{msg}</div>}

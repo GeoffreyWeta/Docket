@@ -7,6 +7,7 @@ import {
   fetchFinanceExceptions, financeFeeds, getToken, getUsername, importFinance,
   login as apiLogin, logout as apiLogout, raw, storeAuth, uploadFile,
 } from "./api";
+import { BP } from "./breakpoints";
 import { GuidePanel, seenKey } from "./guide";
 import { SecurityPanel } from "./security";
 import {
@@ -15,12 +16,15 @@ import {
 import { SetupWorkspace } from "./setup";
 import {
   AnalyticsPage, ApprovalsPage, AuctionPage, AuditPage, Dashboard, EvalsPage, NewTender,
-  DRAFT_CSS, MENU_CSS, Sidebar, SuppliersPage, TeamPage, TenderDetail, TendersPage, Topbar,
+  CHAIN_CSS, DRAFT_CSS, MENU_CSS, Sidebar, SuppliersPage, TeamPage, TenderDetail,
+  TendersPage, Topbar,
 } from "./buyer";
 import { allowedPages, homePage } from "./perms";
-import { ICON_CSS } from "./icons";
+import { ICON_CSS, Icon } from "./icons";
 import { MOTION_CSS, hasViewTransitions, useReveal, withViewTransition } from "./motion";
 import { BASELINE_CSS } from "./baselines";
+import { LANDING_CSS, Landing } from "./landing";
+import { LOGO_CSS, Wordmark } from "./logo";
 import { CAMPAIGN_CSS } from "./campaign";
 import { CHART_CSS } from "./charts-css";
 import { FINANCE_CSS, FinancePage } from "./finance.jsx";
@@ -37,11 +41,35 @@ import {
 
 const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS
   + SCORECARD_CSS + MENU_CSS + BOOT_CSS + PALETTE_CSS + CHART_CSS + CAMPAIGN_CSS
-  + FINANCE_CSS + BASELINE_CSS + LIFECYCLE_CSS + ILLUS_CSS + DRAFT_CSS + PAGE_CSS;
+  + FINANCE_CSS + BASELINE_CSS + LIFECYCLE_CSS + ILLUS_CSS + DRAFT_CSS + PAGE_CSS
+  + LANDING_CSS + LOGO_CSS + CHAIN_CSS;
 
 /* Where you land and where you may go are both read off the capabilities the
    server sent with the bootstrap payload — see perms.js. Nothing here enumerates
    roles, so a role invented in the administration console routes correctly. */
+
+/** `/` — the landing page, with the deployment's own configuration behind it.
+
+    A thin wrapper rather than a prop drilled down from App: the landing page
+    needs to know whether there is a demo to point at and whether signing up
+    happens here or on another deployment, and that is one fetch that belongs
+    next to the thing that uses it. It renders without waiting — every piece
+    of the page that depends on the config degrades to "not offered" rather
+    than to a spinner, and a front door that shows a loading state is a front
+    door that looks shut. */
+function PublicLanding({ onScreen }) {
+  const [cfg, setCfg] = useState(null);
+  useEffect(() => {
+    authConfig().then(setCfg).catch(() => setCfg({ demoLogin: false, accounts: [] }));
+  }, []);
+  return (
+    <>
+      <style>{ALL_CSS}</style>
+      <Landing cfg={cfg || {}} onScreen={onScreen} />
+    </>
+  );
+}
+
 
 function Login({ onLoggedIn, onScreen }) {
   const [cfg, setCfg] = useState(null);
@@ -83,7 +111,7 @@ function Login({ onLoggedIn, onScreen }) {
     <div className="loginwrap">
       <style>{ALL_CSS}</style>
       <div className="logincard">
-        <div className="loginlogo"><span className="seal" aria-hidden="true" /><b>DOCKET</b></div>
+        <div className="loginlogo"><Wordmark s={26} animate /></div>
         {/* Nobody can sign in to an empty workspace, so the first thing it
             offers is the way to make one. Sign-in stays underneath for the
             administrator account that already exists. */}
@@ -153,7 +181,7 @@ function Login({ onLoggedIn, onScreen }) {
     and the difference between those two is a single environment variable. Making
     the demo a place you go, rather than the first thing on the front page, means
     the real deployment's sign-in screen has nothing to hide. */
-function DemoDoor({ onBack, onLoggedIn }) {
+function DemoDoor({ onBack, onScreen, onLoggedIn }) {
   const [cfg, setCfg] = useState(null);
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
@@ -179,7 +207,7 @@ function DemoDoor({ onBack, onLoggedIn }) {
     <div className="loginwrap">
       <style>{ALL_CSS}</style>
       <div className="logincard">
-        <div className="loginlogo"><span className="seal" aria-hidden="true" /><b>DOCKET</b></div>
+        <div className="loginlogo"><Wordmark s={26} animate /></div>
 
         {!cfg && <div className="card"><div className="cbody muted">Loading…</div></div>}
 
@@ -191,7 +219,8 @@ function DemoDoor({ onBack, onLoggedIn }) {
                 This deployment holds a real workspace, so there are no one-click accounts.
                 Sign in, or ask a colleague to invite you.
               </p>
-              <button className="btn pri" style={{ width: "100%" }} onClick={onBack}>Go to sign in</button>
+              <button className="btn pri" style={{ width: "100%" }}
+                      onClick={() => onScreen("signin")}>Go to sign in</button>
             </div>
           </div>
         )}
@@ -247,17 +276,31 @@ function DemoDoor({ onBack, onLoggedIn }) {
         )}
 
         <div className="linkrow" style={{ justifyContent: "center", marginTop: 14 }}>
-          <button className="doclink" onClick={onBack}>← Back to sign in</button>
+          <button className="doclink" onClick={onBack}>← Back to the front page</button>
+          <button className="doclink" onClick={() => onScreen("signin")}>Sign in</button>
         </div>
       </div>
     </div>
   );
 }
 
+/* The signed-out surface, as paths rather than query flags, because these are
+   the ones that get written down and read out: "the demo is at
+   docket.example.com/demo", "sign in at /signin".
+
+     /         the landing page — what this is, for somebody who has not
+               decided yet. It is the front door whether or not the workspace
+               has been set up: a sign-in form is furniture for people who
+               already know, and it is one click away.
+     /signin   the form
+     /demo     the personas
+     /setup    the wizard (?setup=1 still works: it is in circulation) */
+const PATHS = { "/signin": "signin", "/sign-in": "signin", "/login": "signin",
+                "/demo": "demo", "/setup": "setup" };
+
 function publicScreenFromUrl() {
-  /* A path rather than a query flag, because this one gets written down and
-     read out: "the demo is at docket.example.com/demo". */
-  if (window.location.pathname.replace(/\/+$/, "").toLowerCase() === "/demo") return { name: "demo" };
+  const path = window.location.pathname.replace(/\/+$/, "").toLowerCase();
+  if (PATHS[path]) return { name: PATHS[path] };
   const q = new URLSearchParams(window.location.search);
   if (q.get("vtoken")) return { name: "verify", token: q.get("vtoken") };
   if (q.get("itoken")) return { name: "invite", token: q.get("itoken") };
@@ -276,7 +319,19 @@ function publicScreenFromUrl() {
 export default function App() {
   const [token, setToken] = useState(getToken());
   const [screen, setScreen] = useState(publicScreenFromUrl);
+  /* Back to the front door, and put the address bar back with it. Named
+     `toLogin` when the root WAS the sign-in form; it goes to the landing page
+     now, which is what every one of its call sites meant by "out of here". */
   const toLogin = () => { window.history.replaceState({}, "", "/"); setScreen(null); };
+  /* Moving between the public screens writes the path, so the back button and
+     a copied URL both behave. The token-carrying screens are excluded: their
+     address holds a single-use secret and pushing it into history is how it
+     ends up in a shared browser's autocomplete. */
+  const goScreen = (name) => {
+    const path = Object.keys(PATHS).find((k) => PATHS[k] === name);
+    if (path) window.history.pushState({}, "", path);
+    setScreen(name ? { name } : null);
+  };
   const [data, setData] = useState(null);
   const [route, setRoute] = useState(null);
   const [accounts, setAccounts] = useState([]);
@@ -354,14 +409,19 @@ export default function App() {
     if (screen.name === "invite") return <AcceptInvite token={screen.token} onDone={toLogin} />;
     if (screen.name === "reset") return <ResetPassword token={screen.token} onDone={toLogin} />;
     if (screen.name === "forgot") return <ForgotPassword onDone={toLogin} />;
-    if (screen.name === "demo") return <DemoDoor onBack={toLogin}
+    if (screen.name === "demo") return <DemoDoor onBack={toLogin} onScreen={goScreen}
         onLoggedIn={(res, username) => { storeAuth(res.token, username); toLogin(); setToken(res.token); }} />;
     if (screen.name === "setup") return <SetupWorkspace onDone={toLogin}
         onLoggedIn={(res, username) => { storeAuth(res.token, username); toLogin(); setToken(res.token); }} />;
   }
   if (!token) {
-    return <Login onScreen={(name) => setScreen({ name })}
-                  onLoggedIn={(res, username) => { storeAuth(res.token, username); setToken(res.token); }} />;
+    const signedIn = (res, username) => { storeAuth(res.token, username); setToken(res.token); };
+    /* The form only when it was asked for. Everybody else gets the front door,
+       set up or not — see PATHS. */
+    if (screen && screen.name === "signin") {
+      return <Login onScreen={goScreen} onLoggedIn={signedIn} />;
+    }
+    return <PublicLanding onScreen={goScreen} />;
   }
   if (!data || !route) {
     return (

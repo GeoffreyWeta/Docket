@@ -65,6 +65,20 @@ def notify_perm(key, subject, body, tender_id=None):
     notify_users(_users_for_perm(key), subject, body, tender_id)
 
 
+def notify_personas(persona_ids, subject, body, tender_id=None):
+    """Named people rather than a capability.
+
+    An approval chain addresses a person the reporting line picked out, not
+    everyone who could in principle sign. Mailing the whole approver pool about
+    a signature only one of them owes is how a queue stops being read.
+    """
+    ids = [i for i in (persona_ids or []) if i]
+    if not ids:
+        return
+    notify_users(User.objects.filter(is_active=True, profile__persona_id__in=ids)
+                 .select_related("profile"), subject, body, tender_id)
+
+
 def _mail_unclaimed(supplier_id, subject, body):
     """Reach a vendor who is on the register but holds no account yet.
 

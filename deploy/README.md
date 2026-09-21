@@ -102,17 +102,34 @@ dump taken by someone else useless.
 | `SEED_DEMO`       | `1`             | `0`                       |
 | `DEMO_PASSWORD`   | generate one    | unused                    |
 | `SIGNUP_URL`      | the app's URL   | unset                     |
+| `DEMO_URL`        | unset           | the demo's URL            |
+| `SETUP_CODE`      | a throwaway     | **generate one**          |
 | database          | its own         | its own                   |
 
-With `DEMO_LOGIN=1` the one-click personas live at **`/demo`**, not on the
-sign-in screen. A password-free door is fine on a workspace of invented tenders
-and wrong on one holding real bids, and the difference is one environment
-variable — so the sign-in screen of the real deployment has nothing on it that
-would have to be hidden.
+The public front page is **`/`** — what the product is, for somebody who has not
+decided yet. Sign-in is **`/signin`**, the wizard is **`/setup`**, and with
+`DEMO_LOGIN=1` the one-click personas are at **`/demo`**. A password-free door
+is fine on a workspace of invented tenders and wrong on one holding real bids,
+and the difference is one environment variable — so the real deployment's
+sign-in screen has nothing on it that would have to be hidden.
 
 With `SEED_DEMO=0` the app deployment starts empty, and the first person through
 the door gets the setup wizard and becomes the owner. Everyone after that
 arrives by invitation.
+
+### The setup code
+
+An empty deployment on a public address belongs to whoever finds the URL first.
+The setup wizard is the one unauthenticated endpoint that can create an
+administrator, name the company and load the vendor register, so it is gated on
+`SETUP_CODE` — a short secret you hand over out of band, checked
+case-insensitively and locked for fifteen minutes after eight wrong guesses.
+
+    SETUP_CODE=ENGDOCKET1234        # the shipped default. Change it.
+
+Change it before the first deploy, give the demo a different one, and only set
+it empty on a laptop. Emptiness alone is **not** the gate: "there was nobody
+here yet" is not consent.
 
 ---
 

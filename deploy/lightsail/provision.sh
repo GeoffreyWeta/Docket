@@ -245,9 +245,14 @@ else
   if [ "$ROLE" = demo ]; then
     DEMO_LOGIN=1; DEMO_PASSWORD="$(openssl rand -hex 8)"
     SIGNUP_URL="${SIGNUP_URL:-http://docket.eatngo-africa.com}"; DEMO_URL=""
+    # A different code from the real workspace on purpose. Running the wizard
+    # here renames the demo org, which is annoying rather than serious;
+    # discovering that with the real code is neither.
+    SETUP_CODE="${SETUP_CODE:-DEMOSETUP}"
   else
     DEMO_LOGIN=0; DEMO_PASSWORD=""
     SIGNUP_URL=""; DEMO_URL="${DEMO_URL:-http://demo.docket.eatngo-africa.com}"
+    SETUP_CODE="${SETUP_CODE:-ENGDOCKET1234}"
   fi
   umask 027
   # QUOTING RULE, and it is not cosmetic. This file is read two ways: systemd
@@ -290,6 +295,14 @@ DEMO_PASSWORD="$DEMO_PASSWORD"
 SIGNUP_URL="$SIGNUP_URL"
 # Where the landing page sends "See the demo". Empty on the demo itself.
 DEMO_URL="$DEMO_URL"
+
+# The code somebody must type before they can register a company on this
+# workspace. Emptiness is not the gate: an empty workspace on a public address
+# belongs to whoever finds the URL first, and the setup wizard is the one
+# unauthenticated endpoint that can create an administrator. Checked
+# case-insensitively and locked for 15 minutes after eight wrong guesses.
+# Change it here and restart the service; it needs no redeploy.
+SETUP_CODE="$SETUP_CODE"
 
 # Optional. Without ANTHROPIC_API_KEY the six AI features return "not
 # configured" and everything else works. Without EMAIL_HOST every notification

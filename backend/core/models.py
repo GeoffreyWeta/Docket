@@ -26,6 +26,15 @@ class Persona(models.Model):
     manager = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL,
                                 related_name="reports")
 
+    # Which rung of the delegation-of-authority ladder this person stands on —
+    # an id into OrgSetting.data["approvalLevels"], blank for the majority of a
+    # workspace who hold no signing authority at all. A plain CharField rather
+    # than a foreign key because the ladder is configuration, not a table: an
+    # organisation rewrites its authority limits far more often than it would
+    # want a migration, and a level that is deleted should leave the person
+    # standing on nothing rather than take them with it. See approvals.py.
+    approval_level = models.CharField(max_length=16, blank=True, default="")
+
     def __str__(self):
         return f"{self.name} ({self.role})"
 
@@ -447,7 +456,8 @@ class Profile(models.Model):
         from .permissions import ADMIN_ROLE, resolve
         if self.persona_id:
             p = self.persona
-            base = {"id": p.id, "name": p.name, "role": p.role, "title": p.title, "supplierId": None}
+            base = {"id": p.id, "name": p.name, "role": p.role, "title": p.title,
+                    "supplierId": None, "approvalLevel": p.approval_level or None}
         elif self.supplier_id:
             s = self.supplier
             base = {"id": s.id, "name": s.name, "role": "supplier", "title": "Supplier", "supplierId": s.id}
@@ -455,7 +465,16 @@ class Profile(models.Model):
             base = {"id": f"a{self.user_id}", "name": self.user.get_full_name() or self.user.username,
                     "role": ADMIN_ROLE, "title": "System administrator", "supplierId": None}
         admin = bool(self.user.is_superuser)
-        base["perms"] = sorted(resolve(base["role"], self.perm_extra, self.perm_revoked, superadmin=admin))
+        perms = resolve(base["role"], self.perm_extra, self.perm_revoked, superadmin=admin)
+        # Standing on a rung of the authority ladder means signatures will be
+        # routed to you by name, whatever your role is called. The queue they
+        # arrive in has to be reachable, or a workspace can place its finance
+        # director on the top rung and give them nowhere to sign. This is the
+        # one place a capability is derived from the org chart rather than from
+        # the role, and it is derived narrowly: the page, and nothing else.
+        if base.get("approvalLevel"):
+            perms = set(perms) | {"page.approvals"}
+        base["perms"] = sorted(perms)
         base["isAdmin"] = admin
         return base
 
@@ -544,10 +563,55 @@ class AuctionBid(models.Model):
         ordering = ["at"]
 
 
+class ApprovalStep(models.Model):
+    """One signature on one commitment: the chain, made durable.
+
+    The route is computed once, when the request is raised, and then kept. It is
+    deliberately not recomputed on every read, because the question an auditor
+    asks is "who was required to sign this, at the time it was raised" — and a
+    chain derived live from today's org chart answers a different question. A
+    reorganisation next quarter must not rewrite who was supposed to have signed
+    last quarter, so the level's name and limit are copied in rather than looked
+    up, exactly as an award memo copies the amount rather than pointing at a
+    price list.
+
+    `persona` is who the reporting line named; null means the rung was reached
+    through the ladder's fallback and anybody holding it may sign. `kind` is
+    "publish" or "award": the same tender walks the chain twice, once to go to
+    market and once to commit the money, and the two are separate records
+    because they were separate decisions.
+    """
+    id = models.CharField(primary_key=True, max_length=16)
+    tender = models.ForeignKey(Tender, on_delete=models.CASCADE, related_name="approval_steps")
+    kind = models.CharField(max_length=12)              # publish | award
+    seq = models.IntegerField()                         # 1-based, signed in order
+
+    level_id = models.CharField(max_length=16)
+    level_name = models.CharField(max_length=80)
+    level_limit = models.BigIntegerField(default=0)     # 0 = unlimited authority
+    role = models.CharField(max_length=40, blank=True, default="")
+    holders = models.JSONField(default=list, blank=True)   # persona ids pinned to the level
+
+    persona = models.ForeignKey(Persona, null=True, blank=True, on_delete=models.SET_NULL,
+                                related_name="approval_steps")
+    amount = models.BigIntegerField(default=0)          # what was being signed for
+    opened_at = models.BigIntegerField()
+
+    decided_at = models.BigIntegerField(null=True, blank=True)
+    decided_by = models.CharField(max_length=120, blank=True, default="")
+    decision = models.CharField(max_length=10, blank=True, default="")   # approved | rejected
+    note = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta:
+        ordering = ["seq"]
+        indexes = [models.Index(fields=["tender", "kind", "seq"])]
+
+
 class OrgSetting(models.Model):
     """Single-row org configuration: the real approval matrix lives here."""
     id = models.IntegerField(primary_key=True, default=1)
-    data = models.JSONField(default=dict)  # {approvalThreshold: int}
+    # {approvalThreshold, approvalLevels, dimensions, name, short, profile, logo}
+    data = models.JSONField(default=dict)
 
 
 class FailedLogin(models.Model):

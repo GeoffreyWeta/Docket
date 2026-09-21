@@ -41,6 +41,7 @@ urlpatterns = admin_urlpatterns + [
     path("register/verify/", account_views.verify_vendor),
     path("register/accept_invite/", account_views.accept_invite),
     path("setup/", setup_views.setup_workspace),
+    path("setup/code/", setup_views.setup_verify_code),
 
     path("bootstrap/", views.bootstrap),
     path("finance/", finance_views.finance_state),
@@ -97,7 +98,9 @@ urlpatterns = admin_urlpatterns + [
     path("suppliers/import/", views.import_suppliers),
     path("suppliers/import_register/", views.import_register),
     path("team/org/", views.set_reporting_line),
+    path("team/authority/", views.set_approval_level),
     path("settings/", views.settings_view),
+    path("settings/logo/", views.org_logo),
     path("tenders/<str:tid>/duplicate/", views.duplicate_tender),
     path("tenders/<str:tid>/export/compliance.pdf", views.export_compliance),
     path("audit/integrity/", views.chain_integrity),

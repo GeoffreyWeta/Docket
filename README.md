@@ -49,9 +49,29 @@ dispatch, and an idempotent background sweep — no worker dyno required.
   trail; status filters including hide-awarded and prequalified-only.
 * **Getting started, built in** — a role-aware guide auto-opens on every user's first
   sign-in (and lives behind the Guide button) walking each role through their journey.
-* **A real approval matrix** — the approver sets the publication threshold from the
-  Approvals page; below it tenders publish instantly, at or above they route for
-  sign-off. Approval belongs to the role, not a job title.
+* **Delegation of authority, up your own reporting line** — define a ladder of
+  signing levels with a limit each (up to eight, the top one unlimited) and put
+  your people on them. A submitted tender walks upward from whoever raised it,
+  collecting a signature at every rung it passes, and stops at the first person
+  whose limit covers the amount: four layers of management is four signatures
+  where the number needs them. Nobody signs their own request, a rejection
+  anywhere ends the chain, a gap in the org chart falls back to the ladder
+  rather than becoming a way out of it, and the chain is frozen when raised — a
+  reorganisation next quarter cannot rewrite who was meant to sign last
+  quarter. Workspaces that want the simple version keep the single publication
+  threshold instead, unchanged.
+* **A front door, and a gate on the setup wizard** — `/` explains the product,
+  `/signin` is the form, `/demo` is the demo. Registering a company needs an
+  access code issued out of band (`SETUP_CODE`), rate-limited like the sign-in
+  page: an empty deployment on a public address would otherwise belong to
+  whoever found the URL first.
+* **Setup in one sitting** — the wizard takes the code, you, the full company
+  record (trading and registered name, RC number, TIN, address, contacts,
+  currency, financial year, logo), the authority ladder, your team with their
+  reporting lines and signing authority to any depth, and the vendor register
+  you already have as a spreadsheet. The org chart is created before anybody
+  accepts their invitation, so reporting lines work from the first minute; the
+  vendors are emailed an invitation to register, in batches, once each.
 * **Supplier CSV import & tender templates** — load an existing vendor book in one
   upload; duplicate any past tender into a fresh draft with dates cleared.
 * **Oversight tooling** — per-tender compliance report PDF, an anomaly scan (single-
@@ -387,7 +407,8 @@ vendor registration  ─┐
         │
         ├─ configure: scope, criteria, line items, budget, projection, baseline
         ├─ invite vendors (verified or not)
-        ├─ submit ──▶ approval matrix ──▶ publish
+        ├─ submit ──▶ signature chain, up the raiser's reporting line ──▶ publish
+        │          (one rung per manager, until a limit covers the amount)
         │
         ├─ round 1 ─ open ─▶ sealed submissions ─▶ close ─▶ recorded opening
         │       ↑ extend deadline · pause · resume · add/withdraw vendors
@@ -395,7 +416,8 @@ vendor registration  ─┐
         ├─ round 2 (best and final, drawn from round 1's bidders) ─▶ …
         │
         ├─ evaluation: blind scoring, consensus matrix, budget/projection/savings
-        ├─ recommendation ─▶ approver ─▶ approved | returned for review
+        ├─ recommendation ─▶ signature chain on the AWARDED amount
+        │                    ─▶ approved | returned for review
         └─ award ─▶ letters to every bidder
                  or cancel ─▶ every bidder told, sealed bids never opened
 ```

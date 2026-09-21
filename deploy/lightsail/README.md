@@ -26,19 +26,37 @@ demo.docket.eatngo-africa.com.   A   <static IP>
 The bare IP also reaches the real workspace on its own — only `app` is nginx's
 `default_server` — so you can provision and test before DNS propagates.
 
-## The landing page
+## The public addresses
 
-While no company has registered, `docket.eatngo-africa.com` shows a **landing
-page**, not a sign-in form: an empty workspace has no password to type. It says
-what DOCKET is and offers two doors — *Set up your company*, which runs the
-wizard, and *See it working first*, which leaves for the demo (that button only
-appears when `DEMO_URL` is set).
+| path | what it serves |
+| --- | --- |
+| `/` | the **landing page** — what DOCKET is, for somebody who has not decided |
+| `/signin` | the sign-in form |
+| `/setup` | the setup wizard, behind the access code |
+| `/demo` | the one-click personas, when `DEMO_LOGIN=1` |
 
-The moment a company completes setup, the landing page gives way to the ordinary
-sign-in screen. It is gated on the same `needsSetup` as the wizard, so the front
-door is showing exactly while there is nobody behind it. *Sign in* and *Register
-as a vendor* stay in the footer throughout, for the administrator account that
-can exist before any company does.
+`/` is the landing page permanently, not only while the workspace is empty. A
+sign-in form is furniture for people who already know what this is; it is one
+click away in the header and in the footer. *Set up your company* runs the
+wizard, and *See it working first* leaves for the demo — that button appears
+only when `DEMO_URL` is set, so a deployment with no demo beside it does not
+mention one.
+
+## The access code
+
+Registering a company needs `SETUP_CODE`, written into `/etc/docket/env.<role>`
+by `provision.sh` and defaulting to **`ENGDOCKET1234`** on `app` and
+`DEMOSETUP` on `demo`. Change it in the env file and restart the service — it
+needs no redeploy:
+
+```sh
+sudo sed -i 's/^SETUP_CODE=.*/SETUP_CODE="YOURNEWCODE"/' /etc/docket/env.app
+sudo systemctl restart docket@app
+```
+
+It is checked case-insensitively and locks for fifteen minutes after eight wrong
+guesses. Setting it empty disables the gate, which is only reasonable on a
+laptop: "nobody had set it up yet" is not consent.
 
 The two deployments point at each other through two settings, and both are
 written by `provision.sh`:

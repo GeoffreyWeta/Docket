@@ -29,6 +29,12 @@ services:
         value: "1"
       - key: DEMO_PASSWORD
         generateValue: true
+      # The code somebody must type before they can register a company here.
+      # Generated rather than defaulted: read it off the dashboard and hand it
+      # to whoever is setting the workspace up. Setting it empty disables the
+      # gate, which is only reasonable on a laptop.
+      - key: SETUP_CODE
+        generateValue: true
       # Optional — a private, time-limited link to the vendor register JSON
       # export. Set it in the dashboard and every deploy refreshes the register
       # from it; leave it unset and the deployment keeps the seeded demo

@@ -98,9 +98,21 @@ export const verifyVendor = (token) => raw("/register/verify/", { method: "POST"
 export const lookupClaim = (token) => raw(`/register/claim/?token=${encodeURIComponent(token)}`);
 export const claimVendor = (token, password) => raw("/register/claim/", { method: "POST", body: { token, password } });
 export const acceptInvite = (b) => raw("/register/accept_invite/", { method: "POST", body: b });
-/* first-run setup: open only while the workspace has no buyer accounts (or in demo) */
+/* first-run setup: open only while the workspace has no buyer accounts (or in
+   demo), and gated behind an access code issued out of band. The code is
+   checked on its own so the wizard can refuse it on the first screen rather
+   than after five. */
 export const setupStatus = () => raw("/setup/");
 export const setupWorkspace = (b) => raw("/setup/", { method: "POST", body: b });
+export const verifySetupCode = (code) => raw("/setup/code/", { method: "POST", body: { code } });
+
+/* the workspace's own identity: the company profile, the authority ladder and
+   the mark that replaces the DOCKET seal in the chrome once it is set */
+export const saveSettings = (b) => raw("/settings/", { method: "POST", body: b });
+export const uploadLogo = (file) => uploadFile("/settings/logo/", file);
+export const clearLogo = () => raw("/settings/logo/", { method: "DELETE", body: {} });
+export const setApprovalLevel = (personId, levelId) =>
+  raw("/team/authority/", { method: "POST", body: { personId, levelId } });
 export const forgotPassword = (email) => raw("/auth/forgot/", { method: "POST", body: { email } });
 export const resetPassword = (token, password) => raw("/auth/reset_password/", { method: "POST", body: { token, password } });
 

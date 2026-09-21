@@ -233,14 +233,36 @@ def accept_invite(request):
     if User.objects.filter(username=t.email).exists():
         return _err("An account with this email already exists.", 409)
     name = str(b.get("name", "")).strip() or t.payload.get("name") or t.email.split("@")[0].title()
-    persona = Persona.objects.create(id=rid("u"), name=name[:120],
-                                     role=t.payload["role"], title=t.payload.get("title", "")[:120] or t.payload["role"].title())
+
+    # The setup wizard draws the whole org chart before anybody accepts, so the
+    # invitation may already name a person: reporting line, job title, signing
+    # authority and all. Attaching the login to that persona is what keeps the
+    # chart intact — creating a second one would leave a manager reporting to a
+    # ghost and an approval level held by nobody. A persona that has already
+    # been claimed is not reused, because that would be two logins for one
+    # person on the chart.
+    persona = None
+    pid = t.payload.get("personaId")
+    if pid:
+        persona = Persona.objects.filter(pk=pid, profile__isnull=True).first()
+    if persona:
+        if name and name != persona.name:
+            persona.name = name[:120]
+            persona.save(update_fields=["name"])
+        name = persona.name
+    else:
+        persona = Persona.objects.create(
+            id=rid("u"), name=name[:120], role=t.payload["role"],
+            title=t.payload.get("title", "")[:120] or t.payload["role"].title())
+
     user = User.objects.create_user(username=t.email, email=t.email, password=None)
     user.set_password(pw)
     user.save()
     Profile.objects.create(user=user, persona=persona)
-    record_event(actor=name, role=t.payload["role"], action="Team member joined",
-                 detail=f"Accepted an invitation as {t.payload['role']}.")
+    manager = persona.manager.name if persona.manager_id else None
+    record_event(actor=name, role=persona.role, action="Team member joined",
+                 detail=f"Accepted an invitation as {persona.role}"
+                        + (f", reporting to {manager}." if manager else "."))
     return JsonResponse({"ok": True})
 
 

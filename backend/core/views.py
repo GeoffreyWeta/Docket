@@ -187,6 +187,14 @@ def tender_view(t, p):
         # purchase is an internal fact, and a bidder who knows a project has its
         # own budget line prices against that budget line.
         d["dimensions"] = t.dims()
+    # The signature chains travel with the tender for everyone on the buying
+    # side, including the drafter: "who is this sitting with" is the single
+    # most asked question about a submitted tender, and an answer only the
+    # signatories can see is an answer to nobody.
+    if p["role"] != "supplier":
+        from . import approvals
+        d["publishChain"] = approvals.chain_view(t, approvals.PUBLISH)
+        d["awardChain"] = approvals.chain_view(t, approvals.AWARD)
     if has(p, "award.see_recommendation"):
         d["awardRec"] = t.award_rec
         d["awardMemo"] = t.award_memo or None
@@ -298,7 +306,10 @@ def clar_view(c, p):
 def bootstrap(request, p, body):
     maybe_sweep()  # opportunistic, throttled, idempotent
 
-    tenders = [tv for t in Tender.objects.all() if (tv := tender_view(t, p))]
+    # The signature chains travel with every tender (see tender_view), so they
+    # are fetched once here rather than twice per tender down there.
+    tenders = [tv for t in Tender.objects.all().prefetch_related("approval_steps__persona")
+               if (tv := tender_view(t, p))]
     visible_ids = {t["id"] for t in tenders}
 
     bids = []
@@ -334,7 +345,7 @@ def bootstrap(request, p, body):
     # trip per dashboard render for data that fits in a few hundred bytes.
     people = list(Persona.objects.select_related("manager").order_by("id"))
     users = [{"id": u.id, "name": u.name, "role": u.role, "title": u.title,
-              "managerId": u.manager_id}
+              "managerId": u.manager_id, "approvalLevel": u.approval_level or None}
              for u in people]
 
     # Whose work this person may see rolled up. Derived server-side rather than
@@ -428,13 +439,54 @@ DEFAULT_DIMENSIONS = {
     "department": [], "cost_centre": [], "project": [], "region": [], "funding_source": [],
 }
 
-DEFAULT_SETTINGS = {"approvalThreshold": 50_000_000, "dimensions": DEFAULT_DIMENSIONS}
+# Everything a letter, a memo or a compliance report might need to name the
+# organisation properly, and nothing that belongs to a person. Each is optional
+# and each is stored as typed: blank means "not recorded", which prints as
+# nothing rather than as an empty label. `legalName` is separate from `name`
+# on purpose — the trading name goes in the interface and the registered name
+# goes on the award letter, and in Nigeria those differ more often than not.
+PROFILE_FIELDS = {
+    "legalName": 160, "rcNumber": 40, "tin": 40, "industry": 80, "sector": 80,
+    "addressLine1": 160, "addressLine2": 160, "city": 80, "state": 80,
+    "country": 80, "postcode": 24, "phone": 60, "email": 160, "website": 160,
+    "currency": 8, "timezone": 60, "fiscalYearStart": 16, "sizeBand": 40,
+    "registeredYear": 8, "description": 600,
+}
+
+DEFAULT_PROFILE = {k: "" for k in PROFILE_FIELDS}
+DEFAULT_PROFILE.update({"country": "Nigeria", "currency": "NGN",
+                        "timezone": "Africa/Lagos", "fiscalYearStart": "01-01"})
+
+DEFAULT_SETTINGS = {
+    "approvalThreshold": 50_000_000,
+    # The delegation-of-authority ladder. Empty means the single threshold
+    # above is still the whole matrix — see approvals.py.
+    "approvalLevels": [],
+    "dimensions": DEFAULT_DIMENSIONS,
+    "profile": DEFAULT_PROFILE,
+    "logo": "",
+}
 
 
 def org_settings():
     from .models import OrgSetting
     row = OrgSetting.objects.filter(pk=1).first()
-    return {**DEFAULT_SETTINGS, **ORG, **((row.data if row else {}) or {})}
+    out = {**DEFAULT_SETTINGS, **ORG, **((row.data if row else {}) or {})}
+    # The profile merges field by field rather than wholesale, or a workspace
+    # that saved three fields before this shipped would come back missing the
+    # other seventeen and every form would render undefined.
+    out["profile"] = {**DEFAULT_PROFILE, **(out.get("profile") or {})}
+    return out
+
+
+def clean_profile(given, current=None):
+    """Trim an incoming company profile to the fields we store. Unknown keys are
+    dropped silently: this is a form, not an extension point."""
+    out = dict(current or {})
+    for key, cap in PROFILE_FIELDS.items():
+        if key in given:
+            out[key] = str(given.get(key) or "").strip()[:cap]
+    return out
 
 
 def org_name():
@@ -463,6 +515,25 @@ def settings_view(request, p, body):
         except (TypeError, ValueError):
             return err("Enter a valid threshold amount.")
         changes["approvalThreshold"] = threshold
+    if "approvalLevels" in body:
+        if not has(p, "settings.threshold"):
+            return err("Only the approver can change the approval matrix.", 403)
+        from . import approvals
+        levels, msg = approvals.normalise(body.get("approvalLevels"))
+        if msg:
+            return err(msg)
+        changes["approvalLevels"] = levels
+    if "profile" in body:
+        if not has(p, "settings.rename"):
+            return err("You don't have permission to change the company profile.", 403)
+        from .account_views import EMAIL_RE
+        given = body.get("profile")
+        if not isinstance(given, dict):
+            return err("The company profile must be a set of fields.")
+        email = str(given.get("email", "")).strip()
+        if email and not EMAIL_RE.match(email):
+            return err("Enter a valid company email address, or leave it blank.")
+        changes["profile"] = clean_profile(given, org_settings().get("profile"))
     if "name" in body or "short" in body:
         if not has(p, "settings.rename"):
             return err("Only procurement or the approver can rename the workspace.", 403)
@@ -502,6 +573,24 @@ def settings_view(request, p, body):
     row, _ = OrgSetting.objects.get_or_create(pk=1)
     row.data = {**(row.data or {}), **changes}
     row.save()
+    if "approvalLevels" in changes:
+        from . import approvals
+        levels = changes["approvalLevels"]
+        if levels:
+            rungs = ", ".join(
+                f"{lvl['name']} " + ("unlimited" if not lvl["limit"] else f"to {fmt_compact(lvl['limit'])}")
+                for lvl in levels)
+            gaps = approvals.unreachable(levels)
+            log(p, "Delegation of authority changed",
+                f"{len(levels)} level(s): {rungs}. Requests follow the raiser's reporting line "
+                f"upward until a manager whose limit covers the amount."
+                + (f" Nobody currently holds: {', '.join(gaps)}." if gaps else ""))
+        else:
+            log(p, "Delegation of authority removed",
+                "The ladder was cleared; publication falls back to the single approval threshold.")
+    if "profile" in changes:
+        log(p, "Company profile updated",
+            "The registered details on letters, memos and compliance reports were changed.")
     if "approvalThreshold" in changes:
         log(p, "Approval matrix changed",
             f"Publication above {fmt_compact(changes['approvalThreshold'])} now requires approver sign-off; below publishes directly.")
@@ -515,6 +604,58 @@ def settings_view(request, p, body):
     return JsonResponse(org_settings())
 
 
+# A mark, not a photograph. Held as a data URI inside the single org settings
+# row rather than as a file, because the alternative is a media volume: the one
+# thing this deployment deliberately does not have (see Document, which keeps
+# uploads in the database for exactly the same reason). A quarter of a megabyte
+# is a generous ceiling for a logo and a mean one for anything else, which is
+# the point — it is the size check that keeps somebody's 8 MB hero photograph
+# out of every bootstrap payload the workspace ever sends.
+LOGO_MAX_BYTES = 256 * 1024
+LOGO_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/svg+xml": ".svg",
+              "image/webp": ".webp", "image/gif": ".gif"}
+
+
+@route(["POST", "DELETE"], perm="settings.rename")
+def org_logo(request, p, body):
+    """Set or clear the company mark."""
+    import base64
+
+    from .models import OrgSetting
+    row, _ = OrgSetting.objects.get_or_create(pk=1)
+    data = dict(row.data or {})
+
+    if request.method == "DELETE":
+        data.pop("logo", None)
+        row.data = data
+        row.save()
+        log(p, "Company logo removed", "The workspace shows the DOCKET seal again.")
+        return JsonResponse(org_settings())
+
+    f = request.FILES.get("file")
+    if not f:
+        return err("Attach an image file.")
+    ctype = (f.content_type or "").split(";")[0].strip().lower()
+    if ctype not in LOGO_TYPES:
+        return err("Use a PNG, JPEG, SVG, WebP or GIF image.")
+    if f.size > LOGO_MAX_BYTES:
+        return err(f"Logos are capped at {LOGO_MAX_BYTES // 1024} KB — this one is "
+                   f"{f.size // 1024} KB. Export it smaller, or use an SVG.")
+    raw = f.read()
+    if ctype == "image/svg+xml":
+        # An SVG is a document, and a document that renders inside our own
+        # origin can carry script. We are not going to sanitise XML by hand, so
+        # anything that could execute is refused outright with a way out.
+        text = raw.decode("utf-8", "ignore").lower()
+        if "<script" in text or "javascript:" in text or "onload=" in text:
+            return err("That SVG contains script. Export it as a plain image, or upload a PNG.")
+    data["logo"] = f"data:{ctype};base64," + base64.b64encode(raw).decode("ascii")
+    row.data = data
+    row.save()
+    log(p, "Company logo set", f"{f.name} ({f.size // 1024} KB) is now the workspace mark.")
+    return JsonResponse(org_settings())
+
+
 def _publish(t, p):
     t.status = "published"
     t.published_at = now_ms()
@@ -525,8 +666,44 @@ def _publish(t, p):
                      f"Deadline: see the bid room for full terms.", t.id)
 
 
+def _ask_next_signature(t, kind, subject, body):
+    """Tell whoever the chain is now waiting on. Returns the step."""
+    from . import approvals
+    from .notify import notify_personas
+    step = approvals.current_step(t, kind)
+    if step:
+        notify_personas(approvals.signers(step), subject, body, t.id)
+    return step
+
+
 def _route_submission(t, p):
-    """The actual approval matrix: at/above the threshold → approver; below → publish now."""
+    """Where a draft goes when it is submitted.
+
+    Two answers, and which one applies is configuration rather than code. A
+    workspace with a delegation-of-authority ladder gets the ladder: the chain
+    is built from the raiser's reporting line, and the tender waits on the
+    first signature in it. A workspace without one gets what it always had, a
+    single threshold and a single approver, so nothing that predates the ladder
+    changes behaviour by upgrading into it.
+    """
+    from . import approvals
+    raiser = t.owner or Persona.objects.filter(pk=p.get("id")).first()
+    steps = approvals.open_chain(t, approvals.PUBLISH, t.budget, raiser)
+    if steps:
+        t.status = "approval"
+        t.save()
+        log(p, "Submitted for approval",
+            f"{fmt_compact(t.budget)} needs {len(steps)} signature(s) under the delegation "
+            f"of authority: {approvals.describe(steps)}.", t.id)
+        _ask_next_signature(t, approvals.PUBLISH, f"Publication approval needed: {t.title}",
+                            f"{t.ref} at {fmt_compact(t.budget)} needs your sign-off before "
+                            f"invitations go out. This is step 1 of {len(steps)}.")
+        return
+    _route_submission_legacy(t, p)
+
+
+def _route_submission_legacy(t, p):
+    """The single-threshold matrix: at/above the threshold→ approver; below → publish now."""
     threshold = org_settings()["approvalThreshold"]
     if t.budget >= threshold:
         t.status = "approval"
@@ -698,19 +875,56 @@ def tender_submit(request, p, body, tid):
     return JsonResponse({"ok": True})
 
 
-@route(["POST"], perm="tender.publish_decision")
+@route(["POST"])
 def publish_decision(request, p, body, tid):
+    """Sign, or send back, one publication.
+
+    Authority comes from the chain where there is one and from the capability
+    where there is not. That order matters: with a ladder configured, holding
+    `tender.publish_decision` is not enough — a director may hold it and still
+    not be the signature this tender is waiting on, and letting them sign
+    anyway would turn an ordered chain into a race.
+    """
+    from . import approvals
     t = Tender.objects.filter(pk=tid).first()
     if not t:
         return err("Tender not found.", 404)
     if t.status != "approval":
         return err("This tender is not awaiting publication approval.", 409)
-    if body.get("ok"):
-        _publish(t, p)
-    else:
+
+    step = approvals.current_step(t, approvals.PUBLISH)
+    if step:
+        if not approvals.may_sign(step, p):
+            who = step.persona.name if step.persona_id and step.persona else step.level_name
+            return err(f"This is waiting on {who} at step {step.seq}. It is not yours to sign.", 403)
+    elif not has(p, "tender.publish_decision"):
+        return err("You don't have permission to approve publication.", 403)
+
+    if not body.get("ok"):
+        if step:
+            approvals.decide(step, p, False, body.get("note", ""))
+            approvals.clear_chain(t, approvals.PUBLISH)
         t.status = "draft"
         t.save()
-        log(p, "Returned to draft", "Approver requested changes before publication.", t.id)
+        log(p, "Returned to draft",
+            (f"Declined at step {step.seq} ({step.level_name}); the chain is cancelled and the "
+             f"tender goes back to the drafter." if step
+             else "Approver requested changes before publication."), t.id)
+        return JsonResponse({"ok": True})
+
+    if step:
+        approvals.decide(step, p, True, body.get("note", ""))
+        nxt = approvals.current_step(t, approvals.PUBLISH)
+        if nxt:
+            total = len(approvals.steps_for(t, approvals.PUBLISH))
+            log(p, "Publication signed off",
+                f"Step {step.seq} of {total} signed at {step.level_name}. "
+                f"Now with {nxt.persona.name if nxt.persona_id and nxt.persona else nxt.level_name}.", t.id)
+            _ask_next_signature(t, approvals.PUBLISH, f"Publication approval needed: {t.title}",
+                                f"{t.ref} at {fmt_compact(t.budget)} has cleared step {step.seq} "
+                                f"of {total} and is now waiting on you.")
+            return JsonResponse({"ok": True})
+    _publish(t, p)
     return JsonResponse({"ok": True})
 
 
@@ -920,6 +1134,24 @@ def recommend_award(request, p, body, tid):
     t.award_rec = {"bidId": bid.id, "supplierId": bid.supplier_id, "amount": bid.amount,
                    "by": p["name"], "at": now_ms(), "memo": memo}
     t.save()
+
+    # The award walks the ladder on the *awarded* amount, not the budget: the
+    # ceiling was an estimate and this is the money. A tender that needed one
+    # signature to go to market can need three to be committed, and the reverse
+    # is just as common where the market came in well under the estimate.
+    from . import approvals
+    raiser = t.owner or Persona.objects.filter(pk=p.get("id")).first()
+    steps = approvals.open_chain(t, approvals.AWARD, bid.amount, raiser)
+    if steps:
+        log(p, "Award recommended",
+            f"Panel recommendation for {s.name} at {fmt_compact(bid.amount)} needs "
+            f"{len(steps)} signature(s): {approvals.describe(steps)}.", t.id)
+        _ask_next_signature(t, approvals.AWARD, f"Award approval needed: {t.title}",
+                            f"The panel recommends {s.name} at {fmt_compact(bid.amount)} for "
+                            f"{t.ref}. This is step 1 of {len(steps)}; the memo is in your "
+                            f"approvals queue.")
+        return JsonResponse({"ok": True})
+
     log(p, "Award recommended", f"Panel recommendation for {s.name} routed to the approver.", t.id)
     notify_perm("award.decide", f"Award approval needed: {t.title}",
                 f"The panel recommends {s.name} at {fmt_compact(bid.amount)} for {t.ref}. "
@@ -932,20 +1164,48 @@ def withdraw_recommendation(request, p, body, tid):
     t = Tender.objects.filter(pk=tid).first()
     if not t or not t.award_rec:
         return err("No recommendation to withdraw.", 404)
+    from . import approvals
     t.award_rec = None
     t.save()
+    approvals.clear_chain(t, approvals.AWARD)
     log(p, "Award recommendation withdrawn", "Recommendation pulled back by the panel chair before approval.", t.id)
     return JsonResponse({"ok": True})
 
 
-@route(["POST"], perm="award.decide")
+@route(["POST"])
 def award_decision(request, p, body, tid):
+    """Sign, or return, one award. Chain first, capability second — see
+    publish_decision for why that order is not interchangeable."""
+    from . import approvals
     t = Tender.objects.filter(pk=tid).first()
     if not t:
         return err("Tender not found.", 404)
     rec = t.award_rec
     if not rec or t.status != "evaluation":
         return err("No award recommendation is awaiting approval on this tender.", 409)
+
+    step = approvals.current_step(t, approvals.AWARD)
+    if step:
+        if not approvals.may_sign(step, p):
+            who = step.persona.name if step.persona_id and step.persona else step.level_name
+            return err(f"This is waiting on {who} at step {step.seq}. It is not yours to sign.", 403)
+        approvals.decide(step, p, bool(body.get("ok")), body.get("note", ""))
+        if body.get("ok"):
+            nxt = approvals.current_step(t, approvals.AWARD)
+            if nxt:
+                total = len(approvals.steps_for(t, approvals.AWARD))
+                log(p, "Award signed off",
+                    f"Step {step.seq} of {total} signed at {step.level_name}. Now with "
+                    f"{nxt.persona.name if nxt.persona_id and nxt.persona else nxt.level_name}.", t.id)
+                _ask_next_signature(t, approvals.AWARD, f"Award approval needed: {t.title}",
+                                    f"The award on {t.ref} at {fmt_compact(rec['amount'])} has "
+                                    f"cleared step {step.seq} of {total} and is now waiting on you.")
+                return JsonResponse({"ok": True})
+        else:
+            approvals.clear_chain(t, approvals.AWARD)
+    elif not has(p, "award.decide"):
+        return err("You don't have permission to approve awards.", 403)
+
     if body.get("ok"):
         winner = Supplier.objects.get(pk=rec["supplierId"])
         t.status = "awarded"
@@ -1580,26 +1840,45 @@ def delete_supplier_doc(request, p, body, doc_id):
 def team(request, p, body):
     from django.contrib.auth.models import User
 
+    from . import approvals
     from .permissions import custom_roles, role_label
     custom = custom_roles()
-    members = []
+    members, claimed = [], set()
     for u in User.objects.filter(profile__persona__isnull=False).select_related("profile__persona"):
         per = u.profile.persona
         prof = u.profile
+        claimed.add(per.id)
         members.append({"username": u.username, "email": u.email, "name": per.name,
                         "id": per.id, "managerId": per.manager_id,
+                        "approvalLevel": per.approval_level or None,
                         "role": per.role, "roleLabel": role_label(per.role, custom).split("—")[0].strip(),
-                        "title": per.title, "active": u.is_active,
+                        "title": per.title, "active": u.is_active, "claimed": True,
                         # so the Team page tells the truth when someone has been
                         # moved off their role in the administration console
                         "custom": bool(prof.perm_extra or prof.perm_revoked)})
+
+    # People who exist on the chart but have not set a password yet. The setup
+    # wizard draws the whole hierarchy before anybody has accepted anything, so
+    # leaving these out would show a manager with no reports and an approval
+    # ladder with nobody on it — an org chart that is wrong for three days.
+    for per in Persona.objects.filter(profile__isnull=True):
+        if per.id in claimed:
+            continue
+        members.append({"username": "", "email": "", "name": per.name, "id": per.id,
+                        "managerId": per.manager_id, "approvalLevel": per.approval_level or None,
+                        "role": per.role, "roleLabel": role_label(per.role, custom).split("—")[0].strip(),
+                        "title": per.title, "active": False, "claimed": False, "custom": False})
+
     pending = [{"email": t.email, "role": t.payload.get("role", ""),
+                "personaId": t.payload.get("personaId") or None,
                 "roleLabel": role_label(t.payload.get("role", ""), custom).split("—")[0].strip(),
                 "at": t.created}
                for t in ActionTokenModel.objects.filter(kind="team_invite", used_at__isnull=True)]
     from .permissions import assignable_roles
     roles = [{"value": r["key"], "label": r["label"]} for r in assignable_roles(custom)]
-    return JsonResponse({"members": members, "invites": pending, "roles": roles})
+    levels = approvals.ladder()
+    return JsonResponse({"members": members, "invites": pending, "roles": roles,
+                         "levels": levels, "levelGaps": approvals.unreachable(levels)})
 
 
 @route(["POST"], perm="team.org")
@@ -1633,6 +1912,34 @@ def set_reporting_line(request, p, body):
     now = Persona.objects.get(pk=person.id).manager
     log(p, "Reporting line changed",
         f"{person.name} now reports to {now.name if now else 'nobody'} (was {was}).")
+    return JsonResponse({"ok": True})
+
+
+@route(["POST"], perm="team.org")
+def set_approval_level(request, p, body):
+    """Put somebody on a rung of the delegation-of-authority ladder, or take
+    them off it.
+
+    Separate from the reporting line even though they are edited together,
+    because they are different grants: a line says whose work you can see, a
+    rung says what you can commit the organisation to. Somebody can be moved
+    under a new manager without their signing authority following them, and
+    that is usually what a reorganisation actually means.
+    """
+    from . import approvals
+    pid = str(body.get("personId", ""))
+    level_id = str(body.get("levelId", "") or "")
+    person = Persona.objects.filter(pk=pid).first()
+    if not person:
+        return err("No such person.", 404)
+    levels = {lvl["id"]: lvl for lvl in approvals.ladder()}
+    if level_id and level_id not in levels:
+        return err("That approval level is not in this workspace's ladder.")
+    was = levels.get(person.approval_level, {}).get("name") or "no signing authority"
+    person.approval_level = level_id
+    person.save(update_fields=["approval_level"])
+    now_name = levels.get(level_id, {}).get("name") or "no signing authority"
+    log(p, "Signing authority changed", f"{person.name}: {was} -> {now_name}.")
     return JsonResponse({"ok": True})
 
 

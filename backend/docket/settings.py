@@ -129,6 +129,16 @@ SIGNUP_URL = os.environ.get("SIGNUP_URL", "").rstrip("/")
 # empty on the demo itself — it is already the demo.
 DEMO_URL = os.environ.get("DEMO_URL", "").rstrip("/")
 
+# The code that has to be typed before a company can be registered on this
+# deployment. An empty workspace on a public address is a company waiting to be
+# claimed by whoever finds the URL first, and "nobody had set it up yet" is not
+# consent — the setup wizard is the one unauthenticated endpoint that can create
+# an administrator, so it gets a shared secret issued out of band.
+#
+# Checked case-insensitively and rate-limited (see setup_views.check_code).
+# Set SETUP_CODE="" to disable the gate, which is only reasonable on a laptop.
+SETUP_CODE = os.environ.get("SETUP_CODE", "ENGDOCKET1234").strip()
+
 # ---- uploads ----
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", 10 * 1024 * 1024))  # 10 MB
 ALLOWED_UPLOAD_EXTENSIONS = {
