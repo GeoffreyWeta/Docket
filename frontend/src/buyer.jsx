@@ -2165,6 +2165,43 @@ export const CHAIN_CSS = `
 .elsewhere + .elsewhere{border-top:1px solid var(--line)}
 .elsehead{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:2px}
 .elsehead b{font-size:13.5px;letter-spacing:-.012em}
+
+/* ---- the vendor register: coverage and the ways in ---------------------
+   The coverage bar is a count, not a proportion of the page width: a category
+   with two verified vendors out of two would otherwise draw a full bar and
+   read as healthy, when two is the number that cannot hold a competition. So
+   the bar is the verified SHARE and the figure beside it is the count, and the
+   thin ones carry a word rather than relying on the reader to compare bars. */
+.covwrap{display:grid;gap:2px}
+.covrow{display:grid;grid-template-columns:minmax(0,1fr) 34% auto auto;gap:12px;
+  align-items:center;width:100%;text-align:left;background:none;border:0;
+  font:inherit;color:inherit;padding:9px 6px;border-radius:8px;cursor:pointer;
+  transition:background var(--t) var(--ease)}
+.covrow:hover{background:var(--sunk)}
+.covname{font-size:13.5px;font-weight:600;letter-spacing:-.012em;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.covbar{height:7px;border-radius:4px;background:var(--sunk);overflow:hidden;
+  box-shadow:inset 0 0 0 1px var(--line)}
+.covbar i{display:block;height:100%;border-radius:4px;background:var(--green-2);
+  transition:width 520ms cubic-bezier(.16,1,.3,1)}
+.covrow.thin .covbar i{background:var(--brass)}
+.covn{font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+@media(max-width:700px){
+  .covrow{grid-template-columns:minmax(0,1fr) auto auto;gap:8px}
+  .covbar{grid-column:1/-1;order:3}
+}
+
+.addgrid{display:grid;gap:10px}
+.addcard{display:grid;justify-items:start;gap:5px;text-align:left;cursor:pointer;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:15px 16px;font:inherit;color:inherit;
+  transition:border-color var(--t) var(--ease),transform 240ms cubic-bezier(.16,1,.3,1)}
+.addcard:hover{border-color:var(--green-2);transform:translateY(-2px)}
+.addcard svg{color:var(--brand)}
+.addcard b{font-size:13.5px;letter-spacing:-.015em}
+.addcard i{font-style:normal;font-size:12.3px;line-height:1.5;color:var(--muted)}
+@media(min-width:700px){.addgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(min-width:1100px){.addgrid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .logoedit{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .logoedit .orgmark .orginit,.logoedit .orgmark .orglogo{border-radius:11px}
 .ladrow2{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;
@@ -3475,6 +3512,32 @@ export const DRAFT_CSS = `
 
 /* ---------------- suppliers ---------------- */
 
+/* The vendor register.
+
+   Five tabs, and the split is by JOB rather than by data. The old page was one
+   scroll holding four unrelated tasks at equal weight: a review queue nobody
+   sees for weeks at a time, a 1,400-row register somebody searches daily, the
+   import tools used twice a year — and, buried inside the import disclosure
+   for no reason anybody could reconstruct, the location filter for the list
+   two cards above it.
+
+     Register    the everyday job: find a company, open it, verify it
+     Review      registrations waiting on a decision. Carries its own count
+     Compliance  the paperwork, by expiry. The tab that exists because a
+                 lapsed tax clearance is invisible until it disqualifies a bid
+     Coverage    the register's shape: which categories could actually run a
+                 competitive tender, and which have one verified vendor
+     Add         invite one, invite the register, import, replace
+
+   COVERAGE IS THE ONE WORTH ARGUING FOR. Everything else here reports what is
+   on the register; that tab reports what is MISSING from it, which is the
+   question procurement actually gets asked after an award goes to the only
+   company that could bid. Three verified vendors is the line — below it a
+   category cannot hold a competition, and the page says so before the tender
+   is drafted rather than after it is awarded.
+
+   The strip above the tabs is always visible and every figure filters the
+   register, so a count is never a dead end. */
 export function SuppliersPage({ api }) {
   const { state, user, act, toast } = api;
   const canImport = can(user, "supplier.import");
@@ -3482,34 +3545,39 @@ export function SuppliersPage({ api }) {
   const canInvite = can(user, "supplier.invite");
   const canRegister = can(user, "supplier.register");
   const canSuspend = can(user, "supplier.suspend");
-  const [preS, setPreS] = useState(null);        // vendor queued for approval
-  const [declineS, setDeclineS] = useState(null); // vendor queued for decline
+
+  const [preS, setPreS] = useState(null);          // vendor queued for approval
+  const [declineS, setDeclineS] = useState(null);  // vendor queued for decline
   const [reason, setReason] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [regOpen, setRegOpen] = useState(false);   // the register upload
   const [campaign, setCampaign] = useState(false); // the registration drive
-  const [registerOpen, setRegisterOpen] = useState(false); // type a vendor in directly
+  const [registerOpen, setRegisterOpen] = useState(false);
   const [suspending, setSuspending] = useState(null);
   const [email, setEmail] = useState("");
 
   const prequalify = (s) => setPreS(s);
   const decline = (s) => { setReason(""); setDeclineS(s); };
   const inviteVendor = () => { setEmail(""); setInviteOpen(true); };
-  const queue = state.suppliers.filter((s) => !s.prequalified && s.registeredAt);
   const complianceDocs = (sid) => (state.documents || []).filter((x) => x.kind === "supplier" && x.supplierId === sid);
+
+  const all = state.suppliers;
+  const queue = all.filter((s) => !s.prequalified && s.registeredAt && !s.rejectedReason);
+
   const [sq, setSq] = useState("");
-  const [preOnly, setPreOnly] = useState(false);
   const [vstate, setVstate] = useState("");   // "" | unverified | verified | rejected | suspended
   const [cat, setCat] = useState("");
   const [loc, setLoc] = useState("");
   const [shown, setShown] = useState(PAGE);
+  const [tab, setTab] = useState("register");
+
   /* The full register record (contact, address, payment terms, TIN, bank) is
      not in the bootstrap payload: 1,400 of them would be a megabyte refetched
      after every action. It is fetched when a vendor is opened. */
   const [openId, setOpenId] = useState(null);
   const [detail, setDetail] = useState(null);
   useEffect(() => {
-    if (!openId) { setDetail(null); return; }
+    if (!openId) { setDetail(null); return undefined; }
     let live = true;
     raw("/suppliers/" + openId + "/").then((d) => { if (live) setDetail(d); }).catch(() => {});
     return () => { live = false; };
@@ -3517,7 +3585,7 @@ export function SuppliersPage({ api }) {
 
   const tally = (key) => {
     const m = new Map();
-    for (const s of state.suppliers) {
+    for (const s of all) {
       const v = s[key] || "";
       if (v) m.set(v, (m.get(v) || 0) + 1);
     }
@@ -3526,8 +3594,48 @@ export function SuppliersPage({ api }) {
   const categories = tally("category");
   const locations = tally("location");
 
-  const visible = state.suppliers.filter((s) => {
-    if (preOnly && !s.prequalified) return false;
+  /* ---- the paperwork, counted once and read by two tabs ---------------- */
+  const paper = React.useMemo(() => {
+    const expired = [], lapsing = [], bare = [];
+    for (const s of all) {
+      const docs = s.docs || [];
+      const dated = docs.filter((d) => d.expiry);
+      if (!docs.length) { bare.push(s); continue; }
+      const worst = dated.length ? Math.min(...dated.map((d) => daysLeft(d.expiry))) : null;
+      if (worst == null) continue;
+      if (worst < 0) expired.push({ s, days: worst, docs: dated });
+      else if (worst <= 60) lapsing.push({ s, days: worst, docs: dated });
+    }
+    expired.sort((a, b) => a.days - b.days);
+    lapsing.sort((a, b) => a.days - b.days);
+    return { expired, lapsing, bare };
+  }, [all]);
+
+  /* ---- coverage: can this category hold a competition at all? ---------- */
+  const THIN = 3;
+  const coverage = React.useMemo(() => {
+    const m = new Map();
+    for (const s of all) {
+      const c = s.category || "Uncategorised";
+      const row = m.get(c) || { cat: c, total: 0, verified: 0, suspended: 0 };
+      row.total += 1;
+      if (s.suspended) row.suspended += 1;
+      else if (s.prequalified) row.verified += 1;
+      m.set(c, row);
+    }
+    return [...m.values()].sort((a, b) => a.verified - b.verified || b.total - a.total);
+  }, [all]);
+  const thin = coverage.filter((c) => c.verified < THIN);
+
+  const counts = {
+    all: all.length,
+    verified: all.filter((s) => s.prequalified && !s.suspended).length,
+    unverified: all.filter((s) => !s.prequalified && !s.suspended && !s.rejectedReason).length,
+    suspended: all.filter((s) => s.suspended).length,
+    paperwork: paper.expired.length + paper.lapsing.length,
+  };
+
+  const visible = all.filter((s) => {
     if (vstate && verifyStatusOf(s) !== vstate) return false;
     if (cat && s.category !== cat) return false;
     if (loc && s.location !== loc) return false;
@@ -3535,44 +3643,119 @@ export function SuppliersPage({ api }) {
     const n = sq.trim().toLowerCase();
     return [s.name, s.category, s.location, s.code].some((x) => (x || "").toLowerCase().includes(n));
   });
-  useEffect(() => { setShown(PAGE); }, [sq, cat, loc, preOnly, vstate]);
+  useEffect(() => { setShown(PAGE); }, [sq, cat, loc, vstate]);
   const page = visible.slice(0, shown);
-  /* One row per vendor: name, one line of meta, verification on the right,
-     and paperwork only when it is about to lapse. The seven-column table put
-     registration, verification, every document, on-time and quality at the
-     same weight as the name, for 1,400 rows nobody reads as a table. The
-     tools for bringing vendors in - register, import, invite, the campaign -
-     are behind one disclosure, because they are used a few times a year and
-     the register is used every day. */
-  const filtered = visible.length !== state.suppliers.length;
-  const guide = (
-    <Guide art={queue.length && canPrequalify ? "draft" : "tray"}
-           headline={filtered
-             ? `${visible.length.toLocaleString()} of ${state.suppliers.length.toLocaleString()} vendors`
-             : `${state.suppliers.length.toLocaleString()} vendors on the register`}
-           why={canPrequalify && queue.length
-             ? `${queue.length} ${queue.length === 1 ? "has" : "have"} registered and ${queue.length === 1 ? "is" : "are"} waiting for your review.`
-             : "An unverified vendor can still be invited and can still bid. Verification gates prequalification, not participation."}
-           items={canPrequalify ? queue.slice(0, 6).map((s) => ({
-             key: s.id, label: s.name, note: `${s.category} · ${s.location}`,
-             onPick: () => document.getElementById("vq-" + s.id)?.scrollIntoView({ behavior: "smooth", block: "center" }),
-           })) : []}
-           action={canRegister && (
-             <button className="btn pri" onClick={() => setRegisterOpen(true)}><Icon n="plus" /> Register a vendor</button>
-           )}>
-      <input className="in" placeholder="Search by name or vendor code"
-             aria-label="Search suppliers" value={sq} onChange={(e) => setSq(e.target.value)} />
-      <select className="in" aria-label="Filter by category" value={cat} onChange={(e) => setCat(e.target.value)}>
-        <option value="">Every category</option>
-        {categories.map(([c, n]) => <option key={c} value={c}>{c} ({n})</option>)}
-      </select>
-      <select className="in" aria-label="Filter by verification status" value={vstate}
-              onChange={(e) => setVstate(e.target.value)}>
-        <option value="">Any verification status</option>
-        {Object.entries(VERIFY_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-      </select>
-    </Guide>
-  );
+  const filtered = visible.length !== all.length;
+
+  /* Jump to the register with one filter applied. Every figure in the strip
+     goes through here, so a number on this page is never a dead end. */
+  const show = (patch) => {
+    setTab("register");
+    setVstate(patch.vstate ?? "");
+    setCat(patch.cat ?? "");
+    setLoc(patch.loc ?? "");
+    setSq("");
+  };
+  const clearFilters = () => { setSq(""); setVstate(""); setCat(""); setLoc(""); };
+
+  const TABS = [
+    ["register", "Register", all.length],
+    ...(canPrequalify ? [["review", "Review", queue.length]] : []),
+    ["paper", "Compliance", counts.paperwork],
+    ["coverage", "Coverage", thin.length],
+    ...(canImport || canInvite ? [["add", "Add vendors", 0]] : []),
+  ];
+
+  /* The side panel follows the tab. One panel that said the same thing on
+     every tab would be furniture; this one is the tab's own summary and its
+     own way in. */
+  const guide = (() => {
+    if (tab === "review") {
+      return (
+        <Guide art={queue.length ? "draft" : "clear"} tone={queue.length ? undefined : "good"}
+               headline={queue.length
+                 ? `${queue.length} waiting on you`
+                 : "Nothing waiting for review"}
+               why={queue.length
+                 ? "Each one registered themselves and uploaded what they had. Verification gates prequalification, not participation — an unverified vendor can still be invited and can still bid."
+                 : "Registrations appear here the moment a vendor completes the form."}
+               items={queue.slice(0, 6).map((s) => ({
+                 key: s.id, label: s.name, note: `${s.category} · ${s.location}`,
+                 onPick: () => document.getElementById("vq-" + s.id)?.scrollIntoView({ behavior: "smooth", block: "center" }),
+               }))} />
+      );
+    }
+    if (tab === "paper") {
+      return (
+        <Guide art={counts.paperwork ? "draft" : "clear"} tone={counts.paperwork ? undefined : "good"}
+               headline={paper.expired.length
+                 ? `${paper.expired.length} expired`
+                 : counts.paperwork ? `${paper.lapsing.length} lapsing` : "Nothing lapsing"}
+               why="A tax clearance that expired last month is invisible until it disqualifies a bid. This is the list that stops that happening."
+               items={paper.expired.slice(0, 6).map(({ s, days }) => ({
+                 key: s.id, label: s.name, note: `${Math.abs(days)} days ago`,
+                 onPick: () => setOpenId(s.id),
+               }))} />
+      );
+    }
+    if (tab === "coverage") {
+      return (
+        <Guide art={thin.length ? "search" : "clear"} tone={thin.length ? undefined : "good"}
+               headline={thin.length
+                 ? `${thin.length} ${thin.length === 1 ? "category" : "categories"} too thin`
+                 : "Every category can compete"}
+               why={`Fewer than ${THIN} verified vendors and a category cannot hold a real competition. Better to find that out before the tender is drafted than after it is awarded to the only company that could bid.`}
+               items={thin.slice(0, 6).map((c) => ({
+                 key: c.cat, label: c.cat,
+                 note: `${c.verified} verified of ${c.total}`,
+                 onPick: () => show({ cat: c.cat }),
+               }))} />
+      );
+    }
+    if (tab === "add") {
+      return (
+        <Guide art="tray" headline="Bringing vendors in"
+               why="Four ways, and they are not interchangeable. Registering somebody yourself puts them on the register unverified straight away; inviting them asks them to do it, which gets you their documents."
+               action={canRegister && (
+                 <button className="btn pri" onClick={() => setRegisterOpen(true)}>
+                   <Icon n="plus" /> Register a vendor
+                 </button>
+               )} />
+      );
+    }
+    return (
+      <Guide art="tray"
+             headline={filtered
+               ? `${visible.length.toLocaleString()} of ${all.length.toLocaleString()} vendors`
+               : `${all.length.toLocaleString()} vendors on the register`}
+             why="An unverified vendor can still be invited and can still bid. Verification gates prequalification, not participation."
+             action={canRegister && (
+               <button className="btn pri" onClick={() => setRegisterOpen(true)}>
+                 <Icon n="plus" /> Register a vendor
+               </button>
+             )}>
+        <input className="in" placeholder="Search by name or vendor code"
+               aria-label="Search suppliers" value={sq} onChange={(e) => setSq(e.target.value)} />
+        <select className="in" aria-label="Filter by category" value={cat} onChange={(e) => setCat(e.target.value)}>
+          <option value="">Every category</option>
+          {categories.map(([c, n]) => <option key={c} value={c}>{c} ({n})</option>)}
+        </select>
+        <select className="in" aria-label="Filter by verification status" value={vstate}
+                onChange={(e) => setVstate(e.target.value)}>
+          <option value="">Any verification status</option>
+          {Object.entries(VERIFY_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </select>
+        {/* The location filter used to live inside the import disclosure, two
+            cards below the list it filters. It belongs here. */}
+        <select className="in" aria-label="Filter by location" value={loc} onChange={(e) => setLoc(e.target.value)}>
+          <option value="">Everywhere</option>
+          {locations.map(([l, n]) => <option key={l} value={l}>{l} ({n})</option>)}
+        </select>
+        {filtered && <button className="btn sm" onClick={clearFilters}>Clear filters</button>}
+      </Guide>
+    );
+  })();
+
   return (
     <Page guide={guide}>
       {preS && (
@@ -3581,7 +3764,7 @@ export function SuppliersPage({ api }) {
                          if (await act.prequalDecision(preS.id, true)) toast.ok(`${preS.name} prequalified`, "They are now eligible for invitations, and they have been notified.");
                        }}>
           They become eligible for tender invitations without a waiver, and the decision is recorded in the
-          audit trail under your name. Check their compliance documents first if you haven't.
+          audit trail under your name. Check their compliance documents first if you haven&rsquo;t.
         </ConfirmDialog>
       )}
       {declineS && (
@@ -3624,19 +3807,95 @@ export function SuppliersPage({ api }) {
                  value={email} onChange={(e) => setEmail(e.target.value)} />
         </Dialog>
       )}
-      {campaign && <CampaignDialog api={api} onClose={() => setCampaign(false)} />}
-      {registerOpen && <RegisterVendorDialog api={api} onClose={() => setRegisterOpen(false)} />}
       {suspending && <SuspendDialog api={api} supplier={suspending} onClose={() => setSuspending(null)} />}
+      {registerOpen && <RegisterVendorDialog api={api} onClose={() => setRegisterOpen(false)} />}
+      {campaign && <CampaignDialog api={api} onClose={() => setCampaign(false)} />}
 
       <div className="pagehead">
-        <h1>Suppliers</h1>
+        <h1>Vendors</h1>
         <span className="sub">Every company that can be invited to bid.</span>
       </div>
 
-      {canPrequalify && queue.length > 0 && (
-        <div className="card" style={{ marginBottom: 14 }}>
-          <div className="chead"><h3>Waiting for your review</h3><span className="hint" style={{ marginLeft: "auto", marginTop: 0 }}>{queue.length} registered, not yet verified</span></div>
-          <Rows>
+      {/* The shape of the register, always visible. Every figure filters. */}
+      <Figures>
+        <Quiet n={counts.all.toLocaleString()} label="on the register" onClick={() => show({})} />
+        <Quiet n={counts.verified.toLocaleString()} label="verified"
+               onClick={() => show({ vstate: "verified" })} />
+        <Quiet n={counts.unverified.toLocaleString()} label="unverified"
+               onClick={() => show({ vstate: "unverified" })} />
+        {counts.suspended > 0 && (
+          <Quiet n={counts.suspended.toLocaleString()} label="suspended" tone="var(--wax)"
+                 onClick={() => show({ vstate: "suspended" })} />
+        )}
+        {counts.paperwork > 0 && (
+          <Quiet n={counts.paperwork.toLocaleString()} label="papers lapsing" tone="var(--brass)"
+                 onClick={() => setTab("paper")} />
+        )}
+      </Figures>
+
+      <div className="tabs" role="tablist">
+        {TABS.map(([k, label, n]) => (
+          <button key={k} role="tab" aria-selected={tab === k}
+                  className={"tab" + (tab === k ? " on" : "")} onClick={() => setTab(k)}>
+            {label}{n > 0 && k !== "register" ? ` (${n})` : ""}
+          </button>
+        ))}
+      </div>
+
+      {/* ------------------------------------------------------- register */}
+      {tab === "register" && (
+        <div className="card">
+          <Rows empty={<Empty art="search">Nothing on the register matches that. Clear the search or a filter to see everyone.</Empty>}>
+            {page.map((s) => {
+              const r = REG_STATUS[regStatusOf(s)];
+              const v = VERIFY_STATUS[verifyStatusOf(s)];
+              const lapsing = (s.docs || []).filter((d) => d.expiry && daysLeft(d.expiry) <= 60);
+              return (
+                <Row key={s.id} onOpen={() => setOpenId(s.id)} title={s.name}
+                     meta={<>
+                       {s.code && <span className="mono">{s.code}</span>}
+                       <span>{s.category}</span>
+                       {s.location && <span>{s.location}</span>}
+                       {s.perf.onTime != null && <span>{s.perf.onTime}% on time</span>}
+                       {s.perf.quality != null && <span>{s.perf.quality}% quality</span>}
+                     </>}
+                     right={<>
+                       {lapsing.map((d, i) => (
+                         <span key={i} className={"chip " + (daysLeft(d.expiry) < 0 ? "wax" : "warn")} title={d.name}>
+                           {d.name} · {daysLeft(d.expiry) < 0 ? "expired" : daysLeft(d.expiry) + "d left"}
+                         </span>
+                       ))}
+                       {r && regStatusOf(s) !== "registered" && <span className={"chip " + r.tone}>{r.label}</span>}
+                       <span className={"chip " + (v ? v.tone : "")}
+                             title={s.suspended ? s.suspendedReason : s.rejectedReason || undefined}>
+                         {v ? v.label : verifyStatusOf(s)}
+                       </span>
+                       {canPrequalify && !s.prequalified && !s.suspended && (
+                         <button className="btn sm" onClick={() => prequalify(s)}>Verify</button>
+                       )}
+                       {canSuspend && (s.suspended || s.prequalified) && (
+                         <button className="btn sm" onClick={() => setSuspending(s)}>{s.suspended ? "Reinstate" : "Suspend"}</button>
+                       )}
+                     </>} />
+              );
+            })}
+          </Rows>
+          {visible.length > page.length && (
+            <div className="cbody" style={{ display: "flex", alignItems: "center", gap: 12, borderTop: "1px solid var(--hair)" }}>
+              <span className="hint" style={{ marginTop: 0 }}>
+                Showing {page.length.toLocaleString()} of {visible.length.toLocaleString()}
+              </span>
+              <button className="btn sm" onClick={() => setShown(shown + PAGE)}>Show {PAGE} more</button>
+              <button className="btn sm" onClick={() => setShown(visible.length)}>Show all {visible.length.toLocaleString()}</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* --------------------------------------------------------- review */}
+      {tab === "review" && (
+        <div className="card">
+          <Rows empty={<Empty art="clear">Nothing is waiting for review. Registrations appear here as they arrive.</Empty>}>
             {queue.map((s) => {
               const docs = complianceDocs(s.id);
               return (
@@ -3648,7 +3907,9 @@ export function SuppliersPage({ api }) {
                      </>}>
                   <div id={"vq-" + s.id} className="lrmeta" style={{ marginTop: 6 }}>
                     {docs.map((x) => (
-                      <button key={x.id} className="doclink" onClick={() => downloadDoc(x.id, x.name)}><Icon n="file" s={12} />{x.name}</button>
+                      <button key={x.id} className="doclink" onClick={() => downloadDoc(x.id, x.name)}>
+                        <Icon n="file" s={12} />{x.name}
+                      </button>
                     ))}
                     {docs.length === 0 && <span className="faint">No compliance documents uploaded yet.</span>}
                     {s.rejectedReason && <span className="faint">Previously declined: {s.rejectedReason}</span>}
@@ -3660,93 +3921,146 @@ export function SuppliersPage({ api }) {
         </div>
       )}
 
-      <div className="card">
-        <Rows empty={<Empty art="search">Nothing on the register matches that. Clear the search or a filter to see everyone.</Empty>}>
-          {page.map((s) => {
-            const r = REG_STATUS[regStatusOf(s)];
-            const v = VERIFY_STATUS[verifyStatusOf(s)];
-            const lapsing = s.docs.filter((d) => d.expiry && daysLeft(d.expiry) <= 60);
-            return (
-              <Row key={s.id} onOpen={() => setOpenId(s.id)} title={s.name}
-                   meta={<>
-                     {s.code && <span className="mono">{s.code}</span>}
-                     <span>{s.category}</span>
-                     {s.location && <span>{s.location}</span>}
-                     {s.perf.onTime != null && <span>{s.perf.onTime}% on time</span>}
-                     {s.perf.quality != null && <span>{s.perf.quality}% quality</span>}
-                   </>}
-                   right={<>
-                     {/* paperwork survives as a chip only when it is about to
-                         lapse; "valid" on every row said nothing */}
-                     {lapsing.map((d, i) => (
-                       <span key={i} className="chip warn" title={d.name}>{d.name} · {daysLeft(d.expiry)}d left</span>
-                     ))}
-                     {r && regStatusOf(s) !== "registered" && <span className={"chip " + r.tone}>{r.label}</span>}
-                     <span className={"chip " + (v ? v.tone : "")}
-                           title={s.suspended ? s.suspendedReason : s.rejectedReason || undefined}>
-                       {v ? v.label : verifyStatusOf(s)}
-                     </span>
-                     {canPrequalify && !s.prequalified && !s.suspended && (
-                       <button className="btn sm" onClick={() => prequalify(s)}>Verify</button>
-                     )}
-                     {canSuspend && (s.suspended || s.prequalified) && (
-                       <button className="btn sm" onClick={() => setSuspending(s)}>{s.suspended ? "Reinstate" : "Suspend"}</button>
-                     )}
-                   </>} />
-            );
-          })}
-        </Rows>
-        {visible.length > page.length && (
-          <div className="cbody" style={{ display: "flex", alignItems: "center", gap: 12, borderTop: "1px solid var(--hair)" }}>
-            <span className="hint" style={{ marginTop: 0 }}>
-              Showing {page.length.toLocaleString()} of {visible.length.toLocaleString()}
-            </span>
-            <button className="btn sm" onClick={() => setShown(shown + PAGE)}>Show {PAGE} more</button>
-            <button className="btn sm" onClick={() => setShown(visible.length)}>Show all {visible.length.toLocaleString()}</button>
-          </div>
-        )}
-      </div>
-
-      {(canImport || canInvite) && (
-        <More title="Bring vendors in" summary="invite one, invite the register, add from CSV, or replace the register">
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {canInvite && <button className="btn sm" onClick={inviteVendor}><Icon n="mail" /> Invite a vendor</button>}
-            {canInvite && <button className="btn sm" onClick={() => setCampaign(true)}><Icon n="team" /> Invite the register</button>}
-            {canImport && (
-              <label className="btn sm"><Icon n="upload" /> Add from CSV
-                <input type="file" accept=".csv" hidden onChange={async (e) => {
-                  const f = e.target.files[0];
-                  if (f && await act.upload("/suppliers/import/", f)) {
-                    toast.ok("Supplier book imported", "New vendors are in the register below; duplicates and blank rows were skipped.");
-                  }
-                  e.target.value = "";
-                }} />
-              </label>
-            )}
-            {canImport && <button className="btn sm" onClick={() => setRegOpen(true)}><Icon n="upload" /> Update the register</button>}
-          </div>
-          {canImport && (
-            <div className="hint" style={{ marginTop: 10 }}>
-              <b>Update the register</b> replaces the whole register from the vendor master export (JSON) and shows
-              you what would change before writing anything. <b>Add from CSV</b> appends a few vendors: columns are
-              name, category, location, email, prequalified (yes/no); duplicates are skipped.
+      {/* ----------------------------------------------------- compliance */}
+      {tab === "paper" && (
+        <>
+          {paper.expired.length > 0 && (
+            <div className="card" style={{ marginBottom: 14 }}>
+              <div className="chead"><h3>Expired</h3>
+                <span className="hint" style={{ marginLeft: "auto", marginTop: 0 }}>
+                  {paper.expired.length} vendor{paper.expired.length === 1 ? "" : "s"}
+                </span></div>
+              <Rows>
+                {paper.expired.map(({ s, days, docs }) => (
+                  <Row key={s.id} onOpen={() => setOpenId(s.id)} title={s.name} tone="wax"
+                       meta={<><span>{s.category}</span>
+                         <span>{Math.abs(days)} days ago</span>
+                         {s.contactEmail && <span className="mono">{s.contactEmail}</span>}</>}
+                       right={docs.filter((d) => daysLeft(d.expiry) < 0).map((d, i) => (
+                         <span key={i} className="chip wax">{d.name}</span>
+                       ))} />
+                ))}
+              </Rows>
             </div>
           )}
-          <div className="checkline" style={{ marginTop: 12 }}>
-            <input type="checkbox" id="sp-preonly" checked={preOnly} onChange={(e) => setPreOnly(e.target.checked)} />
-            <label htmlFor="sp-preonly">Show prequalified vendors only</label>
-          </div>
-          <div className="frow" style={{ marginTop: 10, marginBottom: 0 }}>
-            <label className="lbl" htmlFor="sp-loc">Location</label>
-            <select id="sp-loc" className="in" value={loc} onChange={(e) => setLoc(e.target.value)}>
-              <option value="">Everywhere</option>
-              {locations.map(([l, n]) => <option key={l} value={l}>{l} ({n})</option>)}
-            </select>
-          </div>
-        </More>
+          {paper.lapsing.length > 0 && (
+            <div className="card" style={{ marginBottom: 14 }}>
+              <div className="chead"><h3>Lapsing within 60 days</h3>
+                <span className="hint" style={{ marginLeft: "auto", marginTop: 0 }}>
+                  {paper.lapsing.length} vendor{paper.lapsing.length === 1 ? "" : "s"}
+                </span></div>
+              <Rows>
+                {paper.lapsing.map(({ s, days, docs }) => (
+                  <Row key={s.id} onOpen={() => setOpenId(s.id)} title={s.name}
+                       meta={<><span>{s.category}</span><span>in {days} days</span></>}
+                       right={docs.filter((d) => daysLeft(d.expiry) <= 60).map((d, i) => (
+                         <span key={i} className="chip warn">{d.name} · {daysLeft(d.expiry)}d</span>
+                       ))} />
+                ))}
+              </Rows>
+            </div>
+          )}
+          {paper.bare.length > 0 && (
+            <More title={`${paper.bare.length} vendors with no documents at all`}
+                  summary="nothing uploaded, so nothing to expire">
+              <div className="hint" style={{ marginTop: 0, marginBottom: 10 }}>
+                Mostly vendors loaded from a register export rather than ones who registered
+                themselves. They can still be invited and can still bid; they just have no
+                paperwork on file to check.
+              </div>
+              <Rows>
+                {paper.bare.slice(0, 40).map((s) => (
+                  <Row key={s.id} onOpen={() => setOpenId(s.id)} title={s.name}
+                       meta={<><span>{s.category}</span>{s.location && <span>{s.location}</span>}</>} />
+                ))}
+              </Rows>
+              {paper.bare.length > 40 && (
+                <div className="hint">and {paper.bare.length - 40} more</div>
+              )}
+            </More>
+          )}
+          {counts.paperwork === 0 && paper.bare.length === 0 && (
+            <div className="card"><Empty art="clear">Every document on file is in date.</Empty></div>
+          )}
+        </>
       )}
 
-      {openId && <VendorRecord row={state.suppliers.find((x) => x.id === openId)}
+      {/* ------------------------------------------------------- coverage */}
+      {tab === "coverage" && (
+        <div className="card">
+          <div className="chead"><h3>Verified vendors per category</h3>
+            <span className="hint" style={{ marginLeft: "auto", marginTop: 0 }}>
+              fewer than {THIN} cannot hold a competition
+            </span></div>
+          <div className="cbody covwrap">
+            {coverage.map((c) => {
+              const pct = c.total ? Math.round((c.verified / c.total) * 100) : 0;
+              return (
+                <button type="button" className={"covrow" + (c.verified < THIN ? " thin" : "")}
+                        key={c.cat} onClick={() => show({ cat: c.cat })}>
+                  <span className="covname">{c.cat}</span>
+                  <span className="covbar" aria-hidden="true">
+                    <i style={{ width: Math.max(pct, c.verified ? 4 : 0) + "%" }} />
+                  </span>
+                  <span className="covn mono">
+                    {c.verified}<span className="faint">/{c.total}</span>
+                  </span>
+                  {c.verified < THIN && <span className="chip warn">thin</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------ add */}
+      {tab === "add" && (
+        <div className="card">
+          <div className="cbody">
+            <div className="addgrid">
+              {canRegister && (
+                <button className="addcard" onClick={() => setRegisterOpen(true)}>
+                  <Icon n="plus" s={19} /><b>Register a vendor</b>
+                  <i>You type them in. They land on the register unverified and can be invited straight away.</i>
+                </button>
+              )}
+              {canInvite && (
+                <button className="addcard" onClick={inviteVendor}>
+                  <Icon n="mail" s={19} /><b>Invite one vendor</b>
+                  <i>They register themselves and upload their own compliance documents.</i>
+                </button>
+              )}
+              {canInvite && (
+                <button className="addcard" onClick={() => setCampaign(true)}>
+                  <Icon n="team" s={19} /><b>Invite the whole register</b>
+                  <i>Everybody with an address who has not been asked yet. Batched, once each, previewed first.</i>
+                </button>
+              )}
+              {canImport && (
+                <label className="addcard">
+                  <Icon n="upload" s={19} /><b>Add from CSV</b>
+                  <i>Appends vendors. Columns: name, category, location, email, prequalified. Duplicates skipped.</i>
+                  <input type="file" accept=".csv" hidden onChange={async (e) => {
+                    const f = e.target.files[0];
+                    if (f && await act.upload("/suppliers/import/", f)) {
+                      toast.ok("Supplier book imported", "New vendors are on the register; duplicates and blank rows were skipped.");
+                    }
+                    e.target.value = "";
+                  }} />
+                </label>
+              )}
+              {canImport && (
+                <button className="addcard" onClick={() => setRegOpen(true)}>
+                  <Icon n="refresh" s={19} /><b>Replace the register</b>
+                  <i>The full vendor master export. Shows what would change before it writes anything.</i>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {openId && <VendorRecord row={all.find((x) => x.id === openId)}
                                detail={detail} onClose={() => setOpenId(null)} />}
       {regOpen && <RegisterImport api={api} onClose={() => setRegOpen(false)} />}
     </Page>
