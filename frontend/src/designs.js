@@ -91,6 +91,8 @@ export const DESIGN_CSS = `
   --lp-on-accent:var(--on-brand);
   --lp-band:var(--engo-band); --lp-on-band:#FFFFFF; --lp-on-band-muted:#BDD6C7;
   --lp-radius:18px; --lp-radius-sm:14px;
+  --lp-h1-track:-.032em; --lp-sec:var(--s6); --lp-cap-track:.08em;
+  --pl-0:#0B1410; --pl-1:#E4EBE6; --pl-2:#FFFFFF; --pl-hi:var(--engo); --pl-cap:#FFFFFF;
 }
 
 /* ----------------------------------------------------------------- 2. bold
@@ -107,6 +109,13 @@ export const DESIGN_CSS = `
   --lp-on-accent:#16250A;
   --lp-band:#14351F; --lp-on-band:#F2F8E8; --lp-on-band-muted:#B9CFA9;
   --lp-radius:14px; --lp-radius-sm:10px;
+  /* Type and density. Bold is a brochure: bigger display, tighter tracking,
+     tighter vertical rhythm, more sections in the same scroll. */
+  --t1:clamp(42px,9.2vw,78px); --t2:clamp(27px,4.8vw,42px);
+  --lp-h1-track:-.04em; --lp-sec:var(--s6); --lp-cap-track:.1em;
+  /* Plates: greyscale, one lime spot. The reference's photography was
+     black-and-white with a single accent, and that is the whole effect. */
+  --pl-0:#0D1912; --pl-1:#DCE3DA; --pl-2:#F3F6F0; --pl-hi:#C6F24E; --pl-cap:#FFFFFF;
 }
 :root[data-theme="dark"] .lp[data-design="bold"]{
   --lp-bg:#0C1511; --lp-bg2:#101C15; --lp-surface:#13211A; --lp-sunk:#16271E;
@@ -116,6 +125,7 @@ export const DESIGN_CSS = `
   --lp-accent-deep:#9FCE2C;
   --lp-on-accent:#16250A;
   --lp-band:#0F2A18; --lp-on-band:#EAF5DC; --lp-on-band-muted:#AEC79C;
+  --pl-0:#040806; --pl-1:#18231C; --pl-2:#2B382F; --pl-hi:#C6F24E; --pl-cap:#EAF5DC;
 }
 
 /* ---------------------------------------------------------------- 3. night
@@ -132,6 +142,12 @@ export const DESIGN_CSS = `
   --lp-on-accent:#04231F;
   --lp-band:#101D1A; --lp-on-band:#F1F7F5; --lp-on-band-muted:#AFC3BD;
   --lp-radius:16px; --lp-radius-sm:12px;
+  /* Night is one held frame: the largest display on the site, the most air
+     around it, and the fewest things on screen at once. */
+  --t1:clamp(44px,10vw,88px); --t2:clamp(26px,4.4vw,40px);
+  --lp-h1-track:-.045em; --lp-sec:var(--s7); --lp-cap-track:.14em;
+  /* Plates stay a dark teal duotone in BOTH modes, like the hero they sit in. */
+  --pl-0:#03100E; --pl-1:#122422; --pl-2:#27403D; --pl-hi:#2FD6C3; --pl-cap:#F1F7F5;
 }
 :root[data-theme="dark"] .lp[data-design="night"]{
   --lp-bg:#0A1210; --lp-bg2:#0E1613; --lp-surface:#121C19; --lp-sunk:#152120;
@@ -157,6 +173,12 @@ export const DESIGN_CSS = `
   --lp-on-accent:#2B1708;
   --lp-band:#3C4F47; --lp-on-band:#F4F1E9; --lp-on-band-muted:#BCC9C3;
   --lp-radius:20px; --lp-radius-sm:16px;
+  /* Paper is stationery: a smaller, calmer display, letter-spaced small caps
+     doing the labelling, and the most generous gutters of the four. */
+  --t1:clamp(34px,7vw,58px); --t2:clamp(23px,3.8vw,34px);
+  --lp-h1-track:-.022em; --lp-sec:var(--s6); --lp-cap-track:.16em;
+  /* Plates in sepia, so the pictures read as documents rather than photographs. */
+  --pl-0:#2A1B0F; --pl-1:#D9D0C1; --pl-2:#F3EBDE; --pl-hi:#E09A5E; --pl-cap:#FDF8F1;
 }
 :root[data-theme="dark"] .lp[data-design="paper"]{
   --lp-bg:#141A18; --lp-bg2:#101615; --lp-surface:#1C2522; --lp-sunk:#222B27;
@@ -166,6 +188,7 @@ export const DESIGN_CSS = `
   --lp-accent-deep:#D08B52;
   --lp-on-accent:#2B1708;
   --lp-band:#2A3833; --lp-on-band:#F4F1E9; --lp-on-band-muted:#BCC9C3;
+  --pl-0:#130C06; --pl-1:#29231B; --pl-2:#3D352A; --pl-hi:#E09A5E; --pl-cap:#F4F1E9;
 }
 
 /* ------------------------------------------- what the page inherits from the app

@@ -30,6 +30,7 @@ import React, { useEffect, useState } from "react";
 import { BP } from "./breakpoints";
 import { designOf } from "./designs";
 import { Illus } from "./illus";
+import { Plate } from "./artwork";
 import { Mark, Wordmark } from "./logo";
 import { reducedMotion, useReveal } from "./motion";
 
@@ -203,6 +204,386 @@ function Rail() {
 
 /* ---------------------------------------------------------------- the page */
 
+/* A plate in its frame, with the caption that rides on its vignette. */
+function PlateFrame({ n, tall, wide, cap, meta, className = "" }) {
+  return (
+    <div className={"plateframe" + (tall ? " tall" : "") + (wide ? " wide" : "")
+                    + (className ? " " + className : "")}>
+      <Plate n={n} tall={tall} />
+      {cap && <div className="platecap">{cap}{meta && <i>{meta}</i>}</div>}
+    </div>
+  );
+}
+
+/* ====================================================================
+   THE FOUR PAGES
+
+   One argument, four ways of making it. They share the content constants
+   above — the same three promises, the same four steps, the same ladder, the
+   same four questions — and disagree about the shape those take. That is the
+   line: a design may reorder, regroup, drop a section or invent one, and may
+   not invent a CLAIM. Anything a visitor could act on is in all four.
+
+   Each page is handed the same props and renders between the shared bar and
+   the shared footer. Adding a fifth design means a key in views.py, a token
+   block in designs.js, and a function here — in that order, because the first
+   is the allow-list and the other two are what it allows.
+   ==================================================================== */
+
+/* ------------------------------------------------------------------ drawn
+   The house page, unchanged: the argument acted out by the seal figure, three
+   drawn promises, the steps, the ladder, the questions. */
+function DrawnPage({ goSetup, goDemo, canDemo, ask, setAsk }) {
+  return (
+    <>
+      <section className="lphero">
+        <div className="lpwrap">
+          <div className="lpherogrid">
+            <div>
+              <h1 data-reveal>Tenders you can<br /><em>prove</em> were fair.</h1>
+              <p className="lead" data-reveal>
+                Sealed bids. Blind scoring. Every signature on a chain an auditor can check.
+              </p>
+              <div className="lpacts" data-reveal>
+                <button className="btn pri lpbtn" onClick={goSetup}>Set up your company</button>
+                {canDemo && <button className="btn lpbtn" onClick={goDemo}>See it working</button>}
+              </div>
+            </div>
+            <div data-reveal><SealFigure /></div>
+          </div>
+        </div>
+      </section>
+
+      <section className="lpsec">
+        <div className="lpwrap lptrio">
+          {PROMISES.map(([art, title, why], n) => (
+            <article key={title} data-reveal style={{ transitionDelay: n * 80 + "ms" }}>
+              <Illus n={art} w={168} />
+              <h3>{title}<Note>{why}</Note></h3>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <StepsSection />
+      <LadderSection />
+      <FaqSection ask={ask} setAsk={setAsk} />
+      <CtaSection goSetup={goSetup} />
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------- bold
+   A brochure. The most sections of the four and the densest rhythm: a collage
+   hero, the marquee, an about split, the figures, a dark services band, the
+   steps, the questions. The plates are greyscale with a single lime spot,
+   which is the one thing the reference did that was worth taking whole. */
+function BoldPage({ goSetup, goDemo, canDemo, ask, setAsk }) {
+  return (
+    <>
+      <section className="lphero">
+        <div className="lpwrap lpherogrid">
+          <div>
+            <p className="lpeyebrow" data-reveal>Sealed tendering for people who get audited</p>
+            <h1 data-reveal>Tenders you can<br /><em>prove</em> were fair.</h1>
+            <p className="lead" data-reveal>
+              Sealed bids. Blind scoring. Every signature on a chain an auditor can check.
+            </p>
+            <div className="lpacts" data-reveal>
+              <button className="btn pri lpbtn" onClick={goSetup}>Set up your company</button>
+              {canDemo && <button className="btn lpbtn" onClick={goDemo}>See it working</button>}
+            </div>
+          </div>
+          {/* the collage: one tall plate, one wide one overlapping its corner */}
+          <div className="lpcollage" data-reveal>
+            <PlateFrame n="vault" tall cap="Sealed" meta="4 of 27" />
+            <PlateFrame n="chain" wide cap="Chained" />
+          </div>
+        </div>
+      </section>
+
+      <Marquee />
+
+      <section className="lpsec">
+        <div className="lpwrap lpsplit">
+          <div data-reveal><PlateFrame n="ladder" cap="Approved" meta="₦240m" /></div>
+          <div data-reveal>
+            <p className="lpeyebrow">However many layers you have</p>
+            <h2>A request climbs until somebody&rsquo;s limit covers it.</h2>
+            <p className="lead">
+              You set what each level may commit and who reports to whom.
+              <Note label="How the chain is built">
+                Nobody signs their own request, a rejection anywhere ends the chain, and the
+                route is frozen when raised — so a reorganisation next quarter cannot rewrite
+                who was meant to sign last quarter.
+              </Note>
+            </p>
+            <div className="lpladder lpladdertight" aria-hidden="true">
+              {RUNGS.map(([who, what, tone], n) => (
+                <div className={"rung " + tone} key={who} style={{ "--n": n }}>
+                  <span>{who}</span><i>{what}</i>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <Figures />
+
+      {/* the services band: the three promises as cards on the dark field,
+          with the middle one filled, which is the shape the reference used */}
+      <section className="lpband">
+        <div className="lpwrap">
+          <p className="lpeyebrow" data-reveal>What it guarantees</p>
+          <h2 data-reveal>Three things it will not let you do.</h2>
+          <div className="lpcards">
+            {PROMISES.map(([art, title, why], n) => (
+              <article key={title} className={n === 1 ? "on" : ""} data-reveal
+                       style={{ transitionDelay: n * 80 + "ms" }}>
+                <Illus n={art} w={104} />
+                <h3>{title}</h3>
+                <p>{why}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <StepsSection />
+      <FaqSection ask={ask} setAsk={setAsk} />
+      <CtaSection goSetup={goSetup} />
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ night
+   One held frame, then as little as the argument can survive on. The hero is
+   a dark field in either mode with a tall plate in it and the rail beneath;
+   the three promises are full-bleed plates with the claim set over them; the
+   questions are not an accordion, because this design's whole move is that
+   nothing is hidden and there is simply less on screen at once. */
+function NightPage({ goSetup, goDemo, canDemo }) {
+  return (
+    <>
+      <section className="lphero onband">
+        <div className="lpwrap">
+          <div className="lpherogrid">
+            <div>
+              <h1 data-reveal>Tenders you can<br /><em>prove</em> were fair.</h1>
+              <p className="lead" data-reveal>
+                Sealed bids. Blind scoring. Every signature on a chain an auditor can check.
+              </p>
+              <div className="lpacts" data-reveal>
+                <button className="btn pri lpbtn" onClick={goSetup}>Set up your company</button>
+                {canDemo && <button className="btn lpbtn" onClick={goDemo}>See it working</button>}
+              </div>
+            </div>
+            <div data-reveal><PlateFrame n="vault" tall cap="Sealed until the deadline" /></div>
+          </div>
+          <Rail />
+        </div>
+      </section>
+
+      {/* each claim is its own frame, the plate behind the type */}
+      {PROMISES.map(([art, title, why], n) => (
+        <section className="lpframe" key={title} data-reveal>
+          <PlateFrame n={["vault", "chain", "stack"][n]} wide />
+          <div className="lpframein">
+            <div className="lpwrap">
+              <b>{String(n + 1).padStart(2, "0")}</b>
+              <h2>{title}</h2>
+              <p>{why}</p>
+            </div>
+          </div>
+        </section>
+      ))}
+
+      <section className="lpsec">
+        <div className="lpwrap lpnarrow">
+          <h2 data-reveal>How it goes</h2>
+          <ol className="lpsteps lpstepsrow">
+            {STEPS.map(([title, why], n) => (
+              <li key={title} data-reveal style={{ transitionDelay: n * 70 + "ms" }}>
+                <b>{String(n + 1).padStart(2, "0")}</b>
+                <h3>{title}</h3>
+                <p>{why}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      {/* no accordion: the answers are simply on the page */}
+      <section className="lpsec">
+        <div className="lpwrap lpnarrow">
+          <h2 data-reveal>Questions</h2>
+          <div className="lpqlist" data-reveal>
+            {FAQ.map(([q, a]) => (
+              <div key={q}><h3>{q}</h3><p>{a}</p></div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <CtaSection goSetup={goSetup} />
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ paper
+   Stationery. The hero is one document with a torn edge across it: the claim
+   on the counterfoil, the four facts on the stub. Everything below is another
+   piece of paper, and the plates are sepia so they read as things kept in a
+   file rather than photographs of an office. */
+function PaperPage({ goSetup, goDemo, canDemo, ask, setAsk }) {
+  return (
+    <>
+      <section className="lphero">
+        <div className="lpwrap">
+          <div className="lpticket" data-reveal>
+            <div className="lpticketmain">
+              <p className="lpeyebrow">Docket &middot; sealed tendering</p>
+              <h1>Tenders you can<br /><em>prove</em> were fair.</h1>
+              <p className="lead">
+                Sealed bids. Blind scoring. Every signature on a chain an auditor can check.
+              </p>
+              <div className="lpacts">
+                <button className="btn pri lpbtn" onClick={goSetup}>Set up your company</button>
+                {canDemo && <button className="btn lpbtn" onClick={goDemo}>See it working</button>}
+              </div>
+            </div>
+            <div className="lpticketstub">
+              {RAIL.map(([k, what]) => (
+                <div key={k}><b>{k}</b><span>{what}</span></div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="lpsec">
+        <div className="lpwrap">
+          <PlateFrame n="stack" wide cap="Held, unread" meta="until 14:00" />
+        </div>
+      </section>
+
+      <section className="lpsec">
+        <div className="lpwrap">
+          <p className="lpeyebrow" data-reveal>What it guarantees</p>
+          <div className="lpdocs">
+            {PROMISES.map(([art, title, why], n) => (
+              <article key={title} data-reveal style={{ transitionDelay: n * 80 + "ms" }}>
+                <div className="lpdochead"><Illus n={art} w={84} /></div>
+                <div className="lpdocbody">
+                  <b>{String(n + 1).padStart(2, "0")}</b>
+                  <h3>{title}</h3>
+                  <p>{why}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <StepsSection />
+      <LadderSection plate="ladder" />
+      <FaqSection ask={ask} setAsk={setAsk} />
+      <CtaSection goSetup={goSetup} />
+    </>
+  );
+}
+
+/* ------------------------------------------------- sections more than one
+   page uses, kept here rather than copied into each so a wording change lands
+   everywhere it appears. */
+
+function StepsSection() {
+  return (
+    <section className="lpsec tint">
+      <div className="lpwrap">
+        <h2 data-reveal>How it goes</h2>
+        <ol className="lpsteps">
+          {STEPS.map(([title, why], n) => (
+            <li key={title} data-reveal style={{ transitionDelay: n * 70 + "ms" }}>
+              <b>{n + 1}</b>
+              <h3>{title}<Note>{why}</Note></h3>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </section>
+  );
+}
+
+function LadderSection({ plate }) {
+  return (
+    <section className="lpsec">
+      <div className="lpwrap lpsplit">
+        <div data-reveal>
+          {plate ? <PlateFrame n={plate} cap="The chain" /> : <Illus n="desk" w={184} />}
+          <h2>However many layers you have.</h2>
+          <p className="lead">
+            A request climbs your reporting line until somebody&rsquo;s limit covers it.
+            <Note label="How the chain is built">
+              You set what each level may commit and who reports to whom. Nobody signs
+              their own request, a rejection anywhere ends the chain, and the route is
+              frozen when raised — so a reorganisation next quarter cannot rewrite who
+              was meant to sign last quarter.
+            </Note>
+          </p>
+        </div>
+        <div className="lpladder" data-reveal aria-hidden="true">
+          {RUNGS.map(([who, what, tone], n) => (
+            <div className={"rung " + tone} key={who} style={{ "--n": n }}>
+              <span>{who}</span><i>{what}</i>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FaqSection({ ask, setAsk }) {
+  return (
+    <section className="lpsec tint">
+      <div className="lpwrap lpnarrow">
+        <h2 data-reveal>Questions</h2>
+        <div className="lpfaq" data-reveal>
+          {FAQ.map(([q, a], n) => (
+            <div className={"qa" + (ask === n ? " on" : "")} key={q}>
+              <button aria-expanded={ask === n} onClick={() => setAsk(ask === n ? -1 : n)}>
+                {q}<i aria-hidden="true" />
+              </button>
+              <div className="qaa"><p>{a}</p></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CtaSection({ goSetup }) {
+  return (
+    <section className="lpcta">
+      <div className="lpwrap" data-reveal>
+        <Mark s={56} animate />
+        <h2>Start with the one you&rsquo;re dreading.</h2>
+        <button className="btn pri lpbtn" onClick={goSetup}>Set up your company</button>
+      </div>
+    </section>
+  );
+}
+
+const PAGES = { drawn: DrawnPage, bold: BoldPage, night: NightPage, paper: PaperPage };
+
+/* ------------------------------------------------------------- the shell
+   The bar and the footer are the same object on all four; only the page
+   between them changes. Keeping them out here is what stops four copies of
+   the sign-in button drifting apart. */
+
 export function Landing({ cfg, onScreen }) {
   const demo = (cfg && cfg.demoUrl) || "";
   const canDemo = !!demo || !!(cfg && cfg.demoLogin);
@@ -214,7 +595,7 @@ export function Landing({ cfg, onScreen }) {
      administration console. `designOf` guarantees a real design even on the
      first paint, before the config lands. */
   const design = designOf(cfg && cfg.landing);
-  const flags = design.flags;
+  const Page = PAGES[design.key] || DrawnPage;
   useReveal([design.key]);
 
   const goDemo = () => { if (demo) window.location.href = demo; else onScreen("demo"); };
@@ -233,107 +614,8 @@ export function Landing({ cfg, onScreen }) {
         </div>
       </header>
 
-      {/* ------------------------------------------------------------ hero */}
-      <section className={"lphero" + (flags.darkHero ? " onband" : "")}>
-        <div className="lpwrap">
-          <div className="lpherogrid">
-            <div>
-              <h1 data-reveal>Tenders you can<br /><em>prove</em> were fair.</h1>
-              <p className="lead" data-reveal>
-                Sealed bids. Blind scoring. Every signature on a chain an auditor can check.
-              </p>
-              <div className="lpacts" data-reveal>
-                <button className="btn pri lpbtn" onClick={goSetup}>Set up your company</button>
-                {canDemo && <button className="btn lpbtn" onClick={goDemo}>See it working</button>}
-              </div>
-            </div>
-            <div data-reveal><SealFigure /></div>
-          </div>
-          {flags.rail && <Rail />}
-        </div>
-      </section>
-
-      {flags.marquee && <Marquee />}
-
-      {/* -------------------------------------------------------- promises */}
-      <section className="lpsec">
-        <div className="lpwrap lptrio">
-          {PROMISES.map(([art, title, why], n) => (
-            <article key={title} data-reveal style={{ transitionDelay: `${n * 80}ms` }}>
-              <Illus n={art} w={168} />
-              <h3>{title}<Note>{why}</Note></h3>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      {flags.figures && <Figures />}
-
-      {/* ------------------------------------------------------------ steps */}
-      <section className="lpsec tint">
-        <div className="lpwrap">
-          <h2 data-reveal>How it goes</h2>
-          <ol className="lpsteps">
-            {STEPS.map(([title, why], n) => (
-              <li key={title} data-reveal style={{ transitionDelay: `${n * 70}ms` }}>
-                <b>{n + 1}</b>
-                <h3>{title}<Note>{why}</Note></h3>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </section>
-
-      {/* ----------------------------------------------------------- ladder */}
-      <section className="lpsec">
-        <div className="lpwrap lpsplit">
-          <div data-reveal>
-            <Illus n="desk" w={184} />
-            <h2>However many layers you have.</h2>
-            <p className="lead">
-              A request climbs your reporting line until somebody&rsquo;s limit covers it.
-              <Note label="How the chain is built">
-                You set what each level may commit and who reports to whom. Nobody signs
-                their own request, a rejection anywhere ends the chain, and the route is
-                frozen when raised — so a reorganisation next quarter cannot rewrite who
-                was meant to sign last quarter.
-              </Note>
-            </p>
-          </div>
-          <div className="lpladder" data-reveal aria-hidden="true">
-            {RUNGS.map(([who, what, tone], n) => (
-              <div className={"rung " + tone} key={who} style={{ "--n": n }}>
-                <span>{who}</span><i>{what}</i>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* -------------------------------------------------------------- Q&A */}
-      <section className="lpsec tint">
-        <div className="lpwrap lpnarrow">
-          <h2 data-reveal>Questions</h2>
-          <div className="lpfaq" data-reveal>
-            {FAQ.map(([q, a], n) => (
-              <div className={"qa" + (ask === n ? " on" : "")} key={q}>
-                <button aria-expanded={ask === n} onClick={() => setAsk(ask === n ? -1 : n)}>
-                  {q}<i aria-hidden="true" />
-                </button>
-                <div className="qaa"><p>{a}</p></div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="lpcta">
-        <div className="lpwrap" data-reveal>
-          <Mark s={56} animate />
-          <h2>Start with the one you&rsquo;re dreading.</h2>
-          <button className="btn pri lpbtn" onClick={goSetup}>Set up your company</button>
-        </div>
-      </section>
+      <Page goSetup={goSetup} goDemo={goDemo} canDemo={canDemo}
+            onScreen={onScreen} ask={ask} setAsk={setAsk} />
 
       <footer className="lpfoot">
         <div className="lpwrap lpfootin">
@@ -536,5 +818,150 @@ export const LANDING_CSS = `
   .lpsteps{grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--s4)}
   .lpsplit{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s6)}
   .lpsec{padding-block:var(--s7)}
+}
+
+/* ==================================================================
+   THE SECTIONS THE FOUR PAGES BUILD FROM
+
+   Structure only. Every colour below is a --lp-* token and every design sets
+   those, so nothing here knows which page it is drawing. The handful of rules
+   that genuinely differ by design live in designs.js with that design's
+   tokens, not here.
+   ================================================================== */
+
+/* The display size and tracking are per design now, so a page can be a
+   brochure or a held frame without arguing with the shared scale. */
+.lp h1{letter-spacing:var(--lp-h1-track,-.032em)}
+.lpsec{padding-block:var(--lp-sec,var(--s6))}
+
+/* A small label over a heading. Uppercase and letter-spaced, and the tracking
+   is a design token because it is the one type move that separates stationery
+   from a brochure. */
+.lpeyebrow{font-size:var(--t5);font-weight:700;letter-spacing:var(--lp-cap-track,.1em);
+  text-transform:uppercase;color:var(--lp-accent);margin-bottom:var(--s3)}
+
+/* ---------------------------------------------------------- bold: collage
+   Two plates, the wide one lifted onto the tall one's bottom corner. On a
+   phone they stack and the overlap is dropped: an overlapping collage in a
+   360px column is two pictures fighting over the same 40 pixels. */
+.lpcollage{display:grid;gap:var(--s3)}
+.lpcollage .plateframe{box-shadow:var(--sh-3)}
+
+/* ------------------------------------------------------------- bold: band
+   The dark services field. Its own block rather than .lpsec.tint because the
+   type inside is written against the band, not against the page. */
+.lpband{background:var(--lp-band);color:var(--lp-on-band);
+  padding-block:var(--lp-sec,var(--s6))}
+.lpband .lpeyebrow{color:var(--lp-accent-2)}
+.lpband h2{margin-bottom:var(--s5)}
+.lpcards{display:grid;gap:var(--s3)}
+.lpcards article{background:color-mix(in srgb,var(--lp-on-band) 8%,transparent);
+  border:1px solid color-mix(in srgb,var(--lp-on-band) 16%,transparent);
+  border-radius:var(--lp-radius);padding:var(--s4);display:grid;gap:var(--s3);
+  align-content:start}
+.lpcards article h3{color:var(--lp-on-band)}
+.lpcards article p{color:var(--lp-on-band-muted);font-size:var(--t5);line-height:1.55}
+/* One card filled, which is the reference's move and the only place the loud
+   accent covers this much area. The label on it is --lp-on-accent, so it is
+   the dark step and not the band's near-white. */
+.lpcards article.on{background:var(--lp-accent-2);border-color:var(--lp-accent-2)}
+.lpcards article.on h3{color:var(--lp-on-accent)}
+.lpcards article.on p{color:color-mix(in srgb,var(--lp-on-accent) 82%,transparent)}
+.lpcards article.on .illus{--il-ink:var(--lp-on-accent);--il-ink-2:var(--lp-on-accent);
+  --il-cool:var(--lp-on-accent);--il-warm:var(--lp-on-accent);
+  --il-paper:var(--lp-accent-2);--il-line:color-mix(in srgb,var(--lp-on-accent) 40%,transparent);
+  --il-tint:color-mix(in srgb,var(--lp-on-accent) 12%,transparent)}
+.lpcards article:not(.on) .illus{--il-ink:var(--lp-on-band);--il-ink-2:var(--lp-on-band-muted);
+  --il-cool:var(--lp-accent-2);--il-warm:var(--lp-accent-2);
+  --il-paper:var(--lp-band);--il-line:var(--lp-on-band-muted);
+  --il-tint:color-mix(in srgb,var(--lp-accent-2) 16%,transparent)}
+.lpladdertight{margin-top:var(--s4)}
+
+/* -------------------------------------------------------- night: a frame
+   A full-bleed plate with the claim set over it. The plate already carries a
+   vignette top and bottom, which is what lets the type sit straight on the
+   picture with no panel behind it. */
+.lpframe{position:relative;isolation:isolate}
+.lpframe .plateframe{border-radius:0;aspect-ratio:4 / 5}
+.lpframein{position:absolute;inset:auto 0 0;padding-block:var(--s5)}
+.lpframein b{display:block;font-family:var(--font-mono);font-size:var(--t5);
+  letter-spacing:.1em;color:var(--lp-accent-2);margin-bottom:var(--s2)}
+.lpframein h2{color:var(--pl-cap,#fff);margin-bottom:var(--s3);max-width:16ch}
+.lpframein p{color:color-mix(in srgb,var(--pl-cap,#fff) 78%,transparent);
+  max-width:52ch;font-size:var(--t4)}
+
+/* night: the steps as a row of numbered blocks rather than a labelled list,
+   and the questions simply answered rather than folded away. */
+.lpstepsrow li{display:block}
+.lpstepsrow b{display:block;font-size:var(--t5);font-family:var(--font-mono);
+  letter-spacing:.1em;color:var(--lp-accent);margin-bottom:var(--s2)}
+.lpstepsrow h3{margin-bottom:var(--s2)}
+.lpstepsrow p{font-size:var(--t5);color:var(--lp-muted);line-height:1.55}
+.lpqlist{display:grid;gap:var(--s5)}
+.lpqlist h3{margin-bottom:var(--s2)}
+.lpqlist p{font-size:var(--t4);max-width:62ch}
+
+/* -------------------------------------------------------- paper: the ticket
+   The hero as one document torn across: the claim on the counterfoil, the
+   four facts on the stub. The perforation is a dashed border with two notches
+   punched out of the edges, the same construction the seal figure uses. */
+/* No overflow:hidden. The notches are drawn outside the stub's box on
+   purpose — they are holes punched through the card's edge — and clipping the
+   card to its own radius ate both of them. The stub carries the matching
+   radius itself instead, so the corners still round without a clip. */
+.lpticket{background:var(--lp-surface);border:1px solid var(--lp-line);
+  border-radius:var(--lp-radius);box-shadow:var(--sh-3)}
+.lpticketmain{padding:var(--s5) var(--s4)}
+.lpticketmain .lead{margin-block:var(--s4)}
+.lpticketstub{position:relative;padding:var(--s4);display:grid;gap:var(--s3);
+  border-top:2px dashed var(--lp-line2);background:var(--lp-sunk);
+  border-radius:0 0 var(--lp-radius) var(--lp-radius)}
+.lpticketstub::before,.lpticketstub::after{content:"";position:absolute;top:-11px;
+  width:20px;height:20px;border-radius:50%;background:var(--lp-bg)}
+.lpticketstub::before{left:-11px}
+.lpticketstub::after{right:-11px}
+.lpticketstub b{display:block;font-size:var(--t5);font-weight:700;
+  letter-spacing:var(--lp-cap-track,.14em);text-transform:uppercase;color:var(--lp-accent)}
+.lpticketstub span{display:block;font-size:var(--t5);color:var(--lp-muted);
+  line-height:1.45;margin-top:2px}
+
+/* paper: the promises as filed documents, each with its own torn head */
+.lpdocs{display:grid;gap:var(--s4)}
+.lpdocs article{background:var(--lp-surface);border:1px solid var(--lp-line);
+  border-radius:var(--lp-radius);overflow:hidden}
+.lpdochead{background:var(--lp-band);padding:var(--s4);display:grid;place-items:center;
+  border-bottom:2px dashed var(--lp-line2)}
+.lpdochead .illus{--il-ink:var(--lp-on-band);--il-ink-2:var(--lp-on-band-muted);
+  --il-cool:var(--lp-accent-2);--il-warm:var(--lp-accent-2);
+  --il-paper:var(--lp-band);--il-line:var(--lp-on-band-muted);
+  --il-tint:color-mix(in srgb,var(--lp-accent-2) 18%,transparent)}
+.lpdocbody{padding:var(--s4)}
+.lpdocbody b{display:block;font-family:var(--font-mono);font-size:var(--t5);
+  letter-spacing:.08em;color:var(--lp-accent);margin-bottom:var(--s2)}
+.lpdocbody h3{margin-bottom:var(--s2)}
+.lpdocbody p{font-size:var(--t5);color:var(--lp-muted);line-height:1.55}
+
+@media(min-width:600px){
+  .lpcards{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .lpdocs{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .lpticketstub{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s3) var(--s4)}
+  .lpqlist{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s5) var(--s4)}
+}
+@media(min-width:900px){
+  .lpframe .plateframe{aspect-ratio:21 / 9}
+  .lpframein{padding-block:var(--s6)}
+  .lpticket{display:grid;grid-template-columns:minmax(0,1fr) 300px}
+  .lpticketmain{padding:var(--s6) var(--s5)}
+  /* On the wide ticket the tear runs down the side, not across it. */
+  .lpticketstub{border-top:0;border-left:2px dashed var(--lp-line2);
+    align-content:center;padding:var(--s5) var(--s4);
+    border-radius:0 var(--lp-radius) var(--lp-radius) 0}
+  .lpticketstub::before,.lpticketstub::after{top:auto;left:-11px;right:auto}
+  .lpticketstub::before{top:-11px}
+  .lpticketstub::after{bottom:-11px}
+  /* the collage overlaps only where there is room for it to */
+  .lpcollage{position:relative;padding-bottom:var(--s6)}
+  .lpcollage .plateframe.wide{position:absolute;right:calc(var(--s5) * -1);bottom:0;
+    width:62%;border:3px solid var(--lp-bg)}
 }
 `;
