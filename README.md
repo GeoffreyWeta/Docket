@@ -389,6 +389,56 @@ ways:
 * on a schedule — `python manage.py run_sweep` from any cron (Render cron job,
   GitHub Action, etc.) if you want it firing even with zero traffic.
 
+## The data feed (`/api/v1/`)
+
+DOCKET is a source system. Rather than writing into a customer's warehouse — a
+connector per warehouse, and a credential into their data estate that their own
+security review will refuse — it exposes an incremental, cursor-paged, read-only
+feed that they pull into whatever they already run: Redshift, Snowflake,
+BigQuery, Synapse, a SQL Server nobody has replaced since 2014.
+
+    docket-manage app apikey scopes
+    docket-manage app apikey new "Finance warehouse" --scopes feed.procurement,feed.commercial
+    docket-manage app apikey list
+    docket-manage app apikey revoke dk_live_ab12
+
+The key is printed once and only its SHA-256 is stored; a database dump is not
+also a working integration. Keys are their own table, not login tokens — a
+pipeline must not break because an employee left, and an employee leaving must
+not silently change what a warehouse can see.
+
+    curl -H "Authorization: Bearer dk_live_..." https://HOST/api/v1/
+    curl -H "Authorization: Bearer dk_live_..." "https://HOST/api/v1/tenders/?cursor=<from last response>"
+
+`GET /api/v1/` is discovery: it lists the entities *that key* can reach. The
+OpenAPI spec is at `/api/v1/openapi.json` and is generated from the same
+registry that serves the rows, so it cannot drift from them.
+
+**Four things a consumer must know**, all of which fail silently if ignored:
+
+1. **Cursor, not offset.** Send back `cursor` from the previous response.
+   Offsets shift under concurrent writes; this does not.
+2. **At-least-once — upsert on `id`.** A row may arrive twice. It never
+   arrives out of order and is never silently skipped.
+3. **Read `/api/v1/deletions/`.** It is the tombstone feed. Skip it and your
+   copy keeps deleted rows forever, diverging with no error on either side.
+4. **`/api/v1/events/` is hash-chained.** `prev_hash`/`hash` travel with every
+   row, so you can re-walk the chain in your own warehouse and prove that what
+   you received is what DOCKET recorded. An export nobody can verify is a
+   claim; this one is evidence.
+
+Sealed bid amounts are not exported before their recorded opening, and the
+Fernet ciphertext is never exported in any state — sealing is enforced at
+serialization, the same rule and the same place as the browser-facing API.
+
+Scopes are coarse on purpose (`feed.procurement`, `feed.commercial`,
+`feed.people`, `feed.audit`): a scope per table looks rigorous and ends up
+copied wholesale into every key anybody mints. `feed.commercial` is separate
+because bid amounts and payables are the part a customer will want withheld
+from a general-purpose BI pipeline.
+
+    python test_datafeed.py     # 43 assertions
+
 ## Files
 
 Uploads (tender packs, technical/commercial proposals) are stored in Postgres so

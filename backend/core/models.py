@@ -10,7 +10,112 @@ from .util import now_ms as _now_ms
 from .util import rid as _rid
 
 
-class Persona(models.Model):
+# =====================================================================
+#  Change tracking — what the outbound data feed reads
+# =====================================================================
+#
+# DOCKET is a source system for somebody else's warehouse. A customer runs
+# Redshift, or Snowflake, or BigQuery, or a SQL Server nobody has replaced
+# since 2014, and the only integration that survives all four is one where
+# they pull and we never hold their credentials. Pulling incrementally needs
+# one thing this model did not have: a per-row answer to "changed since when".
+#
+# Three hazards had to be designed around rather than commented about, because
+# each of them fails *silently* — the sync keeps working and quietly stops
+# being complete:
+#
+#   1. `save(update_fields=[...])` is used throughout this codebase. A save
+#      that lists its fields writes only those, so a timestamp set in save()
+#      is computed and then dropped on the floor. Syncable.save() adds itself
+#      to update_fields rather than trusting the caller to remember.
+#
+#   2. Queryset `.update()` never calls save() at all — it compiles straight
+#      to SQL. There are a dozen of them (vendor invitations, round closure,
+#      baseline backfill). SyncableQuerySet.update() injects the timestamp, so
+#      the bypass stops being a bypass.
+#
+#   3. Deletes leave nothing behind. A row that is gone is indistinguishable
+#      from a row that never matched the cursor, so the customer's warehouse
+#      keeps it forever and diverges without either side noticing. Tombstone
+#      + a post_delete signal records the death, cascades included.
+#
+# What is deliberately NOT here: a tenant key. DOCKET is single-tenant per
+# deployment (see settings.SIGNUP_URL), so the feed is scoped by deployment and
+# an API key needs no tenant column to be safe.
+
+class SyncableQuerySet(models.QuerySet):
+    """A queryset whose bulk `update()` still moves the sync cursor.
+
+    Django's `.update()` is a direct UPDATE statement: no signals, no save(),
+    no auto fields. That is exactly why it is used for bulk work, and exactly
+    why it would have made the feed lie. Callers that genuinely want to move
+    rows without publishing a change — a backfill, a data repair — pass
+    `touch=False` and take responsibility for saying so.
+    """
+
+    def update(self, touch=True, **kwargs):
+        if touch and "updated_at" not in kwargs:
+            kwargs["updated_at"] = _now_ms()
+        return super().update(**kwargs)
+
+
+class Syncable(models.Model):
+    """`updated_at` for anything the outbound feed exports.
+
+    Epoch milliseconds, like every other timestamp here. Indexed because the
+    feed's only query is `WHERE updated_at >= ? ORDER BY updated_at, id`, and
+    an unindexed cursor turns every customer's five-minute sync into a table
+    scan of the whole register.
+
+    Ordering is on the pair, never on the timestamp alone: two rows written in
+    the same millisecond are common (a bulk invite writes hundreds) and a
+    cursor that cannot separate them either repeats a row or skips one. The id
+    breaks the tie and makes the cursor total.
+    """
+    updated_at = models.BigIntegerField(default=0, db_index=True)
+
+    objects = SyncableQuerySet.as_manager()
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        self.updated_at = _now_ms()
+        uf = kwargs.get("update_fields")
+        if uf is not None:
+            # The caller named their fields and did not know about this one.
+            kwargs["update_fields"] = list(uf) + ["updated_at"]
+        super().save(*args, **kwargs)
+
+
+class Tombstone(models.Model):
+    """A row that used to exist, so a downstream warehouse can delete its copy.
+
+    Written by a post_delete signal rather than by turning every delete in the
+    codebase into a soft delete: the signal fires for cascades too, and a
+    cascade is where the rows a warehouse would otherwise keep forever
+    actually come from — delete a tender and its bids, clarifications and
+    documents go with it without a single line of view code mentioning them.
+
+    `seq` is the cursor. An autoincrement rather than a timestamp because
+    deletions are rare, ordered and never backdated, so the simplest monotonic
+    thing is the right one.
+    """
+    seq = models.BigAutoField(primary_key=True)
+    entity = models.CharField(max_length=32, db_index=True)   # feed name: "tender", "bid", ...
+    row_id = models.CharField(max_length=64)
+    at = models.BigIntegerField(default=0)
+
+    class Meta:
+        ordering = ["seq"]
+
+    def __str__(self):
+        return f"{self.entity}:{self.row_id}"
+
+
+
+
+class Persona(Syncable):
     """Buyer-side demo personas (procurement / evaluator / approver / auditor)."""
     id = models.CharField(primary_key=True, max_length=16)
     name = models.CharField(max_length=80)
@@ -68,7 +173,7 @@ class Persona(models.Model):
         return out
 
 
-class Supplier(models.Model):
+class Supplier(Syncable):
     id = models.CharField(primary_key=True, max_length=16)
     name = models.CharField(max_length=120)
     contact_email = models.CharField(max_length=200, blank=True, default="")
@@ -192,7 +297,7 @@ class SpendDimensions(models.Model):
         return {k: (getattr(self, k) or "") for k, _ in self.DIMENSIONS}
 
 
-class Tender(SpendDimensions):
+class Tender(Syncable, SpendDimensions):
     id = models.CharField(primary_key=True, max_length=16)
     ref = models.CharField(max_length=40, unique=True)
     title = models.CharField(max_length=200)
@@ -376,7 +481,7 @@ class ProcurementRound(models.Model):
         return r
 
 
-class Bid(models.Model):
+class Bid(Syncable):
     id = models.CharField(primary_key=True, max_length=16)
     tender = models.ForeignKey(Tender, on_delete=models.CASCADE, related_name="bids")
     # Null means the event's implicit first round - see ProcurementRound. Every
@@ -761,7 +866,7 @@ class SourceSync(models.Model):
         constraints = [models.UniqueConstraint(fields=["source", "entity"], name="one_sync_per_feed")]
 
 
-class Item(Mirrored):
+class Item(Syncable, Mirrored):
     """A line on the material master — what the organisation actually buys.
 
     Until this existed a tender line was free text: somebody typed "Combi oven
@@ -802,7 +907,7 @@ class Item(Mirrored):
         return " — ".join(x for x in (self.description, self.description2) if x)
 
 
-class Contract(Mirrored, Money, SpendDimensions):
+class Contract(Syncable, Mirrored, Money, SpendDimensions):
     """An award turned into a commitment.
 
     `tender` is nullable and often null: the ledger holds contracts that were
@@ -849,7 +954,7 @@ class Contract(Mirrored, Money, SpendDimensions):
         return delta, ((delta / base * 100) if base else None)
 
 
-class PurchaseOrder(Mirrored, Money):
+class PurchaseOrder(Syncable, Mirrored, Money):
     """A call-off against a contract, or a standalone order.
 
     Nullable `contract` on purpose: a PO raised against no contract is the thing
@@ -876,7 +981,7 @@ class PurchaseOrder(Mirrored, Money):
                                                name="one_po_per_external_id")]
 
 
-class GoodsReceipt(Mirrored, Money):
+class GoodsReceipt(Syncable, Mirrored, Money):
     """Evidence that what was ordered actually arrived. The middle leg of the
     three-way match, and the one most often missing."""
     order = models.ForeignKey(PurchaseOrder, null=True, blank=True, on_delete=models.SET_NULL,
@@ -892,7 +997,7 @@ class GoodsReceipt(Mirrored, Money):
                                                name="one_grn_per_external_id")]
 
 
-class Invoice(Mirrored, Money):
+class Invoice(Syncable, Mirrored, Money):
     """A supplier's claim, and its progress through approval to settlement.
 
     `supplier_ref` is the vendor's own invoice number and is the key duplicate
@@ -932,7 +1037,7 @@ class Invoice(Mirrored, Money):
         return sum(p.amount for p in self.payments.all())
 
 
-class Payment(Mirrored, Money):
+class Payment(Syncable, Mirrored, Money):
     """Money that actually left. Part payments are rows, not a status: an
     invoice settled in three tranches has three dates, and an average payment
     time computed from only the last one flatters the figure."""
@@ -995,3 +1100,49 @@ class AdminAudit(models.Model):
 
     class Meta:
         ordering = ["-at"]
+
+
+class ApiKey(models.Model):
+    """A service credential for the outbound data feed.
+
+    Deliberately not an AuthToken. A person's bearer token carries a domain
+    identity — a persona, a role, a set of capabilities that an administrator
+    can move — and it exists so somebody can *act*. This exists so a scheduler
+    can read, at three in the morning, with nobody signed in. Reusing the login
+    token for it would have meant a warehouse integration breaking the day an
+    employee left, and an employee's departure silently granting or revoking a
+    pipeline's access. They are different things and they get different tables.
+
+    Only the hash is stored. The key itself is shown once, when it is minted,
+    and cannot be recovered afterwards — which is the property that makes a
+    leaked database dump not also a leaked integration.
+    """
+    id = models.CharField(primary_key=True, max_length=16, default=_rid)
+    name = models.CharField(max_length=120)
+    # The leading, non-secret part, kept so a person can tell two keys apart in
+    # a list and revoke the right one without being shown either in full.
+    prefix = models.CharField(max_length=24, db_index=True)
+    key_hash = models.CharField(max_length=64, unique=True)   # sha256 of the whole key
+    scopes = models.JSONField(default=list)                   # see datafeed.SCOPES
+    created = models.BigIntegerField(default=0)
+    created_by = models.CharField(max_length=200, blank=True, default="")
+    last_used = models.BigIntegerField(default=0)
+    calls = models.BigIntegerField(default=0)
+    revoked_at = models.BigIntegerField(null=True, blank=True)
+
+    # Fixed-window rate limit. Two integers rather than a dependency: the feed
+    # is pulled by a scheduler on a timer, not by a browser, so the thing being
+    # defended against is a misconfigured cron in a retry loop rather than an
+    # adversary — and a window that resets on the minute handles that exactly.
+    window_at = models.BigIntegerField(default=0)
+    window_calls = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ["-created"]
+
+    @property
+    def active(self):
+        return self.revoked_at is None
+
+    def __str__(self):
+        return f"{self.name} ({self.prefix}...)"

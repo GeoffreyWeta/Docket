@@ -1,7 +1,7 @@
 from django.urls import path
 
-from . import (account_views, admin_views, auth_views, export_views, finance_views, setup_views,
-               procurement, views)
+from . import (account_views, admin_views, auth_views, export_views, feed_views,
+               finance_views, setup_views, procurement, views)
 
 # The administration console. Its own sign-in, its own token check (superuser or
 # nothing), and no link to it anywhere in the tendering UI.
@@ -23,7 +23,20 @@ admin_urlpatterns = [
     path("admin/demo/", admin_views.admin_demo),
 ]
 
-urlpatterns = admin_urlpatterns + [
+# The outbound data feed. Versioned in the path and authenticated by its own
+# service keys rather than by anybody's login, because the caller is a
+# scheduler loading somebody else's warehouse — see datafeed.py for the whole
+# argument. Read-only, and last in the file because nothing else routes to it.
+feed_urlpatterns = [
+    path("v1/", feed_views.index),
+    path("v1/openapi.json", feed_views.openapi),
+    path("v1/deletions/", feed_views.deletions),
+    path("v1/events/", feed_views.events),
+    # Last: a bare <str:name> would otherwise swallow the three above.
+    path("v1/<str:name>/", feed_views.entity),
+]
+
+urlpatterns = admin_urlpatterns + feed_urlpatterns + [
     path("health/", views.health),
     path("auth/config/", auth_views.auth_config),
     path("auth/login/", auth_views.login),
