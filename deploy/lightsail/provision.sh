@@ -198,7 +198,14 @@ fi
 # On this same instance, over the loopback. The disk persists, so the database
 # sits beside the app: one socket hop away, and inside the same snapshot.
 say "Creating the $ROLE database"
-DB_PASSWORD=""
+# Both workspaces share one postgres role, so provisioning the SECOND one finds
+# the role already there and cannot read the password back out of postgres —
+# nobody can. The first workspace's env file has it, so the caller can hand it
+# over rather than resetting it, which would silently break the workspace that
+# is already running:
+#
+#   DB_PASSWORD=$(sudo sed -n 's|.*://docket:\([^@]*\)@.*||p' /etc/docket/env.app) #     sudo -E bash provision.sh demo
+DB_PASSWORD="${DB_PASSWORD:-}"
 if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" | grep -q 1; then
   note "role $DB_USER already exists, keeping its password"
 else
