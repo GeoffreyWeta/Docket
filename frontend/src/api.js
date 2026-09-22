@@ -1,8 +1,43 @@
 /* API client with bearer-token auth. All authorisation, sealing and
-   blindness are enforced server-side; the token only says who you are. */
+   blindness are enforced server-side; the token only says who you are.
+
+   TWO BACKENDS, ONE ORIGIN. The demo lives at /demo on the same domain as the
+   real workspace, and it is NOT the same application: it is a second gunicorn
+   with a second database, reached through /demo-api/ instead of /api/.
+
+   That separation is the whole point and it is worth being blunt about why.
+   DOCKET is single-tenant — OrgSetting is one row, and no tender, bid or
+   supplier carries a tenant key. Serving the demo from the real workspace's
+   database would mean seeded tenders sitting beside real ones, and turning on
+   the one-click personas would put a password-free door onto the workspace
+   holding real sealed bids. So the demo gets its own process and its own
+   database, and only the URL is shared.
+
+   WHICH BACKEND a request goes to is remembered, not recomputed. Landing on
+   /demo sets the flag; from then on every call in that browser goes to the
+   demo until the visitor signs out. Deriving it from window.location instead
+   would break the moment the app routes internally — you would click into a
+   tender and start talking to the real backend with a demo token. */
 
 const TKEY = "docket_token";
 const UKEY = "docket_user";
+const DKEY = "docket_demo";
+
+/* Set the instant /demo is opened, cleared on sign-out. sessionStorage rather
+   than localStorage: a demo is a visit, not a preference, and a stale flag in
+   a tab opened last week pointing at the wrong backend is a confusing bug. */
+export const inDemo = () => {
+  try { return sessionStorage.getItem(DKEY) === "1"; } catch (e) { return false; }
+};
+export const setDemo = (on) => {
+  try {
+    if (on) sessionStorage.setItem(DKEY, "1");
+    else sessionStorage.removeItem(DKEY);
+  } catch (e) { /* private mode: fall back to the real backend, which is safe */ }
+};
+
+/** The API root for this browser. `/api` normally, `/demo-api` in the demo. */
+export const apiBase = () => (inDemo() ? "/demo-api" : "/api");
 
 export const getToken = () => localStorage.getItem(TKEY);
 export const getUsername = () => localStorage.getItem(UKEY) || "";
@@ -10,7 +45,10 @@ export const storeAuth = (token, username) => {
   localStorage.setItem(TKEY, token);
   if (username) localStorage.setItem(UKEY, username);
 };
-export const clearAuth = () => localStorage.removeItem(TKEY);
+export const clearAuth = () => {
+  localStorage.removeItem(TKEY);
+  setDemo(false);   // signing out of the demo leaves the demo
+};
 
 async function handle(r) {
   let data = null;
@@ -28,7 +66,7 @@ async function handle(r) {
 }
 
 export async function raw(path, { method = "GET", body } = {}) {
-  const r = await fetch("/api" + path, {
+  const r = await fetch(apiBase() + path, {
     method,
     headers: {
       "Content-Type": "application/json",
@@ -43,7 +81,7 @@ export async function uploadFile(path, file, extra = {}) {
   const fd = new FormData();
   fd.append("file", file);
   Object.entries(extra).forEach(([k, v]) => fd.append(k, v));
-  const r = await fetch("/api" + path, {
+  const r = await fetch(apiBase() + path, {
     method: "POST",
     headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
     body: fd,
@@ -52,7 +90,7 @@ export async function uploadFile(path, file, extra = {}) {
 }
 
 export async function downloadDoc(docId, name) {
-  const r = await fetch(`/api/docs/${docId}/download/`, {
+  const r = await fetch(`${apiBase()}/docs/${docId}/download/`, {
     headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
   });
   if (!r.ok) throw new Error("Download not allowed.");
@@ -117,7 +155,7 @@ export const forgotPassword = (email) => raw("/auth/forgot/", { method: "POST", 
 export const resetPassword = (token, password) => raw("/auth/reset_password/", { method: "POST", body: { token, password } });
 
 export async function downloadUrl(path, name) {
-  const r = await fetch("/api" + path, { headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {} });
+  const r = await fetch(apiBase() + path, { headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {} });
   if (!r.ok) throw new Error("Download not allowed.");
   const blob = await r.blob();
   const url = URL.createObjectURL(blob);

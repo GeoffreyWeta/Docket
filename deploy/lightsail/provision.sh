@@ -36,6 +36,10 @@ REPO_URL="${REPO_URL:-https://github.com/GeoffreyWeta/Docket.git}"
 BRANCH="${BRANCH:-main}"
 # app on 8000, demo on 8001. nginx picks between them by server_name.
 if [ "$ROLE" = app ]; then PORT=8000; else PORT=8001; fi
+# The demo always sits here, and the app's nginx site needs to know it so it
+# can route /demo-api/ to it — the demo is a PATH on the app's domain, not a
+# subdomain. See nginx-site.template.
+DEMO_PORT=8001
 
 # The public name this workspace answers to. It lands in three places that all
 # have to agree: nginx's server_name, Django's ALLOWED_HOSTS, and the links in
@@ -355,7 +359,7 @@ SITE="/etc/nginx/sites-available/docket-$ROLE"
 if grep -q "managed by Certbot" "$SITE" 2>/dev/null; then
   note "nginx site for $ROLE left as certbot configured it."
 else
-  sed -e "s|__DOMAIN__|$SERVER_NAME|g"       -e "s|__PORT__|$PORT|g"       -e "s|__ROLE__|$ROLE|g"       -e "s|__DEFAULT__|$DEFAULT|g"       "$APP_DIR/deploy/lightsail/nginx-site.template" > "$SITE"
+  sed -e "s|__DOMAIN__|$SERVER_NAME|g"       -e "s|__PORT__|$PORT|g"       -e "s|__ROLE__|$ROLE|g"       -e "s|__DEFAULT__|$DEFAULT|g"       -e "s|__DEMO_PORT__|$DEMO_PORT|g"       "$APP_DIR/deploy/lightsail/nginx-site.template" > "$SITE"
   chmod 644 "$SITE"
   note "nginx site for $ROLE -> $SERVER_NAME on port $PORT"
 fi

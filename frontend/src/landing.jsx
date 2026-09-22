@@ -442,6 +442,16 @@ export const LANDING_CSS = `
 .lpfootin{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between}
 .lpfootin > div{display:flex;flex-wrap:wrap;gap:18px}
 
+/* The demo banner. Lives in this file because it is the only other thing that
+   spans the whole viewport above the app shell, and it follows the landing
+   page's type scale rather than inventing a sixth size. */
+.demobar{position:sticky;top:0;z-index:60;display:flex;flex-wrap:wrap;gap:10px;
+  align-items:center;justify-content:center;padding:8px 16px;font-size:13px;
+  background:var(--brass-tint);color:var(--gold-ink);
+  border-bottom:1px solid var(--brass)}
+.demobar .doclink{color:inherit;text-decoration:underline;font-size:inherit}
+.isdemo .side,.isdemo .topbar{top:33px}
+
 @media(min-width:${BP.sm}px){
   .lpsteps{grid-template-columns:repeat(2,minmax(0,1fr));gap:32px 28px}
 }

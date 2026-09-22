@@ -5,7 +5,8 @@ import {
   authConfig, clearAuth, demoLogin, fetchBootstrap, fetchFinance,
   adoptBaselines, baselineFor, fetchBaselines,
   fetchFinanceExceptions, financeFeeds, getToken, getUsername, importFinance,
-  login as apiLogin, logout as apiLogout, raw, storeAuth, uploadFile,
+  inDemo, login as apiLogin, logout as apiLogout, raw, setDemo, storeAuth,
+  uploadFile,
 } from "./api";
 import { BP } from "./breakpoints";
 import { GuidePanel, seenKey } from "./guide";
@@ -300,6 +301,13 @@ const PATHS = { "/signin": "signin", "/sign-in": "signin", "/login": "signin",
 
 function publicScreenFromUrl() {
   const path = window.location.pathname.replace(/\/+$/, "").toLowerCase();
+  /* Opening /demo points this browser at the demo backend, and it has to happen
+     HERE rather than inside DemoDoor: this runs during useState's initialiser,
+     before any component has mounted and therefore before the first fetch. Set
+     it a render later and the very first call — authConfig, on the way to
+     drawing the persona buttons — would ask the real workspace whether it has
+     a demo, be told no, and show "no demo here" on a deployment that has one. */
+  if (PATHS[path] === "demo") setDemo(true);
   if (PATHS[path]) return { name: PATHS[path] };
   const q = new URLSearchParams(window.location.search);
   if (q.get("vtoken")) return { name: "verify", token: q.get("vtoken") };
@@ -330,6 +338,11 @@ export default function App() {
   const goScreen = (name) => {
     const path = Object.keys(PATHS).find((k) => PATHS[k] === name);
     if (path) window.history.pushState({}, "", path);
+    /* Moving to /demo inside the app switches backend too; moving anywhere else
+       only leaves the demo if nobody is signed in to it. Clearing the flag
+       under a live demo session would point a demo token at the real API. */
+    if (name === "demo") setDemo(true);
+    else if (!getToken()) setDemo(false);
     setScreen(name ? { name } : null);
   };
   const [data, setData] = useState(null);
@@ -594,8 +607,19 @@ export default function App() {
   };
 
   return (
-    <div className="dk">
+    <div className={"dk" + (inDemo() ? " isdemo" : "")}>
       <style>{ALL_CSS}</style>
+      {/* An unmissable, permanent reminder. The demo and the real workspace are
+          the same URL apart from a path, and somebody who forgets which one
+          they are in will eventually type something real into the wrong one. */}
+      {inDemo() && (
+        <div className="demobar" role="status">
+          Demo workspace — everything here is invented
+          <button className="doclink" onClick={() => { signOut(true); window.location.href = "/"; }}>
+            leave the demo
+          </button>
+        </div>
+      )}
       <Keys allowed={allowed} go={go} onPalette={() => setPalette(true)} onSheet={() => setKeysheet(true)} />
       {palette && <Palette api={api} allowed={allowed} chrome={chrome} onClose={() => setPalette(false)} />}
       {keysheet && <ShortcutSheet allowed={allowed} onClose={() => setKeysheet(false)} />}

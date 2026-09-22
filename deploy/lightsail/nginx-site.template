@@ -41,6 +41,34 @@ server {
         expires 30d;
     }
 
+    # The demo, as a PATH on this domain rather than a subdomain of it.
+    #
+    # /demo is an ordinary client-side route in the same bundle, so it needs no
+    # rule here — `location /` serves the app shell and the router takes over.
+    # What does need a rule is the demo's API: the bundle switches its base to
+    # /demo-api/ the moment /demo is opened (see frontend/src/api.js), and that
+    # prefix has to reach the OTHER gunicorn.
+    #
+    # Why not simply DEMO_LOGIN=1 on this workspace: DOCKET is single-tenant.
+    # One OrgSetting row, no tenant key on a tender, a bid or a supplier. The
+    # demo therefore needs its own database, which means its own process — and
+    # switching the one-click personas on here would put a password-free door
+    # onto the workspace holding real sealed bids.
+    #
+    # The trailing slash on the proxy_pass target is load-bearing: it replaces
+    # the matched /demo-api/ prefix with /api/, so the demo backend sees exactly
+    # the URLs it would see on its own domain and needs no knowledge of this.
+    location /demo-api/ {
+        proxy_pass http://127.0.0.1:__DEMO_PORT__/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+        proxy_connect_timeout 10s;
+        client_max_body_size 16m;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:__PORT__;
         proxy_set_header Host $host;
