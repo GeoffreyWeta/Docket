@@ -15,3 +15,8 @@ backend/data/vendors*.json
 # Per-deployment settings: SECRET_KEY (which is the bid encryption key),
 # DATABASE_URL, SMTP credentials. The .example files are the ones that travel.
 deploy/*.env
+
+# Throwaway design-preview harness: mounts the landing page once per design.
+# Its own header says it is deleted after the screenshots, so it is not a
+# build input and should not arrive in a clone.
+__harness.*
