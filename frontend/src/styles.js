@@ -61,7 +61,11 @@ export const CSS = `
 
   /* typefaces (structure: shared with dark) */
   --font-sans:'Geist Variable',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
-  --font-serif:'Source Serif 4 Variable',ui-serif,Charter,Georgia,serif;
+  /* Kept as a NAME, not a second typeface: the two places that ask for it
+     (a dialog heading, the auction's rolling digits) now resolve to the sans.
+     Aliased rather than deleted so nothing referencing it silently falls back
+     to Times. */
+  --font-serif:var(--font-sans);
   --font-mono:'Geist Mono Variable',ui-monospace,SFMono-Regular,Menlo,monospace;
   /* The display face is the SANS. Source Serif set the page titles and the
      headline figures, and a serif title over a dashboard reads as stationery

@@ -614,9 +614,9 @@ export default function App() {
           they are in will eventually type something real into the wrong one. */}
       {inDemo() && (
         <div className="demobar" role="status">
-          Demo workspace — everything here is invented
+          Demo · nothing here is real
           <button className="doclink" onClick={() => { signOut(true); window.location.href = "/"; }}>
-            leave the demo
+            leave
           </button>
         </div>
       )}
