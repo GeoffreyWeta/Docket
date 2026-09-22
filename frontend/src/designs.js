@@ -103,6 +103,7 @@ export const DESIGN_CSS = `
   --lp-ink:#101F16; --lp-muted:#485A4D; --lp-faint:#68796D;
   --lp-line:#DCE6CF; --lp-line2:#C2D2AF;
   --lp-accent:#3F6212; --lp-accent-2:#C6F24E; --lp-accent-tint:#EDF9D2;
+  --lp-accent-deep:#9FCE2C;
   --lp-on-accent:#16250A;
   --lp-band:#14351F; --lp-on-band:#F2F8E8; --lp-on-band-muted:#B9CFA9;
   --lp-radius:14px; --lp-radius-sm:10px;
@@ -112,6 +113,7 @@ export const DESIGN_CSS = `
   --lp-ink:#E9F2E4; --lp-muted:#A8B8A6; --lp-faint:#82927F;
   --lp-line:#22362A; --lp-line2:#2E4736;
   --lp-accent:#C6F24E; --lp-accent-2:#C6F24E; --lp-accent-tint:rgba(198,242,78,.14);
+  --lp-accent-deep:#9FCE2C;
   --lp-on-accent:#16250A;
   --lp-band:#0F2A18; --lp-on-band:#EAF5DC; --lp-on-band-muted:#AEC79C;
 }
@@ -126,6 +128,7 @@ export const DESIGN_CSS = `
   --lp-ink:#0E1A15; --lp-muted:#45554E; --lp-faint:#647468;
   --lp-line:#DBE4E0; --lp-line2:#C3D0CA;
   --lp-accent:#0F6F66; --lp-accent-2:#2FD6C3; --lp-accent-tint:#E2F6F3;
+  --lp-accent-deep:#1BA997;
   --lp-on-accent:#04231F;
   --lp-band:#101D1A; --lp-on-band:#F1F7F5; --lp-on-band-muted:#AFC3BD;
   --lp-radius:16px; --lp-radius-sm:12px;
@@ -135,6 +138,7 @@ export const DESIGN_CSS = `
   --lp-ink:#E8F1EE; --lp-muted:#A2B3AE; --lp-faint:#7C8D88;
   --lp-line:#1E2C28; --lp-line2:#2A3B36;
   --lp-accent:#2FD6C3; --lp-accent-2:#2FD6C3; --lp-accent-tint:rgba(47,214,195,.13);
+  --lp-accent-deep:#1BA997;
   --lp-on-accent:#04231F;
   --lp-band:#0E1917; --lp-on-band:#F1F7F5; --lp-on-band-muted:#AFC3BD;
 }
@@ -149,6 +153,7 @@ export const DESIGN_CSS = `
   --lp-ink:#22302B; --lp-muted:#51625B; --lp-faint:#6F807A;
   --lp-line:#CBD9D3; --lp-line2:#B2C4BC;
   --lp-accent:#9C5418; --lp-accent-2:#F0B384; --lp-accent-tint:#FBEADC;
+  --lp-accent-deep:#D08B52;
   --lp-on-accent:#2B1708;
   --lp-band:#3C4F47; --lp-on-band:#F4F1E9; --lp-on-band-muted:#BCC9C3;
   --lp-radius:20px; --lp-radius-sm:16px;
@@ -158,8 +163,58 @@ export const DESIGN_CSS = `
   --lp-ink:#E9EFEB; --lp-muted:#A6B4AE; --lp-faint:#82908A;
   --lp-line:#2A3531; --lp-line2:#38453F;
   --lp-accent:#F0B384; --lp-accent-2:#F0B384; --lp-accent-tint:rgba(240,179,132,.14);
+  --lp-accent-deep:#D08B52;
   --lp-on-accent:#2B1708;
   --lp-band:#2A3833; --lp-on-band:#F4F1E9; --lp-on-band-muted:#BCC9C3;
+}
+
+/* ------------------------------------------- what the page inherits from the app
+   The buttons and the drawings are app components rendered inside the landing
+   page, and they read app tokens — so without this block the most important
+   element on the page, the call to action, stayed house-green in all four
+   designs while everything around it changed. Rebinding those tokens inside
+   .lp is how a design reaches them without touching the signed-in workspace.
+
+   "drawn" is deliberately absent: it inherits the app's own --pri-* and --il-*
+   untouched, which is what keeps the house page identical to what shipped
+   rather than a re-derivation of it that is nearly the same.
+
+   The filled button is FLAT here, not the app's gradient. Three of these
+   accents are light — lime, teal, apricot — and carry --lp-on-accent as a dark
+   label; running a light-to-dark gradient under dark text is how you get a
+   label that is legible at the top and gone at the bottom. */
+.lp[data-design="bold"],
+.lp[data-design="night"],
+.lp[data-design="paper"]{
+  --pri-from:var(--lp-accent-2); --pri-to:var(--lp-accent-2);
+  --pri-from-h:var(--lp-accent-deep); --pri-to-h:var(--lp-accent-deep);
+  --pri-line:var(--lp-accent-deep); --on-brand:var(--lp-on-accent);
+  --pri-glow:var(--lp-accent-tint);
+}
+
+/* The drawings. These have to be set ON .illus and not inherited down to it:
+   ILLUS_CSS declares the whole --il-* palette on .illus itself, so a value put
+   on an ancestor never reaches the drawing. Scoping to
+   .lp[data-design] .illus matches its specificity and wins on order. */
+.lp[data-design="bold"] .illus,
+.lp[data-design="night"] .illus,
+.lp[data-design="paper"] .illus{
+  --il-tint:color-mix(in srgb,var(--lp-accent) 10%,transparent);
+  --il-ink:var(--lp-accent); --il-ink-2:var(--lp-accent-deep);
+  --il-paper:var(--lp-surface); --il-line:var(--lp-line2);
+  --il-cool:var(--lp-accent-2); --il-warm:var(--lp-accent);
+}
+/* Dark keeps the neutrals ILLUS_CSS chose and takes only the two accents.
+   That file spells out why, and it is worth not relearning: on a dark ground
+   the figure has to be the brightest neutral, and setting --il-ink to the
+   accent makes the figure and the seal it is reaching for the same colour. */
+:root[data-theme="dark"] .lp[data-design="bold"] .illus,
+:root[data-theme="dark"] .lp[data-design="night"] .illus,
+:root[data-theme="dark"] .lp[data-design="paper"] .illus{
+  --il-tint:color-mix(in srgb,var(--lp-accent) 18%,transparent);
+  --il-ink:var(--lp-ink); --il-ink-2:var(--lp-faint);
+  --il-paper:var(--lp-surface); --il-line:var(--lp-muted);
+  --il-cool:var(--lp-accent-2); --il-warm:var(--lp-accent-deep);
 }
 
 /* ================================================================ the bands
@@ -234,6 +289,22 @@ export const DESIGN_CSS = `
   border-color:rgba(255,255,255,.34)}
 .lphero.onband .btn:not(.pri):hover{background:rgba(255,255,255,.08)}
 
+/* ------------------------------------------------------- the bar (night)
+   The bar has to join the hero, not sit above it. Left alone it rendered as a
+   light strip directly on top of a dark hero — a hard seam across the top of
+   the page and the first thing the eye landed on. It stays dark after the
+   hero scrolls away, which is consistent rather than a bug: in this design the
+   bar is part of the frame, not part of the page. */
+.lp[data-design="night"] .lpbar{
+  background:color-mix(in srgb,var(--lp-band) 92%,transparent);
+  border-bottom-color:transparent;color:var(--lp-on-band)}
+.lp[data-design="night"] .lpbar .lplink{color:var(--lp-on-band-muted)}
+.lp[data-design="night"] .lpbar .lplink:hover{color:var(--lp-on-band)}
+/* The wordmark sets its own colour on .dkword, so putting a colour on the bar
+   never reached it and DOCKET rendered near-black on the near-black band. */
+.lp[data-design="night"] .lpbar .dkword{color:var(--lp-on-band)}
+.lp[data-design="night"] .lpbar .dkmark .dkm-paper{fill:var(--lp-band)}
+
 /* --------------------------------------------------- the tear line (paper)
    A perforation across a panel, the way a boarding pass is perforated. It is
    the one borrowed flourish that is also an argument: the product's whole
@@ -243,13 +314,19 @@ export const DESIGN_CSS = `
 .lp[data-design="paper"] .fig,
 .lp[data-design="paper"] .rung,
 .lp[data-design="paper"] .lpfaq{position:relative}
-.lp[data-design="paper"] .fig figcaption{position:relative;border-top:0}
-.lp[data-design="paper"] .fig figcaption::before{content:"";position:absolute;
-  top:0;left:var(--s3);right:var(--s3);height:1px;
-  background:repeating-linear-gradient(90deg,var(--lp-line2) 0 6px,transparent 6px 12px)}
+/* The perforation is the caption's own top border, and the two pseudo-elements
+   are the notches punched out of the card's edges. Drawing the dashes with a
+   repeating gradient and both notches with one box-shadow offset was a knot
+   that produced a dashed line and no notches; a dashed border and two circles
+   is the same picture and can be read. The notches are filled with the page
+   behind the card, which is what makes them look punched rather than drawn. */
+.lp[data-design="paper"] .fig figcaption{position:relative;
+  border-top:2px dashed var(--lp-line2)}
+.lp[data-design="paper"] .fig figcaption::before,
 .lp[data-design="paper"] .fig figcaption::after{content:"";position:absolute;
-  top:-9px;left:calc(var(--s3) * -1 - 9px);width:18px;height:18px;border-radius:50%;
-  background:var(--lp-bg);box-shadow:calc(100% + var(--s3) * 2 + 18px) 0 0 var(--lp-bg)}
+  top:-11px;width:20px;height:20px;border-radius:50%;background:var(--lp-bg)}
+.lp[data-design="paper"] .fig figcaption::before{left:-11px}
+.lp[data-design="paper"] .fig figcaption::after{right:-11px}
 .lp[data-design="paper"] .figstage{background:var(--lp-band)}
 .lp[data-design="paper"] .fenv{color:var(--lp-accent-2)}
 .lp[data-design="paper"] .fe-body{fill:var(--lp-band)}
