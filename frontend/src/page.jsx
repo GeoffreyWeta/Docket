@@ -182,6 +182,12 @@ export const PAGE_CSS = `
 /* ---- quiet figures ---- */
 .figures{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line);
   border-top:1px solid var(--line)}
+/* Figures that open the guide's foot sit directly under the foot's own rule,
+   so their border drew a second hairline twelve pixels below the first and the
+   numbers were pinched between the two. One line, then room: the separation
+   here is the space, not another border. Only when they lead — where an action
+   button comes first, the border is doing real work and stays. */
+.guidefoot .figures:first-child{border-top:0;margin-top:8px}
 .quiet{display:flex;flex-direction:column;gap:2px;padding:12px 14px;background:var(--card);min-width:0;
   font:inherit;text-align:left;border:0;color:inherit}
 .quietgo{cursor:pointer;transition:background var(--t) var(--ease)}

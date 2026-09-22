@@ -13,6 +13,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 
+import { DESIGNS } from "./designs";
 import { ICON_CSS, Icon } from "./icons";
 import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
 import { Dialog, Toasts, useToasts } from "./ui";
@@ -886,6 +887,87 @@ export function LogTab() {
   );
 }
 
+/* ---------------- the front page ----------------
+
+   The one screen in DOCKET that people who have never signed in will see, and
+   therefore the one whose look is not a preference belonging to whoever
+   happens to be logged in. It is set here, once, for the whole deployment.
+
+   WHAT THIS DOES NOT DO. It does not touch the signed-in workspace: nobody's
+   tender list changes colour because a visitor found the front page boring.
+   And it does not override light and dark, which stay the reader's own choice
+   inside whichever design is set — so each of the four below is really two,
+   and both halves are written in designs.js.
+
+   The change is live for the next visitor. There is no draft, no preview mode
+   and no scheduling, because a front page has one state and a switch that
+   could leave it in two is a worse problem than the one it solves. */
+
+function AppearanceTab({ current, onChanged, toast }) {
+  const [busy, setBusy] = useState("");
+
+  const choose = async (key) => {
+    if (key === current || busy) return;
+    setBusy(key);
+    try {
+      await req("/appearance/", { method: "POST", body: { landing: key } });
+      await onChanged();
+      const d = DESIGNS.find((x) => x.key === key);
+      toast.ok(`The front page is now ${d.label}`,
+               "Every visitor sees it from their next load.");
+    } catch (e) {
+      toast.warn("That didn't go through", e.message || "");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return (
+    <div className="card">
+      <div className="chead">
+        <h2>The front page</h2>
+        <span className="sub">
+          What a visitor sees at the address before they sign in. One choice for the
+          whole deployment; light and dark stay theirs.
+        </span>
+      </div>
+      <div className="cbody">
+        <div className="designgrid">
+          {DESIGNS.map((d) => {
+            const on = d.key === current;
+            return (
+              <button type="button" key={d.key}
+                      className={"designcard" + (on ? " on" : "")}
+                      aria-pressed={on}
+                      disabled={!!busy}
+                      onClick={() => choose(d.key)}>
+                <span className="designsw" aria-hidden="true">
+                  {d.swatch.map((c, i) => (
+                    <i key={i} style={{ background: c }} />
+                  ))}
+                </span>
+                <b>
+                  {d.label}
+                  {on && <span className="designnow">In use</span>}
+                  {busy === d.key && <span className="designnow">Saving…</span>}
+                </b>
+                <span className="designnote">{d.note}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="cbody" style={{ borderTop: "1px solid var(--line)" }}>
+        <div className="muted" style={{ fontSize: 12 }}>
+          Changing this is written to the console log and to the workspace's audit chain,
+          so &ldquo;who repainted the front page, and when&rdquo; is answerable later. Visitors
+          already on the page keep the old one until they reload.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- the demo fixture ----------------
 
    Removing the demo is the only irreversible thing in this console that is not
@@ -1049,8 +1131,8 @@ function greeting() {
   return "Good evening";
 }
 
-const TABS = [["people", "People"], ["roles", "Roles"], ["demo", "Demo data"],
-              ["log", "What has changed"]];
+const TABS = [["people", "People"], ["roles", "Roles"], ["front", "Front page"],
+              ["demo", "Demo data"], ["log", "What has changed"]];
 
 export default function SuperAdmin() {
   const [signedIn, setSignedIn] = useState(!!token());
@@ -1141,6 +1223,7 @@ export default function SuperAdmin() {
 
           {tab === "people" && <PeopleTab state={state} reload={reload} toast={toast} />}
           {tab === "roles" && <RolesTab state={state} reload={reload} toast={toast} />}
+          {tab === "front" && <AppearanceTab current={state.landing} onChanged={reload} toast={toast} />}
           {tab === "demo" && <DemoTab toast={toast} onCleared={reload} />}
           {tab === "log" && <LogTab />}
 
@@ -1161,6 +1244,33 @@ export default function SuperAdmin() {
 /* ---------------- console-only styling ---------------- */
 
 export const ADMIN_CSS = `
+/* ---- the front page tab ----
+   Four cards that are really one radio group. Pressed state is carried by
+   aria-pressed as well as the border, because "which one is on" is the entire
+   content of this screen and a colour is not an answer for everybody. */
+.designgrid{display:grid;gap:12px;grid-template-columns:minmax(0,1fr)}
+.designcard{display:grid;gap:8px;text-align:left;font:inherit;color:inherit;cursor:pointer;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;
+  transition:border-color var(--t) var(--ease),background var(--t) var(--ease)}
+.designcard:hover:not(:disabled){border-color:var(--line2);background:var(--sunk)}
+.designcard:disabled{cursor:progress;opacity:.7}
+.designcard.on{border-color:var(--brand-2);background:var(--brand-tint)}
+.designcard:focus-visible{outline:2px solid var(--brand-2);outline-offset:2px}
+.designcard b{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:650;
+  letter-spacing:-.015em}
+.designnow{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--brand);background:var(--brand-tint);border:1px solid var(--brand-2);
+  border-radius:999px;padding:2px 7px}
+.designcard.on .designnow{background:var(--card)}
+.designnote{font-size:12.5px;color:var(--muted);line-height:1.5}
+/* page · panel · accent · band, in that order */
+.designsw{display:flex;gap:0;border:1px solid var(--line2);border-radius:7px;overflow:hidden;
+  width:max-content}
+.designsw i{display:block;width:34px;height:22px}
+@media(min-width:760px){
+  .designgrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
 /* ---- demo fixture ---- */
 /* Two columns, because the decision is a comparison: what goes against what
    stays. Side by side is the whole argument. */

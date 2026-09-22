@@ -28,6 +28,7 @@
 import React, { useEffect, useState } from "react";
 
 import { BP } from "./breakpoints";
+import { designOf } from "./designs";
 import { Illus } from "./illus";
 import { Mark, Wordmark } from "./logo";
 import { reducedMotion, useReveal } from "./motion";
@@ -130,13 +131,91 @@ const FAQ = [
    "Yes, issued to your organisation. Otherwise the first stranger to find the address owns the workspace."],
 ];
 
+/* ------------------------------------------------------- the switched bands
+   Three pieces only some designs ask for. They are declared here rather than
+   inline so the page below still reads as one argument in seven sections, and
+   so the content is written once whichever design is wearing it. */
+
+/* The vocabulary, scrolling. The list is the real lifecycle in order, which is
+   why it can be a decoration and still be true — it names the seven states a
+   tender actually moves through in the product. Rendered twice so the loop has
+   something to run into; the second copy is hidden from screen readers, which
+   get the sentence once. */
+const LIFECYCLE = ["Drafted", "Approved", "Published", "Sealed",
+                   "Opened", "Scored", "Awarded"];
+
+function Marquee() {
+  const strip = (hidden) => (
+    <ul aria-hidden={hidden || undefined}>
+      {LIFECYCLE.map((w) => <li key={w}>{w}</li>)}
+    </ul>
+  );
+  return (
+    <div className="lpmarq" role="img"
+         aria-label={"The tender lifecycle: " + LIFECYCLE.join(", ") + "."}>
+      {strip(true)}
+      {strip(true)}
+    </div>
+  );
+}
+
+/* Four figures, and every one is a fact about the software rather than a claim
+   about a customer. The template these come from showed "3k+ successful
+   projects" beside a slider labelled 85%; inventing either on the front of a
+   product whose entire pitch is that it does not fake records would be the
+   page arguing against itself. */
+const FIGURES = [
+  ["0", "capabilities that can open a sealed bid early — including an administrator's"],
+  ["100%", "of events hash-chained to the one before"],
+  ["4", "roles built in, plus as many of your own as you need"],
+  ["1", "signature per level, and never on your own request"],
+];
+
+function Figures() {
+  return (
+    <div className="lpfigs">
+      {FIGURES.map(([n, what]) => (
+        <div key={what} data-reveal><b>{n}</b><span>{what}</span></div>
+      ))}
+    </div>
+  );
+}
+
+/* Hard facts under the hero, in the order they happen to a bid. No headings,
+   no cards, nothing to open — the point is that it answers "is this real"
+   without asking anybody to scroll. */
+const RAIL = [
+  ["Sealed", "Encrypted the moment it arrives"],
+  ["Opened", "By the clock, not by a person"],
+  ["Scored", "Blind, then reconciled on the record"],
+  ["Signed", "Hash-chained end to end"],
+];
+
+function Rail() {
+  return (
+    <div className="lprail" data-reveal>
+      {RAIL.map(([k, what]) => (
+        <div key={k}><b>{k}</b><span>{what}</span></div>
+      ))}
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------- the page */
 
 export function Landing({ cfg, onScreen }) {
   const demo = (cfg && cfg.demoUrl) || "";
   const canDemo = !!demo || !!(cfg && cfg.demoLogin);
   const [ask, setAsk] = useState(-1);
-  useReveal([]);
+  /* Which of the four the deployment wears. It comes from the server with the
+     rest of the config and there is no override here — not a prop, not a query
+     parameter, not a stored preference. A front page that different visitors
+     see differently is not a front page, and the one place it changes is the
+     administration console. `designOf` guarantees a real design even on the
+     first paint, before the config lands. */
+  const design = designOf(cfg && cfg.landing);
+  const flags = design.flags;
+  useReveal([design.key]);
 
   const goDemo = () => { if (demo) window.location.href = demo; else onScreen("demo"); };
   const goSetup = () => {
@@ -145,7 +224,7 @@ export function Landing({ cfg, onScreen }) {
   };
 
   return (
-    <div className="lp">
+    <div className="lp" data-design={design.key}>
       <header className="lpbar">
         <div className="lpwrap lpbarin">
           <Wordmark s={26} animate />
@@ -155,21 +234,26 @@ export function Landing({ cfg, onScreen }) {
       </header>
 
       {/* ------------------------------------------------------------ hero */}
-      <section className="lphero">
-        <div className="lpwrap lpherogrid">
-          <div>
-            <h1 data-reveal>Tenders you can<br /><em>prove</em> were fair.</h1>
-            <p className="lead" data-reveal>
-              Sealed bids. Blind scoring. Every signature on a chain an auditor can check.
-            </p>
-            <div className="lpacts" data-reveal>
-              <button className="btn pri lpbtn" onClick={goSetup}>Set up your company</button>
-              {canDemo && <button className="btn lpbtn" onClick={goDemo}>See it working</button>}
+      <section className={"lphero" + (flags.darkHero ? " onband" : "")}>
+        <div className="lpwrap">
+          <div className="lpherogrid">
+            <div>
+              <h1 data-reveal>Tenders you can<br /><em>prove</em> were fair.</h1>
+              <p className="lead" data-reveal>
+                Sealed bids. Blind scoring. Every signature on a chain an auditor can check.
+              </p>
+              <div className="lpacts" data-reveal>
+                <button className="btn pri lpbtn" onClick={goSetup}>Set up your company</button>
+                {canDemo && <button className="btn lpbtn" onClick={goDemo}>See it working</button>}
+              </div>
             </div>
+            <div data-reveal><SealFigure /></div>
           </div>
-          <div data-reveal><SealFigure /></div>
+          {flags.rail && <Rail />}
         </div>
       </section>
+
+      {flags.marquee && <Marquee />}
 
       {/* -------------------------------------------------------- promises */}
       <section className="lpsec">
@@ -182,6 +266,8 @@ export function Landing({ cfg, onScreen }) {
           ))}
         </div>
       </section>
+
+      {flags.figures && <Figures />}
 
       {/* ------------------------------------------------------------ steps */}
       <section className="lpsec tint">
@@ -275,7 +361,7 @@ export const LANDING_CSS = `
   --t5:13px;                     /* small   */
   --s1:4px; --s2:8px; --s3:16px; --s4:24px; --s5:40px; --s6:64px; --s7:96px;
   --settle:cubic-bezier(.16,1,.3,1);
-  background:var(--card);color:var(--ink);min-height:100dvh;overflow-x:clip;
+  background:var(--lp-bg);color:var(--lp-ink);min-height:100dvh;overflow-x:clip;
   font-size:var(--t4);line-height:1.6}
 
 /* The gutter is a token too, so the bar, the sections and the footer cannot
@@ -286,21 +372,21 @@ export const LANDING_CSS = `
 .lp h1{font-size:var(--t1);line-height:1.02;font-weight:700}
 .lp h2{font-size:var(--t2);line-height:1.1;font-weight:700}
 .lp h3{font-size:var(--t4);line-height:1.35;font-weight:600;letter-spacing:-.015em}
-.lp p{margin:0;color:var(--muted);text-wrap:pretty}
+.lp p{margin:0;color:var(--lp-muted);text-wrap:pretty}
 .lp .lead{font-size:var(--t3);line-height:1.55;max-width:36ch}
-.lplink{background:none;border:0;font:inherit;font-size:var(--t5);color:var(--muted);
+.lplink{background:none;border:0;font:inherit;font-size:var(--t5);color:var(--lp-muted);
   cursor:pointer;padding:var(--s1) 2px}
-.lplink:hover{color:var(--ink)}
+.lplink:hover{color:var(--lp-ink)}
 
 /* --------------------------------------------------------------- the detail
    Hover or focus. Capped in width so a long note cannot quietly become a
    paragraph again, and under 600px it drops to a static block on tap, because
    a floating bubble on a phone has nowhere to go. */
 .note{display:inline-flex;vertical-align:-2px;margin-left:var(--s2);position:relative;
-  color:var(--faint);cursor:help;border-radius:50%}
-.note:focus-visible{outline:2px solid var(--brand-2);outline-offset:2px}
+  color:var(--lp-faint);cursor:help;border-radius:50%}
+.note:focus-visible{outline:2px solid var(--lp-accent-2);outline-offset:2px}
 .note svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
-.note:hover,.note:focus{color:var(--brand)}
+.note:hover,.note:focus{color:var(--lp-accent)}
 .note em{position:absolute;left:50%;bottom:calc(100% + var(--s2));
   width:max-content;max-width:min(300px,72vw);padding:var(--s3);border-radius:12px;
   background:var(--tip-bg);color:var(--tip-ink);font-style:normal;font-size:var(--t5);
@@ -318,41 +404,41 @@ export const LANDING_CSS = `
 
 /* --------------------------------------------------------------------- bar */
 .lpbar{position:sticky;top:0;z-index:40;
-  background:color-mix(in srgb,var(--card) 88%,transparent);
-  backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+  background:color-mix(in srgb,var(--lp-bg) 88%,transparent);
+  backdrop-filter:blur(10px);border-bottom:1px solid var(--lp-line)}
 .lpbarin{display:flex;align-items:center;gap:var(--s3);padding-block:var(--s2)}
 .lpbarin .lplink{margin-left:auto}
 
 /* -------------------------------------------------------------------- hero */
 .lphero{padding-block:var(--s6) var(--s2)}
 .lpherogrid{display:grid;gap:var(--s5)}
-.lp h1 em{font-style:normal;color:var(--brand)}
+.lp h1 em{font-style:normal;color:var(--lp-accent)}
 .lphero .lead{margin-block:var(--s4)}
 .lpacts{display:flex;flex-wrap:wrap;gap:var(--s2)}
 .lpbtn{min-width:190px;justify-content:center;padding:var(--s3) var(--s4);font-size:var(--t4)}
 
 /* ------------------------------------------------------------- the figure */
-.fig{margin:0;border:1px solid var(--line);border-radius:18px;overflow:hidden;
-  background:var(--card);max-width:400px}
+.fig{margin:0;border:1px solid var(--lp-line);border-radius:var(--lp-radius);overflow:hidden;
+  background:var(--lp-surface);max-width:400px}
 .figstage{display:flex;align-items:center;justify-content:center;gap:var(--s3);
-  height:176px;background:var(--sunk)}
-.fenv{position:relative;display:grid;justify-items:center;gap:var(--s2);color:var(--brand)}
+  height:176px;background:var(--lp-sunk)}
+.fenv{position:relative;display:grid;justify-items:center;gap:var(--s2);color:var(--lp-accent)}
 .fenv svg{overflow:visible}
-.fe-body{fill:var(--card);stroke:currentColor;stroke-width:2.4;stroke-linejoin:round}
+.fe-body{fill:var(--lp-surface);stroke:currentColor;stroke-width:2.4;stroke-linejoin:round}
 .fe-flap{fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;
   stroke-linejoin:round}
-.fenv i{font-style:normal;font-family:var(--font-mono);font-size:var(--t5);color:var(--faint)}
+.fenv i{font-style:normal;font-family:var(--font-mono);font-size:var(--t5);color:var(--lp-faint)}
 .fwax{position:absolute;top:11px;width:11px;height:11px;border-radius:50%;
-  background:var(--wax);box-shadow:0 0 0 2.5px var(--card);
+  background:var(--wax);box-shadow:0 0 0 2.5px var(--lp-surface);
   transition:opacity 300ms var(--settle),transform 300ms var(--settle)}
-.fig figcaption{border-top:1px solid var(--line);padding:var(--s3) var(--s4);
+.fig figcaption{border-top:1px solid var(--lp-line);padding:var(--s3) var(--s4);
   display:grid;gap:var(--s1);min-height:78px;align-content:start}
 .fig figcaption b{font-size:var(--t4);font-weight:600;letter-spacing:-.015em}
-.fig figcaption span{font-size:var(--t5);color:var(--muted)}
+.fig figcaption span{font-size:var(--t5);color:var(--lp-muted)}
 .fig figcaption em{display:flex;gap:5px;margin-top:var(--s2)}
-.fig figcaption em i{width:18px;height:3px;border-radius:2px;background:var(--line2);
+.fig figcaption em i{width:18px;height:3px;border-radius:2px;background:var(--lp-line2);
   transition:background 300ms var(--settle)}
-.fig figcaption em i.on{background:var(--brand-2)}
+.fig figcaption em i.on{background:var(--lp-accent-2)}
 .ph-open .fwax{opacity:0;transform:scale(.4) translateY(8px)}
 @media(prefers-reduced-motion:no-preference){
   .ph-in .fenv{animation:envin 700ms var(--settle) both;animation-delay:calc(var(--n)*110ms)}
@@ -363,7 +449,7 @@ export const LANDING_CSS = `
 
 /* ---------------------------------------------------------------- sections */
 .lpsec{padding-block:var(--s6)}
-.lpsec.tint{background:var(--paper)}
+.lpsec.tint{background:var(--lp-bg2)}
 .lpsec > .lpwrap > h2{margin-bottom:var(--s5)}
 
 .lptrio{display:grid;gap:var(--s5)}
@@ -377,7 +463,7 @@ export const LANDING_CSS = `
 .lpsteps{list-style:none;margin:0;padding:0;display:grid;gap:var(--s4)}
 .lpsteps li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--s3);
   align-items:baseline}
-.lpsteps b{font-size:var(--t2);font-weight:700;color:var(--line2);line-height:.9;
+.lpsteps b{font-size:var(--t2);font-weight:700;color:var(--lp-line2);line-height:.9;
   letter-spacing:-.04em;font-variant-numeric:tabular-nums}
 
 .lpsplit{display:grid;gap:var(--s5);align-items:center}
@@ -385,13 +471,13 @@ export const LANDING_CSS = `
 .lpsplit h2{margin-bottom:var(--s3)}
 .lpladder{display:grid;gap:var(--s2)}
 .rung{display:flex;gap:var(--s3);align-items:center;justify-content:space-between;
-  background:var(--card);border:1px solid var(--line);border-radius:14px;
+  background:var(--lp-surface);border:1px solid var(--lp-line);border-radius:var(--lp-radius-sm);
   padding:var(--s3) var(--s4);margin-left:calc(var(--n) * var(--s3));font-size:var(--t4)}
 .rung span{font-weight:600;letter-spacing:-.015em}
-.rung i{font-style:normal;font-size:var(--t5);color:var(--muted);
+.rung i{font-style:normal;font-size:var(--t5);color:var(--lp-muted);
   font-family:var(--font-mono);white-space:nowrap}
-.rung.from{border-style:dashed;background:var(--sunk)}
-.rung.done{border-color:var(--green-2);background:var(--green-tint)}
+.rung.from{border-style:dashed;background:var(--lp-sunk)}
+.rung.done{border-color:var(--lp-accent);background:var(--lp-accent-tint)}
 @media(prefers-reduced-motion:no-preference){
   [data-reveal].seen .rung{animation:rungin 520ms var(--settle) both;
     animation-delay:calc(var(--n) * 110ms)}
@@ -399,28 +485,28 @@ export const LANDING_CSS = `
 @keyframes rungin{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:none}}
 
 /* --------------------------------------------------------------------- Q&A */
-.lpfaq{border-top:1px solid var(--line)}
-.qa{border-bottom:1px solid var(--line)}
+.lpfaq{border-top:1px solid var(--lp-line)}
+.qa{border-bottom:1px solid var(--lp-line)}
 .qa > button{width:100%;display:flex;align-items:center;gap:var(--s3);text-align:left;
   background:none;border:0;font:inherit;font-size:var(--t4);font-weight:600;
   letter-spacing:-.015em;color:inherit;padding-block:var(--s3);cursor:pointer}
 .qa > button i{margin-left:auto;flex-shrink:0;width:13px;height:13px;position:relative}
 .qa > button i::before,.qa > button i::after{content:"";position:absolute;inset:50% 0 auto;
-  height:2px;border-radius:2px;background:var(--faint);transition:transform 260ms var(--settle)}
+  height:2px;border-radius:2px;background:var(--lp-faint);transition:transform 260ms var(--settle)}
 .qa > button i::after{transform:rotate(90deg)}
 .qa.on > button i::after{transform:rotate(0)}
-.qa.on > button i::before,.qa.on > button i::after{background:var(--brand)}
+.qa.on > button i::before,.qa.on > button i::after{background:var(--lp-accent)}
 .qaa{display:grid;grid-template-rows:0fr;transition:grid-template-rows 280ms var(--settle)}
 .qa.on .qaa{grid-template-rows:1fr}
 .qaa > p{overflow:hidden;font-size:var(--t4);max-width:60ch}
 .qa.on .qaa > p{padding-bottom:var(--s3)}
 
 /* --------------------------------------------------------------------- CTA */
-.lpcta{padding-block:var(--s7);text-align:center;border-top:1px solid var(--line)}
+.lpcta{padding-block:var(--s7);text-align:center;border-top:1px solid var(--lp-line)}
 .lpcta .dkmark{margin:0 auto var(--s4)}
 .lpcta h2{margin-bottom:var(--s5)}
-.lpfoot{padding-block:var(--s4) var(--s5);border-top:1px solid var(--line);
-  background:var(--paper)}
+.lpfoot{padding-block:var(--s4) var(--s5);border-top:1px solid var(--lp-line);
+  background:var(--lp-bg2)}
 .lpfootin{display:flex;flex-wrap:wrap;gap:var(--s3);align-items:center;
   justify-content:space-between}
 .lpfootin > div{display:flex;flex-wrap:wrap;gap:var(--s4)}

@@ -457,6 +457,15 @@ DEFAULT_PROFILE = {k: "" for k in PROFILE_FIELDS}
 DEFAULT_PROFILE.update({"country": "Nigeria", "currency": "NGN",
                         "timezone": "Africa/Lagos", "fiscalYearStart": "01-01"})
 
+# The front page comes in four designs. The keys live here because two
+# surfaces have to agree on them — auth/config/ serves the chosen one to every
+# visitor, and the administration console is the only place it can be changed —
+# and a list that lived in the frontend could be edited by whoever is asking.
+# Adding a fifth means a key here AND a block in frontend/src/designs.js;
+# anything the console sends that is not in this tuple is refused.
+LANDING_DESIGNS = ("drawn", "bold", "night", "paper")
+DEFAULT_LANDING = "drawn"
+
 DEFAULT_SETTINGS = {
     "approvalThreshold": 50_000_000,
     # The delegation-of-authority ladder. Empty means the single threshold
@@ -465,6 +474,10 @@ DEFAULT_SETTINGS = {
     "dimensions": DEFAULT_DIMENSIONS,
     "profile": DEFAULT_PROFILE,
     "logo": "",
+    # Which of LANDING_DESIGNS the front door wears. One setting for the whole
+    # deployment: a visitor is not asked to pick a skin, and neither is anyone
+    # on the team — see admin_views.admin_appearance for who may change it.
+    "landing": DEFAULT_LANDING,
 }
 
 
@@ -491,6 +504,14 @@ def clean_profile(given, current=None):
 
 def org_name():
     return org_settings()["name"]
+
+
+def landing_design():
+    """The front page's design, always one of LANDING_DESIGNS. A workspace that
+    stored a design that has since been removed falls back to the default
+    rather than serving a page with no tokens."""
+    want = org_settings().get("landing")
+    return want if want in LANDING_DESIGNS else DEFAULT_LANDING
 
 
 def ref_prefix():

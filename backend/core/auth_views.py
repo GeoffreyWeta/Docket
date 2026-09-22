@@ -101,7 +101,7 @@ def _demo_accounts():
 @csrf_exempt
 def auth_config(request):
     from .setup_views import needs_setup
-    from .views import org_settings
+    from .views import landing_design, org_settings
     return JsonResponse({
         "demoLogin": settings.DEMO_LOGIN,
         "accounts": _demo_accounts() if settings.DEMO_LOGIN else [],
@@ -118,6 +118,11 @@ def auth_config(request):
         # one rather than linking somewhere that does not exist.
         "demoUrl": settings.DEMO_URL,
         "orgName": org_settings()["name"],
+        # Which of the four front-page designs this deployment wears. Served
+        # here rather than from a settings endpoint because the landing page is
+        # read by people who are not signed in and never will be, and this is
+        # the one call it already makes before first paint.
+        "landing": landing_design(),
     })
 
 

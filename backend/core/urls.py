@@ -21,6 +21,7 @@ admin_urlpatterns = [
     path("admin/users/<int:uid>/mfa_reset/", admin_views.admin_reset_mfa),
     path("admin/users/<int:uid>/delete/", admin_views.admin_delete_user),
     path("admin/demo/", admin_views.admin_demo),
+    path("admin/appearance/", admin_views.admin_appearance),
 ]
 
 # The outbound data feed. Versioned in the path and authenticated by its own

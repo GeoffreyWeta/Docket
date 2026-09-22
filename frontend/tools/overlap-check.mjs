@@ -39,7 +39,12 @@ const EXPORTS = [
   ["scorecards.jsx", "SCORECARD_CSS"], ["buyer.jsx", "MENU_CSS"], ["ui.jsx", "BOOT_CSS"],
   ["palette.jsx", "PALETTE_CSS"], ["charts-css.js", "CHART_CSS"],
   ["campaign.jsx", "CAMPAIGN_CSS"], ["finance.jsx", "FINANCE_CSS"],
-  ["baselines.jsx", "BASELINE_CSS"], ["superadmin.jsx", "ADMIN_CSS"],
+  ["baselines.jsx", "BASELINE_CSS"],
+  // The front page and its four designs. DESIGN_CSS follows LANDING_CSS here
+  // exactly as it does in ALL_CSS, because the `paper` tear line and the dark
+  // hero are overrides that only win if they are read second.
+  ["landing.jsx", "LANDING_CSS"], ["designs.js", "DESIGN_CSS"],
+  ["superadmin.jsx", "ADMIN_CSS"],
 ];
 
 /** Pull `export const NAME = \`...\`` out of a module. */

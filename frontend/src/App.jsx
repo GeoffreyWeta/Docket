@@ -24,6 +24,7 @@ import { allowedPages, homePage } from "./perms";
 import { ICON_CSS, Icon } from "./icons";
 import { MOTION_CSS, hasViewTransitions, useReveal, withViewTransition } from "./motion";
 import { BASELINE_CSS } from "./baselines";
+import { DESIGN_CSS } from "./designs";
 import { LANDING_CSS, Landing } from "./landing";
 import { LOGO_CSS, Wordmark } from "./logo";
 import { CAMPAIGN_CSS } from "./campaign";
@@ -43,7 +44,7 @@ import {
 const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS
   + SCORECARD_CSS + MENU_CSS + BOOT_CSS + PALETTE_CSS + CHART_CSS + CAMPAIGN_CSS
   + FINANCE_CSS + BASELINE_CSS + LIFECYCLE_CSS + ILLUS_CSS + DRAFT_CSS + PAGE_CSS
-  + LANDING_CSS + LOGO_CSS + CHAIN_CSS;
+  + LANDING_CSS + DESIGN_CSS + LOGO_CSS + CHAIN_CSS;
 
 /* Where you land and where you may go are both read off the capabilities the
    server sent with the bootstrap payload — see perms.js. Nothing here enumerates

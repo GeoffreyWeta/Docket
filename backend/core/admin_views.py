@@ -33,6 +33,7 @@ from .permissions import (ADMIN_ROLE, ALL_KEYS, BUYER_ROLES, CATALOGUE,
                           SUPPLIER_ROLE, assignable_roles, custom_roles,
                           defaults_for, grantable_for, resolve, role_label)
 from .util import now_ms, record_event, rid
+from .views import DEFAULT_LANDING, LANDING_DESIGNS, landing_design
 
 LOCKOUT_ATTEMPTS = 5
 LOCKOUT_WINDOW_MS = 15 * 60 * 1000
@@ -226,6 +227,7 @@ def admin_state(request, admin, body):
             "customRoles": len(custom),
         },
         "demoLogin": settings.DEMO_LOGIN,
+        "landing": landing_design(),
     })
 
 
@@ -235,6 +237,46 @@ def admin_log(request, admin, body):
              "target": a.target, "detail": a.detail, "ip": a.ip}
             for a in AdminAudit.objects.all()[:300]]
     return JsonResponse({"entries": rows})
+
+
+# ---------------- the front page ----------------
+
+@guard(["POST"])
+def admin_appearance(request, admin, body):
+    """Choose which of the four designs the front page wears.
+
+    It lives in this console and not in workspace settings on purpose. The front
+    page is the one screen in DOCKET that people who have never signed in will
+    see, so changing it is not a preference belonging to whoever is logged in at
+    the time — it is a change to what the deployment looks like to everyone,
+    which is exactly the class of thing this console exists for. The workspace
+    settings page can rename the organisation and set the approval ladder; it
+    cannot repaint the front door.
+
+    There is no per-visitor override and no query parameter, because a front
+    page that different people see differently is not a front page. Light and
+    dark still follow the reader's own choice within whichever design is set.
+    """
+    from .models import OrgSetting
+    want = str(body.get("landing", "")).strip().lower()
+    if want not in LANDING_DESIGNS:
+        return _err("Unknown design: " + (want or "(none given)"))
+
+    row, _ = OrgSetting.objects.get_or_create(pk=1, defaults={"data": {}})
+    data = dict(row.data or {})
+    before = data.get("landing", DEFAULT_LANDING)
+    if before == want:
+        return JsonResponse({"landing": want, "changed": False})
+    data["landing"] = want
+    row.data = data
+    row.save(update_fields=["data"])
+
+    # Mirrored into the main audit chain: this changes what every visitor to the
+    # deployment sees, so "who repainted the front page, and when" is a question
+    # the tendering record should be able to answer too.
+    _log(request, admin, "Front page design changed", target=want,
+         detail=f"{before} → {want}", mirror=True)
+    return JsonResponse({"landing": want, "changed": True})
 
 
 # ---------------- roles ----------------
