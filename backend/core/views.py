@@ -462,8 +462,11 @@ DEFAULT_PROFILE.update({"country": "Nigeria", "currency": "NGN",
 # and a list that lived in the frontend could be edited by whoever is asking.
 # Adding a fifth means a key here AND a block in frontend/src/designs.js;
 # anything the console sends that is not in this tuple is refused.
-LANDING_DESIGNS = ("slate", "forest", "graphite", "ink")
-DEFAULT_LANDING = "slate"
+LANDING_DESIGNS = ("forest", "slate", "graphite", "ink")
+# Green, because the front page wears the parent brand. Kept in step with
+# DEFAULT_DESIGN in frontend/src/designs.js, which decides what the page
+# paints with before this config has arrived.
+DEFAULT_LANDING = "forest"
 
 DEFAULT_SETTINGS = {
     "approvalThreshold": 50_000_000,

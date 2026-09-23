@@ -7,12 +7,15 @@
    (landing.jsx, built on the section spine enterprise buyers already know from
    every vendor they have evaluated) and this file decides what colour it is.
 
-   WHY BLUE IS THE DEFAULT. The house colour was EatnGo's #00A651 — a food
-   brand's green: bright, warm, appetising. Right for a food business, wrong
-   for a product whose entire claim is that a procurement record survives an
-   audit. `slate` is an institutional blue ramp: the register, the bank, the
-   regulator. `forest` keeps the EatnGo lineage but takes it somewhere serious
-   and is one console setting away if the parent brand must be visible.
+   WHY GREEN IS THE DEFAULT. The house colour is EatnGo's, and the front page
+   is the parent brand's front page before it is anything else, so `forest` is
+   what a visitor gets. It is not the brand's #00A651: that green is bright,
+   warm and appetising, which is right for a food business and wrong for a
+   product whose entire claim is that a procurement record survives an audit.
+   #0F6B45 is the same lineage taken somewhere serious, and it clears AA on
+   white at body size, which #00A651 does not. `slate` is the institutional
+   blue ramp and stays in the catalogue, one console setting away, for a
+   deployment that would rather not wear the parent brand at all.
 
    EVERY PAIR IS MEASURED, not eyeballed — text on surface, label on fill, and
    copy on the dark band all clear WCAG AA at the size they are actually set.
@@ -29,16 +32,16 @@ import { BP } from "./breakpoints";
    does not load this stylesheet and should not have to. */
 export const DESIGNS = [
   {
-    key: "slate",
-    label: "Slate",
-    swatch: ["#FFFFFF", "#F4F7FB", "#1D63C4", "#0B2A5B"],
-    note: "Institutional blue on white. The register, the bank, the regulator — what an enterprise buyer expects to see.",
-  },
-  {
     key: "forest",
     label: "Forest",
     swatch: ["#FFFFFF", "#F3F8F5", "#0F6B45", "#06301F"],
     note: "The EatnGo lineage, grown up. A deep green that reads as audit rather than agriculture.",
+  },
+  {
+    key: "slate",
+    label: "Slate",
+    swatch: ["#FFFFFF", "#F4F7FB", "#1D63C4", "#0B2A5B"],
+    note: "Institutional blue on white. The register, the bank, the regulator — what an enterprise buyer expects to see.",
   },
   {
     key: "graphite",
@@ -55,12 +58,20 @@ export const DESIGNS = [
 ];
 
 export const DESIGN_KEYS = DESIGNS.map((d) => d.key);
-export const DEFAULT_DESIGN = "slate";
+export const DEFAULT_DESIGN = "forest";
 
 /** Always a real palette. A workspace holding one since removed, or a config
-    fetch that failed, gets the default rather than an unstyled page. */
+    fetch that failed, gets the default rather than an unstyled page.
+
+    The fallback looks DEFAULT_DESIGN up by key rather than taking DESIGNS[0].
+    By position it only worked while the default happened to be listed first,
+    and the front page asks for a palette on its very first paint, before the
+    config has landed — so getting that fallback wrong means every visitor
+    sees the wrong colour for a moment. */
 export function designOf(key) {
-  return DESIGNS.find((d) => d.key === key) || DESIGNS[0];
+  return DESIGNS.find((d) => d.key === key)
+      || DESIGNS.find((d) => d.key === DEFAULT_DESIGN)
+      || DESIGNS[0];
 }
 
 export const DESIGN_CSS = `

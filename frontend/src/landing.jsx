@@ -8,9 +8,12 @@
    one SAP, Coupa, Ivalua and Jaggaer all use, because it is the order the
    evaluation happens in:
 
-     what it is · what it guarantees · how each guarantee works ·
-     what the numbers look like · what you buy · who else uses it ·
-     what an outsider says · what to read · what to do next · objections
+     what it is · what it guarantees · how it runs · how each guarantee
+     works · what the numbers look like · what you buy · what an outsider
+     says · what to read · what to do next · objections
+
+   "Who else uses it" belongs in that order and is missing on purpose: see the
+   note where it used to sit.
 
    THE MOTIF IS THE RECORD. Hairline rules, mono indices, tabular figures and
    almost no rounding: the page is laid out like the document it promises to
@@ -38,14 +41,13 @@
      numbers, the ones a visitor will meet ten seconds later if they click
      through. Nothing here is a number invented to look good.
 
-     PLACEHOLDERS STAY VISIBLE, AND LOOK DELIBERATE. Customer logos, the
-     outside quote and one metric are empty, because roughly half of what sells
-     enterprise software is proof and this page has none yet. Inventing a
-     customer would be the front page lying on behalf of a product whose whole
-     claim is that it does not. So the empty ones are drawn the way a drawing
-     office marks a reserved area — hatched, ruled, labelled — rather than left
-     as square brackets, which read as a page that was shipped unfinished
-     rather than as a page holding a space open.
+     WHAT IS NOT PROVEN YET IS NOT CLAIMED. Roughly half of what sells
+     enterprise software is proof, and this page has none yet: no customer has
+     agreed to be named. Inventing one would be the front page lying on behalf
+     of a product whose whole claim is that it does not. Two slots are
+     therefore still held open, drawn the way a drawing office marks a reserved
+     area rather than left as square brackets. The third, a wall of customer
+     stories, is gone until there is a story to put in it.
 
      COLOUR COMES FROM designs.js. Nothing here names a colour; every value is
      a --lp-* token, so the palette can change from the administration console
@@ -123,7 +125,7 @@ const LIVE = [
   ["KST-AUC-030", "Cooking oil, 12-month supply", "₦64,000,000", "5", "live", "Today 17:30"],
   ["KST-2026-011", "Cold-chain logistics, Lagos–Abuja", "₦86,000,000", "4", "scoring", "Closed 18 Sep"],
   ["KST-2026-017", "Generator maintenance, 6 sites", "₦42,000,000", "2", "sealed", "21 Oct 12:00"],
-  ["KST-2026-009", "Uniforms & PPE, all sites", "₦18,000,000", "6", "awarded", "—"],
+  ["KST-2026-009", "Uniforms & PPE, all sites", "₦18,000,000", "6", "awarded", "n/a"],
 ];
 
 const SEALED = [
@@ -149,17 +151,17 @@ const CHAIN = [
    carried no information the words did not already carry. */
 const BENEFITS = [
   ["Increase control",
-   "Every tender runs the same route — scope, criteria, approval, publication, sealing, opening, scoring, award. Nothing skips a step because somebody was in a hurry."],
+   "Every tender runs the same eight stops: scope, criteria, approval, publication, sealing, opening, scoring, award. Nothing skips a step because somebody was in a hurry."],
   ["Turn savings into value",
-   "Bids are compared against budget, against what you last paid, and against a computed baseline, so a saving is measured against the real cost of the item rather than against the highest quote that arrived."],
+   "Bids are compared against budget, against what you last paid, and against a computed baseline. A saving is measured against what the item really costs, not against the highest quote that arrived."],
   ["Reduce dispute risk",
-   "Bids are encrypted on arrival and sealing is time-based, not permission-based. No role in the system opens an envelope early, and an administrator holds every role there is."],
+   "Bids are encrypted on arrival and the seal breaks on the clock. No role in the system opens an envelope early, and an administrator holds every role there is."],
   ["Improve visibility",
-   "One register of live events, committed value, approvals in flight and vendor paperwork about to lapse — readable by finance without asking procurement for a spreadsheet."],
+   "One register of live events, committed value, approvals in flight and vendor paperwork about to lapse. Finance can read it without asking procurement for a spreadsheet."],
   ["Bring vendors on board",
-   "Vendors register once — bank details, TIN, CAC documents, categories — and carry that record into every tender they are invited to. Import an existing list and duplicates are reported, never merged silently."],
+   "Vendors file their bank details, TIN, CAC documents and categories once, then carry that record into every tender they are invited to. Import an existing list and duplicates are reported rather than merged."],
   ["Automate oversight",
-   "Approval limits, conflict-of-interest declarations and document checks run as rules in real time. A request above a limit climbs until somebody's authority covers it."],
+   "Approval limits, conflict-of-interest declarations and document checks run as rules in real time. A request above a limit climbs the reporting line until somebody's authority covers it."],
 ];
 
 /* THE FOUR ARGUMENTS THE PAGE HAS TO MAKE IN PICTURES. Each one is a claim a
@@ -170,16 +172,16 @@ const BENEFITS = [
    claims on the page get a real product panel instead, because they can. */
 const FEATURES = [
   ["chain", "Tamper-evident by construction",
-   "Every event carries the fingerprint of the one before it. Change a line after the fact and the chain stops verifying — which is a thing you can check, not a thing you have to believe.",
+   "Every event carries the fingerprint of the one before it. Change a line after the fact and the chain stops verifying, and anyone holding the auditor role can run that check themselves.",
    "One hash chain per workspace"],
-  ["score", "Nobody scores a name",
+  ["score", "Panels score the offer, not the vendor",
    "Evaluators see the offer and not the vendor behind it until the panel reconciles. Weights are fixed before bids open, so nobody can rebalance the criteria once they know who is winning.",
    "Weights frozen before opening"],
-  ["auction", "Watch the price come down",
-   "Run a category as a live reverse auction: rank-visible, minimum decrements, automatic extension when a bid lands in the closing minutes. The whole descent stays on the record.",
-   "Rank visible, identity not"],
-  ["register", "One registration, every tender",
-   "Vendors file bank details, TIN and CAC documents once and carry that record into every buyer who invites them. Expiries are tracked and chased before they lapse, not after.",
+  ["auction", "Prices that come down in public",
+   "Run a category as a live reverse auction with rank-visible bidding, minimum decrements and automatic extension when a bid lands in the closing minutes. The whole descent stays on the record.",
+   "Rank is visible, identity is not"],
+  ["register", "Verified once, reused everywhere",
+   "The register is shared, so a vendor verified for one buyer arrives at the next already verified. Document expiries are chased before they lapse rather than found afterwards.",
    "1,400 vendors on the register"],
 ];
 
@@ -222,19 +224,19 @@ const MODULES = [
   ["audit", "Audit & reporting", "Hash-chained event log, integrity verification, compliance exports and a read-only auditor role."],
 ];
 
-/* The fourth cover is `reserved` on purpose and matches the customer frames,
-   because the fourth resource is reserved too. One drawing for "this space is
-   being held open" is how a reader learns to read it. */
+/* The fourth cover is `reserved` on purpose, because the fourth resource is.
+   It is the only held slot left carrying a drawing, and it says so in its own
+   copy as well, so nobody has to decode the picture to learn it is empty. */
 const RESOURCES = [
   ["book", "Guide", "Running your first sealed tender", "Scope to award in fourteen steps, with the documents you need at each one."],
   ["grid", "Template", "A delegation-of-authority matrix that works", "Limits by level and category, with the questions to settle before you set them."],
   ["audit", "Briefing", "What an auditor actually asks for", "The eleven artefacts a procurement audit requests, and where each one lives."],
-  ["reserved", "Report", "Procurement practice in Nigerian mid-market firms", "Reserved for commissioned or cited research. Nothing invented goes in this slot."],
+  ["reserved", "Report", "Procurement practice in Nigerian mid-market firms", "In preparation. This slot takes commissioned or cited research only."],
 ];
 
 const FAQ = [
   ["Can an administrator read a sealed bid?",
-   "No. Sealing is time-based, not permission-based, so there is no capability anywhere in the system that opens an envelope early — and a superuser holds every capability there is. Opening is a recorded event that names who was present."],
+   "No. The seal breaks on the clock, so no capability anywhere in the system opens an envelope early, and a superuser holds every capability there is. Opening is a recorded event that names who was present."],
   ["We have four layers of management. Does it handle that?",
    "Then it collects four signatures. You set what each level may commit and who reports to whom, and a request climbs your own reporting line until somebody's limit covers the value. Nobody signs their own request, and a rejection anywhere ends the chain."],
   ["Can we bring our existing vendor list?",
@@ -440,7 +442,7 @@ export function Landing({ cfg, onScreen }) {
           <span className="lputillinks">
             <button className="lplink" onClick={() => onScreen("register")}>Vendor registration</button>
             <span aria-hidden="true">·</span>
-            <span>Nigeria — English</span>
+            <span>Nigeria · English</span>
           </span>
         </div>
       </div>
@@ -480,7 +482,7 @@ export function Landing({ cfg, onScreen }) {
       <div className="lpevent">
         <div className="lpwrap lpeventin">
           <b>EVENT</b>
-          <span>Nigerian Procurement Forum, Lagos — 5–7 October 2026. Two days on sealed tendering, evaluation practice and audit defence.</span>
+          <span>Nigerian Procurement Forum, Lagos. 5–7 October 2026, two days on sealed tendering, evaluation practice and audit defence.</span>
           <a href="#resources" className="lpmore">Explore the event</a>
         </div>
       </div>
@@ -509,9 +511,9 @@ export function Landing({ cfg, onScreen }) {
               <p className="lpkick">Tender &amp; spend management</p>
               <h1>Turn every tender into a record you can defend.</h1>
               <p className="lplead">
-                DOCKET unifies sourcing, vendor qualification, sealed bidding, blind evaluation and
-                delegated approval into one auditable process — encrypted end to end, governed by your
-                own reporting lines, and hash-chained so every decision stands up to review.
+                DOCKET runs sourcing, vendor qualification, sealed bidding, blind evaluation and
+                delegated approval as one auditable process. Encrypted end to end, governed by your own
+                reporting lines, and hash-chained so every decision stands up to review.
               </p>
               <div className="lpacts">
                 <button className="btn pri lpbtn" onClick={goSetup}>Request a demonstration</button>
@@ -570,7 +572,7 @@ export function Landing({ cfg, onScreen }) {
         <Section id="guarantees" tint>
           <Head label="What it guarantees"
                 title="Control spend without slowing the business down"
-                sub="Six outcomes procurement and finance teams report after moving their tendering onto one governed process." />
+                sub="What changes once every tender in the business runs the same way." />
           {/* The reveal is on the list, not on its cells. The hairlines between
               cells are the container's background showing through a 1px gap, so
               fading the cells in one at a time shows that background as a grey
@@ -594,11 +596,15 @@ export function Landing({ cfg, onScreen }) {
             is one continuous line rather than eight butted segments. */}
         <Section id="how">
           <Head label="How it works"
-                title="One route, every time, whoever is in a hurry"
+                title="Eight stops, in the same order, every time"
                 sub="A tender cannot skip a stop. The route is the same for a ₦2m stationery order and a ₦2bn build, and every stop writes an entry nobody can edit afterwards." />
+          {/* --d is each stop's turn. The reveal is on the list, so one
+              observer fires and the stops then arrive in order off their own
+              delay, which is what makes the route look like a route being
+              walked rather than eight circles appearing at once. */}
           <ol className="lprail" data-reveal>
             {STEPS.map(([icon, title, body], n) => (
-              <li key={title}>
+              <li key={title} style={{ "--d": n * 90 + "ms" }}>
                 <span className="lprailmark"><Icon n={icon} s={22} /></span>
                 <span className="lpnum">{String(n + 1).padStart(2, "0")}</span>
                 <h3>{title}</h3>
@@ -612,12 +618,11 @@ export function Landing({ cfg, onScreen }) {
           <div className="lpsplit">
             <div data-reveal>
               <p className="lpkick">Sealed bidding</p>
-              <h2>Bids nobody can open early — including you</h2>
+              <h2>Bids nobody can open early, including you</h2>
               <p>
                 Amounts, line prices and attachments are encrypted the moment a vendor submits, with a
-                key derived from the published deadline. Sealing is a property of time rather than a
-                permission somebody holds, so there is no role that can break an envelope early.
-                Opening is a recorded ceremony that names who was present.
+                key derived from the published deadline. The seal breaks on the clock, so no role can
+                open an envelope early. Opening is a recorded ceremony that names who was present.
               </p>
               <ul className="lplist">
                 <li>Encrypted at rest, keyed to the published deadline</li>
@@ -658,8 +663,8 @@ export function Landing({ cfg, onScreen }) {
             same ground, the same crop and the same weight. */}
         <Section id="features">
           <Head label="How each guarantee works"
-                title="The four things a screenshot cannot show you"
-                sub="A hash chain is invisible on screen. A blind panel looks exactly like a panel that is not blind. So these four are drawn — in the product's own vocabulary, with the product's own colours." />
+                title="How the guarantees actually work"
+                sub="The chain that makes tampering visible, the panel that cannot see a name, the auction that drives a price down in public, and the register every buyer shares." />
           <div className="lpfeat">
             {FEATURES.map(([art, title, body, spec], n) => (
               <article key={title} data-reveal style={{ transitionDelay: n * 70 + "ms" }}>
@@ -677,7 +682,7 @@ export function Landing({ cfg, onScreen }) {
         <Section id="analytics" tint>
           <Head label="Analytics"
                 title="Where the money went, and who agreed to it"
-                sub="These are the product's own charts, running on the demo workspace you can open from this page. Committed value is read off awarded tenders, so the figures move as awards land rather than being typed into a report at quarter end." />
+                sub="Live figures from the demo workspace you can open from this page. Committed value is read off awarded tenders, so it moves as awards land instead of being typed into a report at quarter end." />
 
           {/* Same as .lpindex: the row arrives whole, and each tile's counter
               starts on its own when the tile reaches the screen. */}
@@ -716,7 +721,7 @@ export function Landing({ cfg, onScreen }) {
               <ol className="lpchain">
                 {CHAIN.map(([who, role, detail, state]) => (
                   <li key={who} className={state}>
-                    <div className="lpchainwho">{who}{role && <span> — {role}</span>}</div>
+                    <div className="lpchainwho">{who}{role && <span>, {role}</span>}</div>
                     <div className="lpchaindetail">{detail}</div>
                   </li>
                 ))}
@@ -728,7 +733,7 @@ export function Landing({ cfg, onScreen }) {
             </div>
             <div data-reveal style={{ transitionDelay: "100ms" }}>
               <p className="lpkick">Delegation of authority</p>
-              <h2>An approval chain that walks your real organisation</h2>
+              <h2>An approval chain that follows your real reporting line</h2>
               <p>
                 You set what each level may commit and who reports to whom. A request climbs that line
                 until somebody's limit covers the value. Nobody signs their own request, a rejection
@@ -766,26 +771,12 @@ export function Landing({ cfg, onScreen }) {
           </ol>
         </Section>
 
-        <Section>
-          <Head label="Who else uses it" title="See how organisations are using DOCKET"
-                sub="These three frames are reserved, not decorative. Customer proof is the section enterprise buyers read first and the one part of this page nobody can write for us, so it stays visibly held open until a customer has agreed to what it says." />
-          <div className="lpstories">
-            {[0, 1, 2].map((n) => (
-              <article key={n} className="lpslot" data-reveal style={{ transitionDelay: n * 70 + "ms" }}>
-                {/* The hatch stays — it is what says "held open" — but the
-                    frame now carries the drawn reserved mark over it, so the
-                    slot reads as a composed empty frame rather than as a
-                    patch of texture with a word on it. */}
-                <div className="lpslotart">
-                  <Art n="reserved" />
-                  <span className="mono">RESERVED</span>
-                </div>
-                <h3>Customer story {n + 1}</h3>
-                <p>The result in their own words, what they ran before, and the one number that proves the change.</p>
-              </article>
-            ))}
-          </div>
-        </Section>
+        {/* WHERE THE CUSTOMER STORIES WERE. Three reserved frames stood here
+            holding the section enterprise buyers read first. Held frames are
+            honest, but three of them in a row still read as a page waiting for
+            its content, and there is no customer who has agreed to be named
+            yet. The section comes back whole when there is one story to put in
+            it, not before. git log has the markup. */}
 
         <Section dark className="lpband">
           {/* The chain, drawn once at scale and set into the band's own
@@ -798,23 +789,23 @@ export function Landing({ cfg, onScreen }) {
             <div data-reveal>
               <p className="lpkick">Independent assessment</p>
               <blockquote>
-                Reserved for an analyst, an auditor or an industry body — the sentence a sceptical
-                finance director needs to read before taking the meeting.
+                This space is held for an independent assessment by an analyst, an auditor or an
+                industry body.
               </blockquote>
-              <p className="lpattr">Awaiting an outside name. We are not going to write one for them.</p>
+              <p className="lpattr">Awaiting an outside name. We will not be writing one ourselves.</p>
             </div>
             <div className="lpfigs" data-reveal style={{ transitionDelay: "100ms" }}>
               <div><b>0</b><span>capabilities that open a sealed bid before its deadline</span></div>
               <div><b>100%</b><span>of events hash-chained to the one before them</span></div>
               <div><b>1,400</b><span>vendors on the register, verified once and reused</span></div>
-              <div className="pend"><b>—</b><span>your own metric: tenders run, value governed, days saved</span></div>
+              <div className="pend"><b>yours</b><span>tenders run, value governed, days saved</span></div>
             </div>
           </div>
         </Section>
 
         <Section id="resources" tint>
           <Head label="What to read" title="Featured resources"
-                sub="Written here, not licensed from anywhere. Each one is the thing we were asked for often enough to be worth writing down." />
+                sub="Four documents we were asked for often enough to sit down and write." />
           <div className="lpres">
             {RESOURCES.map(([art, kind, title, body], n) => (
               <article key={title} data-reveal style={{ transitionDelay: n * 60 + "ms" }}>
@@ -916,6 +907,10 @@ export const LANDING_CSS = `
   /* One hairline, one lift. Both are derived from --lp-pri-dark because that
      token is the only one that stays dark in BOTH themes — a shadow mixed out
      of --lp-ink turns into a halo the moment the reader switches to dark. */
+  /* The overshoot curve from motion.js (EASE.press), which only existed in
+     JS. Stamps and seals land with it, so the marks that arrive on this
+     page land with it too. */
+  --lp-press:cubic-bezier(.34,1.56,.64,1);
   --lp-hair:1px solid var(--lp-line);
   --lp-lift:0 1px 2px color-mix(in srgb,var(--lp-pri-dark) 12%,transparent),
             0 18px 40px -24px color-mix(in srgb,var(--lp-pri-dark) 46%,transparent);
@@ -1178,9 +1173,39 @@ export const LANDING_CSS = `
    steps: a tinted ground, a hairline in the primary and an icons.jsx glyph
    inside. At this size a drawing is mud and a glyph is legible, which is the
    whole reason the plate exists rather than a scene. */
-.lpplate{width:44px;height:44px;flex:none;display:inline-grid;place-items:center;
-  color:var(--lp-pri);background:var(--lp-pri-tint);border-radius:var(--lp-radius);
+.lpplate{position:relative;width:44px;height:44px;flex:none;display:inline-grid;
+  place-items:center;color:var(--lp-pri);background:var(--lp-pri-tint);
+  border-radius:var(--lp-radius);
   border:1px solid color-mix(in srgb,var(--lp-pri) 26%,transparent)}
+
+/* HOW THE MARKS BEHAVE. One treatment for both the plates and the rail stops,
+   because they are the same object at two jobs and two hover states would be
+   two things to keep in step. On hover the mark inverts — tint to solid, ink
+   to on-pri — lifts on the overshoot curve, and pushes one ring out of its own
+   edge. The ring is drawn on ::after at inset -1px so it starts exactly on the
+   border it is leaving, rather than as a shadow that blooms from nowhere.
+
+   The glyph scales a little LESS than the plate does. Scaling both by the same
+   amount reads as a zoom; scaling the ground slightly more reads as the mark
+   being pressed, which is the vocabulary this product already has. */
+.lpplate,.lprailmark{transition:background 260ms var(--ease),color 260ms var(--ease),
+  border-color 260ms var(--ease),transform 320ms var(--lp-press)}
+.lpplate .ic,.lprailmark .ic{transition:transform 320ms var(--lp-press)}
+.lpplate::after,.lprailmark::after{content:"";position:absolute;inset:-1px;
+  border-radius:inherit;border:2px solid var(--lp-pri);opacity:0;pointer-events:none}
+@keyframes lp-ping{from{opacity:.6;transform:scale(1)}to{opacity:0;transform:scale(1.65)}}
+@media(hover:hover){
+  .lprail li:hover .lprailmark,
+  .lprows li:hover .lpplate,
+  .lpnext article:hover .lpplate{background:var(--lp-pri);border-color:var(--lp-pri);
+    color:var(--lp-on-pri);transform:translateY(-3px) scale(1.07)}
+  .lprail li:hover .lprailmark .ic,
+  .lprows li:hover .lpplate .ic,
+  .lpnext article:hover .lpplate .ic{transform:scale(1.04)}
+  .lprail li:hover .lprailmark::after,
+  .lprows li:hover .lpplate::after,
+  .lpnext article:hover .lpplate::after{animation:lp-ping 620ms var(--ease)}
+}
 
 /* ------------------------------------------------------------- the rail
    Eight stops on one rule. The rule is drawn as a SEGMENT UNDER EACH STOP
@@ -1198,6 +1223,28 @@ export const LANDING_CSS = `
 .lprailmark{position:absolute;left:0;top:0;width:44px;height:44px;display:grid;place-items:center;
   color:var(--lp-pri);background:var(--lp-card);border:var(--lp-hair);border-radius:50%;
   box-shadow:0 0 0 5px var(--lp-bg)}
+
+/* THE ROUTE BEING WALKED. Each stop lands on the overshoot curve at its own
+   turn, and the rule to the next stop draws itself once that stop is down.
+   Both use backwards rather than both: backwards holds the FROM state
+   during the delay and then lets go completely, so the finished mark is back
+   under ordinary CSS and hover still owns its transform. With both the last
+   keyframe sticks, outranks the hover rule, and the mark stops responding to
+   the pointer for the rest of the session. */
+@keyframes lp-stop{
+  0%{opacity:0;transform:scale(.5)}
+  60%{opacity:1;background:var(--lp-pri);border-color:var(--lp-pri);color:var(--lp-on-pri)}
+  100%{opacity:1}
+}
+@keyframes lp-draw{from{transform:scale(0)}}
+.lprail.seen .lprailmark{animation:lp-stop 620ms var(--lp-press) var(--d,0ms) backwards}
+.lprail li::before{transform-origin:top center}
+.lprail.seen li::before{animation:lp-draw 380ms var(--ease) calc(var(--d,0ms) + 240ms) backwards}
+@media(prefers-reduced-motion:reduce){
+  .lprail.seen .lprailmark,.lprail.seen li::before{animation:none}
+  .lpplate,.lprailmark,.lpplate .ic,.lprailmark .ic{transition:none}
+  .lpplate::after,.lprailmark::after{display:none}
+}
 .lprail .lpnum{margin-bottom:2px}
 .lprail p{font-size:13.5px;line-height:1.5;margin-top:3px}
 
@@ -1328,24 +1375,6 @@ export const LANDING_CSS = `
    .lpmore carries by default would add a second one on top of it. */
 .lprows .lpmore{margin-top:0}
 
-/* ------------------------------------------------------- reserved frames
-   Hatched, ruled and labelled: the drawing-office convention for an area held
-   open on purpose. The previous version put "[CUSTOMER LOGO]" in a solid dark
-   block, which looked like a page that had shipped before its images did. */
-.lpstories{display:grid;gap:var(--s4)}
-.lpslot{border:1px dashed var(--lp-line-2);background:var(--lp-bg);padding:var(--s4)}
-.lpslotart{position:relative;display:grid;place-items:center;padding:var(--s3) var(--s4) var(--s5);
-  margin:calc(var(--s4) * -1) calc(var(--s4) * -1) var(--s4);
-  border-bottom:1px dashed var(--lp-line-2);
-  background-image:repeating-linear-gradient(45deg,transparent 0 9px,
-    color-mix(in srgb,var(--lp-line) 65%,transparent) 9px 10px)}
-.lpslotart .lpart{max-width:200px}
-.lpslotart span{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);
-  background:var(--lp-bg);border:var(--lp-hair);padding:4px 10px;
-  font-size:10px;letter-spacing:.18em;color:var(--lp-faint)}
-.lpslot h3{color:var(--lp-ink-2)}
-.lpslot p{font-size:14px;line-height:1.55;margin-top:var(--s2)}
-
 /* --------------------------------------------------------- the dark band
    The page's one loud moment. The figures are ruled like a statement of
    account, and the rules are mixed out of the band's own text colour so they
@@ -1448,7 +1477,7 @@ export const LANDING_CSS = `
   .lptiles{grid-template-columns:repeat(2,minmax(0,1fr))}
   .lpres{grid-template-columns:repeat(2,minmax(0,1fr))}
   .lpfeat{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .lpstories,.lpnext{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .lpnext{grid-template-columns:repeat(3,minmax(0,1fr))}
   /* The rail turns the corner: the mark goes above the words and its
      connector goes across to the next stop instead of down to it. The stop
      at the end of a row has nothing to reach, so it loses its segment —
@@ -1459,7 +1488,10 @@ export const LANDING_CSS = `
   .lprail li::before{left:52px;right:calc(var(--s4) * -1);top:21px;bottom:auto;
     width:auto;height:2px;display:block}
   .lprail li:nth-child(2n)::before,.lprail li:last-child::before{display:none}
-  .lprailmark{position:static;margin-bottom:var(--s3);box-shadow:none}
+  /* relative, not static: ::after is the hover ring and needs this element
+     to be its containing block. */
+  .lprailmark{position:relative;margin-bottom:var(--s3);box-shadow:none}
+  .lprail li::before{transform-origin:left center}
 }
 @media(min-width:${BP.tab}px){
   .lpnav{display:flex}
