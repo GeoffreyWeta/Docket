@@ -531,9 +531,6 @@ def round_collection(request, p, body, tid):
         return err(f"This event is {t.status} — no further rounds can be opened.", 409)
     if t.status in ("draft", "approval"):
         return err("Publish the event first. Round 1 is the event's own submission window.", 409)
-    if t.ttype == "AUC":
-        return err("A reverse auction is a single continuous competition — it has no rounds.", 409)
-
     try:
         deadline = int(body.get("deadline") or 0)
     except (TypeError, ValueError):

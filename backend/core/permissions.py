@@ -48,6 +48,7 @@ GROUPS = [
     ("pages", "Navigation", "Which sections appear in their sidebar."),
     ("tenders", "Tenders", "Drafting, publication and the documents attached to a tender."),
     ("bids", "Bids & evaluation", "Openings, scoring, and whose scores a person can see."),
+    ("auctions", "Reverse auctions", "Live price competitions: running the room and settling it."),
     ("award", "Award", "Recommending a winner and signing the award off."),
     ("suppliers", "Vendors", "The vendor register and prequalification."),
     ("workspace", "Workspace & people", "Team management and the approval matrix."),
@@ -86,6 +87,16 @@ PERMISSIONS = [
     ("bid.see_all_scores", "bids", "See the whole panel's scores", "Without this a scorer sees only their own marks — this is what keeps evaluation blind."),
     ("coi.declare", "bids", "Declare conflicts of interest", "Sign the conflict-of-interest declaration before scoring."),
     ("clarification.answer", "bids", "Answer clarifications", "Publish answers to vendor questions."),
+
+    ("page.auctions", "auctions", "Reverse auctions", "The auction list and the live rooms."),
+    ("auction.create", "auctions", "Create auctions", "Draft a reverse auction, its lots and its rules."),
+    ("auction.edit", "auctions", "Edit drafts", "Change lots, opening prices, decrements and the clock before the room opens."),
+    ("auction.invite", "auctions", "Invite vendors", "Decide who may bid, and send the invitations."),
+    ("auction.open", "auctions", "Open the room", "Start a scheduled auction and let prices be taken."),
+    ("auction.lifecycle", "auctions", "Pause, resume, close and cancel", "Stop the clock on a live room, restart it, close it early or abandon it. Closing settles every lot against its reserve."),
+    ("auction.monitor", "auctions", "See the live leaderboard", "Watch prices and vendor names while the room is open. Without this a person sees that an auction is running and not what anybody bid."),
+    ("auction.award", "auctions", "Award an auction", "Commit to the winning prices once the room has closed."),
+    ("auction.retract", "auctions", "Void a bid", "Strike a price from the record with a reason. The row stays; auctions are not editable, only annotated."),
 
     ("award.recommend", "award", "Recommend an award", "Put a bid forward to the approver, and withdraw that recommendation."),
     ("award.see_recommendation", "award", "See recommendations & letters", "The pending recommendation, the award memo and the issued letters."),
@@ -128,6 +139,8 @@ _PROCUREMENT = {
     "tender.extend", "tender.lifecycle", "tender.vendors", "tender.rounds",
     "bid.open", "bid.see_all_scores", "clarification.answer",
     "award.recommend", "award.see_recommendation",
+    "page.auctions", "auction.create", "auction.edit", "auction.invite",
+    "auction.open", "auction.lifecycle", "auction.monitor", "auction.retract",
     "supplier.prequalify", "supplier.invite", "supplier.import",
     "supplier.register", "supplier.suspend",
     "team.view", "team.invite", "team.org", "desk.see_reports", "settings.rename",
@@ -142,6 +155,10 @@ _EVALUATOR = {"page.evals", "page.audit", "bid.score", "coi.declare"}
 _APPROVER = {
     "page.approvals", "page.tenders", "page.scorecards", "page.audit", "page.finance",
     "tender.publish_decision", "award.decide",
+    # The same separation as a tender: procurement runs the room, the approver
+    # commits the money. auction.award is deliberately absent from _PROCUREMENT
+    # for exactly the reason award.decide is.
+    "page.auctions", "auction.monitor", "auction.award",
     "bid.see_all_scores", "award.see_recommendation",
     "settings.rename", "settings.threshold",
     "team.view", "desk.see_reports",
@@ -156,6 +173,7 @@ _APPROVER = {
 # reading the ledger is oversight, loading it is an operation.
 _AUDITOR = {
     "page.audit", "page.tenders", "page.scorecards", "page.finance",
+    "page.auctions", "auction.monitor",
     "bid.see_all_scores", "award.see_recommendation",
     "audit.integrity", "audit.export",
     "export.comparison", "export.memo", "export.compliance",

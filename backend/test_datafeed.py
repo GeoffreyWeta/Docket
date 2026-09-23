@@ -159,8 +159,13 @@ get("/api/v1/contracts/", key=FULL)
 ok("a full key can", True)
 
 idx = get("/api/v1/", key=PROC)
-ok("discovery shows only what this key reaches",
-   set(idx["entities"]) == {"tenders", "suppliers"}, str(sorted(idx["entities"])))
+# Derived from the registry rather than written out, so adding an entity does
+# not silently weaken this into asserting nothing.
+expected = {n for n, e in datafeed.ENTITIES.items() if e.scope == "feed.procurement"}
+ok("discovery shows exactly what this key reaches",
+   set(idx["entities"]) == expected, f"{sorted(idx['entities'])} vs {sorted(expected)}")
+ok("and nothing scoped to anything else",
+   not any(datafeed.ENTITIES[n].scope != "feed.procurement" for n in idx["entities"]))
 
 
 # ---------------------------------------------------------------- paging
@@ -262,6 +267,23 @@ seq = d["rows"][0]["seq"]
 d2 = get(f"/api/v1/deletions/?since_seq={seq}", key=FULL)
 ok("deletions are cursored", all(r["seq"] > seq for r in d2["rows"]))
 ok("the tombstone count grew", Tombstone.objects.count() > before)
+
+# A demo reset deletes every fixture row and recreates it under the same id, so
+# a tombstone can be a true record of something that happened to a row that is
+# alive again. Replaying it would delete a live row in the customer's warehouse.
+mark = get("/api/v1/deletions/", key=FULL)["cursor"]
+Supplier.objects.create(id="s_ghost", name="Ghost", category="ICT", location="Lagos")
+Supplier.objects.get(pk="s_ghost").delete()
+d = get(f"/api/v1/deletions/?since_seq={mark}", key=FULL)
+ok("a deleted row is tombstoned",
+   any(r["id"] == "s_ghost" for r in d["rows"]), str(d["rows"]))
+
+Supplier.objects.create(id="s_ghost", name="Ghost Again", category="ICT", location="Lagos")
+d = get(f"/api/v1/deletions/?since_seq={mark}", key=FULL)
+ok("a row that came back under the same id is NOT served as a deletion",
+   not any(r["id"] == "s_ghost" for r in d["rows"]), str(d["rows"]))
+ok("and the cursor still advances past the suppressed tombstone",
+   int(d["cursor"]) > int(mark), f"{mark} -> {d['cursor']}")
 
 
 # ---------------------------------------------------------------- the seal

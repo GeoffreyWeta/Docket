@@ -326,8 +326,6 @@ class Tender(Syncable, SpendDimensions):
     two_stage = models.BooleanField(default=False)
     tech_opened_at = models.BigIntegerField(null=True, blank=True)
     tech_threshold = models.IntegerField(default=70)     # min avg technical score (0-100) to reach stage 2
-    # reverse auctions (ttype="AUC"): live rank-visible bidding; deadline is the closing time
-    auction_min_decrement = models.BigIntegerField(default=0)
 
     # --- who owns it -------------------------------------------------------
     # Until now a tender belonged to nobody. Attribution existed only as an
@@ -656,16 +654,10 @@ class ActionToken(models.Model):
     used_at = models.BigIntegerField(null=True, blank=True)
 
 
-class AuctionBid(models.Model):
-    """One row per price submitted in a live reverse auction — the full movement history."""
-    id = models.CharField(primary_key=True, max_length=16)
-    tender = models.ForeignKey(Tender, on_delete=models.CASCADE, related_name="auction_bids")
-    supplier_id = models.CharField(max_length=16)
-    amount = models.BigIntegerField()
-    at = models.BigIntegerField()
-
-    class Meta:
-        ordering = ["at"]
+# AuctionBid used to live here: one row per price in a reverse auction that was
+# itself a Tender. Both are gone. An auction is its own event with its own lots,
+# and its prices are LotBid rows at the bottom of this file. Migration 0021
+# moved the data; 0022 dropped the table.
 
 
 class ApprovalStep(models.Model):
@@ -1146,3 +1138,285 @@ class ApiKey(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.prefix}...)"
+
+
+# =====================================================================
+#  Reverse auctions - a different event, not a kind of tender
+# =====================================================================
+#
+# These used to be Tender rows wearing ttype="AUC", and the seam showed: nine
+# branches of `if t.ttype == "AUC"` through the tender code, a rounds endpoint
+# that had to refuse them, a bid room that had to redirect them, and a sweep
+# that had to count their movements differently. The type flag was doing the
+# work that a separate model should do.
+#
+# They are separate now because they are genuinely a different event, and the
+# difference is not cosmetic:
+#
+#   A TENDER IS SEALED; AN AUCTION IS NOT. The whole architecture of a tender
+#   is that nobody sees a price until a recorded opening. An auction's entire
+#   mechanism is that bidders *do* see where they stand and respond to it. One
+#   is a closed envelope, the other is a live market. Sharing a table meant one
+#   model carrying two opposite promises about the same column.
+#
+#   A TENDER IS SCORED; AN AUCTION IS RANKED. Technical criteria, weights,
+#   blind panel scoring and conflict-of-interest declarations exist for a
+#   tender. An auction has already decided that price is the only open
+#   variable - qualification happens before the room opens, not after.
+#
+#   A TENDER HAS ROUNDS; AN AUCTION HAS A CLOCK. Extensions, lots, anti-sniping
+#   and proxy bidding have no meaning on a tender, and half of them could not
+#   be expressed on one without adding a column nothing else would ever read.
+#
+# What they still share is what should be shared: the vendor register, the org
+# chart, the spend dimensions Finance rolls up, and the hash chain - because an
+# auction award is exactly as much of an audit event as a tender award.
+
+class Auction(Syncable, SpendDimensions):
+    """A live reverse auction: one clock, one or more lots, price the only variable."""
+
+    # What a bidder is allowed to see of everyone else. Rank is the default and
+    # very deliberately so: showing live prices to competitors teaches every
+    # vendor in the room what the others' cost base is, and they remember it at
+    # the next event. Rank produces the same downward pressure and leaks
+    # nothing that outlives the auction. "blind" is for the rare case where
+    # even rank is too much - bidders see only their own price and the clock.
+    VISIBILITY = (("rank", "Rank only"), ("price", "Best price visible"),
+                  ("blind", "Nothing but your own bids"))
+
+    STATUS = (("draft", "Draft"), ("scheduled", "Scheduled"), ("live", "Live"),
+              ("paused", "Paused"), ("closed", "Closed"), ("awarded", "Awarded"),
+              ("cancelled", "Cancelled"))
+
+    id = models.CharField(primary_key=True, max_length=16)
+    ref = models.CharField(max_length=40, unique=True)
+    title = models.CharField(max_length=200)
+    scope = models.TextField(blank=True, default="")
+    terms = models.TextField(blank=True, default="")
+    status = models.CharField(max_length=12, default="draft")
+    visibility = models.CharField(max_length=8, default="rank")
+    currency = models.CharField(max_length=3, default="NGN")
+
+    # --- the clock ---------------------------------------------------------
+    # `scheduled_ends_at` is what was published and never moves. `ends_at` is
+    # what the clock actually says now, after any anti-snipe extension. Keeping
+    # both is what lets the award file show that the event closed nine minutes
+    # late *and why*, rather than appearing to have been published with the
+    # later time all along.
+    starts_at = models.BigIntegerField(null=True, blank=True)
+    scheduled_ends_at = models.BigIntegerField(null=True, blank=True)
+    ends_at = models.BigIntegerField(null=True, blank=True)
+    closed_at = models.BigIntegerField(null=True, blank=True)
+
+    # --- anti-sniping ------------------------------------------------------
+    # Without this the event is decided by network latency. A bid placed with
+    # four seconds left cannot be answered by anybody, however much room they
+    # had left in their price, so the winner is whoever's connection was
+    # quickest rather than whoever was cheapest - and the buyer never finds out
+    # what the second bidder would have done. Any bid inside the window pushes
+    # the close out, so the auction ends when bidding stops rather than when
+    # the clock happens to run out. The cap stops two bidders extending an
+    # event indefinitely.
+    snipe_window_ms = models.BigIntegerField(default=120_000)   # 2 minutes
+    extend_by_ms = models.BigIntegerField(default=120_000)      # 2 minutes
+    max_extensions = models.IntegerField(default=20)
+    extensions = models.JSONField(default=list, blank=True)     # [{at, to, bidId, supplierId}]
+
+    # Whether bidders are told the ceiling. Sometimes publishing it anchors the
+    # bidding usefully; sometimes it tells a vendor exactly how little they
+    # need to move. It is a per-event judgement, so it is a per-event setting.
+    ceiling_visible = models.BooleanField(default=True)
+    # Bidders must accept the rules before the room will take a price from
+    # them. Recorded per participant, because "they agreed to the terms" is a
+    # claim somebody eventually has to evidence.
+    require_acceptance = models.BooleanField(default=True)
+
+    owner = models.ForeignKey(Persona, null=True, blank=True, on_delete=models.SET_NULL,
+                              related_name="owned_auctions")
+    created_at = models.BigIntegerField(default=0)
+    created_by = models.CharField(max_length=120, blank=True, default="")
+
+    paused_at = models.BigIntegerField(null=True, blank=True)
+    paused_reason = models.CharField(max_length=300, blank=True, default="")
+    resumed_at = models.BigIntegerField(null=True, blank=True)
+    cancelled_at = models.BigIntegerField(null=True, blank=True)
+    cancel_reason = models.CharField(max_length=300, blank=True, default="")
+
+    awarded_at = models.BigIntegerField(null=True, blank=True)
+    awarded_by = models.CharField(max_length=120, blank=True, default="")
+    award_memo = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.ref} {self.title}"
+
+    def is_live(self, now=None):
+        """Live is a fact about the clock, not a word in a column.
+
+        A row can say "live" and be over; what decides whether the room takes a
+        price is the server's own time against the current close. Everything
+        that gates bidding asks this rather than reading `status`.
+        """
+        now = now if now is not None else _now_ms()
+        return (self.status == "live"
+                and (self.starts_at or 0) <= now
+                and (self.ends_at or 0) > now)
+
+
+class AuctionLot(Syncable):
+    """One line being competed. A single-lot auction is the ordinary case and
+    is still a lot, so nothing downstream needs two shapes to read."""
+
+    id = models.CharField(primary_key=True, max_length=16)
+    auction = models.ForeignKey(Auction, on_delete=models.CASCADE, related_name="lots")
+    number = models.IntegerField(default=1)
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True, default="")
+    qty = models.BigIntegerField(default=1)
+    uom = models.CharField(max_length=24, blank=True, default="")
+
+    # The opening price, and the most anybody may bid. A reverse auction with
+    # no ceiling is an invitation to bid anything at all and then negotiate,
+    # which is not an auction.
+    ceiling = models.BigIntegerField(default=0)
+
+    # Undisclosed. If the best price at close is still above it, the auction
+    # closes without an automatic winner and the buyer decides in the open
+    # rather than being bound by a number nobody met. Never shown to a bidder,
+    # and withheld from the data feed until the auction is over.
+    reserve = models.BigIntegerField(null=True, blank=True)
+
+    # How far a bid must beat the standing best. A percentage suits lots whose
+    # value spans orders of magnitude; an absolute figure suits everything
+    # else. Zero means any improvement counts, which is legitimate and is why
+    # it is allowed.
+    min_decrement = models.BigIntegerField(default=0)
+    decrement_is_pct = models.BooleanField(default=False)
+
+    status = models.CharField(max_length=12, default="open")   # open|closed|awarded|cancelled
+    awarded_to = models.CharField(max_length=16, blank=True, default="")
+    awarded_amount = models.BigIntegerField(null=True, blank=True)
+    awarded_at = models.BigIntegerField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["auction", "number"]
+        constraints = [models.UniqueConstraint(fields=["auction", "number"],
+                                               name="one_lot_number_per_auction")]
+
+    def __str__(self):
+        return f"{self.auction_id} lot {self.number}: {self.title}"
+
+    def step_to_beat(self, from_amount):
+        """The highest a bid may be and still count as beating `from_amount`."""
+        if self.min_decrement <= 0:
+            return from_amount - 1
+        if self.decrement_is_pct:
+            return from_amount - max(1, (from_amount * self.min_decrement) // 100)
+        return from_amount - self.min_decrement
+
+
+class AuctionParticipant(Syncable):
+    """A vendor's standing in one auction, and the evidence they were asked.
+
+    Separate from an invitation list held as a JSON array - which is how
+    tenders do it - because a participant accumulates facts: when they were
+    invited, how many times, whether the invitation bounced, when they accepted
+    the rules, when they first appeared in the room, whether they were
+    disqualified and why. A list of ids cannot hold any of that, and every one
+    of those facts is something somebody asks about afterwards.
+    """
+    id = models.CharField(primary_key=True, max_length=16)
+    auction = models.ForeignKey(Auction, on_delete=models.CASCADE, related_name="participants")
+    supplier_id = models.CharField(max_length=16)
+
+    invited_at = models.BigIntegerField(null=True, blank=True)
+    invite_count = models.IntegerField(default=0)
+    invite_error = models.CharField(max_length=200, blank=True, default="")
+    accepted_at = models.BigIntegerField(null=True, blank=True)   # accepted the rules
+    joined_at = models.BigIntegerField(null=True, blank=True)     # first seen in the room
+    withdrawn_at = models.BigIntegerField(null=True, blank=True)
+    disqualified = models.BooleanField(default=False)
+    disqualified_reason = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta:
+        ordering = ["auction", "supplier_id"]
+        constraints = [models.UniqueConstraint(fields=["auction", "supplier_id"],
+                                               name="one_participant_per_auction")]
+
+    @property
+    def may_bid(self):
+        return not self.disqualified and self.withdrawn_at is None
+
+
+class LotBid(Syncable):
+    """One price, submitted once. Append-only.
+
+    Never updated and never deleted: the movement history *is* the auction, and
+    a leaderboard that cannot be reconstructed from its own bid log is a
+    leaderboard nobody can check. A bidder who wants to correct a price bids
+    again; a buyer who has to void one sets `retracted_at`, which leaves the
+    row and the reason in place.
+    """
+    KINDS = (("manual", "Entered by the bidder"),
+             ("proxy", "Placed automatically from a standing instruction"))
+
+    id = models.CharField(primary_key=True, max_length=16)
+    lot = models.ForeignKey(AuctionLot, on_delete=models.CASCADE, related_name="bids")
+    # Denormalised so the common queries - this auction's movements, this
+    # vendor's history - do not have to join through lots on every poll.
+    auction = models.ForeignKey(Auction, on_delete=models.CASCADE, related_name="bids")
+    supplier_id = models.CharField(max_length=16, db_index=True)
+    amount = models.BigIntegerField()
+    at = models.BigIntegerField()
+    kind = models.CharField(max_length=8, default="manual")
+
+    # What the clock said when this landed, kept because "was this bid inside
+    # the extension window" is the question every disputed auction turns on,
+    # and recomputing it later against a close time that has since moved gives
+    # the wrong answer.
+    closes_at_bid_time = models.BigIntegerField(default=0)
+    extended = models.BooleanField(default=False)
+
+    retracted_at = models.BigIntegerField(null=True, blank=True)
+    retracted_reason = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta:
+        ordering = ["at", "id"]
+        indexes = [models.Index(fields=["lot", "amount"])]
+
+    @property
+    def live(self):
+        return self.retracted_at is None
+
+
+class ProxyBid(Syncable):
+    """A bidder's standing instruction: keep me leading, down to this floor.
+
+    The honest reason this exists is that a live auction otherwise rewards
+    whoever happens to be at their desk with a good connection. A vendor who
+    has decided their floor should be able to say so once and have the room
+    enforce it - that is the same price they would have bid manually, placed
+    without requiring them to sit and watch for an hour.
+
+    The floor is never shown to anybody, including the buyer, while the auction
+    is live: it is the vendor's walk-away price, and a buyer who could see it
+    would know exactly how much further the room could be pushed.
+    """
+    id = models.CharField(primary_key=True, max_length=16)
+    lot = models.ForeignKey(AuctionLot, on_delete=models.CASCADE, related_name="proxies")
+    supplier_id = models.CharField(max_length=16)
+    floor = models.BigIntegerField()          # will not bid below this
+    created_at = models.BigIntegerField(default=0)
+    cancelled_at = models.BigIntegerField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["lot", "supplier_id"]
+        constraints = [models.UniqueConstraint(fields=["lot", "supplier_id"],
+                                               condition=models.Q(cancelled_at__isnull=True),
+                                               name="one_live_proxy_per_lot")]
+
+    @property
+    def active(self):
+        return self.cancelled_at is None

@@ -1,7 +1,7 @@
 from django.urls import path
 
-from . import (account_views, admin_views, auth_views, export_views, feed_views,
-               finance_views, setup_views, procurement, views)
+from . import (account_views, admin_views, auction_views, auth_views, export_views,
+               feed_views, finance_views, invite_views, setup_views, procurement, views)
 
 # The administration console. Its own sign-in, its own token check (superuser or
 # nothing), and no link to it anywhere in the tendering UI.
@@ -37,7 +37,33 @@ feed_urlpatterns = [
     path("v1/<str:name>/", feed_views.entity),
 ]
 
-urlpatterns = admin_urlpatterns + feed_urlpatterns + [
+# Reverse auctions. Their own tree, because they are their own event: nothing
+# here hangs off /tenders/ and nothing under /tenders/ reaches in. See the
+# comment above Auction in models.py for why the two were separated.
+auction_urlpatterns = [
+    path("auctions/", auction_views.auction_list),
+    path("auctions/new/", auction_views.auction_create),
+    path("auctions/mine/", auction_views.my_auctions),
+    path("auctions/<str:aid>/", auction_views.auction_update),
+    path("auctions/<str:aid>/lots/", auction_views.lot_create),
+    path("auctions/<str:aid>/lots/<str:lid>/delete/", auction_views.lot_delete),
+    path("auctions/<str:aid>/participants/", auction_views.participants),
+    path("auctions/<str:aid>/participants/<str:pid>/disqualify/", auction_views.disqualify),
+    path("auctions/<str:aid>/open/", auction_views.auction_open),
+    path("auctions/<str:aid>/pause/", auction_views.auction_pause),
+    path("auctions/<str:aid>/resume/", auction_views.auction_resume),
+    path("auctions/<str:aid>/close/", auction_views.auction_close),
+    path("auctions/<str:aid>/cancel/", auction_views.auction_cancel),
+    path("auctions/<str:aid>/award/", auction_views.auction_award),
+    path("auctions/<str:aid>/room/", auction_views.room),
+    path("auctions/<str:aid>/accept/", auction_views.accept_terms),
+    path("auctions/<str:aid>/replay/", auction_views.auction_replay),
+    path("auctions/<str:aid>/lots/<str:lid>/bid/", auction_views.place_bid),
+    path("auctions/<str:aid>/lots/<str:lid>/limit/", auction_views.set_limit),
+    path("auctions/<str:aid>/bids/<str:bid_id>/retract/", auction_views.retract_bid),
+]
+
+urlpatterns = admin_urlpatterns + feed_urlpatterns + auction_urlpatterns + [
     path("health/", views.health),
     path("auth/config/", auth_views.auth_config),
     path("auth/login/", auth_views.login),
@@ -81,8 +107,6 @@ urlpatterns = admin_urlpatterns + feed_urlpatterns + [
     path("tenders/<str:tid>/bids/", views.bid_collection),
     path("tenders/<str:tid>/clarifications/", views.ask_clarification),
     path("tenders/<str:tid>/coi/", views.declare_coi),
-    path("tenders/<str:tid>/auction/", views.auction_state),
-    path("tenders/<str:tid>/auction/bids/", views.auction_bid),
     path("tenders/<str:tid>/docs/", views.upload_tender_doc),
 
     # --- the event lifecycle (procurement.py) ---
@@ -107,6 +131,11 @@ urlpatterns = admin_urlpatterns + feed_urlpatterns + [
     path("me/docs/<str:doc_id>/", views.delete_supplier_doc),
     path("team/", views.team),
     path("team/invite/", views.invite_team),
+    # Bulk invitations from a spreadsheet, for your own people and for vendors.
+    # Two calls, because sending a few hundred emails cannot be undone: parse
+    # shows who would be contacted, send takes back what was confirmed.
+    path("invites/parse/", invite_views.invite_parse),
+    path("invites/send/", invite_views.invite_send),
     path("suppliers/invite/", views.invite_vendor),
     path("suppliers/campaign/", views.vendor_campaign),
     path("suppliers/import/", views.import_suppliers),

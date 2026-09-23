@@ -61,8 +61,9 @@ from django.db.models import Q
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 
-from .models import (Bid, Contract, Event, GoodsReceipt, Invoice, Item, Payment,
-                     Persona, PurchaseOrder, Supplier, Tender, Tombstone)
+from .models import (Auction, AuctionLot, AuctionParticipant, Bid, Contract, Event,
+                     GoodsReceipt, Invoice, Item, LotBid, Payment, Persona,
+                     PurchaseOrder, Supplier, Tender, Tombstone)
 from .util import now_ms
 
 # Above the longest write transaction in this codebase by a wide margin. The
@@ -295,6 +296,77 @@ def payment_row(p):
     }
 
 
+def auction_row(a):
+    return {
+        "id": a.id, "ref": a.ref, "title": a.title, "status": a.status,
+        "visibility": a.visibility, "currency": a.currency,
+        "starts_at": a.starts_at, "ends_at": a.ends_at,
+        "scheduled_ends_at": a.scheduled_ends_at, "closed_at": a.closed_at,
+        # The gap between the two is the anti-snipe story in one number, and it
+        # is the figure somebody reviewing the award actually asks for.
+        "extended_by_ms": ((a.ends_at or 0) - (a.scheduled_ends_at or 0)
+                           if a.ends_at and a.scheduled_ends_at else 0),
+        "extension_count": len(a.extensions or []),
+        "snipe_window_ms": a.snipe_window_ms, "extend_by_ms": a.extend_by_ms,
+        "owner_id": a.owner_id, "created_at": a.created_at,
+        "cancelled_at": a.cancelled_at, "cancel_reason": a.cancel_reason or "",
+        "awarded_at": a.awarded_at, "awarded_by": a.awarded_by or "",
+        "lot_count": a.lots.count(),
+        **_dims(a),
+        "updated_at": a.updated_at,
+    }
+
+
+def auction_lot_row(l):
+    """The reserve travels only once the room is shut.
+
+    While an auction is live it is the buyer's undisclosed walk-away price, and
+    a warehouse is not a safe place for it: BI access is granted far more widely
+    than auction access, and one query against the mirror would tell a vendor
+    with a friend in finance exactly what to bid.
+    """
+    over = l.auction.status in ("closed", "awarded", "cancelled")
+    return {
+        "id": l.id, "auction_id": l.auction_id, "number": l.number,
+        "title": l.title, "qty": l.qty, "uom": l.uom or "",
+        "ceiling": l.ceiling,
+        "reserve": l.reserve if over else None,
+        "reserve_withheld": (not over) and l.reserve is not None,
+        "min_decrement": l.min_decrement, "decrement_is_pct": l.decrement_is_pct,
+        "status": l.status, "awarded_to": l.awarded_to or None,
+        "awarded_amount": l.awarded_amount, "awarded_at": l.awarded_at,
+        "updated_at": l.updated_at,
+    }
+
+
+def lot_bid_row(b):
+    """Auction prices are public to the room by design, so unlike a sealed bid
+    there is nothing to withhold here - which is exactly why the two are
+    different models. A retracted bid still travels, with its reason: the
+    movement history is the auction, and a warehouse that silently lost the
+    voided rows could not reconstruct what the buyer actually saw."""
+    return {
+        "id": b.id, "auction_id": b.auction_id, "lot_id": b.lot_id,
+        "supplier_id": b.supplier_id, "amount": b.amount, "at": b.at,
+        "kind": b.kind, "extended": b.extended,
+        "closes_at_bid_time": b.closes_at_bid_time,
+        "retracted_at": b.retracted_at,
+        "retracted_reason": b.retracted_reason or "",
+        "updated_at": b.updated_at,
+    }
+
+
+def auction_participant_row(x):
+    return {
+        "id": x.id, "auction_id": x.auction_id, "supplier_id": x.supplier_id,
+        "invited_at": x.invited_at, "invite_count": x.invite_count,
+        "accepted_at": x.accepted_at, "joined_at": x.joined_at,
+        "withdrawn_at": x.withdrawn_at, "disqualified": x.disqualified,
+        "disqualified_reason": x.disqualified_reason or "",
+        "updated_at": x.updated_at,
+    }
+
+
 # ---------------- the registry ----------------
 #
 # `select` is not an optimisation here, it is a correctness requirement:
@@ -318,6 +390,14 @@ ENTITIES = {e.name: e for e in [
     Entity("suppliers", Supplier, "feed.procurement", supplier_row),
     Entity("people", Persona, "feed.people", persona_row),
     Entity("bids", Bid, "feed.commercial", bid_row, select=("tender",)),
+    Entity("auctions", Auction, "feed.procurement", auction_row),
+    # select_related for the same reason bids do it: the serializer reads the
+    # parent auction's status to decide whether the reserve may travel yet.
+    Entity("auction_lots", AuctionLot, "feed.commercial", auction_lot_row,
+           select=("auction",)),
+    Entity("auction_bids", LotBid, "feed.commercial", lot_bid_row),
+    Entity("auction_participants", AuctionParticipant, "feed.procurement",
+           auction_participant_row),
     Entity("items", Item, "feed.commercial", item_row),
     Entity("contracts", Contract, "feed.commercial", contract_row),
     Entity("purchase_orders", PurchaseOrder, "feed.commercial", po_row),
@@ -386,23 +466,50 @@ def page(entity, cursor=None, limit=DEFAULT_LIMIT, now=None):
 
 
 def deletions_page(since_seq=0, limit=DEFAULT_LIMIT, entities=None):
-    """Tombstones after `since_seq`, oldest first.
+    """Tombstones after `since_seq`, oldest first, minus anything that came back.
 
     Cursored on the autoincrement rather than on time, because that is what a
     deletion has: it happened once, in an order, and is never revised.
+
+    RESURRECTION IS REAL AND HAD TO BE HANDLED. A row can be deleted and then
+    recreated under the same id - a demo reset does exactly that to every
+    fixture row, and so does any restore-from-file importer. The tombstone is a
+    true record of something that happened, but replaying it against a
+    warehouse would delete a row that exists right now. So a tombstone whose id
+    is alive again is not served: what the consumer needs is the current state,
+    and the recreated row reaches them through the entity feed with a fresh
+    `updated_at` regardless of the order the two feeds are read in.
+
+    The cursor still advances past every tombstone examined, including the
+    suppressed ones. Advancing only to the last *returned* row would re-examine
+    the same suppressed tombstones forever, and a page that filtered all of its
+    rows would never move at all.
     """
     limit = max(1, min(int(limit or DEFAULT_LIMIT), MAX_LIMIT))
     qs = Tombstone.objects.filter(seq__gt=int(since_seq or 0))
     if entities:
         qs = qs.filter(entity__in=entities)
-    rows = list(qs.order_by("seq")[: limit + 1])
-    more = len(rows) > limit
-    rows = rows[:limit]
+    scanned = list(qs.order_by("seq")[: limit + 1])
+    more = len(scanned) > limit
+    scanned = scanned[:limit]
+
+    # One existence query per entity in the page, not one per row.
+    wanted = {}
+    for t in scanned:
+        wanted.setdefault(t.entity, set()).add(t.row_id)
+    alive = {}
+    for name, ids in wanted.items():
+        ent = ENTITIES.get(name)
+        if ent:
+            alive[name] = {str(pk) for pk in
+                           ent.model.objects.filter(pk__in=ids).values_list("pk", flat=True)}
+
+    rows = [t for t in scanned if t.row_id not in alive.get(t.entity, ())]
     return {
         "entity": "deletions",
         "rows": [{"seq": t.seq, "entity": t.entity, "id": t.row_id, "at": t.at}
                  for t in rows],
-        "cursor": str(rows[-1].seq) if rows else str(int(since_seq or 0)),
+        "cursor": str(scanned[-1].seq) if scanned else str(int(since_seq or 0)),
         "has_more": more,
     }
 

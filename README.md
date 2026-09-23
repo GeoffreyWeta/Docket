@@ -389,6 +389,66 @@ ways:
 * on a schedule — `python manage.py run_sweep` from any cron (Render cron job,
   GitHub Action, etc.) if you want it firing even with zero traffic.
 
+## Reverse auctions (`/api/auctions/`)
+
+An auction is its own event, not a kind of tender. It has its own models, its
+own endpoints, its own capabilities and its own page; nothing about it hangs off
+`/tenders/`. The reason is not tidiness:
+
+* **A tender is sealed; an auction is not.** A tender's whole architecture is
+  that nobody sees a price until a recorded opening. An auction's whole
+  mechanism is that bidders *do* see where they stand and respond. One table
+  cannot carry two opposite promises about the same column.
+* **A tender is scored; an auction is ranked.** Criteria, weights, blind panel
+  scoring and conflict-of-interest declarations belong to a tender.
+  Qualification for an auction happens before the room opens.
+* **A tender has rounds; an auction has a clock.** Extensions, lots,
+  anti-sniping and proxy bidding have no meaning on a tender.
+
+What it does that a price-only tender could not:
+
+| | |
+|---|---|
+| **Anti-sniping** | Any bid inside the closing window pushes the close out. The auction ends when bidding stops, not when the clock runs out — otherwise the winner is whoever had the better connection and you never learn what the second bidder would have done. The published close is kept alongside the real one, so the award file shows it ran late *and why*. |
+| **Lots** | Bid per line, settle per line. A single-lot auction is still a lot, so nothing downstream needs two shapes. |
+| **Standing limits (proxy bids)** | A vendor sets their floor once; the room bids on their behalf, always the *least* it takes to lead and never the floor itself. The floor is shown to nobody, including the buyer. |
+| **Undisclosed reserve** | A lot whose best price never reached the reserve closes with **no winner**. Awarding it anyway would make the reserve decorative. |
+| **Visibility: rank / price / blind** | Rank is the default: live prices teach every vendor in the room what the others' cost base is, and they remember it next time. Rank gives the same downward pressure and leaks nothing that outlives the auction. A vendor never receives a competitor's identity in any mode. |
+| **Pause returns the time** | Resuming moves the close out by the length of the interruption, so bidders do not pay for a problem that was not theirs. |
+| **Replay** | Every movement, who led and for how long, and what triggered each extension. "How do you know it was competitive" is the question an award gets asked; a leaderboard alone does not answer it. |
+
+Separation of duties matches tendering: procurement runs the room
+(`auction.create`, `auction.open`, `auction.lifecycle`), the approver commits
+the money (`auction.award`). Bids are append-only — a bad price is voided with a
+reason, never deleted.
+
+    python test_auction.py      # 75 assertions
+
+## Inviting people in bulk
+
+Both sides of the workspace arrive as lists — the staff directory in one file,
+the approved vendor list in another. Upload either as `.xlsx` or `.csv`:
+
+    POST /api/invites/parse/     multipart: file, audience=people|vendors, role
+    POST /api/invites/send/      json: the rows you confirmed
+
+**Two steps, and that is the safety feature.** `parse` sends nothing; it reports
+exactly who would be written to and why each rejected row was rejected. `send`
+takes back only what a person confirmed. You cannot unsend an invitation to four
+hundred strangers, so the preview is the confirmation step rather than a
+convenience — a one-call importer means a mis-mapped column emails everybody
+before anybody sees a screen.
+
+Headers may be in any order and any case, need not be on the first row, and a
+file with **no** email column is scanned cell-by-cell rather than refused
+(plenty of real files put the address in a column called "Contact"). Duplicates
+inside the file, addresses that already have an account, and addresses with a
+still-valid pending invitation are all held back, each naming the row it clashed
+with. People get a persona *before* they get an email, so the org chart is
+intact from the first minute rather than from whenever the last person clicks.
+
+    python test_invites.py      # 31 assertions
+
 ## The data feed (`/api/v1/`)
 
 DOCKET is a source system. Rather than writing into a customer's warehouse — a

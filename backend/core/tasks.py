@@ -71,13 +71,9 @@ def run_sweep():
 
     # 2) Bid reminders: invited suppliers without a bid, deadline within 2 days.
     for t in Tender.objects.filter(status="published", deadline__gt=now, deadline__lt=now + 2 * DAY_MS):
-        if t.ttype == "AUC":
-            bidders = set(t.auction_bids.values_list("supplier_id", flat=True))
-            word = "auction bid"
-        else:
-            bidders = set(Bid.objects.filter(tender=t, round=t.active_round())
-                          .values_list("supplier_id", flat=True))
-            word = "sealed bid"
+        bidders = set(Bid.objects.filter(tender=t, round=t.active_round())
+                      .values_list("supplier_id", flat=True))
+        word = "sealed bid"
         rnd = t.active_round()
         for sid in (rnd.bidders() if rnd else t.invited):
             if sid not in bidders and _once(f"remind:{t.id}:{t.deadline}:{sid}"):
@@ -110,7 +106,7 @@ def run_sweep():
     from .notify import notify_users
     for t in Tender.objects.filter(status="evaluation"):
         opened = t.opened_at or t.tech_opened_at
-        if not opened or now - opened < 3 * DAY_MS or t.ttype == "AUC":
+        if not opened or now - opened < 3 * DAY_MS:
             continue
         bids = [b for b in t.bids.all() if not b.disqualified]
         for pid, user in evaluators:

@@ -2,10 +2,11 @@
 from django.conf import settings
 from django.contrib.auth.models import User
 
-from .models import (AccessRole, ActionToken, AuctionBid, AuthToken, Bid, ChainHead,
-                     Clarification, Contract, DemoFixture, Document, Event, FxRate,
-                     GoodsReceipt, Invoice, Notification, OrgSetting, Payment, Persona,
-                     ProcurementRound, Profile, PurchaseOrder, SourceSync, Supplier,
+from .models import (AccessRole, ActionToken, Auction, AuctionLot, AuctionParticipant,
+                     AuthToken, Bid, ChainHead, Clarification, Contract, DemoFixture,
+                     Document, Event, FxRate, GoodsReceipt, Invoice, LotBid,
+                     Notification, OrgSetting, Payment, Persona, ProcurementRound,
+                     Profile, PurchaseOrder, ProxyBid, SourceSync, Supplier,
                      TaskMark, Tender)
 from .util import (DAY_MS, award_letter, now_ms, record_event, regret_letter,
                    rid, seal_bytes, seal_json)
@@ -100,6 +101,11 @@ def wipe():
     # contracts reference tenders, and SET_NULL would otherwise leave a mirror
     # of orphaned rows behind a reset that claims to have removed everything.
     for m in (Payment, Invoice, GoodsReceipt, PurchaseOrder, Contract, FxRate, SourceSync):
+        m.objects.all().delete()
+    # Auctions before tenders and vendors. They cascade from Auction on their
+    # own, but naming them keeps this list a readable statement of everything a
+    # reset removes rather than a thing you have to trace foreign keys to check.
+    for m in (ProxyBid, LotBid, AuctionParticipant, AuctionLot, Auction):
         m.objects.all().delete()
     for m in (Notification, ActionToken, Document, TaskMark, Event,
               ChainHead, Clarification, Bid, ProcurementRound, Tender, Supplier,
@@ -330,21 +336,42 @@ def seed_all():
         scope=("Replacement of 410 POS terminals and 120 kitchen display screens across three brands. Includes staging, "
                "store-by-store deployment out of trading hours, staff orientation, and a 3-year advance-replacement warranty."),
     )
-    t7 = Tender(
-        id="t7", ref="KST-AUC-2026-030", title="Diesel supply for store generators — reverse auction", ttype="AUC",
-        category="Fuel, diesel & gas", owner_id="u7",
-        baseline=97_500_000, baseline_source="Trailing 90-day average pump price × volume", budget=90_000_000, status="published", published_at=T - d(1), deadline=T + d(0.085),
-        invited=["s2", "s3", "s7", "s6"], tech_weight=0, comm_weight=100, lines=[], addenda=[], criteria=[],
-        auction_min_decrement=500_000,
-        scope=("12-month supply of AGO (diesel) to 128 store generators nationwide, delivered to site on a "
-               "weekly schedule. Single lump-sum annual price, price-only competition: the ceiling is the "
-               "current contract value. Bidders see their live rank — never a competitor's price. Bids in the "
-               "final two minutes extend the close (anti-sniping)."),
+    Tender.objects.bulk_create([t1, t2, t3, t4, t5, t6])
+
+    # The reverse auction. Its own event now, not a tender wearing a type flag
+    # — see the comment above Auction in models.py. Seeded live so the demo has
+    # a room somebody can actually walk into and bid in.
+    auc = Auction.objects.create(
+        id="a1", ref="KST-AUC-2026-030",
+        title="Diesel supply for store generators",
+        status="live", visibility="rank", owner_id="u7",
+        starts_at=T - d(1), scheduled_ends_at=T + d(0.085), ends_at=T + d(0.085),
+        created_at=T - d(1), created_by="Amara Okafor",
+        snipe_window_ms=120_000, extend_by_ms=120_000, max_extensions=20,
+        ceiling_visible=True, require_acceptance=False,
+        scope=("12-month supply of AGO (diesel) to 128 store generators nationwide, "
+               "delivered to site on a weekly schedule."),
+        terms=("Single lump-sum annual price. Bidders see their live rank, never a "
+               "competitor's price. Any bid in the final two minutes extends the "
+               "close by two minutes, so the auction ends when bidding stops rather "
+               "than when the clock runs out."),
     )
-    Tender.objects.bulk_create([t1, t2, t3, t4, t5, t6, t7])
+    diesel = AuctionLot.objects.create(
+        id="l1", auction=auc, number=1,
+        title="AGO (diesel) — 128 sites, 12 months",
+        description="Annual lump sum, delivered to site weekly.",
+        qty=1, uom="year", ceiling=90_000_000, reserve=84_000_000,
+        min_decrement=500_000,
+    )
+    for sid in ("s2", "s3", "s7", "s6"):
+        AuctionParticipant.objects.create(
+            id=rid("ap"), auction=auc, supplier_id=sid,
+            invited_at=T - d(1), invite_count=1, accepted_at=T - d(0.95))
     for sid, amt, when in (("s6", 88_500_000, T - d(0.9)), ("s3", 87_900_000, T - d(0.6)),
                            ("s6", 86_800_000, T - d(0.4)), ("s2", 86_500_000, T - d(0.1))):
-        AuctionBid.objects.create(id=rid("ab"), tender=t7, supplier_id=sid, amount=amt, at=when)
+        LotBid.objects.create(id=rid("ab"), lot=diesel, auction=auc, supplier_id=sid,
+                              amount=amt, at=when, kind="manual",
+                              closes_at_bid_time=T + d(0.085))
 
     Bid.objects.bulk_create([
         Bid(id="b1", tender=t1, supplier_id="s3", submitted_at=T - d(8), amount=452_000_000, lines={},
@@ -406,7 +433,7 @@ def seed_all():
                      tender_id=_e.tender_id, detail=_e.detail, at=_e.at)
 
     record_event(actor="Amara Okafor", role="procurement", at=T - d(1),
-                 action="Reverse auction opened", tender_id="t7",
+                 action="Auction opened", tender_id="a1",
                  detail="Live price competition opened to 4 invited suppliers; rank-only visibility, \u20a60.5m minimum decrement.")
 
     # conflict-of-interest declarations consistent with the seeded scores
@@ -464,7 +491,8 @@ def seed_all():
 # leaves a row pointing at nothing.
 FIXTURE_MODELS = [
     Payment, Invoice, GoodsReceipt, PurchaseOrder, Contract, FxRate, SourceSync,
-    AuctionBid, Bid, Clarification, Document, Notification, ActionToken,
+    ProxyBid, LotBid, AuctionParticipant, AuctionLot, Auction,
+    Bid, Clarification, Document, Notification, ActionToken,
     Event, ChainHead, TaskMark, Tender, Supplier, Persona,
 ]
 
@@ -480,7 +508,9 @@ FIXTURE_LABELS = {
     "core.Payment": "Payments", "core.Invoice": "Invoices",
     "core.GoodsReceipt": "Goods receipts", "core.PurchaseOrder": "Purchase orders",
     "core.Contract": "Contracts", "core.FxRate": "Exchange rates",
-    "core.AuctionBid": "Auction bids", "core.Bid": "Bids",
+    "core.Auction": "Reverse auctions", "core.AuctionLot": "Auction lots",
+    "core.AuctionParticipant": "Auction bidders", "core.LotBid": "Auction bids",
+    "core.ProxyBid": "Auction bid limits", "core.Bid": "Bids",
     "core.Clarification": "Clarifications", "core.Document": "Documents",
     "core.Notification": "Notifications", "core.Event": "Audit events",
     "core.Tender": "Tenders", "core.Supplier": "Vendors",

@@ -3080,7 +3080,11 @@ export function NewTender({ api, editId }) {
                     <option value="RFQ">Request for quotation</option>
                     <option value="RFP">Request for proposal</option>
                     <option value="RFI">Request for information</option>
-                    <option value="AUC">Reverse auction</option>
+                    {/* A reverse auction is no longer a kind of tender. It is
+                        its own event with its own room, clock and lots — see
+                        /api/auctions/. Leaving the option here would have let
+                        somebody pick it and get an RFQ, because that is what
+                        the tender endpoint now coerces an unknown type to. */}
                   </select>
                   <div className="hint">{TYPE_HINT[f.type]}</div></div>
               </div>

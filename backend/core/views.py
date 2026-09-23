@@ -23,7 +23,7 @@ from django.conf import settings
 from django.http import HttpResponse
 
 from . import ai
-from .models import (ActionToken as ActionTokenModel, AuctionBid, AuthToken, Bid,
+from .models import (ActionToken as ActionTokenModel, AuthToken, Bid,
                      Clarification, Document, Event,
                      Notification, Persona, ProcurementRound, Supplier, Tender)
 from .notify import notify_perm, notify_supplier, notify_suppliers
@@ -163,7 +163,6 @@ def tender_view(t, p):
         "scope": t.scope, "criteria": t.criteria, "lines": t.lines, "addenda": t.addenda,
         "invited": t.invited, "awardRec": None, "awardMemo": None, "letters": None,
         "twoStage": t.two_stage, "techOpenedAt": t.tech_opened_at, "techThreshold": t.tech_threshold,
-        "minDecrement": t.auction_min_decrement,
         # Ownership and the savings basis. A supplier is told neither: which
         # buyer is carrying a tender, and what the organisation was paying
         # before it went to market, are both facts a bidder could price against.
@@ -742,17 +741,13 @@ def _route_submission_legacy(t, p):
 def _apply_tender_payload(t, body):
     t.title = str(body.get("title", "")).strip()
     t.ttype = body.get("type", "RFQ")
-    if t.ttype not in ("RFI", "RFQ", "RFP", "AUC"):
+    if t.ttype not in ("RFI", "RFQ", "RFP"):
         t.ttype = "RFQ"
-    t.two_stage = bool(body.get("twoStage")) and t.ttype != "AUC"
+    t.two_stage = bool(body.get("twoStage"))
     try:
         t.tech_threshold = max(0, min(100, int(body.get("techThreshold", 70) or 70)))
     except (TypeError, ValueError):
         t.tech_threshold = 70
-    try:
-        t.auction_min_decrement = max(0, int(body.get("minDecrement", 0) or 0))
-    except (TypeError, ValueError):
-        t.auction_min_decrement = 0
 
     # `canonical` accepts the seven words the old dropdown offered, so a draft
     # saved in a browser tab before this shipped still lands in a real category
@@ -807,11 +802,6 @@ def _apply_tender_payload(t, body):
     for key, _ in Tender.DIMENSIONS:
         setattr(t, key, str(dims.get(key, getattr(t, key, "")) or "").strip()[:120])
 
-    if t.ttype == "AUC":  # price-only competition
-        t.two_stage = False
-        t.tech_weight, t.comm_weight = 0, 100
-        t.criteria = []
-
 
 def _validate_tender(t, submitting):
     if not t.title:
@@ -823,12 +813,10 @@ def _validate_tender(t, submitting):
             return "Budget must be above zero."
         if t.deadline <= now_ms():
             return "The deadline must be in the future."
-        if t.ttype == "AUC":
-            if t.auction_min_decrement <= 0:
-                return "Set a minimum decrement — how much each new bid must undercut by."
-            if t.lines:
-                return "Auctions run on a single lump-sum price — remove the line items."
-        elif sum(c["weight"] for c in t.criteria) != 100:
+        # Was an `elif` hanging off a reverse-auction branch, which had no
+        # criteria to weigh. Auctions are their own event now, so every tender
+        # reaching here is scored and the check is unconditional.
+        if sum(c["weight"] for c in t.criteria) != 100:
             return "Criteria weights must total exactly 100%."
         if not t.invited:
             return "Invite at least one supplier."
@@ -990,7 +978,6 @@ def _stamp_round_opening(t):
 @route(["POST"], perm="bid.open")
 def open_bids(request, p, body, tid):
     """The recorded opening. Three shapes:
-    - reverse auction (ttype AUC): close the auction and materialise final standings as bids
     - two-stage tender, stage 1: unseal ONLY technical envelopes; prices stay ciphertext
     - two-stage tender, stage 2: unseal prices + commercial envelopes for technically
       compliant bidders; the rest are disqualified with their envelopes returned unopened
@@ -1004,32 +991,6 @@ def open_bids(request, p, body, tid):
     if t.status == "paused":
         return err("This event is paused. Resume it, or cancel it, before opening anything.", 409)
     from django.db import transaction as _tx
-
-    if t.ttype == "AUC":
-        if eff_status(t) != "closed":
-            return err("The auction closes at its deadline — results are recorded after that.", 409)
-        if t.opened_at:
-            return err("Results are already recorded.", 409)
-        standings = auction_standings(t)
-        if not standings:
-            return err("No auction bids were placed.", 409)
-        with _tx.atomic():
-            for st in standings:
-                Bid.objects.update_or_create(
-                    tender=t, supplier_id=st["supplierId"],
-                    defaults={"id": rid("b"), "submitted_at": st["at"], "amount": st["amount"],
-                              "lines": {}, "scores": {}},
-                )
-            t.opened_at = now_ms()
-            t.status = "evaluation"
-            t.save()
-        _stamp_round_opening(t)
-        log(p, "Auction closed — results recorded",
-            f"{len(standings)} bidder(s); best price {fmt_compact(standings[0]['amount'])} after "
-            f"{t.auction_bids.count()} price movements.", t.id)
-        notify_perm("award.recommend", f"Auction concluded: {t.title}",
-                    "Final standings are recorded and ready for an award recommendation.", t.id)
-        return JsonResponse({"ok": True})
 
     if eff_status(t) != "closed" and not (t.two_stage and t.tech_opened_at and t.status == "evaluation"):
         return err("Bids can only be opened after the deadline seals them.", 409)
@@ -1324,8 +1285,6 @@ def bid_collection(request, p, body, tid):
         if amount <= 0:
             return err("The bid amount must be above zero.")
         clean_lines = {}
-    if t.ttype == "AUC":
-        return err("This is a live reverse auction — place bids in the auction room instead.", 409)
     # The technical proposal is required to enter a competition, not to revise a
     # price inside one. A best-and-final round re-prices an already-accepted
     # technical proposal, so demanding a fresh upload there would be asking for
@@ -2012,87 +1971,6 @@ def chain_integrity(request, p, body):
     return JsonResponse({"ok": ok, "count": count, "brokenAt": broken})
 
 
-# ---------------- reverse auctions ----------------
-
-def auction_standings(t):
-    """Final/current standings: each supplier's best (latest, lowest) price, ascending."""
-    latest = {}
-    for ab in t.auction_bids.all():  # ordered by at
-        latest[ab.supplier_id] = {"supplierId": ab.supplier_id, "amount": ab.amount, "at": ab.at}
-    return sorted(latest.values(), key=lambda x: (x["amount"], x["at"]))
-
-
-SNIPE_WINDOW_MS = 2 * 60 * 1000  # bids in the last 2 minutes extend the close by 2 minutes
-
-
-@route(["GET"])
-def auction_state(request, p, body, tid):
-    """Live auction room state, polled by clients. Suppliers get their rank —
-    never a competitor's price. Buyer roles get the full leaderboard."""
-    t = Tender.objects.filter(pk=tid).first()
-    if not t or t.ttype != "AUC" or tender_view(t, p) is None:
-        return err("Auction not found.", 404)
-    standings = auction_standings(t)
-    now = now_ms()
-    out = {"serverNow": now, "deadline": t.deadline, "live": t.status == "published" and now < t.deadline,
-           "recorded": bool(t.opened_at), "bidders": len(standings),
-           "minDecrement": t.auction_min_decrement, "ceiling": t.budget,
-           "movements": t.auction_bids.count()}
-    if p["role"] == "supplier":
-        me = p["supplierId"]
-        mine = [{"amount": ab.amount, "at": ab.at}
-                for ab in t.auction_bids.filter(supplier_id=me)]
-        rank = next((i + 1 for i, x in enumerate(standings) if x["supplierId"] == me), None)
-        out.update({"myBids": mine, "myRank": rank, "leading": rank == 1 if rank else False})
-    else:
-        names = {x.id: x.name for x in Supplier.objects.all()}
-        out["leaderboard"] = [{**x, "supplier": names.get(x["supplierId"], x["supplierId"])} for x in standings]
-    return JsonResponse(out)
-
-
-@route(["POST"], roles={"supplier"})
-def auction_bid(request, p, body, tid):
-    from django.db import transaction as _tx
-    t = Tender.objects.select_for_update().filter(pk=tid).first() if False else Tender.objects.filter(pk=tid).first()
-    if not t or t.ttype != "AUC":
-        return err("Auction not found.", 404)
-    me = p["supplierId"]
-    if me not in t.invited:
-        return err("You're not invited to this auction.", 403)
-    try:
-        amount = int(body.get("amount", 0))
-    except (TypeError, ValueError):
-        return err("Enter a valid amount.")
-    if amount <= 0:
-        return err("Enter a valid amount.")
-    with _tx.atomic():
-        t = Tender.objects.select_for_update().get(pk=tid)
-        now = now_ms()
-        if t.status != "published" or now >= t.deadline:
-            return err("The auction has closed.", 409)
-        my_last = t.auction_bids.filter(supplier_id=me).last()
-        if my_last is None:
-            if amount > t.budget:
-                return err(f"Opening bids must not exceed the {fmt_compact(t.budget)} ceiling.")
-        else:
-            floor = my_last.amount - t.auction_min_decrement
-            if amount > floor:
-                return err(f"Each new bid must undercut your previous {fmt_compact(my_last.amount)} "
-                           f"by at least {fmt_compact(t.auction_min_decrement)}.")
-        AuctionBid.objects.create(id=rid("ab"), tender=t, supplier_id=me, amount=amount, at=now)
-        extended = False
-        if t.deadline - now < SNIPE_WINDOW_MS:
-            t.deadline = now + SNIPE_WINDOW_MS
-            t.save(update_fields=["deadline"])
-            extended = True
-    if extended:
-        record_event(actor="System", role="system", action="Auction extended",
-                     tender_id=t.id, detail="A bid landed inside the closing window — close extended by 2 minutes (anti-sniping).")
-    standings = auction_standings(t)
-    rank = next((i + 1 for i, x in enumerate(standings) if x["supplierId"] == me), None)
-    return JsonResponse({"ok": True, "myRank": rank, "deadline": t.deadline, "extended": extended})
-
-
 # ---------------- supplier CSV import ----------------
 
 @route(["POST"], perm="supplier.import")
@@ -2282,7 +2160,7 @@ def duplicate_tender(request, p, body, tid):
         invited=[sid for sid in (src.invited or [])
                  if Supplier.objects.filter(pk=sid, suspended=False).exists()],
         addenda=[], two_stage=src.two_stage,
-        tech_threshold=src.tech_threshold, auction_min_decrement=src.auction_min_decrement,
+        tech_threshold=src.tech_threshold,
         # The expectation carries over with the structure; the deadline and the
         # rounds do not, because those are facts about the run, not the template.
         projected_cost=src.projected_cost,

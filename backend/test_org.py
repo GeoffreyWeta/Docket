@@ -39,8 +39,9 @@ from django.test import Client  # noqa: E402
 # Capture outbound mail instead of printing it, so dispatch itself is assertable.
 settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
-from core.models import (ActionToken, Bid, Document, Event, FailedLogin,  # noqa: E402
-                         Notification, Supplier, TaskMark, Tender)
+from core.models import (ActionToken, Auction, AuctionLot, AuctionParticipant,  # noqa: E402
+                         Bid, Document, Event, FailedLogin, Notification,
+                         Supplier, TaskMark, Tender)
 from core.seed import ORG, seed_all  # noqa: E402
 from core.util import now_ms  # noqa: E402
 
@@ -270,36 +271,50 @@ def setup():
 
 def _sandbox_auction(sid):
     """A live reverse auction with rivals already bidding, so the auction room
-    has a real leaderboard to move. Closes two hours out."""
-    live = Tender.objects.filter(title=SANDBOX_AUCTION, deadline__gt=now_ms() + 60_000,
-                                 status="published").first()
-    if live:
-        ok(f"reusing live sandbox auction ({live.ref}) — closes {(live.deadline - now_ms()) // 60000} min from now")
-        return
-    tid = new_tender(TU, {
-        "title": SANDBOX_AUCTION, "type": "AUC", "category": "Energy",
-        "budget": 90_000_000, "deadline": now_ms() + 2 * 3600_000, "minDecrement": 500_000,
-        "invited": [sid, "s2", "s3"], "submit": True,
-        "scope": ("Sandbox reverse auction created by the test-org setup script: 12-month AGO supply to "
-                  "128 store generators. Price-only competition — you see your live rank, never a "
-                  "competitor's price, and bids in the final two minutes extend the close."),
-    })["id"]
-    if tender_of(TU, tid)["status"] == "approval":       # 90m sits above the approval matrix
-        signin("mark")
-        call("POST", f"/api/tenders/{tid}/publish_decision/", "mark", {"ok": True})
-    t = tender_of(TU, tid)
-    yes(f"sandbox auction live ({t['ref']}, closes in 2h)", t["status"] == "published")
+    has a real leaderboard to move. Closes two hours out.
 
-    # rivals open the bidding so there is a leaderboard to climb
+    Built through the models rather than the API because an auction is no longer
+    a tender: it is its own event with lots, participants and a clock, and the
+    point of this helper is to leave a room somebody can walk into, not to
+    exercise the creation endpoints (test_auction.py does that).
+    """
+    from core import auction as engine
+    from core.util import rid
+
+    live = Auction.objects.filter(title=SANDBOX_AUCTION, status="live",
+                                  ends_at__gt=now_ms() + 60_000).first()
+    if live:
+        ok(f"reusing live sandbox auction ({live.ref}) — closes "
+           f"{(live.ends_at - now_ms()) // 60000} min from now")
+        return
+
+    now = now_ms()
+    a = Auction.objects.create(
+        id=rid("a"), ref=f"TST-AUC-{now % 100000}", title=SANDBOX_AUCTION,
+        status="live", visibility="rank",
+        starts_at=now, scheduled_ends_at=now + 2 * 3600_000, ends_at=now + 2 * 3600_000,
+        created_at=now, created_by="test-org setup", require_acceptance=False,
+        scope=("Sandbox reverse auction created by the test-org setup script: "
+               "12-month AGO supply to 128 store generators."),
+        terms=("Price-only competition. You see your live rank, never a competitor's "
+               "price, and any bid in the final two minutes extends the close."),
+    )
+    lot = AuctionLot.objects.create(
+        id=rid("l"), auction=a, number=1, title="AGO (diesel) — 128 sites, 12 months",
+        qty=1, uom="year", ceiling=90_000_000, min_decrement=500_000)
+    for who in (sid, "s2", "s3"):
+        AuctionParticipant.objects.create(id=rid("ap"), auction=a, supplier_id=who,
+                                          invited_at=now, accepted_at=now)
+    yes(f"sandbox auction live ({a.ref}, closes in 2h)", a.is_live())
+
+    # Rivals open the bidding so there is a leaderboard to climb. Placed through
+    # the engine so they obey the same decrement rule a real bidder would.
     placed = 0
-    for who, amount in (("coldline", 88_000_000), ("harmattan", 89_500_000)):
-        try:
-            signin(who)
-            call("POST", f"/api/tenders/{tid}/auction/bids/", who, {"amount": amount})
-            placed += 1
-        except (AssertionError, KeyError):
-            pass    # rivals unavailable (DEMO_LOGIN=0 with unknown passwords) — the room still works
-    ok(f"{placed} rival bid(s) already on the board — the test company enters at rank {placed + 1}")
+    for who, amount in (("s2", 89_500_000), ("s3", 88_000_000)):
+        bid, bad = engine.place_bid(lot, who, amount)
+        placed += 0 if bad else 1
+    ok(f"{placed} rival bid(s) already on the board — the test company enters at "
+       f"rank {placed + 1}")
 
 
 # ---------------------------------------------------------------- A. accounts & guards
@@ -321,7 +336,12 @@ def sec_accounts(ctx):
     eq("company name is its own", d["suppliers"][0]["name"], COMPANY["company"])
     eq("company sees no audit trail", d["events"], [])
     eq("company sees only the tenders it is invited to",
-       sorted(t["title"] for t in d["tenders"]), sorted([SANDBOX_TENDER, SANDBOX_AUCTION]))
+       sorted(t["title"] for t in d["tenders"]), [SANDBOX_TENDER])
+    # The sandbox auction is deliberately absent from that list: an auction is
+    # its own event and travels on its own endpoint, not in the tender payload.
+    eq("and reaches its auctions separately",
+       [a["title"] for a in call("GET", "/api/auctions/mine/", CO)["auctions"]],
+       [SANDBOX_AUCTION])
     d = boot(TU)
     yes("test user sees the whole supplier register", len(d["suppliers"]) >= 11)
     yes("test user sees the audit trail", len(d["events"]) > 10)
@@ -694,69 +714,111 @@ def sec_two_stage(ctx):
 # ---------------------------------------------------------------- G. reverse auction
 
 def sec_auction(ctx):
+    """The reverse auction, end to end, as a real vendor account over HTTP.
+
+    An auction is its own event now, so nothing here goes through /tenders/.
+    The mechanics - decrements, anti-sniping, proxies, reserves, visibility -
+    are covered exhaustively in test_auction.py; what this section is for is
+    the path a real signed-in company actually walks.
+    """
+    from core import auction as engine
+    from core.models import Auction, AuctionLot
     section("G. reverse auction")
     sid, now = ctx["sid"], now_ms()
-    base = {"title": "Test Company trial — diesel reverse auction", "type": "AUC",
-            "category": "Energy", "budget": 90_000_000, "deadline": now + 30 * 60_000,
-            "invited": [sid, "s2", "s3"], "scope": "Price-only competition.", "submit": True}
-    new_tender(TU, {**base, "minDecrement": 0}, expect=400)
-    ok("an auction needs a minimum decrement")
-    new_tender(TU, {**base, "minDecrement": 500_000,
-                    "lines": [{"desc": "Diesel", "qty": 1, "unit": "year"}]}, expect=400)
-    ok("an auction cannot carry line items")
-    tid = new_tender(TU, {**base, "minDecrement": 500_000})["id"]
-    if tender_of(TU, tid)["status"] == "approval":   # 90m ceiling is above the matrix threshold
-        call("POST", f"/api/tenders/{tid}/publish_decision/", "mark", {"ok": True})
-    eq("auction created and published", tender_of(TU, tid)["status"], "published")
 
-    a = call("GET", f"/api/tenders/{tid}/auction/", CO)
-    yes("company sees a live auction room", a["live"] and a["bidders"] == 0 and a["myRank"] is None)
-    yes("suppliers never receive the leaderboard", "leaderboard" not in a)
-    eq("ceiling and decrement are published", (a["ceiling"], a["minDecrement"]), (90_000_000, 500_000))
-    call("GET", f"/api/tenders/{tid}/auction/", "bluechip", expect=404,
-         label="uninvited supplier cannot reach the auction room")
+    a = call("POST", "/api/auctions/new/", TU, {
+        "title": "Test Company trial - diesel reverse auction",
+        "scope": "Price-only competition.",
+        "terms": "Bids in the final two minutes extend the close.",
+    })
+    aid = a["id"]
+    ok("an auction is created outside the tender table")
+    yes("and is not a tender", not Tender.objects.filter(pk=aid).exists())
 
-    call("POST", f"/api/tenders/{tid}/auction/bids/", CO, {"amount": 95_000_000}, expect=400,
+    call("POST", f"/api/auctions/{aid}/open/", TU, expect=409,
+         label="an auction with no lots will not open")
+    call("POST", f"/api/auctions/{aid}/lots/", TU, {
+        "title": "AGO (diesel) - 128 sites", "ceiling": 90_000_000,
+        "minDecrement": 500_000, "qty": 1, "uom": "year"})
+    call("POST", f"/api/auctions/{aid}/participants/", TU,
+         {"supplierIds": [sid, "s2", "s3"]})
+    call("POST", f"/api/auctions/{aid}/", TU,
+         {"endsAt": now + 30 * 60_000, "requireAcceptance": False})
+    call("POST", f"/api/auctions/{aid}/open/", TU, label="the room opens once it has all three")
+
+    lot_id = call("GET", f"/api/auctions/{aid}/room/", TU)["lots"][0]["id"]
+
+    r = call("GET", f"/api/auctions/{aid}/room/", CO)
+    st = r["lotState"][0]
+    yes("company sees a live room with no bids yet", r["live"] and st["myRank"] is None)
+    yes("suppliers never receive the leaderboard", "leaderboard" not in st)
+    eq("the opening price is published", r["lots"][0]["ceiling"], 90_000_000)
+    call("GET", f"/api/auctions/{aid}/room/", "bluechip", expect=403,
+         label="an uninvited vendor cannot reach the room")
+
+    bid = f"/api/auctions/{aid}/lots/{lot_id}/bid/"
+    call("POST", bid, CO, {"amount": 95_000_000}, expect=409,
          label="an opening bid above the ceiling is refused")
-    r = call("POST", f"/api/tenders/{tid}/auction/bids/", CO, {"amount": 88_000_000})
+    r = call("POST", bid, CO, {"amount": 88_000_000})
     eq("company opens at 88m and leads", r["myRank"], 1)
-    r = call("POST", f"/api/tenders/{tid}/auction/bids/", "coldline", {"amount": 87_000_000})
-    eq("rival undercuts and takes the lead", r["myRank"], 1)
-    eq("company drops to second", call("GET", f"/api/tenders/{tid}/auction/", CO)["myRank"], 2)
-    call("POST", f"/api/tenders/{tid}/auction/bids/", CO, {"amount": 87_600_000}, expect=400,
+
+    # Each rival has to beat the standing best to get on the board at all: a
+    # price that could not have won is not an offer, and accepting one would
+    # put a number on the leaderboard that never competed with anything. So
+    # they come in descending order, each leading when it lands.
+    lot = AuctionLot.objects.get(pk=lot_id)
+    engine.place_bid(lot, "s2", 87_500_000)
+    eq("a rival undercuts and company drops to second",
+       call("GET", f"/api/auctions/{aid}/room/", CO)["lotState"][0]["myRank"], 2)
+    engine.place_bid(lot, "s3", 87_000_000)
+
+    call("POST", bid, CO, {"amount": 86_600_000}, expect=409,
          label="a bid that ignores the minimum decrement is refused")
-    r = call("POST", f"/api/tenders/{tid}/auction/bids/", CO, {"amount": 86_500_000})
+    r = call("POST", bid, CO, {"amount": 86_500_000})
     eq("company retakes the lead", r["myRank"], 1)
-    call("POST", f"/api/tenders/{tid}/auction/bids/", "harmattan", {"amount": 90_000_000})
-    lb = call("GET", f"/api/tenders/{tid}/auction/", TU)["leaderboard"]
-    yes("buyer watches the full leaderboard",
-        [x["amount"] for x in lb] == [86_500_000, 87_000_000, 90_000_000], lb)
-    yes("leaderboard names the leading company", lb[0]["supplier"] == COMPANY["company"])
-    mine = call("GET", f"/api/tenders/{tid}/auction/", CO)
+
+    lb = call("GET", f"/api/auctions/{aid}/room/", TU)["lotState"][0]["leaderboard"]
+    yes("the buyer watches the whole leaderboard",
+        [x["amount"] for x in lb] == [86_500_000, 87_000_000, 87_500_000], lb)
+    yes("and it names the leading company", lb[0]["supplier"] == COMPANY["company"])
+
+    mine = call("GET", f"/api/auctions/{aid}/room/", CO)["lotState"][0]
     yes("company sees only its own price history",
         [x["amount"] for x in mine["myBids"]] == [88_000_000, 86_500_000] and mine["leading"])
-    call("POST", f"/api/tenders/{tid}/bids/", CO, {"amount": 80_000_000, "acks": []}, expect=409,
-         label="the sealed-bid endpoint is closed on auctions")
+    yes("and no competitor is named anywhere in its payload",
+        "Coldline" not in json.dumps(mine))
 
-    Tender.objects.filter(pk=tid).update(deadline=now_ms() + 60_000)
-    before = Tender.objects.get(pk=tid).deadline
-    r = call("POST", f"/api/tenders/{tid}/auction/bids/", CO, {"amount": 85_900_000})
+    # A rival takes the lead back before the window opens, so the company has
+    # something to answer. Answering is the point: a bidder who already holds
+    # the best price has nothing to improve and the room refuses the bid.
+    engine.place_bid(lot, "s2", 86_000_000)
+    Auction.objects.filter(pk=aid).update(ends_at=now_ms() + 30_000)
+    before = Auction.objects.get(pk=aid).ends_at
+    r = call("POST", bid, CO, {"amount": 85_500_000})
     yes("a bid inside the closing window extends the close (anti-sniping)",
-        r["extended"] and r["deadline"] > before)
-    call("POST", f"/api/tenders/{tid}/open/", TU, {}, expect=409,
-         label="results cannot be recorded while the auction is live")
-    Tender.objects.filter(pk=tid).update(deadline=now_ms() - 1000)
-    call("POST", f"/api/tenders/{tid}/auction/bids/", CO, {"amount": 85_000_000}, expect=409,
+        r["extended"] and r["endsAt"] > before)
+    yes("and the published close is kept beside the real one",
+        Auction.objects.get(pk=aid).scheduled_ends_at != Auction.objects.get(pk=aid).ends_at)
+
+    Auction.objects.filter(pk=aid).update(ends_at=now_ms() - 1000)
+    call("POST", bid, CO, {"amount": 85_000_000}, expect=409,
          label="bidding is refused after the close")
-    call("POST", f"/api/tenders/{tid}/open/", TU, {}, label="auction closed and standings recorded")
-    bids = sorted([b for b in boot(TU)["bids"] if b["tenderId"] == tid], key=lambda b: b["amount"])
-    yes("final standings became bids", len(bids) == 3 and bids[0]["amount"] == 85_900_000)
-    eq("the test company holds the best price", bids[0]["supplierId"], sid)
-    call("POST", f"/api/tenders/{tid}/recommend/", TU, {"bidId": bids[0]["id"]})
-    call("POST", f"/api/tenders/{tid}/award_decision/", "mark", {"ok": True})
-    eq("auction award flows through the normal approval path",
-       tender_of(CO, tid)["letters"][sid]["type"], "award")
-    ctx["auction"] = tid
+
+    out = call("POST", f"/api/auctions/{aid}/close/", TU)
+    eq("the lot closes with a winner", out["outcome"][0]["result"], "winner")
+    eq("and the winner is the test company", out["outcome"][0]["supplierId"], sid)
+    eq("savings run from the opening price", out["savings"]["saved"], 90_000_000 - 85_500_000)
+
+    call("POST", f"/api/auctions/{aid}/award/", TU, expect=403,
+         label="the buyer who ran the room cannot award it")
+    call("POST", f"/api/auctions/{aid}/award/", "mark", {"memo": "Best price."},
+         label="the approver commits the money")
+    eq("the auction records the award", Auction.objects.get(pk=aid).status, "awarded")
+
+    rep = call("GET", f"/api/auctions/{aid}/replay/", TU)
+    yes("and the whole competition can be replayed",
+        len(rep["movements"]) == 6 and rep["extensions"], len(rep["movements"]))
+    ctx["auction"] = aid
 
 
 # ---------------------------------------------------------------- H. vendor administration
@@ -1173,9 +1235,23 @@ def sec_executive(ctx):
     yes("nor to award", "award.decide" not in me["me"]["perms"])
     call("POST", "/api/tenders/", tunde, {"title": "x"}, expect=403,
          label="and the server refuses the attempt, not just the button")
+    # award_decision checks the chain and the tender's state *before* the
+    # capability, deliberately (see its docstring). So an executive pointed at
+    # a tender with nothing awaiting approval is refused for the wrong reason
+    # and the assertion proves nothing about the role - which is what this had
+    # been doing, since no section ever leaves the sandbox tender awaiting an
+    # award. Put it in the one state where the capability is the only thing
+    # left to refuse, assert, and put it back.
     sandbox = Tender.objects.filter(title=SANDBOX_TENDER).first()
-    call("POST", f"/api/tenders/{sandbox.id}/award_decision/", tunde, {"ok": True}, expect=403,
-         label="including signing off an award")
+    was_status, was_rec = sandbox.status, sandbox.award_rec
+    Tender.objects.filter(pk=sandbox.id).update(
+        status="evaluation",
+        award_rec={"bidId": "b0", "supplierId": "s2", "amount": 1, "by": "test", "at": now_ms()})
+    try:
+        call("POST", f"/api/tenders/{sandbox.id}/award_decision/", tunde, {"ok": True},
+             expect=403, label="including signing off an award")
+    finally:
+        Tender.objects.filter(pk=sandbox.id).update(status=was_status, award_rec=was_rec)
 
 
 def sec_campaign(ctx):
