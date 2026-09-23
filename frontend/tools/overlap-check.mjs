@@ -40,10 +40,13 @@ const EXPORTS = [
   ["palette.jsx", "PALETTE_CSS"], ["charts-css.js", "CHART_CSS"],
   ["campaign.jsx", "CAMPAIGN_CSS"], ["finance.jsx", "FINANCE_CSS"],
   ["baselines.jsx", "BASELINE_CSS"],
-  // The front page and its four designs. DESIGN_CSS follows LANDING_CSS here
-  // exactly as it does in ALL_CSS, because the `paper` tear line and the dark
-  // hero are overrides that only win if they are read second.
-  ["landing.jsx", "LANDING_CSS"], ["designs.js", "DESIGN_CSS"],
+  // The front page, its drawings and its four designs. The order is ALL_CSS's
+  // order and all three positions are load-bearing. LPART_CSS is read FIRST so
+  // that the page can place its own instances of a scene: the art sheet sets
+  // .lpart{width:100%}, and a rule of the same specificity in LANDING_CSS only
+  // beats it by being read later. DESIGN_CSS is read LAST because the `paper`
+  // tear line and the dark hero are overrides of both.
+  ["lpart.jsx", "LPART_CSS"], ["landing.jsx", "LANDING_CSS"], ["designs.js", "DESIGN_CSS"],
   ["superadmin.jsx", "ADMIN_CSS"],
 ];
 

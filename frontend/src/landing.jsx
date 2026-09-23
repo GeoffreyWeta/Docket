@@ -14,19 +14,25 @@
 
    THE MOTIF IS THE RECORD. Hairline rules, mono indices, tabular figures and
    almost no rounding: the page is laid out like the document it promises to
-   produce. There is exactly one jump in scale — the headline and the dark band
-   — and everything else stays quiet so that jump reads. Nothing on this page
-   floats, glows or fades into a gradient; the only background image anywhere
-   is a drafting grid behind the hero, and it is masked away before it reaches
-   the text.
+   produce. The page now has PICTURES as well as panels — see the rule below —
+   but they are drawn in the product's own vocabulary and they never take the
+   place of a real screen. There is one jump in scale, the headline and the
+   dark band, and one warm ground, the hero; everything else stays quiet so
+   those read.
 
-   FIVE RULES.
+   SIX RULES.
 
-     THE PRODUCT IS THE IMAGERY. No stock photography, no plates, no abstract
-     art. Every panel on this page is a real screen or a real chart, drawn with
-     the same components the signed-in app uses — Columns, Meter and Spark come
-     straight out of charts.jsx. A marketing page that invents its own visual
-     language is a page that will not survive contact with the product.
+     THE PRODUCT IS THE IMAGERY, AND WHERE THE PRODUCT CANNOT BE SHOWN THE
+     DRAWING IS OURS. No stock photography, no plates, no abstract art. Every
+     panel on this page is a real screen or a real chart, drawn with the same
+     components the signed-in app uses — Columns, Meter and Spark come straight
+     out of charts.jsx. Where a section is an argument rather than a screen —
+     what the chain is, what blind scoring means, what a register holds — it
+     carries a drawn scene from lpart.jsx instead: same tokens, same theme
+     switch, no asset files and no CDN. A marketing page that invents its own
+     visual language is a page that will not survive contact with the product,
+     and a page illustrated out of a stock library is a page illustrated by
+     somebody who has never seen the product at all.
 
      THE FIGURES ARE THE PRODUCT'S OWN. The charts run on the demo workspace's
      numbers, the ones a visitor will meet ten seconds later if they click
@@ -59,7 +65,9 @@ import { BP } from "./breakpoints";
 import { Columns, Meter, Spark } from "./charts";
 import { DUR, reducedMotion, useCountUp, useReveal } from "./motion";
 import { fmtCompact } from "./helpers";
+import { Icon } from "./icons";
 import { Mark, Wordmark } from "./logo";
+import { Art } from "./lpart";
 import { designOf } from "./designs";
 
 /* ------------------------------------------------------------------- data
@@ -154,18 +162,74 @@ const BENEFITS = [
    "Approval limits, conflict-of-interest declarations and document checks run as rules in real time. A request above a limit climbs until somebody's authority covers it."],
 ];
 
-const MODULES = [
-  ["Sourcing & tenders", "Open, restricted and framework tenders, plus live reverse auctions with rank-visible bidding."],
-  ["Vendor register", "Self-service registration, document expiry tracking, prequalification and category management."],
-  ["Evaluation & scoring", "Weighted criteria, blind panel scoring, consensus reconciliation and recommendation memos."],
-  ["Audit & reporting", "Hash-chained event log, integrity verification, compliance exports and a read-only auditor role."],
+/* THE FOUR ARGUMENTS THE PAGE HAS TO MAKE IN PICTURES. Each one is a claim a
+   screenshot cannot carry: a hash chain is invisible on screen, a blind panel
+   looks exactly like a panel that is not blind, a falling price is a shape
+   rather than a number, and a register is a list until you show what is on
+   each row. So these four get a drawn scene from lpart.jsx. The remaining
+   claims on the page get a real product panel instead, because they can. */
+const FEATURES = [
+  ["chain", "Tamper-evident by construction",
+   "Every event carries the fingerprint of the one before it. Change a line after the fact and the chain stops verifying — which is a thing you can check, not a thing you have to believe.",
+   "One hash chain per workspace"],
+  ["score", "Nobody scores a name",
+   "Evaluators see the offer and not the vendor behind it until the panel reconciles. Weights are fixed before bids open, so nobody can rebalance the criteria once they know who is winning.",
+   "Weights frozen before opening"],
+  ["auction", "Watch the price come down",
+   "Run a category as a live reverse auction: rank-visible, minimum decrements, automatic extension when a bid lands in the closing minutes. The whole descent stays on the record.",
+   "Rank visible, identity not"],
+  ["register", "One registration, every tender",
+   "Vendors file bank details, TIN and CAC documents once and carry that record into every buyer who invites them. Expiries are tracked and chased before they lapse, not after.",
+   "1,400 vendors on the register"],
 ];
 
+/* The route every tender takes, which is the same route every time — that is
+   the product. Drawn as a numbered rail rather than eight cards, because the
+   sequence IS the information and cards in a grid throw the sequence away.
+   The marks are icons.jsx glyphs at 22px: at this size an outline glyph is
+   exactly right, and the argument against icons in BENEFITS below — that a
+   shield beside "reduce dispute risk" carries nothing the words do not — does
+   not apply to a step whose name is a verb. */
+const STEPS = [
+  ["tender", "Scope", "Requirement, lots, budget"],
+  ["scales", "Criteria", "Weights fixed and published"],
+  ["check", "Approve", "Climbs your reporting line"],
+  ["upload", "Publish", "Invited vendors notified at once"],
+  ["lock", "Seal", "Encrypted on arrival"],
+  ["envelopeOpen", "Open", "At the deadline, with witnesses"],
+  ["analytics", "Score", "Blind, then reconciled"],
+  ["trophy", "Award", "Memo, contract, chain entry"],
+];
+
+/* The sectors strip. It scrolls, so it is written twice in the markup — see
+   .lpticker. These are the kinds of organisation the product is built for,
+   not a claim about who is already using it; the customer proof stays in the
+   reserved frames further down where it cannot be mistaken for a logo wall. */
+const SECTORS = [
+  ["portal", "Hospitality groups"],
+  ["dashboard", "Manufacturers"],
+  ["shield", "Hospitals"],
+  ["audit", "Schools & universities"],
+  ["stamp", "State agencies"],
+  ["finance", "Financial services"],
+  ["suppliers", "Logistics operators"],
+];
+
+const MODULES = [
+  ["tender", "Sourcing & tenders", "Open, restricted and framework tenders, plus live reverse auctions with rank-visible bidding."],
+  ["suppliers", "Vendor register", "Self-service registration, document expiry tracking, prequalification and category management."],
+  ["scales", "Evaluation & scoring", "Weighted criteria, blind panel scoring, consensus reconciliation and recommendation memos."],
+  ["audit", "Audit & reporting", "Hash-chained event log, integrity verification, compliance exports and a read-only auditor role."],
+];
+
+/* The fourth cover is `reserved` on purpose and matches the customer frames,
+   because the fourth resource is reserved too. One drawing for "this space is
+   being held open" is how a reader learns to read it. */
 const RESOURCES = [
-  ["Guide", "Running your first sealed tender", "Scope to award in fourteen steps, with the documents you need at each one."],
-  ["Template", "A delegation-of-authority matrix that works", "Limits by level and category, with the questions to settle before you set them."],
-  ["Briefing", "What an auditor actually asks for", "The eleven artefacts a procurement audit requests, and where each one lives."],
-  ["Report", "Procurement practice in Nigerian mid-market firms", "Reserved for commissioned or cited research. Nothing invented goes in this slot."],
+  ["book", "Guide", "Running your first sealed tender", "Scope to award in fourteen steps, with the documents you need at each one."],
+  ["grid", "Template", "A delegation-of-authority matrix that works", "Limits by level and category, with the questions to settle before you set them."],
+  ["audit", "Briefing", "What an auditor actually asks for", "The eleven artefacts a procurement audit requests, and where each one lives."],
+  ["reserved", "Report", "Procurement practice in Nigerian mid-market firms", "Reserved for commissioned or cited research. Nothing invented goes in this slot."],
 ];
 
 const FAQ = [
@@ -183,6 +247,7 @@ const FAQ = [
    below needs no dependency array and can never be rebuilt on a re-render. */
 const NAV = [
   ["guarantees", "Product"],
+  ["how", "Process"],
   ["analytics", "Analytics"],
   ["modules", "Modules"],
   ["resources", "Resources"],
@@ -423,6 +488,22 @@ export function Landing({ cfg, onScreen }) {
       <main id="main">
 
         <section className="lphero">
+          {/* Two washes and a grid, all of them behind z-index 0 and none of
+              them reaching the text: the aurora is mixed out of --lp-pri at
+              single digits, so it reads as the paper being warm rather than
+              as a coloured shape somebody put there. It is the one place on
+              the page where colour is atmosphere rather than meaning, and it
+              is allowed exactly here because it is what makes the fold look
+              like something rather than like a document template. */}
+          <span className="lpglow a" aria-hidden="true" />
+          <span className="lpglow b" aria-hidden="true" />
+          {/* The seal, hung off the top right corner and cropped by the
+              panel and by the edge of the section. It is `ring` rather than
+              one of the still lifes for the reason that scene's comment
+              gives: the still lifes need their whole frame, and an envelope
+              with its middle covered by a product screen reads as three grey
+              pipes. A seal cropped anywhere is still a seal. */}
+          <Art n="ring" className="lpheroart" />
           <div className="lpwrap lpherogrid">
             <div className="lpherocopy" data-reveal>
               <p className="lpkick">Tender &amp; spend management</p>
@@ -442,17 +523,47 @@ export function Landing({ cfg, onScreen }) {
                 <span>No administrator override</span>
               </p>
             </div>
+            {/* The drawing sits BEHIND the product panel and is cropped by
+                it, which is the arrangement that keeps the hierarchy right:
+                the screen is the evidence and the picture is the mood, so the
+                picture is the thing that gets covered up. It is hidden below
+                `tab`, where there is no room to crop anything. */}
             <div className="lpheropanel" data-reveal style={{ transitionDelay: "120ms" }}>
               <LivePanel />
+              {/* Two readings lifted off the panel and floated over its
+                  corners. Both are figures the panel itself is showing, said
+                  once more in a size that carries across a room. */}
+              <div className="lpfloat a">
+                <b className="mono">₦1.13bn</b>
+                <span>committed and governed</span>
+              </div>
+              <div className="lpfloat b">
+                <b className="mono">0</b>
+                <span>integrity breaks, 1,284 events</span>
+              </div>
             </div>
           </div>
         </section>
 
+        {/* The sectors strip, moving. A row of static grey words is the most
+            skippable thing a front page can put under its fold; a strip that
+            travels is read, and it travels slowly enough to be read. It stops
+            on hover and stands still entirely for a reader who has asked for
+            less motion — see .lpticker. */}
         <div className="lptrust">
           <div className="lpwrap lptrustin">
             <b>Built for organisations that get audited</b>
-            <span>Hospitality groups</span><span>Manufacturers</span><span>Hospitals</span>
-            <span>Schools &amp; universities</span><span>State agencies</span>
+          </div>
+          <div className="lptickwrap">
+            <div className="lpticker">
+              {[0, 1].map((copy) => (
+                <ul key={copy} aria-hidden={copy === 1 ? "true" : undefined}>
+                  {SECTORS.map(([icon, label]) => (
+                    <li key={label}><Icon n={icon} s={16} />{label}</li>
+                  ))}
+                </ul>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -475,7 +586,29 @@ export function Landing({ cfg, onScreen }) {
           </ol>
         </Section>
 
-        <Section>
+        {/* THE ROUTE, as a rail. Eight stops on one rule — vertical on a
+            phone, horizontal from `tab` — because what is being claimed here
+            is that the order never changes, and a rule with stops on it is
+            the only arrangement that says "in this order" without writing it
+            out. The rule itself is drawn on the list, not on the items, so it
+            is one continuous line rather than eight butted segments. */}
+        <Section id="how">
+          <Head label="How it works"
+                title="One route, every time, whoever is in a hurry"
+                sub="A tender cannot skip a stop. The route is the same for a ₦2m stationery order and a ₦2bn build, and every stop writes an entry nobody can edit afterwards." />
+          <ol className="lprail" data-reveal>
+            {STEPS.map(([icon, title, body], n) => (
+              <li key={title}>
+                <span className="lprailmark"><Icon n={icon} s={22} /></span>
+                <span className="lpnum">{String(n + 1).padStart(2, "0")}</span>
+                <h3>{title}</h3>
+                <p>{body}</p>
+              </li>
+            ))}
+          </ol>
+        </Section>
+
+        <Section tint>
           <div className="lpsplit">
             <div data-reveal>
               <p className="lpkick">Sealed bidding</p>
@@ -515,6 +648,29 @@ export function Landing({ cfg, onScreen }) {
               </div>
               <p className="lppanelnote">Amounts are ciphertext until the deadline. Two more bids not shown.</p>
             </div>
+          </div>
+        </Section>
+
+        {/* The four claims that have no screenshot — see FEATURES. Each card
+            is a drawing over a tinted plate, a heading, a paragraph and one
+            line of specification in the mono. The plate is what stops four
+            scenes in a row reading as clip art: it gives every picture the
+            same ground, the same crop and the same weight. */}
+        <Section id="features">
+          <Head label="How each guarantee works"
+                title="The four things a screenshot cannot show you"
+                sub="A hash chain is invisible on screen. A blind panel looks exactly like a panel that is not blind. So these four are drawn — in the product's own vocabulary, with the product's own colours." />
+          <div className="lpfeat">
+            {FEATURES.map(([art, title, body, spec], n) => (
+              <article key={title} data-reveal style={{ transitionDelay: n * 70 + "ms" }}>
+                <div className="lpfeatart"><Art n={art} /></div>
+                <div className="lpfeattext">
+                  <h3>{title}</h3>
+                  <p>{body}</p>
+                  <p className="lpspec"><span aria-hidden="true" />{spec}</p>
+                </div>
+              </article>
+            ))}
           </div>
         </Section>
 
@@ -593,8 +749,12 @@ export function Landing({ cfg, onScreen }) {
           <Head label="What you buy" title="Explore DOCKET modules"
                 sub="Licensed together or separately. Every module writes to the same record." />
           <ol className="lprows">
-            {MODULES.map(([title, body], n) => (
+            {MODULES.map(([icon, title, body], n) => (
               <li key={title} data-reveal style={{ transitionDelay: n * 60 + "ms" }}>
+                {/* A plate rather than a scene: at 44px a drawing is mud and
+                    a glyph is legible, and these four rows want a marker they
+                    can be told apart by at a glance, not a picture. */}
+                <span className="lpplate"><Icon n={icon} s={22} /></span>
                 <span className="lpnum">M{n + 1}</span>
                 <div className="lprowtext">
                   <h3>{title}</h3>
@@ -612,7 +772,14 @@ export function Landing({ cfg, onScreen }) {
           <div className="lpstories">
             {[0, 1, 2].map((n) => (
               <article key={n} className="lpslot" data-reveal style={{ transitionDelay: n * 70 + "ms" }}>
-                <div className="lpslotart"><span className="mono">RESERVED</span></div>
+                {/* The hatch stays — it is what says "held open" — but the
+                    frame now carries the drawn reserved mark over it, so the
+                    slot reads as a composed empty frame rather than as a
+                    patch of texture with a word on it. */}
+                <div className="lpslotart">
+                  <Art n="reserved" />
+                  <span className="mono">RESERVED</span>
+                </div>
                 <h3>Customer story {n + 1}</h3>
                 <p>The result in their own words, what they ran before, and the one number that proves the change.</p>
               </article>
@@ -620,7 +787,13 @@ export function Landing({ cfg, onScreen }) {
           </div>
         </Section>
 
-        <Section dark>
+        <Section dark className="lpband">
+          {/* The chain, drawn once at scale and set into the band's own
+              corner at low contrast. It is a watermark, not an illustration:
+              it is the only decorative thing on the page that carries no
+              caption, and it earns the place because the band's whole subject
+              is the record the chain is made of. */}
+          <Art n="chain" className="lpwatermark" />
           <div className="lpproof">
             <div data-reveal>
               <p className="lpkick">Independent assessment</p>
@@ -640,10 +813,12 @@ export function Landing({ cfg, onScreen }) {
         </Section>
 
         <Section id="resources" tint>
-          <Head label="What to read" title="Featured resources" />
+          <Head label="What to read" title="Featured resources"
+                sub="Written here, not licensed from anywhere. Each one is the thing we were asked for often enough to be worth writing down." />
           <div className="lpres">
-            {RESOURCES.map(([kind, title, body], n) => (
+            {RESOURCES.map(([art, kind, title, body], n) => (
               <article key={title} data-reveal style={{ transitionDelay: n * 60 + "ms" }}>
+                <div className="lprescover"><Art n={art} /></div>
                 <p className="lpkind">{kind}</p>
                 <h3>{title}</h3>
                 <p>{body}</p>
@@ -656,16 +831,19 @@ export function Landing({ cfg, onScreen }) {
           <Head label="What to do next" title="Three ways to start" />
           <div className="lpnext">
             <article data-reveal>
+              <span className="lpplate"><Icon n="clock" s={22} /></span>
               <h3>Request a demonstration</h3>
               <p>Forty minutes against your own categories and approval structure, not a canned script.</p>
               <button className="btn pri" onClick={goSetup}>Book a session</button>
             </article>
             <article data-reveal style={{ transitionDelay: "70ms" }}>
+              <span className="lpplate"><Icon n="seal" s={22} /></span>
               <h3>Start a workspace</h3>
               <p>Set your company up with a code issued to your organisation. Free while you run your first tender.</p>
               <button className="btn" onClick={goSetup}>Create an account</button>
             </article>
             <article data-reveal style={{ transitionDelay: "140ms" }}>
+              <span className="lpplate"><Icon n="suppliers" s={22} /></span>
               <h3>Register as a vendor</h3>
               <p>Free, permanent, and reused across every buyer who invites you to tender.</p>
               <button className="btn" onClick={() => onScreen("register")}>Join the register</button>
@@ -814,7 +992,9 @@ export const LANDING_CSS = `
   -webkit-backdrop-filter:saturate(1.6) blur(12px);backdrop-filter:saturate(1.6) blur(12px);
   box-shadow:0 10px 26px -24px color-mix(in srgb,var(--lp-pri-dark) 70%,transparent)}
 .lpbarin{display:flex;align-items:center;gap:var(--s4);min-height:62px}
-.lpnav{display:none;gap:var(--s5)}
+/* Five items now rather than four, so the gap at tab closes to --s4 and
+   only opens back to --s5 once there is a wide page to spend it on. */
+.lpnav{display:none;gap:var(--s4)}
 .lpnav a{position:relative;font-size:14.5px;font-weight:500;color:var(--lp-ink);
   text-decoration:none;padding-block:2px}
 /* The underline is the same element in both states, so moving between sections
@@ -863,7 +1043,18 @@ export const LANDING_CSS = `
    The only background image on the page: a drafting grid, masked to nothing
    before it reaches the copy. It is squared paper rather than atmosphere —
    the page is about a document, so the ground under it is a document's. */
-.lphero{position:relative;isolation:isolate;padding-block:var(--s5) var(--s6)}
+.lphero{position:relative;isolation:isolate;overflow:clip;padding-block:var(--s5) var(--s6)}
+/* THE TWO WASHES. Radial, mixed out of the palette's own primary, and soft
+   enough at the edge that there is no visible boundary anywhere — a gradient
+   you can find the edge of is a shape, and a shape on the ground behind a
+   headline is a distraction. clip on the hero is what keeps them off the
+   sections below; without it the lower wash bleeds into the sectors strip and
+   turns its hairline into a smudge. */
+.lpglow{position:absolute;z-index:-1;pointer-events:none;border-radius:50%;aspect-ratio:1}
+.lpglow.a{width:min(74vw,560px);top:-24%;right:-16%;
+  background:radial-gradient(circle,color-mix(in srgb,var(--lp-pri) 22%,transparent) 0%,transparent 68%)}
+.lpglow.b{width:min(62vw,440px);bottom:-34%;left:-22%;
+  background:radial-gradient(circle,color-mix(in srgb,var(--lp-pri-dark) 14%,transparent) 0%,transparent 68%)}
 .lphero::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
   background-image:
     linear-gradient(to right,color-mix(in srgb,var(--lp-line) 72%,transparent) 1px,transparent 1px),
@@ -886,14 +1077,72 @@ export const LANDING_CSS = `
 .lpticks span::before{content:"";flex:none;width:5px;height:5px;border-radius:50%;
   background:var(--lp-pri)}
 
-/* the trust strip */
-.lptrust{background:var(--lp-paper);border-block:var(--lp-hair)}
-.lptrustin{display:flex;align-items:center;gap:var(--s3) var(--s4);padding-block:var(--s3);
+/* THE PANEL AND WHAT IS AROUND IT. The drawing is behind the product screen
+   and cropped by it, which is the arrangement that keeps the hierarchy the
+   right way up: the screen is the evidence, the picture is the mood, so the
+   picture is what gets covered. Both the drawing and the floated readings
+   wait for tab — on a phone the panel is already the full width of the
+   page and there is nothing to float over.
+
+   The drawing is a child of .lphero, not of the panel, and z-index -1 puts it
+   under everything in the hero's stacking context. It CAN therefore run under
+   the headline, which would be unreadable, so its left edge is kept right of
+   where the copy column ends: at min(48%,560px) wide and right:-8% it starts
+   at about 60% across, and the copy stops near 46%. */
+.lpheropanel{position:relative}
+.lpheroart{position:absolute;z-index:-1;display:none;top:-30%;right:-9%;
+  width:min(42%,470px);opacity:.5;pointer-events:none}
+/* The readings sit CLEAR of the panel rather than over it. Over it they
+   covered the panel's own title bar and its last row — the two pieces of
+   chrome that say what the screen is and that an award has landed. Clear of
+   it, aligned to its corners and overlapping only the hero's whitespace,
+   they read as annotations on the screen without hiding any of it. */
+.lpfloat{position:absolute;z-index:2;display:none;padding:10px 14px;max-width:196px;
+  background:var(--lp-card);border:var(--lp-hair);border-radius:var(--lp-radius);
+  box-shadow:var(--lp-lift)}
+.lpfloat b{display:block;font-size:21px;font-weight:700;letter-spacing:-.025em;line-height:1;
+  color:var(--lp-pri);font-variant-numeric:tabular-nums}
+.lpfloat span{display:block;font-size:11px;line-height:1.35;color:var(--lp-muted);margin-top:4px}
+/* Two cards drifting at different speeds and out of phase, which is the whole
+   reason there are two: one card bobbing on its own reads as a glitch. */
+.lpfloat.a{left:-26px;bottom:calc(100% + 14px);animation:lp-bob 7s var(--ease) infinite}
+.lpfloat.b{right:-22px;top:calc(100% + 14px);animation:lp-bob 9s var(--ease) -3s infinite}
+@keyframes lp-bob{0%,100%{transform:none}50%{transform:translateY(-7px)}}
+@media(prefers-reduced-motion:reduce){.lpfloat{animation:none}}
+
+/* THE SECTORS STRIP, MOVING. A row of grey words under the fold is the most
+   skippable thing a front page owns; a strip that travels gets read. The list
+   is in the markup twice and each copy translates by its own full width, so
+   the second arrives exactly where the first left — the seam is invisible
+   because the two are identical, including the trailing gap. The duplicate is
+   aria-hidden, so a screen reader hears the sectors once. */
+.lptrust{background:var(--lp-paper);border-block:var(--lp-hair);padding-block:var(--s3)}
+.lptrustin{display:flex;align-items:center;gap:var(--s3) var(--s4);
   font-size:var(--t5);color:var(--lp-muted);flex-wrap:wrap}
 .lptrustin b{color:var(--lp-ink);font-weight:600}
+.lptickwrap{margin-top:var(--s3);overflow:hidden;
+  -webkit-mask-image:linear-gradient(to right,transparent,#000 6%,#000 94%,transparent);
+  mask-image:linear-gradient(to right,transparent,#000 6%,#000 94%,transparent)}
+.lpticker{display:flex;width:max-content}
+.lpticker ul{display:flex;align-items:center;gap:var(--s5);list-style:none;margin:0;
+  padding:0 calc(var(--s5) / 2) 0 0;animation:lp-ticker 52s linear infinite}
+.lpticker li{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;
+  font-size:13.5px;font-weight:500;color:var(--lp-ink-2)}
+.lpticker li .ic{flex:none;color:var(--lp-pri)}
+/* Stopping on hover is not decoration: it is how somebody reads the one they
+   were half way through when it went past. */
+.lptickwrap:hover .lpticker ul{animation-play-state:paused}
+@keyframes lp-ticker{to{transform:translateX(-100%)}}
+@media(prefers-reduced-motion:reduce){
+  .lpticker ul{animation:none}
+  /* Standing still, the second copy is just the list printed twice. */
+  .lpticker ul + ul{display:none}
+}
 
 /* -------------------------------------------------------------- sections */
-.lpsec{padding-block:var(--s6)}
+/* Positioned and clipped so a watermark can hang off the edge of one without
+   widening the page or bleeding into the next. */
+.lpsec{position:relative;overflow:clip;padding-block:var(--s6)}
 .lpsec.tint{background:var(--lp-paper);border-block:var(--lp-hair)}
 .lpsec.dark{background:var(--lp-pri-dark);color:var(--lp-on-band)}
 .lpsec.dark h2,.lpsec.dark b{color:var(--lp-on-band)}
@@ -924,6 +1173,66 @@ export const LANDING_CSS = `
 .lplist li{position:relative;padding:9px 0 9px var(--s4);border-top:var(--lp-hair);line-height:1.5}
 .lplist li::before{content:"";position:absolute;left:0;top:17px;width:8px;height:1.5px;
   background:var(--lp-pri)}
+
+/* A PLATE. One 44px square, used for the module rows and the three next
+   steps: a tinted ground, a hairline in the primary and an icons.jsx glyph
+   inside. At this size a drawing is mud and a glyph is legible, which is the
+   whole reason the plate exists rather than a scene. */
+.lpplate{width:44px;height:44px;flex:none;display:inline-grid;place-items:center;
+  color:var(--lp-pri);background:var(--lp-pri-tint);border-radius:var(--lp-radius);
+  border:1px solid color-mix(in srgb,var(--lp-pri) 26%,transparent)}
+
+/* ------------------------------------------------------------- the rail
+   Eight stops on one rule. The rule is drawn as a SEGMENT UNDER EACH STOP
+   rather than as one line behind the list, because the list rewraps from one
+   column to two to four to eight and a single background line cannot follow
+   it. The last stop in every row drops its segment — which row that is
+   depends on the breakpoint, so the nth-child rules live in the media
+   queries and are switched on and off there rather than guessed at here. */
+.lprail{list-style:none;margin:0;padding:0;display:grid;gap:var(--s3)}
+.lprail li{position:relative;padding:0 0 var(--s4) 60px}
+.lprail li:last-child{padding-bottom:0}
+.lprail li::before{content:"";position:absolute;left:21px;top:52px;bottom:2px;width:2px;
+  background:var(--lp-line)}
+.lprail li:last-child::before{display:none}
+.lprailmark{position:absolute;left:0;top:0;width:44px;height:44px;display:grid;place-items:center;
+  color:var(--lp-pri);background:var(--lp-card);border:var(--lp-hair);border-radius:50%;
+  box-shadow:0 0 0 5px var(--lp-bg)}
+.lprail .lpnum{margin-bottom:2px}
+.lprail p{font-size:13.5px;line-height:1.5;margin-top:3px}
+
+/* ----------------------------------------------------- the drawn features
+   Four cards, each a scene over a tinted plate and a paragraph under it. The
+   plate is what stops four drawings in a row reading as clip art: same
+   ground, same crop, same weight, so they are four panels of one argument
+   rather than four pictures somebody found. */
+.lpfeat{display:grid;gap:var(--s4)}
+.lpfeat article{display:flex;flex-direction:column;overflow:hidden;
+  background:var(--lp-card);border:var(--lp-hair);border-radius:var(--lp-radius);
+  transition:transform 320ms var(--ease),box-shadow 320ms var(--ease),border-color 320ms var(--ease)}
+.lpfeatart{display:grid;place-items:end center;padding:var(--s4) var(--s4) 0;
+  border-bottom:var(--lp-hair);
+  background:radial-gradient(110% 80% at 50% 0%,color-mix(in srgb,var(--lp-pri) 12%,transparent),
+    transparent 72%),var(--lp-paper)}
+.lpfeatart .lpart{max-width:270px}
+.lpfeattext{flex:1 1 auto;display:flex;flex-direction:column;padding:var(--s4)}
+.lpfeat p{font-size:14px;line-height:1.6;margin-top:var(--s2)}
+/* The specification line is pinned to the foot of the card, so four cards of
+   different paragraph lengths still line their last line up. */
+.lpspec{display:flex;align-items:center;gap:9px;margin-top:auto;padding-top:var(--s4);
+  font-family:var(--font-mono);font-size:11.5px;letter-spacing:.02em;color:var(--lp-muted)}
+.lpspec span{flex:none;width:5px;height:5px;border-radius:50%;background:var(--lp-pri)}
+@media(hover:hover){
+  .lpfeat article:hover{transform:translateY(-3px);border-color:var(--lp-line-2);
+    box-shadow:var(--lp-lift)}
+}
+
+/* The watermark on the dark band: one scene at scale, low contrast, no
+   caption. It is allowed to be decorative because the band's subject IS the
+   chain it draws, and it is hidden on a phone where it would sit under the
+   text rather than beside it. */
+.lpwatermark{position:absolute;display:none;right:-4%;bottom:-10%;width:min(44%,400px);
+  opacity:.16;pointer-events:none}
 
 /* ----------------------------------------------------------- the panels
    Real markup rather than a screenshot, so it stays sharp at any zoom,
@@ -1025,12 +1334,14 @@ export const LANDING_CSS = `
    block, which looked like a page that had shipped before its images did. */
 .lpstories{display:grid;gap:var(--s4)}
 .lpslot{border:1px dashed var(--lp-line-2);background:var(--lp-bg);padding:var(--s4)}
-.lpslotart{height:118px;display:grid;place-items:center;
+.lpslotart{position:relative;display:grid;place-items:center;padding:var(--s3) var(--s4) var(--s5);
   margin:calc(var(--s4) * -1) calc(var(--s4) * -1) var(--s4);
   border-bottom:1px dashed var(--lp-line-2);
   background-image:repeating-linear-gradient(45deg,transparent 0 9px,
     color-mix(in srgb,var(--lp-line) 65%,transparent) 9px 10px)}
-.lpslotart span{background:var(--lp-bg);border:var(--lp-hair);padding:4px 10px;
+.lpslotart .lpart{max-width:200px}
+.lpslotart span{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);
+  background:var(--lp-bg);border:var(--lp-hair);padding:4px 10px;
   font-size:10px;letter-spacing:.18em;color:var(--lp-faint)}
 .lpslot h3{color:var(--lp-ink-2)}
 .lpslot p{font-size:14px;line-height:1.55;margin-top:var(--s2)}
@@ -1058,12 +1369,29 @@ export const LANDING_CSS = `
 /* ------------------------------------------------- resources, next steps */
 .lpres,.lpnext{display:grid;gap:var(--s4)}
 .lpnext article{background:var(--lp-bg);border:var(--lp-hair);border-radius:var(--lp-radius);
-  padding:var(--s4);display:flex;flex-direction:column}
+  padding:var(--s4);display:flex;flex-direction:column;
+  transition:transform 320ms var(--ease),box-shadow 320ms var(--ease),border-color 320ms var(--ease)}
+.lpnext .lpplate{margin-bottom:var(--s3)}
 .lpnext p{font-size:14px;line-height:1.55;margin-top:var(--s2);flex-grow:1}
 .lpnext .btn{margin-top:var(--s4);align-self:flex-start}
+@media(hover:hover){
+  .lpnext article:hover{transform:translateY(-3px);border-color:var(--lp-line-2);
+    box-shadow:var(--lp-lift)}
+}
+/* A COVER, not a photograph of a laptop. Each resource gets the drawing of
+   the thing it actually is — a book, a matrix, a ledger under a glass — and
+   the fourth gets the reserved frame, because the fourth resource is
+   reserved. One drawing for "held open" is how a reader learns to read it. */
+.lprescover{display:grid;place-items:end center;overflow:hidden;
+  padding:var(--s3) var(--s3) 0;margin-bottom:var(--s3);
+  background:var(--lp-bg);border:var(--lp-hair);border-radius:var(--lp-radius)}
+.lprescover .lpart{max-width:200px;transition:transform 420ms var(--ease)}
 .lpres article{border-top:2px solid var(--lp-pri);padding-top:var(--s3)}
 .lpres h3{margin:var(--s2) 0 var(--s1)}
 .lpres p{font-size:13.5px;line-height:1.55}
+@media(hover:hover){
+  .lpres article:hover .lpart{transform:translateY(-4px)}
+}
 .lpkind{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
   font-family:var(--font-mono);color:var(--lp-muted)}
 
@@ -1119,7 +1447,19 @@ export const LANDING_CSS = `
   .lpindex{grid-template-columns:repeat(2,minmax(0,1fr))}
   .lptiles{grid-template-columns:repeat(2,minmax(0,1fr))}
   .lpres{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .lpfeat{grid-template-columns:repeat(2,minmax(0,1fr))}
   .lpstories,.lpnext{grid-template-columns:repeat(3,minmax(0,1fr))}
+  /* The rail turns the corner: the mark goes above the words and its
+     connector goes across to the next stop instead of down to it. The stop
+     at the end of a row has nothing to reach, so it loses its segment —
+     which stop that is changes with the column count, hence the nth-child
+     rule here and its two revisions below. */
+  .lprail{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s5) var(--s4)}
+  .lprail li,.lprail li:last-child{padding:0}
+  .lprail li::before{left:52px;right:calc(var(--s4) * -1);top:21px;bottom:auto;
+    width:auto;height:2px;display:block}
+  .lprail li:nth-child(2n)::before,.lprail li:last-child::before{display:none}
+  .lprailmark{position:static;margin-bottom:var(--s3);box-shadow:none}
 }
 @media(min-width:${BP.tab}px){
   .lpnav{display:flex}
@@ -1140,7 +1480,8 @@ export const LANDING_CSS = `
      .lprowtext stops being a box and lets its two children become columns of
      the row itself, which is what turns this from four headings with a link
      stranded a thousand pixels away into a specification table. */
-  .lprows li{grid-template-columns:56px 250px minmax(0,1fr) auto;padding:var(--s4) var(--s2)}
+  .lprows li{grid-template-columns:44px 52px 230px minmax(0,1fr) auto;padding:var(--s4) var(--s2);
+    align-items:center;gap:var(--s3)}
   .lprowtext{display:contents}
   .lprows p{margin-top:0;max-width:none}
   .lprows .lpnum{padding-top:3px}
@@ -1150,9 +1491,27 @@ export const LANDING_CSS = `
   .lpfootin{grid-template-columns:1.6fr 1fr 1fr 1fr;gap:var(--s5)}
   .lphero{padding-block:var(--s6) var(--s7)}
   .lpsec{padding-block:var(--s7)}
+  /* Four stops a row, so the segment now drops on every fourth. */
+  .lprail{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .lprail li:nth-child(2n)::before{display:block}
+  .lprail li:nth-child(4n)::before,.lprail li:last-child::before{display:none}
+  /* There is finally something to float over and something to crop. */
+  .lpheroart{display:block;width:58%;top:-18%;right:-9%;opacity:.5}
+  .lpfloat{display:block}
+  .lpwatermark{display:block}
 }
 @media(min-width:${BP.wide}px){
   /* Half of a 1240px page is finally wider than the whole table. */
   .lpopt{display:table-cell}
+  /* The full route on one line, which is the only arrangement in which the
+     rail says what it is for at a glance. */
+  .lprail{grid-template-columns:repeat(8,minmax(0,1fr));gap:var(--s4) var(--s3)}
+  .lprail li::before{right:calc(var(--s3) * -1)}
+  .lprail li:nth-child(4n)::before{display:block}
+  .lprail li:nth-child(8n)::before,.lprail li:last-child::before{display:none}
+  .lprail h3{font-size:15.5px}
+  .lprail p{font-size:12.5px}
+  .lpfeat{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .lpnav{gap:var(--s5)}
 }
 `;
