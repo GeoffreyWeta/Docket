@@ -463,8 +463,8 @@ DEFAULT_PROFILE.update({"country": "Nigeria", "currency": "NGN",
 # and a list that lived in the frontend could be edited by whoever is asking.
 # Adding a fifth means a key here AND a block in frontend/src/designs.js;
 # anything the console sends that is not in this tuple is refused.
-LANDING_DESIGNS = ("drawn", "bold", "night", "paper")
-DEFAULT_LANDING = "drawn"
+LANDING_DESIGNS = ("slate", "forest", "graphite", "ink")
+DEFAULT_LANDING = "slate"
 
 DEFAULT_SETTINGS = {
     "approvalThreshold": 50_000_000,

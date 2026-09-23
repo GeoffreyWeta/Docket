@@ -44,7 +44,6 @@ const EXPORTS = [
   // exactly as it does in ALL_CSS, because the `paper` tear line and the dark
   // hero are overrides that only win if they are read second.
   ["landing.jsx", "LANDING_CSS"], ["designs.js", "DESIGN_CSS"],
-  ["artwork.jsx", "PLATE_CSS"],
   ["superadmin.jsx", "ADMIN_CSS"],
 ];
 

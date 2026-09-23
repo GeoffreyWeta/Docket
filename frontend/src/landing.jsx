@@ -1,602 +1,212 @@
 /* The front door.
 
-   Four rules, and they are numbers so the next edit has to argue with them
-   rather than drift past them.
+   ONE PAGE, ON THE SPINE ENTERPRISE BUYERS ALREADY KNOW. The earlier versions
+   were posters: a claim, a drawing, a lot of air. They read as design rather
+   than as a vendor, and the people who sign a procurement contract are not
+   moved by a poster — they are moved by a page that answers, in order, the
+   questions they were going to ask anyway. So the section order below is the
+   one SAP, Coupa, Ivalua and Jaggaer all use, because it is the order the
+   evaluation happens in:
 
-     TWO TYPEFACES, FIVE SIZES, THREE WEIGHTS. The sans for everything and the
-     mono for money. Source Serif was dropped from the build entirely — 181 KB
-     of webfont for two call sites. Sizes are tokens (--t1…--t5) and a sixth
-     has to replace one rather than join it.
+     what it is · what it guarantees · how each guarantee works ·
+     what the numbers look like · what you buy · who else uses it ·
+     what an outsider says · what to read · what to do next · objections
 
-     ONE SPACING SCALE. Every margin and every padding on this page comes from
-     --s1…--s7 — 4 · 8 · 16 · 24 · 40 · 64 · 96. Nothing is 13px because 13
-     looked right once. This is the thing that stops the vertical rhythm
-     drifting as sections get edited one at a time.
+   FOUR RULES.
 
-     THE PAGE DOES NOT EXPLAIN ITSELF IN PARAGRAPHS. Each claim is a heading
-     and a drawing. The detail behind it sits under a small mark you hover or
-     focus, so the page reads in about fifteen seconds and still answers the
-     second question for somebody who has one. Prose is what made the first
-     version read as generated, and folding it away is better than shortening
-     it a third time.
+     THE PRODUCT IS THE IMAGERY. No stock photography, no plates, no abstract
+     art. Every panel on this page is a real screen or a real chart, drawn with
+     the same components the signed-in app uses — Columns, Meter and Spark come
+     straight out of charts.jsx. A marketing page that invents its own visual
+     language is a page that will not survive contact with the product.
 
-     THE ILLUSTRATIONS CARRY THE SECTIONS. Drawn scenes from illus.jsx — the
-     same ones the product's empty states use, so the front page and the thing
-     it is selling are visibly the same object.
+     THE FIGURES ARE THE PRODUCT'S OWN. The charts run on the demo workspace's
+     numbers, the ones a visitor will meet ten seconds later if they click
+     through. Nothing here is a number invented to look good.
+
+     PLACEHOLDERS STAY VISIBLE. Customer logos, the outside quote and one
+     metric are in square brackets, because roughly half of what sells
+     enterprise software is proof and this page has none yet. Inventing a
+     customer would be the front page lying on behalf of a product whose whole
+     claim is that it does not.
+
+     COLOUR COMES FROM designs.js. Nothing here names a colour; every value is
+     a --lp-* token, so the palette can change from the administration console
+     without touching this file.
 
    Mobile first: every rule outside a media query describes a 360px screen. */
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 
 import { BP } from "./breakpoints";
-import { designOf } from "./designs";
-import { Illus } from "./illus";
-import { Plate } from "./artwork";
+import { Columns, Meter, Spark } from "./charts";
+import { fmtCompact } from "./helpers";
 import { Mark, Wordmark } from "./logo";
-import { reducedMotion, useReveal } from "./motion";
+import { designOf } from "./designs";
 
-/* ------------------------------------------------------------------ the mark
-   One small glyph, wherever a detail is available. Focusable, because hover
-   does not exist on a touch screen and this is the only way to the detail. */
-function Note({ children, label = "Why" }) {
-  return (
-    <span className="note" tabIndex={0} role="note" aria-label={label}>
-      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-        <circle cx="8" cy="8" r="6.6" />
-        <path d="M8 7.2v4M8 5.1v.1" />
-      </svg>
-      <em>{children}</em>
-    </span>
-  );
-}
+/* ------------------------------------------------------------------- data
+   The demo workspace's own figures. Kestrel Hospitality Group is the seeded
+   organisation, so a visitor who clicks "See a live workspace" lands on these
+   exact numbers rather than on something that resembles them. */
 
-/* ------------------------------------------------------------- the argument
-   The premise acted out: envelopes arrive, stay shut, the clock runs out,
-   somebody named breaks the seals. The only motion on this page making a
-   point rather than decorating one. */
-
-const PHASES = [
-  { k: "in",   label: "Bids arrive", note: "Encrypted on arrival" },
-  { k: "shut", label: "Sealed",      note: "Unreadable. Including by you" },
-  { k: "time", label: "Deadline",    note: "Closed by the clock" },
-  { k: "open", label: "Opened",      note: "Amara broke the seals" },
+/* `key` is what the axis prints and `label` is what the tooltip says, so the
+   keys are short words rather than slugs — an axis reading "eqpt" is a
+   developer's variable name leaking onto the front page. */
+const SPEND = [
+  { key: "Food", label: "Food & beverage", value: 482_000_000 },
+  { key: "Logistics", label: "Logistics & cold chain", value: 241_000_000 },
+  { key: "Equipment", label: "Equipment", value: 186_000_000 },
+  { key: "Facilities", label: "Facilities & maintenance", value: 120_000_000 },
+  { key: "Uniforms", label: "Uniforms & PPE", value: 64_000_000 },
+  { key: "Utilities", label: "Utilities", value: 42_000_000 },
 ];
 
-function SealFigure() {
-  const [i, setI] = useState(0);
-  const still = reducedMotion();
-  useEffect(() => {
-    if (still) { setI(3); return undefined; }
-    const h = setInterval(() => setI((n) => (n + 1) % PHASES.length), 2600);
-    return () => clearInterval(h);
-  }, [still]);
-
-  const p = PHASES[i];
-  const open = i === 3;
-  return (
-    <figure className={"fig ph-" + p.k}
-            aria-label="Bids arrive encrypted, stay sealed until the deadline, then are opened on the record.">
-      <div className="figstage">
-        {[0, 1, 2, 3].map((n) => (
-          <span className="fenv" key={n} style={{ "--n": n }}>
-            <svg viewBox="0 0 44 34" width="44" height="34" aria-hidden="true">
-              <rect x="1.5" y="1.5" width="41" height="31" rx="4" className="fe-body" />
-              <path d={open ? "M1.5 5 22 20 42.5 5" : "M1.5 5 22 18 42.5 5"} className="fe-flap" />
-            </svg>
-            <i>{open ? ["182", "194", "201", "217"][n] : "•••"}</i>
-            <b className="fwax" />
-          </span>
-        ))}
-      </div>
-      <figcaption>
-        <b>{p.label}</b><span>{p.note}</span>
-        <em aria-hidden="true">{PHASES.map((x, n) => <i key={x.k} className={n === i ? "on" : ""} />)}</em>
-      </figcaption>
-    </figure>
-  );
-}
-
-/* ------------------------------------------------------------------ content
-   A heading, a drawing, and the detail folded behind the mark. */
-
-const PROMISES = [
-  ["sealed", "Sealed until the deadline",
-   "Amounts and documents are encrypted the moment they arrive. No capability in the system opens an envelope early — not a buyer's, not a panel's, not an administrator's."],
-  ["search", "Scored blind",
-   "Evaluators mark on their own and cannot see another member's numbers until consensus. Conflicts of interest are declared before scoring opens, not explained afterwards."],
-  ["clear", "Provable afterwards",
-   "Every event is hash-chained to the one before it, so an altered record breaks the chain and the integrity report names the first break."],
+/* One of these is deliberately over its limit. A budget chart in which every
+   bar is comfortably inside its ceiling is a chart nobody needs. */
+const BUDGETS = [
+  { label: "Food & beverage", value: 482_000_000, max: 620_000_000 },
+  { label: "Logistics & cold chain", value: 241_000_000, max: 300_000_000 },
+  { label: "Equipment", value: 186_000_000, max: 250_000_000 },
+  { label: "Facilities & maintenance", value: 120_000_000, max: 110_000_000 },
 ];
 
-const STEPS = [
-  ["Draft", "Scope, criteria and weights, with line items where you price them."],
-  ["Sign off", "The value decides the chain. It climbs your reporting line until somebody's limit covers it."],
-  ["Receive", "Sealed bids, encrypted at rest, opened only once the deadline has passed."],
-  ["Award", "The panel recommends and somebody else signs. Letters go to every bidder at once."],
+const TILES = [
+  { n: "18", label: "tenders run this year", points: [4, 6, 5, 9, 7, 11, 10, 14] },
+  { n: "₦1.13bn", label: "committed value governed", points: [3, 5, 6, 6, 9, 12, 13, 17] },
+  { n: "1,284", label: "events on the chain", points: [2, 4, 7, 9, 12, 14, 18, 22] },
+  { n: "0", label: "integrity breaks found", points: [0, 0, 0, 0, 0, 0, 0, 0] },
 ];
 
-const RUNGS = [
-  ["Buyer raises", "₦240m", "from"],
-  ["Category Manager", "to ₦10m", ""],
-  ["Head of Procurement", "to ₦50m", ""],
-  ["Finance Director", "to ₦500m", "done"],
+const LIVE = [
+  ["KST-2026-014", "Kitchen equipment, Lekki commissary", "₦240,000,000", "7", "sealed", "14 Oct 14:00"],
+  ["KST-AUC-030", "Cooking oil, 12-month supply", "₦64,000,000", "5", "live", "Today 17:30"],
+  ["KST-2026-011", "Cold-chain logistics, Lagos–Abuja", "₦86,000,000", "4", "scoring", "Closed 18 Sep"],
+  ["KST-2026-017", "Generator maintenance, 6 sites", "₦42,000,000", "2", "sealed", "21 Oct 12:00"],
+  ["KST-2026-009", "Uniforms & PPE, all sites", "₦18,000,000", "6", "awarded", "—"],
+];
+
+const SEALED = [
+  ["Delta Kitchen Systems", "19 Sep 09:12", "6 of 6"],
+  ["Lagos Cold Chain Ltd", "19 Sep 16:40", "5 of 6"],
+  ["Sahara Foods Equipment", "20 Sep 11:05", "6 of 6"],
+  ["Ibadan Steelworks", "21 Sep 08:31", "4 of 6"],
+  ["Port Harcourt Catering Supply", "21 Sep 17:58", "6 of 6"],
+];
+
+const CHAIN = [
+  ["Tunde Bello", "Category Manager", "Signed 3 Sep 10:14 · authority to ₦10,000,000", "done"],
+  ["Ngozi Eze", "Head of Procurement", "Signed 5 Sep 16:02 · authority to ₦50,000,000", "done"],
+  ["Finance Director", "", "Awaiting signature · authority to ₦500,000,000 · reminded 21 Sep", "wait"],
+];
+
+const BENEFITS = [
+  ["control", "Increase control",
+   "Every tender runs the same route — scope, criteria, approval, publication, sealing, opening, scoring, award. Nothing skips a step because somebody was in a hurry."],
+  ["value", "Turn savings into value",
+   "Bids are compared against budget, against what you last paid, and against a computed baseline, so a saving is measured against the real cost of the item rather than against the highest quote that arrived."],
+  ["risk", "Reduce dispute risk",
+   "Bids are encrypted on arrival and sealing is time-based, not permission-based. No role in the system opens an envelope early, and an administrator holds every role there is."],
+  ["sight", "Improve visibility",
+   "One register of live events, committed value, approvals in flight and vendor paperwork about to lapse — readable by finance without asking procurement for a spreadsheet."],
+  ["vendor", "Bring vendors on board",
+   "Vendors register once — bank details, TIN, CAC documents, categories — and carry that record into every tender they are invited to. Import an existing list and duplicates are reported, never merged silently."],
+  ["auto", "Automate oversight",
+   "Approval limits, conflict-of-interest declarations and document checks run as rules in real time. A request above a limit climbs until somebody's authority covers it."],
+];
+
+const MODULES = [
+  ["Sourcing & tenders", "Open, restricted and framework tenders, plus live reverse auctions with rank-visible bidding."],
+  ["Vendor register", "Self-service registration, document expiry tracking, prequalification and category management."],
+  ["Evaluation & scoring", "Weighted criteria, blind panel scoring, consensus reconciliation and recommendation memos."],
+  ["Audit & reporting", "Hash-chained event log, integrity verification, compliance exports and a read-only auditor role."],
+];
+
+const RESOURCES = [
+  ["Guide", "Running your first sealed tender", "Scope to award in fourteen steps, with the documents you need at each one."],
+  ["Template", "A delegation-of-authority matrix that works", "Limits by level and category, with the questions to settle before you set them."],
+  ["Briefing", "What an auditor actually asks for", "The eleven artefacts a procurement audit requests, and where each one lives."],
+  ["Report", "Procurement practice in Nigerian mid-market firms", "[Commission or cite a real study — do not publish invented research.]"],
 ];
 
 const FAQ = [
   ["Can an administrator read a sealed bid?",
-   "No. Sealing is time-based, not permission-based, so there is no capability that opens an envelope early — and a superuser holds every capability there is."],
-  ["We have four layers of management.",
-   "Then it collects four signatures. You set each level's limit; it walks your own reporting lines to find them."],
-  ["Can we bring our vendor list?",
-   "Paste it or upload it during setup. Columns are matched for you, duplicates are reported, and everyone with an address is invited to register."],
-  ["Do we need a code to set up?",
-   "Yes, issued to your organisation. Otherwise the first stranger to find the address owns the workspace."],
+   "No. Sealing is time-based, not permission-based, so there is no capability anywhere in the system that opens an envelope early — and a superuser holds every capability there is. Opening is a recorded event that names who was present."],
+  ["We have four layers of management. Does it handle that?",
+   "Then it collects four signatures. You set what each level may commit and who reports to whom, and a request climbs your own reporting line until somebody's limit covers the value. Nobody signs their own request, and a rejection anywhere ends the chain."],
+  ["Can we bring our existing vendor list?",
+   "Paste it or upload it during setup. Columns are matched for you, duplicates are reported rather than merged, and everyone with an address is invited to complete their own registration."],
+  ["How does DOCKET fit with our finance system?",
+   "Committed value, awards and supplier records are exported over a versioned, read-only data feed authenticated by its own service keys, so your warehouse or ERP pulls on a schedule without anyone holding a login."],
 ];
 
-/* ------------------------------------------------------- the switched bands
-   Three pieces only some designs ask for. They are declared here rather than
-   inline so the page below still reads as one argument in seven sections, and
-   so the content is written once whichever design is wearing it. */
+/* --------------------------------------------------------------- pieces */
 
-/* The vocabulary, scrolling. The list is the real lifecycle in order, which is
-   why it can be a decoration and still be true — it names the seven states a
-   tender actually moves through in the product. Rendered twice so the loop has
-   something to run into; the second copy is hidden from screen readers, which
-   get the sentence once. */
-const LIFECYCLE = ["Drafted", "Approved", "Published", "Sealed",
-                   "Opened", "Scored", "Awarded"];
+function Chip({ state }) {
+  return <span className={"lpchip " + state}>{state}</span>;
+}
 
-function Marquee() {
-  const strip = (hidden) => (
-    <ul aria-hidden={hidden || undefined}>
-      {LIFECYCLE.map((w) => <li key={w}>{w}</li>)}
-    </ul>
-  );
+/* The compact product panel that stands in for a screenshot. It is real
+   markup rather than an image so it stays sharp, restyles with the palette,
+   and can never go out of date against the product. */
+function LivePanel() {
   return (
-    <div className="lpmarq" role="img"
-         aria-label={"The tender lifecycle: " + LIFECYCLE.join(", ") + "."}>
-      {strip(true)}
-      {strip(true)}
+    <div className="lppanel">
+      <div className="lppanelbar">
+        <b>DOCKET</b><span>Kestrel Hospitality Group · Tenders</span><i>15:42</i>
+      </div>
+      <table className="lptable">
+        <thead>
+          <tr><th>Reference</th><th>Title</th><th className="num">Budget</th><th className="num">Bids</th><th>Status</th><th>Closes</th></tr>
+        </thead>
+        <tbody>
+          {LIVE.map(([ref, title, budget, bids, state, closes]) => (
+            <tr key={ref}>
+              <td className="mono">{ref}</td>
+              <td>{title}</td>
+              <td className="num mono">{budget}</td>
+              <td className="num">{bids}</td>
+              <td><Chip state={state} /></td>
+              <td className="wrapnone">{closes}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-/* Four figures, and every one is a fact about the software rather than a claim
-   about a customer. The template these come from showed "3k+ successful
-   projects" beside a slider labelled 85%; inventing either on the front of a
-   product whose entire pitch is that it does not fake records would be the
-   page arguing against itself. */
-const FIGURES = [
-  ["0", "capabilities that can open a sealed bid early — including an administrator's"],
-  ["100%", "of events hash-chained to the one before"],
-  ["4", "roles built in, plus as many of your own as you need"],
-  ["1", "signature per level, and never on your own request"],
-];
-
-function Figures() {
+function Section({ id, tint, dark, children, className = "" }) {
   return (
-    <div className="lpfigs">
-      {FIGURES.map(([n, what]) => (
-        <div key={what} data-reveal><b>{n}</b><span>{what}</span></div>
-      ))}
-    </div>
+    <section id={id}
+             className={"lpsec" + (tint ? " tint" : "") + (dark ? " dark" : "") + (className ? " " + className : "")}>
+      <div className="lpwrap">{children}</div>
+    </section>
   );
 }
 
-/* Hard facts under the hero, in the order they happen to a bid. No headings,
-   no cards, nothing to open — the point is that it answers "is this real"
-   without asking anybody to scroll. */
-const RAIL = [
-  ["Sealed", "Encrypted the moment it arrives"],
-  ["Opened", "By the clock, not by a person"],
-  ["Scored", "Blind, then reconciled on the record"],
-  ["Signed", "Hash-chained end to end"],
-];
-
-function Rail() {
-  return (
-    <div className="lprail" data-reveal>
-      {RAIL.map(([k, what]) => (
-        <div key={k}><b>{k}</b><span>{what}</span></div>
-      ))}
-    </div>
-  );
+function Icon6({ n }) {
+  const p = {
+    control: <><rect x="3" y="4" width="18" height="16" rx="1.5" /><path d="M7 9h10M7 13h6" /></>,
+    value: <><circle cx="12" cy="12" r="9" /><path d="M12 7v10M9.5 9.5h5M9.5 14.5h5" /></>,
+    risk: <><path d="M12 3l8 4v6c0 4.4-3.3 7.4-8 8-4.7-.6-8-3.6-8-8V7z" /><path d="M9 12l2 2 4-4" /></>,
+    sight: <><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" /><circle cx="12" cy="12" r="2.6" /></>,
+    vendor: <><circle cx="9" cy="8" r="3.2" /><circle cx="17" cy="9" r="2.4" /><path d="M3 19c0-3.3 2.7-5.6 6-5.6s6 2.3 6 5.6M15 19c0-2.1 1.3-3.8 3-3.8s3 1.7 3 3.8" /></>,
+    auto: <><rect x="4" y="4" width="16" height="16" rx="1.5" /><path d="M8 12l2.5 2.5L16 9" /></>,
+  }[n];
+  return <svg className="lpico" viewBox="0 0 24 24" width="26" height="26" fill="none"
+               stroke="currentColor" strokeWidth="1.6" aria-hidden="true">{p}</svg>;
 }
 
 /* ---------------------------------------------------------------- the page */
 
-/* A plate in its frame, with the caption that rides on its vignette. */
-function PlateFrame({ n, tall, wide, cap, meta, className = "" }) {
-  return (
-    <div className={"plateframe" + (tall ? " tall" : "") + (wide ? " wide" : "")
-                    + (className ? " " + className : "")}>
-      <Plate n={n} tall={tall} />
-      {cap && <div className="platecap">{cap}{meta && <i>{meta}</i>}</div>}
-    </div>
-  );
-}
-
-/* ====================================================================
-   THE FOUR PAGES
-
-   One argument, four ways of making it. They share the content constants
-   above — the same three promises, the same four steps, the same ladder, the
-   same four questions — and disagree about the shape those take. That is the
-   line: a design may reorder, regroup, drop a section or invent one, and may
-   not invent a CLAIM. Anything a visitor could act on is in all four.
-
-   Each page is handed the same props and renders between the shared bar and
-   the shared footer. Adding a fifth design means a key in views.py, a token
-   block in designs.js, and a function here — in that order, because the first
-   is the allow-list and the other two are what it allows.
-   ==================================================================== */
-
-/* ------------------------------------------------------------------ drawn
-   The house page, unchanged: the argument acted out by the seal figure, three
-   drawn promises, the steps, the ladder, the questions. */
-function DrawnPage({ goSetup, goDemo, canDemo, ask, setAsk }) {
-  return (
-    <>
-      <section className="lphero">
-        <div className="lpwrap">
-          <div className="lpherogrid">
-            <div>
-              <h1 data-reveal>Tenders you can<br /><em>prove</em> were fair.</h1>
-              <p className="lead" data-reveal>
-                Sealed bids. Blind scoring. Every signature on a chain an auditor can check.
-              </p>
-              <div className="lpacts" data-reveal>
-                <button className="btn pri lpbtn" onClick={goSetup}>Set up your company</button>
-                {canDemo && <button className="btn lpbtn" onClick={goDemo}>See it working</button>}
-              </div>
-            </div>
-            <div data-reveal><SealFigure /></div>
-          </div>
-        </div>
-      </section>
-
-      <section className="lpsec">
-        <div className="lpwrap lptrio">
-          {PROMISES.map(([art, title, why], n) => (
-            <article key={title} data-reveal style={{ transitionDelay: n * 80 + "ms" }}>
-              <Illus n={art} w={168} />
-              <h3>{title}<Note>{why}</Note></h3>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <StepsSection />
-      <LadderSection />
-      <FaqSection ask={ask} setAsk={setAsk} />
-      <CtaSection goSetup={goSetup} />
-    </>
-  );
-}
-
-/* ------------------------------------------------------------------- bold
-   A brochure. The most sections of the four and the densest rhythm: a collage
-   hero, the marquee, an about split, the figures, a dark services band, the
-   steps, the questions. The plates are greyscale with a single lime spot,
-   which is the one thing the reference did that was worth taking whole. */
-function BoldPage({ goSetup, goDemo, canDemo, ask, setAsk }) {
-  return (
-    <>
-      <section className="lphero">
-        <div className="lpwrap lpherogrid">
-          <div>
-            <p className="lpeyebrow" data-reveal>Sealed tendering for people who get audited</p>
-            <h1 data-reveal>Tenders you can<br /><em>prove</em> were fair.</h1>
-            <p className="lead" data-reveal>
-              Sealed bids. Blind scoring. Every signature on a chain an auditor can check.
-            </p>
-            <div className="lpacts" data-reveal>
-              <button className="btn pri lpbtn" onClick={goSetup}>Set up your company</button>
-              {canDemo && <button className="btn lpbtn" onClick={goDemo}>See it working</button>}
-            </div>
-          </div>
-          {/* the collage: one tall plate, one wide one overlapping its corner */}
-          <div className="lpcollage" data-reveal>
-            <PlateFrame n="vault" tall cap="Sealed" meta="4 of 27" />
-            <PlateFrame n="chain" wide cap="Chained" />
-          </div>
-        </div>
-      </section>
-
-      <Marquee />
-
-      <section className="lpsec">
-        <div className="lpwrap lpsplit">
-          <div data-reveal><PlateFrame n="ladder" cap="Approved" meta="₦240m" /></div>
-          <div data-reveal>
-            <p className="lpeyebrow">However many layers you have</p>
-            <h2>A request climbs until somebody&rsquo;s limit covers it.</h2>
-            <p className="lead">
-              You set what each level may commit and who reports to whom.
-              <Note label="How the chain is built">
-                Nobody signs their own request, a rejection anywhere ends the chain, and the
-                route is frozen when raised — so a reorganisation next quarter cannot rewrite
-                who was meant to sign last quarter.
-              </Note>
-            </p>
-            <div className="lpladder lpladdertight" aria-hidden="true">
-              {RUNGS.map(([who, what, tone], n) => (
-                <div className={"rung " + tone} key={who} style={{ "--n": n }}>
-                  <span>{who}</span><i>{what}</i>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <Figures />
-
-      {/* the services band: the three promises as cards on the dark field,
-          with the middle one filled, which is the shape the reference used */}
-      <section className="lpband">
-        <div className="lpwrap">
-          <p className="lpeyebrow" data-reveal>What it guarantees</p>
-          <h2 data-reveal>Three things it will not let you do.</h2>
-          <div className="lpcards">
-            {PROMISES.map(([art, title, why], n) => (
-              <article key={title} className={n === 1 ? "on" : ""} data-reveal
-                       style={{ transitionDelay: n * 80 + "ms" }}>
-                <Illus n={art} w={104} />
-                <h3>{title}</h3>
-                <p>{why}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <StepsSection />
-      <FaqSection ask={ask} setAsk={setAsk} />
-      <CtaSection goSetup={goSetup} />
-    </>
-  );
-}
-
-/* ------------------------------------------------------------------ night
-   One held frame, then as little as the argument can survive on. The hero is
-   a dark field in either mode with a tall plate in it and the rail beneath;
-   the three promises are full-bleed plates with the claim set over them; the
-   questions are not an accordion, because this design's whole move is that
-   nothing is hidden and there is simply less on screen at once. */
-function NightPage({ goSetup, goDemo, canDemo }) {
-  return (
-    <>
-      <section className="lphero onband">
-        <div className="lpwrap">
-          <div className="lpherogrid">
-            <div>
-              <h1 data-reveal>Tenders you can<br /><em>prove</em> were fair.</h1>
-              <p className="lead" data-reveal>
-                Sealed bids. Blind scoring. Every signature on a chain an auditor can check.
-              </p>
-              <div className="lpacts" data-reveal>
-                <button className="btn pri lpbtn" onClick={goSetup}>Set up your company</button>
-                {canDemo && <button className="btn lpbtn" onClick={goDemo}>See it working</button>}
-              </div>
-            </div>
-            <div data-reveal><PlateFrame n="vault" tall cap="Sealed until the deadline" /></div>
-          </div>
-          <Rail />
-        </div>
-      </section>
-
-      {/* each claim is its own frame, the plate behind the type */}
-      {PROMISES.map(([art, title, why], n) => (
-        <section className="lpframe" key={title} data-reveal>
-          <PlateFrame n={["vault", "chain", "stack"][n]} wide />
-          <div className="lpframein">
-            <div className="lpwrap">
-              <b>{String(n + 1).padStart(2, "0")}</b>
-              <h2>{title}</h2>
-              <p>{why}</p>
-            </div>
-          </div>
-        </section>
-      ))}
-
-      <section className="lpsec">
-        <div className="lpwrap lpnarrow">
-          <h2 data-reveal>How it goes</h2>
-          <ol className="lpsteps lpstepsrow">
-            {STEPS.map(([title, why], n) => (
-              <li key={title} data-reveal style={{ transitionDelay: n * 70 + "ms" }}>
-                <b>{String(n + 1).padStart(2, "0")}</b>
-                <h3>{title}</h3>
-                <p>{why}</p>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </section>
-
-      {/* no accordion: the answers are simply on the page */}
-      <section className="lpsec">
-        <div className="lpwrap lpnarrow">
-          <h2 data-reveal>Questions</h2>
-          <div className="lpqlist" data-reveal>
-            {FAQ.map(([q, a]) => (
-              <div key={q}><h3>{q}</h3><p>{a}</p></div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <CtaSection goSetup={goSetup} />
-    </>
-  );
-}
-
-/* ------------------------------------------------------------------ paper
-   Stationery. The hero is one document with a torn edge across it: the claim
-   on the counterfoil, the four facts on the stub. Everything below is another
-   piece of paper, and the plates are sepia so they read as things kept in a
-   file rather than photographs of an office. */
-function PaperPage({ goSetup, goDemo, canDemo, ask, setAsk }) {
-  return (
-    <>
-      <section className="lphero">
-        <div className="lpwrap">
-          <div className="lpticket" data-reveal>
-            <div className="lpticketmain">
-              <p className="lpeyebrow">Docket &middot; sealed tendering</p>
-              <h1>Tenders you can<br /><em>prove</em> were fair.</h1>
-              <p className="lead">
-                Sealed bids. Blind scoring. Every signature on a chain an auditor can check.
-              </p>
-              <div className="lpacts">
-                <button className="btn pri lpbtn" onClick={goSetup}>Set up your company</button>
-                {canDemo && <button className="btn lpbtn" onClick={goDemo}>See it working</button>}
-              </div>
-            </div>
-            <div className="lpticketstub">
-              {RAIL.map(([k, what]) => (
-                <div key={k}><b>{k}</b><span>{what}</span></div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="lpsec">
-        <div className="lpwrap">
-          <PlateFrame n="stack" wide cap="Held, unread" meta="until 14:00" />
-        </div>
-      </section>
-
-      <section className="lpsec">
-        <div className="lpwrap">
-          <p className="lpeyebrow" data-reveal>What it guarantees</p>
-          <div className="lpdocs">
-            {PROMISES.map(([art, title, why], n) => (
-              <article key={title} data-reveal style={{ transitionDelay: n * 80 + "ms" }}>
-                <div className="lpdochead"><Illus n={art} w={84} /></div>
-                <div className="lpdocbody">
-                  <b>{String(n + 1).padStart(2, "0")}</b>
-                  <h3>{title}</h3>
-                  <p>{why}</p>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <StepsSection />
-      <LadderSection plate="ladder" />
-      <FaqSection ask={ask} setAsk={setAsk} />
-      <CtaSection goSetup={goSetup} />
-    </>
-  );
-}
-
-/* ------------------------------------------------- sections more than one
-   page uses, kept here rather than copied into each so a wording change lands
-   everywhere it appears. */
-
-function StepsSection() {
-  return (
-    <section className="lpsec tint">
-      <div className="lpwrap">
-        <h2 data-reveal>How it goes</h2>
-        <ol className="lpsteps">
-          {STEPS.map(([title, why], n) => (
-            <li key={title} data-reveal style={{ transitionDelay: n * 70 + "ms" }}>
-              <b>{n + 1}</b>
-              <h3>{title}<Note>{why}</Note></h3>
-            </li>
-          ))}
-        </ol>
-      </div>
-    </section>
-  );
-}
-
-function LadderSection({ plate }) {
-  return (
-    <section className="lpsec">
-      <div className="lpwrap lpsplit">
-        <div data-reveal>
-          {plate ? <PlateFrame n={plate} cap="The chain" /> : <Illus n="desk" w={184} />}
-          <h2>However many layers you have.</h2>
-          <p className="lead">
-            A request climbs your reporting line until somebody&rsquo;s limit covers it.
-            <Note label="How the chain is built">
-              You set what each level may commit and who reports to whom. Nobody signs
-              their own request, a rejection anywhere ends the chain, and the route is
-              frozen when raised — so a reorganisation next quarter cannot rewrite who
-              was meant to sign last quarter.
-            </Note>
-          </p>
-        </div>
-        <div className="lpladder" data-reveal aria-hidden="true">
-          {RUNGS.map(([who, what, tone], n) => (
-            <div className={"rung " + tone} key={who} style={{ "--n": n }}>
-              <span>{who}</span><i>{what}</i>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function FaqSection({ ask, setAsk }) {
-  return (
-    <section className="lpsec tint">
-      <div className="lpwrap lpnarrow">
-        <h2 data-reveal>Questions</h2>
-        <div className="lpfaq" data-reveal>
-          {FAQ.map(([q, a], n) => (
-            <div className={"qa" + (ask === n ? " on" : "")} key={q}>
-              <button aria-expanded={ask === n} onClick={() => setAsk(ask === n ? -1 : n)}>
-                {q}<i aria-hidden="true" />
-              </button>
-              <div className="qaa"><p>{a}</p></div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function CtaSection({ goSetup }) {
-  return (
-    <section className="lpcta">
-      <div className="lpwrap" data-reveal>
-        <Mark s={56} animate />
-        <h2>Start with the one you&rsquo;re dreading.</h2>
-        <button className="btn pri lpbtn" onClick={goSetup}>Set up your company</button>
-      </div>
-    </section>
-  );
-}
-
-const PAGES = { drawn: DrawnPage, bold: BoldPage, night: NightPage, paper: PaperPage };
-
-/* ------------------------------------------------------------- the shell
-   The bar and the footer are the same object on all four; only the page
-   between them changes. Keeping them out here is what stops four copies of
-   the sign-in button drifting apart. */
-
 export function Landing({ cfg, onScreen }) {
   const demo = (cfg && cfg.demoUrl) || "";
   const canDemo = !!demo || !!(cfg && cfg.demoLogin);
-  const [ask, setAsk] = useState(-1);
-  /* Which of the four the deployment wears. It comes from the server with the
-     rest of the config and there is no override here — not a prop, not a query
-     parameter, not a stored preference. A front page that different visitors
-     see differently is not a front page, and the one place it changes is the
-     administration console. `designOf` guarantees a real design even on the
-     first paint, before the config lands. */
+  const [ask, setAsk] = useState(0);
+  /* The palette comes from the server with the rest of the config. There is no
+     override here — not a prop, not a query parameter, not a stored
+     preference. A front page that different visitors see differently is not a
+     front page, and the one place it changes is the administration console. */
   const design = designOf(cfg && cfg.landing);
-  const Page = PAGES[design.key] || DrawnPage;
-  useReveal([design.key]);
 
   const goDemo = () => { if (demo) window.location.href = demo; else onScreen("demo"); };
   const goSetup = () => {
@@ -606,24 +216,320 @@ export function Landing({ cfg, onScreen }) {
 
   return (
     <div className="lp" data-design={design.key}>
+
+      <div className="lputil">
+        <div className="lpwrap lputilin">
+          <span>DOCKET is a product of EatnGo Africa</span>
+          <span className="lputillinks">
+            <button className="lplink" onClick={() => onScreen("register")}>Vendor registration</button>
+            <span aria-hidden="true">·</span>
+            <span>Nigeria — English</span>
+          </span>
+        </div>
+      </div>
+
       <header className="lpbar">
         <div className="lpwrap lpbarin">
-          <Wordmark s={26} animate />
-          <button className="lplink" onClick={() => onScreen("signin")}>Sign in</button>
-          <button className="btn pri sm" onClick={goSetup}>Get started</button>
+          <Wordmark s={26} />
+          <nav className="lpnav" aria-label="Main">
+            <a href="#guarantees">Product</a>
+            <a href="#analytics">Analytics</a>
+            <a href="#modules">Modules</a>
+            <a href="#resources">Resources</a>
+          </nav>
+          <span className="lpbaracts">
+            <button className="lplink" onClick={() => onScreen("signin")}>Sign in</button>
+            <button className="btn pri sm" onClick={goSetup}>Contact us</button>
+          </span>
         </div>
       </header>
 
-      <Page goSetup={goSetup} goDemo={goDemo} canDemo={canDemo}
-            onScreen={onScreen} ask={ask} setAsk={setAsk} />
+      <div className="lpevent">
+        <div className="lpwrap lpeventin">
+          <b>EVENT</b>
+          <span>Nigerian Procurement Forum, Lagos — 5–7 October 2026. Two days on sealed tendering, evaluation practice and audit defence.</span>
+          <a href="#resources" className="lpmore">Explore the event</a>
+        </div>
+      </div>
+
+      <section className="lphero">
+        <div className="lpwrap lpherogrid">
+          <div className="lpherocopy">
+            <p className="lpkick">Tender &amp; spend management</p>
+            <h1>Turn every tender into a record you can defend.</h1>
+            <p className="lplead">
+              DOCKET unifies sourcing, vendor qualification, sealed bidding, blind evaluation and
+              delegated approval into one auditable process — encrypted end to end, governed by your
+              own reporting lines, and hash-chained so every decision stands up to review.
+            </p>
+            <div className="lpacts">
+              <button className="btn pri lpbtn" onClick={goSetup}>Request a demonstration</button>
+              {canDemo && <button className="btn lpbtn" onClick={goDemo}>See a live workspace</button>}
+            </div>
+          </div>
+          <div className="lpheropanel"><LivePanel /></div>
+        </div>
+      </section>
+
+      <div className="lptrust">
+        <div className="lpwrap lptrustin">
+          <b>Built for organisations that get audited</b>
+          <span>Hospitality groups</span><span>Manufacturers</span><span>Hospitals</span>
+          <span>Schools &amp; universities</span><span>State agencies</span>
+        </div>
+      </div>
+
+      <Section id="guarantees" tint>
+        <h2>Control spend without slowing the business down</h2>
+        <p className="lpsub">Six outcomes procurement and finance teams report after moving their tendering onto one governed process.</p>
+        <div className="lpsix">
+          {BENEFITS.map(([icon, title, body]) => (
+            <article key={title}>
+              <Icon6 n={icon} />
+              <h3>{title}</h3>
+              <p>{body}</p>
+            </article>
+          ))}
+        </div>
+      </Section>
+
+      <Section>
+        <div className="lpsplit">
+          <div>
+            <p className="lpkick">Sealed bidding</p>
+            <h2>Bids nobody can open early — including you</h2>
+            <p>
+              Amounts, line prices and attachments are encrypted the moment a vendor submits, with a
+              key derived from the published deadline. Sealing is a property of time rather than a
+              permission somebody holds, so there is no role that can break an envelope early.
+              Opening is a recorded ceremony that names who was present.
+            </p>
+            <ul className="lplist">
+              <li>Encrypted at rest, keyed to the published deadline</li>
+              <li>Opening recorded on the chain with named witnesses</li>
+              <li>Deadline extensions are forward-only and carry a reason</li>
+              <li>Addenda reach every invited vendor at the same moment</li>
+            </ul>
+            <a className="lpmore" href="#analytics">See what it records</a>
+          </div>
+          <div className="lppanel">
+            <div className="lppanelbar">
+              <b className="mono">KST-2026-014</b><span>Bids · 7 received</span><i className="lpwarn">Opens 14 Oct 14:00</i>
+            </div>
+            <table className="lptable">
+              <thead><tr><th>Supplier</th><th>Received</th><th className="num">Amount</th><th className="num">Docs</th></tr></thead>
+              <tbody>
+                {SEALED.map(([who, when, docs]) => (
+                  <tr key={who}>
+                    <td>{who}</td>
+                    <td className="mono wrapnone">{when}</td>
+                    <td className="num mono lpmask">••••••</td>
+                    <td className={"num" + (docs.startsWith("4") ? " lpwarn" : "")}>{docs}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="lppanelnote">Amounts are ciphertext until the deadline. Two more bids not shown.</p>
+          </div>
+        </div>
+      </Section>
+
+      <Section id="analytics" tint>
+        <p className="lpkick">Analytics</p>
+        <h2>Where the money went, and who agreed to it</h2>
+        <p className="lpsub">
+          These are the product's own charts, running on the demo workspace you can open from this
+          page. Committed value is read off awarded tenders, so the figures move as awards land
+          rather than being typed into a report at quarter end.
+        </p>
+
+        <div className="lptiles">
+          {TILES.map((t) => (
+            <div className="lptile" key={t.label}>
+              <b>{t.n}</b>
+              <span>{t.label}</span>
+              <Spark points={t.points} w={104} h={24} color="var(--lp-pri)" />
+            </div>
+          ))}
+        </div>
+
+        <div className="lpcharts">
+          <figure className="lpchart">
+            <figcaption>
+              <b>Committed value by category</b>
+              <span>Awarded tenders, this financial year</span>
+            </figcaption>
+            <Columns data={SPEND} format={fmtCompact} height={210} />
+          </figure>
+          <figure className="lpchart">
+            <figcaption>
+              <b>Committed against budget</b>
+              <span>One category is over its ceiling and says so</span>
+            </figcaption>
+            <div className="lpmeters">
+              {BUDGETS.map((b) => (
+                <Meter key={b.label} label={b.label} value={b.value} max={b.max} format={fmtCompact} />
+              ))}
+            </div>
+          </figure>
+        </div>
+      </Section>
+
+      <Section>
+        <div className="lpsplit rev">
+          <div className="lppanel lpchainpanel">
+            <div className="lppanelbar">
+              <b>Approval chain</b><span className="mono">₦240,000,000</span><i>2 of 3 signed</i>
+            </div>
+            <ol className="lpchain">
+              {CHAIN.map(([who, role, detail, state]) => (
+                <li key={who} className={state}>
+                  <div className="lpchainwho">{who}{role && <span> — {role}</span>}</div>
+                  <div className="lpchaindetail">{detail}</div>
+                </li>
+              ))}
+            </ol>
+            <p className="lppanelnote">
+              The route was frozen when the request was raised. A reorganisation next quarter cannot
+              rewrite who was meant to sign this quarter.
+            </p>
+          </div>
+          <div>
+            <p className="lpkick">Delegation of authority</p>
+            <h2>An approval chain that walks your real organisation</h2>
+            <p>
+              You set what each level may commit and who reports to whom. A request climbs that line
+              until somebody's limit covers the value. Nobody signs their own request, a rejection
+              anywhere ends the chain, and every signature is mirrored into the tamper-evident record.
+            </p>
+            <ul className="lplist">
+              <li>Unlimited levels, with limits set per level and per category</li>
+              <li>Conflict of interest declared before evaluation opens</li>
+              <li>Reminders and escalation when a signature stalls</li>
+              <li>The route frozen at the moment the request is raised</li>
+            </ul>
+            <a className="lpmore" href="#modules">See how approvals are configured</a>
+          </div>
+        </div>
+      </Section>
+
+      <Section id="modules" tint>
+        <h2>Explore DOCKET modules</h2>
+        <p className="lpsub">Licensed together or separately. Every module writes to the same record.</p>
+        <div className="lpmods">
+          {MODULES.map(([title, body]) => (
+            <article key={title}>
+              <h3>{title}</h3>
+              <p>{body}</p>
+              <a className="lpmore" href="#next">Learn more</a>
+            </article>
+          ))}
+        </div>
+      </Section>
+
+      <Section>
+        <h2>See how organisations are using DOCKET</h2>
+        <p className="lpsub">
+          Replace these with real customers before launch — this is the section enterprise buyers
+          read first, and it is the one part of the page nobody can write for you.
+        </p>
+        <div className="lpstories">
+          {[0, 1, 2].map((n) => (
+            <article key={n}>
+              <div className="lplogo">[CUSTOMER LOGO]</div>
+              <h3>[Headline — the result, in their words]</h3>
+              <p>[Two sentences: what they ran before, what changed, and the number that proves it.]</p>
+              <a className="lpmore" href="#next">Read the story</a>
+            </article>
+          ))}
+        </div>
+      </Section>
+
+      <Section dark>
+        <div className="lpproof">
+          <div>
+            <p className="lpkick">Independent assessment</p>
+            <blockquote>
+              [Pull quote from an analyst, auditor or industry body — the sentence a sceptical
+              finance director needs to read before taking the meeting.]
+            </blockquote>
+            <p className="lpattr">[Name, title, organisation]</p>
+          </div>
+          <div className="lpfigs">
+            <div><b>0</b><span>capabilities that open a sealed bid before its deadline</span></div>
+            <div><b>100%</b><span>of events hash-chained to the one before them</span></div>
+            <div><b>1,400</b><span>vendors on the register, verified once and reused</span></div>
+            <div><b>[N]</b><span>[your own metric — tenders run, value governed, days saved]</span></div>
+          </div>
+        </div>
+      </Section>
+
+      <Section id="resources" tint>
+        <h2>Featured resources</h2>
+        <div className="lpres">
+          {RESOURCES.map(([kind, title, body]) => (
+            <article key={title}>
+              <p className="lpkind">{kind}</p>
+              <h3>{title}</h3>
+              <p>{body}</p>
+            </article>
+          ))}
+        </div>
+      </Section>
+
+      <Section id="next">
+        <h2>Next steps</h2>
+        <div className="lpnext">
+          <article>
+            <h3>Request a demonstration</h3>
+            <p>Forty minutes against your own categories and approval structure, not a canned script.</p>
+            <button className="btn pri" onClick={goSetup}>Book a session</button>
+          </article>
+          <article>
+            <h3>Start a workspace</h3>
+            <p>Set your company up with a code issued to your organisation. Free while you run your first tender.</p>
+            <button className="btn" onClick={goSetup}>Create an account</button>
+          </article>
+          <article>
+            <h3>Register as a vendor</h3>
+            <p>Free, permanent, and reused across every buyer who invites you to tender.</p>
+            <button className="btn" onClick={() => onScreen("register")}>Join the register</button>
+          </article>
+        </div>
+      </Section>
+
+      <Section tint>
+        <h2>Frequently asked questions</h2>
+        <div className="lpfaq">
+          {FAQ.map(([q, a], n) => (
+            <div className={"qa" + (ask === n ? " on" : "")} key={q}>
+              <button aria-expanded={ask === n} onClick={() => setAsk(ask === n ? -1 : n)}>
+                {q}<i aria-hidden="true" />
+              </button>
+              <div className="qaa"><p>{a}</p></div>
+            </div>
+          ))}
+        </div>
+      </Section>
 
       <footer className="lpfoot">
         <div className="lpwrap lpfootin">
-          <Wordmark s={20} />
-          <div>
-            <button className="lplink" onClick={() => onScreen("signin")}>Sign in</button>
-            <button className="lplink" onClick={() => onScreen("register")}>Vendor registration</button>
-            {canDemo && <button className="lplink" onClick={goDemo}>Demo</button>}
+          <div className="lpfootbrand">
+            <Mark s={30} />
+            <p>Sealed tendering and spend management for organisations that get audited. A product of EatnGo Africa, Lagos.</p>
+          </div>
+          <div><b>Product</b>
+            <a href="#modules">Sourcing &amp; tenders</a><a href="#modules">Vendor register</a>
+            <a href="#modules">Evaluation</a><a href="#analytics">Audit &amp; reporting</a>
+          </div>
+          <div><b>Company</b>
+            <a href="#next">About EatnGo Africa</a><a href="#guarantees">Security</a>
+            <a href="#guarantees">Data protection</a><a href="#next">Contact</a>
+          </div>
+          <div><b>For vendors</b>
+            <button className="lplink" onClick={() => onScreen("register")}>Register free</button>
+            <button className="lplink" onClick={() => onScreen("signin")}>Vendor sign-in</button>
+            {canDemo && <button className="lplink" onClick={goDemo}>Open the demo</button>}
           </div>
         </div>
       </footer>
@@ -632,171 +538,222 @@ export function Landing({ cfg, onScreen }) {
 }
 
 export const LANDING_CSS = `
-/* ONE SPACING SCALE, FIVE TYPE SIZES. Every margin and padding below is one of
-   --s1…--s7; nothing is a number somebody eyeballed. That is what keeps the
-   vertical rhythm from drifting as sections get edited one at a time. */
+/* ONE SPACING SCALE. Every margin and padding below is one of --s1…--s7 —
+   4 · 8 · 16 · 24 · 40 · 64 · 96. Nothing is 13px because 13 looked right
+   once; that is what stops the vertical rhythm drifting as sections get
+   edited one at a time. Colour is never named here: every value is a --lp-*
+   token set in designs.js. */
 .lp{
-  --t1:clamp(38px,8.5vw,68px);   /* display */
-  --t2:clamp(25px,4.4vw,38px);   /* heading */
-  --t3:17px;                     /* lead    */
-  --t4:15px;                     /* body    */
-  --t5:13px;                     /* small   */
+  --t1:clamp(30px,4.6vw,46px);   /* page heading   */
+  --t2:clamp(23px,2.7vw,30px);   /* section heading*/
+  --t3:17px;                     /* lead           */
+  --t4:15px;                     /* body           */
+  --t5:13px;                     /* small          */
   --s1:4px; --s2:8px; --s3:16px; --s4:24px; --s5:40px; --s6:64px; --s7:96px;
-  --settle:cubic-bezier(.16,1,.3,1);
+  --lp-gutter:20px;
   background:var(--lp-bg);color:var(--lp-ink);min-height:100dvh;overflow-x:clip;
   font-size:var(--t4);line-height:1.6}
-
-/* The gutter is a token too, so the bar, the sections and the footer cannot
-   disagree about where the edge of the page is. */
-.lpwrap{max-width:1080px;margin-inline:auto;padding-inline:var(--s4);width:100%}
-.lpnarrow{max-width:720px}
-.lp h1,.lp h2,.lp h3{letter-spacing:-.032em;margin:0;text-wrap:balance}
-.lp h1{font-size:var(--t1);line-height:1.02;font-weight:700}
-.lp h2{font-size:var(--t2);line-height:1.1;font-weight:700}
-.lp h3{font-size:var(--t4);line-height:1.35;font-weight:600;letter-spacing:-.015em}
+.lpwrap{max-width:1240px;margin-inline:auto;padding-inline:var(--lp-gutter);width:100%}
+.lp h1,.lp h2,.lp h3{margin:0;letter-spacing:-.02em;text-wrap:balance}
+.lp h1{font-size:var(--t1);line-height:1.1;font-weight:700}
+.lp h2{font-size:var(--t2);line-height:1.18;font-weight:700}
+.lp h3{font-size:17px;line-height:1.3;font-weight:600;letter-spacing:-.012em}
 .lp p{margin:0;color:var(--lp-muted);text-wrap:pretty}
-.lp .lead{font-size:var(--t3);line-height:1.55;max-width:36ch}
-.lplink{background:none;border:0;font:inherit;font-size:var(--t5);color:var(--lp-muted);
+.lp .mono{font-family:var(--font-mono);font-size:.94em}
+.lp .num{text-align:right;font-variant-numeric:tabular-nums}
+.lp .wrapnone{white-space:nowrap}
+.lpkick{font-size:var(--t5);font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--lp-pri);margin-bottom:var(--s2)}
+.lplead{font-size:var(--t3);line-height:1.55;max-width:56ch}
+.lpsub{font-size:16px;line-height:1.6;max-width:74ch;margin-top:var(--s2)}
+.lpwarn{color:var(--lp-warn)}
+.lpmask{color:var(--lp-faint);letter-spacing:.14em}
+.lplink{background:none;border:0;font:inherit;font-size:var(--t5);color:inherit;
   cursor:pointer;padding:var(--s1) 2px}
-.lplink:hover{color:var(--lp-ink)}
+.lplink:hover{color:var(--lp-pri)}
+/* A link that leads somewhere, with the chevron drawn rather than typed so it
+   cannot inherit a font that lacks it. */
+.lpmore{display:inline-flex;align-items:center;gap:6px;font-size:var(--t4);font-weight:600;
+  color:var(--lp-pri);text-decoration:none;margin-top:var(--s3)}
+.lpmore::after{content:"";width:6px;height:6px;border-right:1.8px solid currentColor;
+  border-top:1.8px solid currentColor;transform:rotate(45deg);transition:translate var(--t) var(--ease)}
+.lpmore:hover{color:var(--lp-pri-deep)}
+.lpmore:hover::after{translate:3px 0}
 
-/* --------------------------------------------------------------- the detail
-   Hover or focus. Capped in width so a long note cannot quietly become a
-   paragraph again, and under 600px it drops to a static block on tap, because
-   a floating bubble on a phone has nowhere to go. */
-.note{display:inline-flex;vertical-align:-2px;margin-left:var(--s2);position:relative;
-  color:var(--lp-faint);cursor:help;border-radius:50%}
-.note:focus-visible{outline:2px solid var(--lp-accent-2);outline-offset:2px}
-.note svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
-.note:hover,.note:focus{color:var(--lp-accent)}
-.note em{position:absolute;left:50%;bottom:calc(100% + var(--s2));
-  width:max-content;max-width:min(300px,72vw);padding:var(--s3);border-radius:12px;
-  background:var(--tip-bg);color:var(--tip-ink);font-style:normal;font-size:var(--t5);
-  font-weight:400;line-height:1.5;letter-spacing:0;text-align:left;z-index:20;
-  opacity:0;visibility:hidden;translate:-50% var(--s1);
-  transition:opacity 180ms var(--settle),translate 180ms var(--settle),visibility 180ms;
-  box-shadow:0 12px 32px -12px rgba(0,0,0,.4)}
-.note:hover em,.note:focus em,.note:focus-within em{opacity:1;visibility:visible;
-  translate:-50% 0}
-@media(max-width:599px){
-  .note em{position:static;translate:none;visibility:visible;opacity:1;display:none;
-    max-width:100%;margin-top:var(--s2);box-shadow:none}
-  .note:focus em{display:block}
-}
+/* -------------------------------------------------------- utility + nav */
+.lputil{background:var(--lp-paper);border-bottom:1px solid var(--lp-line);font-size:12px;
+  color:var(--lp-muted)}
+.lputilin{display:flex;align-items:center;justify-content:space-between;gap:var(--s3);
+  min-height:34px;flex-wrap:wrap}
+.lputillinks{display:flex;align-items:center;gap:var(--s2)}
+.lpbar{position:sticky;top:0;z-index:40;background:var(--lp-bg);
+  border-bottom:1px solid var(--lp-line)}
+.lpbarin{display:flex;align-items:center;gap:var(--s4);min-height:64px;flex-wrap:wrap}
+.lpnav{display:none;gap:var(--s4)}
+.lpnav a{font-size:14.5px;font-weight:500;color:var(--lp-ink);text-decoration:none}
+.lpnav a:hover{color:var(--lp-pri)}
+.lpbaracts{margin-left:auto;display:flex;align-items:center;gap:var(--s3)}
 
-/* --------------------------------------------------------------------- bar */
-.lpbar{position:sticky;top:0;z-index:40;
-  background:color-mix(in srgb,var(--lp-bg) 88%,transparent);
-  backdrop-filter:blur(10px);border-bottom:1px solid var(--lp-line)}
-.lpbarin{display:flex;align-items:center;gap:var(--s3);padding-block:var(--s2)}
-.lpbarin .lplink{margin-left:auto}
+/* the event strip — a band, not a banner */
+.lpevent{background:var(--lp-pri-tint);border-bottom:1px solid var(--lp-line)}
+.lpeventin{display:flex;align-items:center;gap:var(--s3);padding-block:10px;
+  font-size:var(--t5);flex-wrap:wrap}
+.lpeventin b{background:var(--lp-pri);color:var(--lp-on-pri);font-size:10.5px;font-weight:700;
+  letter-spacing:.08em;padding:3px 8px;border-radius:var(--lp-radius)}
+.lpeventin span{color:var(--lp-ink-2);flex:1 1 320px}
+.lpeventin .lpmore{margin-top:0;font-size:var(--t5)}
 
-/* -------------------------------------------------------------------- hero */
-.lphero{padding-block:var(--s6) var(--s2)}
+/* ------------------------------------------------------------------ hero */
+.lphero{padding-block:var(--s5)}
 .lpherogrid{display:grid;gap:var(--s5)}
-.lp h1 em{font-style:normal;color:var(--lp-accent)}
-.lphero .lead{margin-block:var(--s4)}
-.lpacts{display:flex;flex-wrap:wrap;gap:var(--s2)}
-.lpbtn{min-width:190px;justify-content:center;padding:var(--s3) var(--s4);font-size:var(--t4)}
+.lphero .lpacts{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s4)}
+.lpbtn{min-width:200px;justify-content:center;padding:var(--s3) var(--s4);font-size:var(--t4)}
+.lphero .lplead{margin-top:var(--s3)}
 
-/* ------------------------------------------------------------- the figure */
-.fig{margin:0;border:1px solid var(--lp-line);border-radius:var(--lp-radius);overflow:hidden;
-  background:var(--lp-surface);max-width:400px}
-.figstage{display:flex;align-items:center;justify-content:center;gap:var(--s3);
-  height:176px;background:var(--lp-sunk)}
-.fenv{position:relative;display:grid;justify-items:center;gap:var(--s2);color:var(--lp-accent)}
-.fenv svg{overflow:visible}
-.fe-body{fill:var(--lp-surface);stroke:currentColor;stroke-width:2.4;stroke-linejoin:round}
-.fe-flap{fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;
-  stroke-linejoin:round}
-.fenv i{font-style:normal;font-family:var(--font-mono);font-size:var(--t5);color:var(--lp-faint)}
-.fwax{position:absolute;top:11px;width:11px;height:11px;border-radius:50%;
-  background:var(--wax);box-shadow:0 0 0 2.5px var(--lp-surface);
-  transition:opacity 300ms var(--settle),transform 300ms var(--settle)}
-.fig figcaption{border-top:1px solid var(--lp-line);padding:var(--s3) var(--s4);
-  display:grid;gap:var(--s1);min-height:78px;align-content:start}
-.fig figcaption b{font-size:var(--t4);font-weight:600;letter-spacing:-.015em}
-.fig figcaption span{font-size:var(--t5);color:var(--lp-muted)}
-.fig figcaption em{display:flex;gap:5px;margin-top:var(--s2)}
-.fig figcaption em i{width:18px;height:3px;border-radius:2px;background:var(--lp-line2);
-  transition:background 300ms var(--settle)}
-.fig figcaption em i.on{background:var(--lp-accent-2)}
-.ph-open .fwax{opacity:0;transform:scale(.4) translateY(8px)}
-@media(prefers-reduced-motion:no-preference){
-  .ph-in .fenv{animation:envin 700ms var(--settle) both;animation-delay:calc(var(--n)*110ms)}
-  .fenv{transition:transform 520ms var(--settle)}
-  .ph-time .fenv{transform:translateY(-5px)}
-}
-@keyframes envin{from{opacity:0;transform:translateY(18px) rotate(-6deg)}to{opacity:1;transform:none}}
+/* the trust strip */
+.lptrust{background:var(--lp-paper);border-block:1px solid var(--lp-line)}
+.lptrustin{display:flex;align-items:center;gap:var(--s3) var(--s4);padding-block:var(--s3);
+  font-size:var(--t5);color:var(--lp-muted);flex-wrap:wrap}
+.lptrustin b{color:var(--lp-ink);font-weight:600}
 
-/* ---------------------------------------------------------------- sections */
+/* -------------------------------------------------------------- sections */
 .lpsec{padding-block:var(--s6)}
-.lpsec.tint{background:var(--lp-bg2)}
-.lpsec > .lpwrap > h2{margin-bottom:var(--s5)}
+.lpsec.tint{background:var(--lp-paper);border-block:1px solid var(--lp-line)}
+.lpsec.dark{background:var(--lp-pri-dark);color:var(--lp-on-band)}
+.lpsec.dark h2,.lpsec.dark b{color:var(--lp-on-band)}
+.lpsec.dark p{color:var(--lp-on-band-muted)}
+.lpsec.dark .lpkick{color:var(--lp-on-band-accent)}
+.lpsec > .lpwrap > h2 + .lpsub{margin-bottom:var(--s5)}
+.lpsec > .lpwrap > h2:only-child,
+.lpsec > .lpwrap > h2:last-of-type{margin-bottom:var(--s5)}
 
-.lptrio{display:grid;gap:var(--s5)}
-.lptrio article{display:grid;justify-items:center;text-align:center;gap:var(--s3)}
-.lptrio .illus{margin:0}
-@media(prefers-reduced-motion:no-preference){
-  .lptrio .illus{transition:transform 460ms var(--settle)}
-  .lptrio article:hover .illus{transform:translateY(-4px)}
-}
+/* six benefits */
+.lpsix{display:grid;gap:var(--s5) var(--s4);margin-top:var(--s5)}
+.lpsix h3{margin:var(--s3) 0 var(--s2)}
+.lpsix p{font-size:14.5px;line-height:1.55}
+.lpico{color:var(--lp-pri);display:block}
 
-.lpsteps{list-style:none;margin:0;padding:0;display:grid;gap:var(--s4)}
-.lpsteps li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--s3);
-  align-items:baseline}
-.lpsteps b{font-size:var(--t2);font-weight:700;color:var(--lp-line2);line-height:.9;
-  letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+/* a split: copy one side, a panel the other */
+.lpsplit{display:grid;gap:var(--s5)}
+.lpsplit > div > p{margin-top:var(--s3);max-width:58ch}
+.lplist{margin:var(--s3) 0 0;padding-left:18px;font-size:var(--t4);color:var(--lp-muted);
+  line-height:1.85}
 
-.lpsplit{display:grid;gap:var(--s5);align-items:center}
-.lpsplit .illus{margin:0 0 var(--s4)}
-.lpsplit h2{margin-bottom:var(--s3)}
-.lpladder{display:grid;gap:var(--s2)}
-.rung{display:flex;gap:var(--s3);align-items:center;justify-content:space-between;
-  background:var(--lp-surface);border:1px solid var(--lp-line);border-radius:var(--lp-radius-sm);
-  padding:var(--s3) var(--s4);margin-left:calc(var(--n) * var(--s3));font-size:var(--t4)}
-.rung span{font-weight:600;letter-spacing:-.015em}
-.rung i{font-style:normal;font-size:var(--t5);color:var(--lp-muted);
-  font-family:var(--font-mono);white-space:nowrap}
-.rung.from{border-style:dashed;background:var(--lp-sunk)}
-.rung.done{border-color:var(--lp-accent);background:var(--lp-accent-tint)}
-@media(prefers-reduced-motion:no-preference){
-  [data-reveal].seen .rung{animation:rungin 520ms var(--settle) both;
-    animation-delay:calc(var(--n) * 110ms)}
-}
-@keyframes rungin{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:none}}
+/* ----------------------------------------------------------- the panels
+   Real markup rather than a screenshot, so it stays sharp at any zoom,
+   restyles with the palette, and cannot go stale against the product. */
+.lppanel{background:var(--lp-card);border:1px solid var(--lp-line);border-radius:var(--lp-radius);
+  overflow:hidden}
+.lppanelbar{display:flex;align-items:center;gap:var(--s3);padding:9px 14px;
+  background:var(--lp-paper);border-bottom:1px solid var(--lp-line);
+  font-size:11.5px;color:var(--lp-muted);flex-wrap:wrap}
+.lppanelbar b{color:var(--lp-ink);font-weight:700}
+.lppanelbar i{margin-left:auto;font-style:normal}
+.lppanelnote{font-size:11.5px;color:var(--lp-muted);padding:10px 14px;
+  border-top:1px solid var(--lp-line);line-height:1.5}
+.lptable{width:100%;border-collapse:collapse;font-size:11.5px}
+.lptable th{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--lp-muted);
+  font-weight:600;text-align:left;padding:8px 14px;border-bottom:1px solid var(--lp-line-2)}
+.lptable th.num{text-align:right}
+.lptable td{padding:8px 14px;border-bottom:1px solid var(--lp-line);vertical-align:top}
+.lptable tr:last-child td{border-bottom:0}
+.lpchip{display:inline-block;font-size:10px;font-weight:600;letter-spacing:.04em;
+  padding:2px 7px;border-radius:var(--lp-radius);text-transform:capitalize;
+  background:var(--lp-line);color:var(--lp-ink-2)}
+.lpchip.sealed{background:var(--lp-pri-tint);color:var(--lp-pri-deep)}
+.lpchip.live{background:var(--lp-pri);color:var(--lp-on-pri)}
+.lpchip.awarded{background:transparent;color:var(--lp-ok);box-shadow:inset 0 0 0 1px currentColor}
+
+/* the approval chain, drawn as a rule with stops on it */
+.lpchain{list-style:none;margin:0;padding:var(--s4) var(--s4) var(--s3)}
+.lpchain li{position:relative;padding:0 0 var(--s4) var(--s4);border-left:2px solid var(--lp-pri)}
+.lpchain li:last-child{padding-bottom:0;border-left-color:transparent}
+.lpchain li::before{content:"";position:absolute;left:-7px;top:3px;width:12px;height:12px;
+  border-radius:50%;background:var(--lp-pri)}
+.lpchain li.wait{border-left-style:dashed;border-left-color:var(--lp-line-2)}
+.lpchain li.wait::before{background:var(--lp-card);box-shadow:inset 0 0 0 2px var(--lp-line-2)}
+.lpchainwho{font-weight:600;font-size:14px}
+.lpchainwho span{font-weight:400;color:var(--lp-muted)}
+.lpchaindetail{font-size:12.5px;color:var(--lp-muted);margin-top:2px}
+.lpchain li.wait .lpchaindetail{color:var(--lp-warn)}
+
+/* ------------------------------------------------------------ analytics
+   The tiles and both figures are the product's own components. Only the
+   frame around them belongs to this page. */
+.lptiles{display:grid;gap:1px;background:var(--lp-line);border:1px solid var(--lp-line);
+  margin-top:var(--s5)}
+.lptile{background:var(--lp-bg);padding:var(--s4) var(--s3);display:grid;gap:var(--s1);
+  align-content:start}
+.lptile b{font-size:30px;font-weight:700;letter-spacing:-.025em;line-height:1;
+  color:var(--lp-ink);font-variant-numeric:tabular-nums}
+.lptile span{font-size:12.5px;color:var(--lp-muted);line-height:1.4}
+.lptile .spark2{margin-top:var(--s2)}
+.lpcharts{display:grid;gap:var(--s4);margin-top:var(--s4)}
+.lpchart{margin:0;background:var(--lp-bg);border:1px solid var(--lp-line);
+  border-radius:var(--lp-radius);padding:var(--s4)}
+.lpchart figcaption{margin-bottom:var(--s4)}
+.lpchart figcaption b{display:block;font-size:15px;font-weight:600;letter-spacing:-.012em}
+.lpchart figcaption span{display:block;font-size:12.5px;color:var(--lp-muted);margin-top:2px}
+.lpmeters{display:grid;gap:var(--s4)}
+
+/* ------------------------------------------------- modules, stories, more */
+.lpmods,.lpres,.lpnext{display:grid;gap:var(--s4);margin-top:var(--s5)}
+.lpmods article,.lpnext article{background:var(--lp-bg);border:1px solid var(--lp-line);
+  border-radius:var(--lp-radius);padding:var(--s4);display:flex;flex-direction:column}
+.lpmods p,.lpnext p{font-size:14px;line-height:1.55;margin-top:var(--s2);flex-grow:1}
+.lpnext .btn{margin-top:var(--s4);align-self:flex-start}
+.lpres article{border-top:3px solid var(--lp-pri);padding-top:var(--s3)}
+.lpres h3{margin:var(--s2) 0 var(--s1)}
+.lpres p{font-size:13.5px;line-height:1.55}
+.lpkind{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--lp-muted)}
+.lpstories{display:grid;gap:var(--s4);margin-top:var(--s5)}
+.lpstories article{border:1px solid var(--lp-line);border-radius:var(--lp-radius);overflow:hidden}
+.lplogo{height:104px;display:grid;place-items:center;background:var(--lp-pri-dark);
+  color:var(--lp-on-band);font-size:14px;font-weight:600;letter-spacing:.04em}
+.lpstories h3{padding:var(--s4) var(--s4) 0}
+.lpstories p{padding:var(--s2) var(--s4) 0;font-size:14px;line-height:1.55}
+.lpstories .lpmore{margin:var(--s3) var(--s4) var(--s4)}
+
+/* the dark proof band */
+.lpproof{display:grid;gap:var(--s5)}
+.lpproof blockquote{margin:0;font-size:22px;line-height:1.4;font-weight:600;
+  letter-spacing:-.015em;color:var(--lp-on-band)}
+.lpattr{font-size:var(--t5);margin-top:var(--s3)}
+.lpfigs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s4) var(--s5)}
+.lpfigs b{display:block;font-size:34px;font-weight:700;letter-spacing:-.025em;line-height:1;
+  font-variant-numeric:tabular-nums}
+.lpfigs span{display:block;font-size:13.5px;line-height:1.5;margin-top:var(--s2);
+  color:var(--lp-on-band-muted)}
 
 /* --------------------------------------------------------------------- Q&A */
-.lpfaq{border-top:1px solid var(--lp-line)}
-.qa{border-bottom:1px solid var(--lp-line)}
+.lpfaq{border-top:1px solid var(--lp-line-2);margin-top:var(--s5);max-width:900px}
+.qa{border-bottom:1px solid var(--lp-line-2)}
 .qa > button{width:100%;display:flex;align-items:center;gap:var(--s3);text-align:left;
-  background:none;border:0;font:inherit;font-size:var(--t4);font-weight:600;
-  letter-spacing:-.015em;color:inherit;padding-block:var(--s3);cursor:pointer}
+  background:none;border:0;font:inherit;font-size:16.5px;font-weight:600;letter-spacing:-.012em;
+  color:inherit;padding-block:var(--s3);cursor:pointer}
 .qa > button i{margin-left:auto;flex-shrink:0;width:13px;height:13px;position:relative}
 .qa > button i::before,.qa > button i::after{content:"";position:absolute;inset:50% 0 auto;
-  height:2px;border-radius:2px;background:var(--lp-faint);transition:transform 260ms var(--settle)}
+  height:2px;border-radius:2px;background:var(--lp-pri);transition:transform 260ms var(--ease)}
 .qa > button i::after{transform:rotate(90deg)}
 .qa.on > button i::after{transform:rotate(0)}
-.qa.on > button i::before,.qa.on > button i::after{background:var(--lp-accent)}
-.qaa{display:grid;grid-template-rows:0fr;transition:grid-template-rows 280ms var(--settle)}
+.qaa{display:grid;grid-template-rows:0fr;transition:grid-template-rows 280ms var(--ease)}
 .qa.on .qaa{grid-template-rows:1fr}
-.qaa > p{overflow:hidden;font-size:var(--t4);max-width:60ch}
-.qa.on .qaa > p{padding-bottom:var(--s3)}
+.qaa > p{overflow:hidden;font-size:var(--t4);max-width:76ch;line-height:1.6}
+.qa.on .qaa > p{padding-bottom:var(--s4)}
 
-/* --------------------------------------------------------------------- CTA */
-.lpcta{padding-block:var(--s7);text-align:center;border-top:1px solid var(--lp-line)}
-.lpcta .dkmark{margin:0 auto var(--s4)}
-.lpcta h2{margin-bottom:var(--s5)}
-.lpfoot{padding-block:var(--s4) var(--s5);border-top:1px solid var(--lp-line);
-  background:var(--lp-bg2)}
-.lpfootin{display:flex;flex-wrap:wrap;gap:var(--s3);align-items:center;
-  justify-content:space-between}
-.lpfootin > div{display:flex;flex-wrap:wrap;gap:var(--s4)}
+/* ------------------------------------------------------------------ footer */
+.lpfoot{background:var(--lp-pri-dark);color:var(--lp-on-band);padding-block:var(--s5)}
+.lpfootin{display:grid;gap:var(--s4)}
+.lpfootbrand p{font-size:13.5px;color:var(--lp-on-band-muted);line-height:1.6;margin-top:var(--s3);
+  max-width:34ch}
+.lpfootin > div > b{display:block;font-size:14px;font-weight:600;margin-bottom:var(--s2)}
+.lpfootin > div > a,.lpfootin > div > .lplink{display:block;font-size:13.5px;
+  color:var(--lp-on-band-muted);text-decoration:none;padding-block:4px;text-align:left}
+.lpfootin > div > a:hover,.lpfootin > div > .lplink:hover{color:var(--lp-on-band)}
 
 /* --------------------------------------------------------------- the demo
-   A strip, not a banner. It was a full-width block taking a real slice of the
-   viewport — on a phone, most of the first screen, so the reminder mattered
-   more than anything it sat above. 26px, sticky, says the same thing. */
+   A strip, not a banner. 26px, sticky, says the same thing. */
 .demobar{position:sticky;top:0;z-index:60;display:flex;gap:var(--s2);
   align-items:center;justify-content:center;height:26px;padding-inline:var(--s3);
   font-size:11.5px;letter-spacing:.01em;background:var(--brass-tint);
@@ -807,161 +764,22 @@ export const LANDING_CSS = `
 .isdemo .side,.isdemo .topbar{top:26px}
 
 @media(min-width:${BP.sm}px){
-  .lpsteps{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s5) var(--s4)}
-  .lptrio{grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s4)}
+  .lpsix{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .lptiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .lpmods,.lpres{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .lpstories,.lpnext{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
-@media(min-width:${BP.desk}px){
-  .lphero{padding-block:var(--s7) var(--s2)}
-  .lpherogrid{grid-template-columns:minmax(0,1fr) minmax(0,420px);gap:var(--s6);
-    align-items:center}
-  .lptrio{gap:var(--s5)}
-  .lpsteps{grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--s4)}
-  .lpsplit{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s6)}
-  .lpsec{padding-block:var(--s7)}
-}
-
-/* ==================================================================
-   THE SECTIONS THE FOUR PAGES BUILD FROM
-
-   Structure only. Every colour below is a --lp-* token and every design sets
-   those, so nothing here knows which page it is drawing. The handful of rules
-   that genuinely differ by design live in designs.js with that design's
-   tokens, not here.
-   ================================================================== */
-
-/* The display size and tracking are per design now, so a page can be a
-   brochure or a held frame without arguing with the shared scale. */
-.lp h1{letter-spacing:var(--lp-h1-track,-.032em)}
-.lpsec{padding-block:var(--lp-sec,var(--s6))}
-
-/* A small label over a heading. Uppercase and letter-spaced, and the tracking
-   is a design token because it is the one type move that separates stationery
-   from a brochure. */
-.lpeyebrow{font-size:var(--t5);font-weight:700;letter-spacing:var(--lp-cap-track,.1em);
-  text-transform:uppercase;color:var(--lp-accent);margin-bottom:var(--s3)}
-
-/* ---------------------------------------------------------- bold: collage
-   Two plates, the wide one lifted onto the tall one's bottom corner. On a
-   phone they stack and the overlap is dropped: an overlapping collage in a
-   360px column is two pictures fighting over the same 40 pixels. */
-.lpcollage{display:grid;gap:var(--s3)}
-.lpcollage .plateframe{box-shadow:var(--sh-3)}
-
-/* ------------------------------------------------------------- bold: band
-   The dark services field. Its own block rather than .lpsec.tint because the
-   type inside is written against the band, not against the page. */
-.lpband{background:var(--lp-band);color:var(--lp-on-band);
-  padding-block:var(--lp-sec,var(--s6))}
-.lpband .lpeyebrow{color:var(--lp-accent-2)}
-.lpband h2{margin-bottom:var(--s5)}
-.lpcards{display:grid;gap:var(--s3)}
-.lpcards article{background:color-mix(in srgb,var(--lp-on-band) 8%,transparent);
-  border:1px solid color-mix(in srgb,var(--lp-on-band) 16%,transparent);
-  border-radius:var(--lp-radius);padding:var(--s4);display:grid;gap:var(--s3);
-  align-content:start}
-.lpcards article h3{color:var(--lp-on-band)}
-.lpcards article p{color:var(--lp-on-band-muted);font-size:var(--t5);line-height:1.55}
-/* One card filled, which is the reference's move and the only place the loud
-   accent covers this much area. The label on it is --lp-on-accent, so it is
-   the dark step and not the band's near-white. */
-.lpcards article.on{background:var(--lp-accent-2);border-color:var(--lp-accent-2)}
-.lpcards article.on h3{color:var(--lp-on-accent)}
-.lpcards article.on p{color:color-mix(in srgb,var(--lp-on-accent) 82%,transparent)}
-.lpcards article.on .illus{--il-ink:var(--lp-on-accent);--il-ink-2:var(--lp-on-accent);
-  --il-cool:var(--lp-on-accent);--il-warm:var(--lp-on-accent);
-  --il-paper:var(--lp-accent-2);--il-line:color-mix(in srgb,var(--lp-on-accent) 40%,transparent);
-  --il-tint:color-mix(in srgb,var(--lp-on-accent) 12%,transparent)}
-.lpcards article:not(.on) .illus{--il-ink:var(--lp-on-band);--il-ink-2:var(--lp-on-band-muted);
-  --il-cool:var(--lp-accent-2);--il-warm:var(--lp-accent-2);
-  --il-paper:var(--lp-band);--il-line:var(--lp-on-band-muted);
-  --il-tint:color-mix(in srgb,var(--lp-accent-2) 16%,transparent)}
-.lpladdertight{margin-top:var(--s4)}
-
-/* -------------------------------------------------------- night: a frame
-   A full-bleed plate with the claim set over it. The plate already carries a
-   vignette top and bottom, which is what lets the type sit straight on the
-   picture with no panel behind it. */
-.lpframe{position:relative;isolation:isolate}
-.lpframe .plateframe{border-radius:0;aspect-ratio:4 / 5}
-.lpframein{position:absolute;inset:auto 0 0;padding-block:var(--s5)}
-.lpframein b{display:block;font-family:var(--font-mono);font-size:var(--t5);
-  letter-spacing:.1em;color:var(--lp-accent-2);margin-bottom:var(--s2)}
-.lpframein h2{color:var(--pl-cap,#fff);margin-bottom:var(--s3);max-width:16ch}
-.lpframein p{color:color-mix(in srgb,var(--pl-cap,#fff) 78%,transparent);
-  max-width:52ch;font-size:var(--t4)}
-
-/* night: the steps as a row of numbered blocks rather than a labelled list,
-   and the questions simply answered rather than folded away. */
-.lpstepsrow li{display:block}
-.lpstepsrow b{display:block;font-size:var(--t5);font-family:var(--font-mono);
-  letter-spacing:.1em;color:var(--lp-accent);margin-bottom:var(--s2)}
-.lpstepsrow h3{margin-bottom:var(--s2)}
-.lpstepsrow p{font-size:var(--t5);color:var(--lp-muted);line-height:1.55}
-.lpqlist{display:grid;gap:var(--s5)}
-.lpqlist h3{margin-bottom:var(--s2)}
-.lpqlist p{font-size:var(--t4);max-width:62ch}
-
-/* -------------------------------------------------------- paper: the ticket
-   The hero as one document torn across: the claim on the counterfoil, the
-   four facts on the stub. The perforation is a dashed border with two notches
-   punched out of the edges, the same construction the seal figure uses. */
-/* No overflow:hidden. The notches are drawn outside the stub's box on
-   purpose — they are holes punched through the card's edge — and clipping the
-   card to its own radius ate both of them. The stub carries the matching
-   radius itself instead, so the corners still round without a clip. */
-.lpticket{background:var(--lp-surface);border:1px solid var(--lp-line);
-  border-radius:var(--lp-radius);box-shadow:var(--sh-3)}
-.lpticketmain{padding:var(--s5) var(--s4)}
-.lpticketmain .lead{margin-block:var(--s4)}
-.lpticketstub{position:relative;padding:var(--s4);display:grid;gap:var(--s3);
-  border-top:2px dashed var(--lp-line2);background:var(--lp-sunk);
-  border-radius:0 0 var(--lp-radius) var(--lp-radius)}
-.lpticketstub::before,.lpticketstub::after{content:"";position:absolute;top:-11px;
-  width:20px;height:20px;border-radius:50%;background:var(--lp-bg)}
-.lpticketstub::before{left:-11px}
-.lpticketstub::after{right:-11px}
-.lpticketstub b{display:block;font-size:var(--t5);font-weight:700;
-  letter-spacing:var(--lp-cap-track,.14em);text-transform:uppercase;color:var(--lp-accent)}
-.lpticketstub span{display:block;font-size:var(--t5);color:var(--lp-muted);
-  line-height:1.45;margin-top:2px}
-
-/* paper: the promises as filed documents, each with its own torn head */
-.lpdocs{display:grid;gap:var(--s4)}
-.lpdocs article{background:var(--lp-surface);border:1px solid var(--lp-line);
-  border-radius:var(--lp-radius);overflow:hidden}
-.lpdochead{background:var(--lp-band);padding:var(--s4);display:grid;place-items:center;
-  border-bottom:2px dashed var(--lp-line2)}
-.lpdochead .illus{--il-ink:var(--lp-on-band);--il-ink-2:var(--lp-on-band-muted);
-  --il-cool:var(--lp-accent-2);--il-warm:var(--lp-accent-2);
-  --il-paper:var(--lp-band);--il-line:var(--lp-on-band-muted);
-  --il-tint:color-mix(in srgb,var(--lp-accent-2) 18%,transparent)}
-.lpdocbody{padding:var(--s4)}
-.lpdocbody b{display:block;font-family:var(--font-mono);font-size:var(--t5);
-  letter-spacing:.08em;color:var(--lp-accent);margin-bottom:var(--s2)}
-.lpdocbody h3{margin-bottom:var(--s2)}
-.lpdocbody p{font-size:var(--t5);color:var(--lp-muted);line-height:1.55}
-
-@media(min-width:600px){
-  .lpcards{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .lpdocs{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .lpticketstub{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s3) var(--s4)}
-  .lpqlist{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s5) var(--s4)}
-}
-@media(min-width:900px){
-  .lpframe .plateframe{aspect-ratio:21 / 9}
-  .lpframein{padding-block:var(--s6)}
-  .lpticket{display:grid;grid-template-columns:minmax(0,1fr) 300px}
-  .lpticketmain{padding:var(--s6) var(--s5)}
-  /* On the wide ticket the tear runs down the side, not across it. */
-  .lpticketstub{border-top:0;border-left:2px dashed var(--lp-line2);
-    align-content:center;padding:var(--s5) var(--s4);
-    border-radius:0 var(--lp-radius) var(--lp-radius) 0}
-  .lpticketstub::before,.lpticketstub::after{top:auto;left:-11px;right:auto}
-  .lpticketstub::before{top:-11px}
-  .lpticketstub::after{bottom:-11px}
-  /* the collage overlaps only where there is room for it to */
-  .lpcollage{position:relative;padding-bottom:var(--s6)}
-  .lpcollage .plateframe.wide{position:absolute;right:calc(var(--s5) * -1);bottom:0;
-    width:62%;border:3px solid var(--lp-bg)}
+@media(min-width:${BP.tab}px){
+  .lpnav{display:flex}
+  .lpsix{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .lptiles{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .lpmods,.lpres{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .lpcharts{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .lpherogrid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center;gap:var(--s5)}
+  .lpsplit{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s6);align-items:center}
+  .lpsplit.rev > div:first-child{order:-1}
+  .lpproof{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--s6);align-items:center}
+  .lpfootin{grid-template-columns:1.6fr 1fr 1fr 1fr;gap:var(--s5)}
+  .lphero{padding-block:var(--s6)}
 }
 `;
