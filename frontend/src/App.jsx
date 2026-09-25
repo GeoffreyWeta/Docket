@@ -39,7 +39,7 @@ import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
 import { LIFECYCLE_CSS } from "./lifecycle";
 import { Keys, PALETTE_CSS, Palette, ShortcutSheet } from "./palette.jsx";
 import { SCORECARD_CSS, ScorecardsPage } from "./scorecards.jsx";
-import { AuctionRoom, BidRoom, PortalHome } from "./supplier";
+import { AuctionRoom, BidRoom, PORTAL_CSS, PortalHome } from "./supplier";
 import {
   BOOT_CSS, BootSkeleton, ConfirmDialog, RADAR_CSS, Toasts, useIsDesktop, useToasts,
 } from "./ui";
@@ -48,7 +48,7 @@ const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS
   + SCORECARD_CSS + MENU_CSS + BOOT_CSS + PALETTE_CSS + CHART_CSS + CAMPAIGN_CSS
   + FINANCE_CSS + BASELINE_CSS + LIFECYCLE_CSS + ILLUS_CSS + DRAFT_CSS + PAGE_CSS
   + LPART_CSS + LANDING_CSS + DESIGN_CSS + LOGO_CSS + CHAIN_CSS + STUDIO_CSS
-  + AUCTION_CSS;
+  + AUCTION_CSS + PORTAL_CSS;
 
 /* Where you land and where you may go are both read off the capabilities the
    server sent with the bootstrap payload — see perms.js. Nothing here enumerates

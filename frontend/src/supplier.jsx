@@ -2,10 +2,11 @@ import React, { useEffect, useRef, useState } from "react";
 
 import { downloadDoc, raw } from "./api";
 import { Countdown, Empty, Money, Stat } from "./atoms";
+import { Meter } from "./charts";
 import { Figures, Guide, More, Page, Quiet, Row, Rows } from "./page";
 import {
-  REG_STATUS, VERIFY_STATUS, activeRound, effStatus, fmtCompact, fmtDate,
-  fmtDateTime, fmtMoney, regStatusOf, roundsOf, verifyStatusOf,
+  REG_STATUS, VERIFY_STATUS, activeRound, daysLeft, effStatus, fmtCompact, fmtDate,
+  fmtDateTime, fmtMoney, nowMs, regStatusOf, roundsOf, verifyStatusOf,
 } from "./helpers";
 import { Icon, SealMark } from "./icons";
 import { DUR, cue, useCountUp, useFlip, usePrev } from "./motion";
@@ -13,10 +14,28 @@ import { ConfirmDialog, CountUp, LiveCountdown, RollNumber, Sparkline, TypeOut }
 
 /* ---------------- supplier portal ---------------- */
 
+/* THE VENDOR'S PAGE.
+
+   It used to be one column: an invitations card, then two collapsed
+   disclosures. Everything a vendor might want to know about their standing
+   with this buyer was either absent or folded away behind a summary line, and
+   the page had a lot of air and very little on it.
+
+   FOUR TABS, because the vendor arrives for one of four reasons and only one
+   of them at a time: what is my position, what can I bid on, what happened to
+   what I bid, and is my paperwork in order. A single column made them scroll
+   past three to reach the fourth.
+
+   WHAT IS NEW IS DERIVED, NOT INVENTED. Every figure on the overview is read
+   off the same bootstrap payload the old page already had, plus the auction
+   list. The expiry warnings in particular were always computable and never
+   shown: a vendor could lose a prequalification to a document that lapsed
+   while they were looking at the page that failed to mention it. */
 export function PortalHome({ api }) {
   const { state, user, go, act } = api;
   const me = user.supplierId;
   const supplier = state.suppliers.find((s) => s.id === me);
+  const [tab, setTab] = useState("overview");
   const [docForm, setDocForm] = useState({ label: "", expiry: "" });
   const [profileForm, setProfileForm] = useState({ name: supplier.name, category: supplier.category, location: supplier.location });
   const myComplianceDocs = (state.documents || []).filter((x) => x.kind === "supplier" && x.supplierId === me);
@@ -46,10 +65,11 @@ export function PortalHome({ api }) {
     const h = setInterval(load, 15000);
     return () => { active = false; clearInterval(h); };
   }, []);
-  /* A paused event is still an invitation the vendor holds — dropping it off
+
+  /* A paused event is still an invitation the vendor holds - dropping it off
      the list would tell them nothing, which is exactly the silence pausing an
-     event is supposed to replace. Cancelled events move to Outcomes below:
-     there is nothing left to do about them, but there is something to know. */
+     event is supposed to replace. Cancelled events move to Outcomes: there is
+     nothing left to do about them, but there is something to know. */
   const invitations = state.tenders.filter((t) => t.invited.includes(me)
     && ["published", "closed", "paused"].includes(effStatus(t)));
   const outcomes = state.tenders.filter((t) => t.invited.includes(me)
@@ -57,43 +77,77 @@ export function PortalHome({ api }) {
         || (t.status === "cancelled" && state.bids.some((b) => b.tenderId === t.id && b.supplierId === me)))
     && (t.status === "cancelled" || state.bids.some((b) => b.tenderId === t.id && b.supplierId === me)));
 
-  /* The vendor opens this page to find out one thing: is there anything to
-     bid on, and when does it close. So that is the guide - the open
-     invitations as a list you can act on, the nearest deadline as the
-     headline - and the company profile, the documents and the win/loss record
-     are behind disclosures. They used to be the first two cards on the page. */
   const openNow = invitations.filter((t) => effStatus(t) === "published");
   const notStarted = openNow.filter((t) => {
     const rnd = activeRound(t);
     return !state.bids.some((b) => b.tenderId === t.id && b.supplierId === me && (rnd && rnd.id ? b.roundId === rnd.id : true));
   });
   const soonest = openNow.length ? openNow.reduce((a, t) => (t.deadline < a.deadline ? t : a)) : null;
-  const invited = state.tenders.filter((t) => t.invited.includes(me));
   const bidsMade = state.bids.filter((b) => b.supplierId === me);
   const wins = state.tenders.filter((t) => t.awardedTo === me);
   const decided = state.tenders.filter((t) => t.status === "awarded" && bidsMade.some((b) => b.tenderId === t.id));
   const losses = decided.length - wins.length;
   const value = wins.reduce((s2, t) => s2 + (t.awardedAmount || 0), 0);
+  const liveAucs = aucs.filter((a) => a.live);
 
+  /* THE PAPERWORK CLOCK. A lapsed document is the commonest way a vendor loses
+     a prequalification they had already earned, and the old page mentioned it
+     nowhere. Sixty days is the window the buyer's own reminder runs on, so the
+     two agree about what "soon" means. */
+  const SOON_MS = 60 * 86400000;
+  const docsWithExpiry = (myComplianceDocs.length ? myComplianceDocs : (supplier.docs || []))
+    .filter((d) => d.expiry);
+  const expired = docsWithExpiry.filter((d) => d.expiry < nowMs());
+  const expiringSoon = docsWithExpiry.filter((d) => d.expiry >= nowMs() && d.expiry - nowMs() < SOON_MS);
+
+  /* Everything with a clock on it, in one list, soonest first. A vendor holding
+     a tender closing on Friday and an auction closing in an hour should not
+     have to read two cards to work out which one is urgent. */
+  const closingNext = [
+    ...openNow.map((t) => ({ key: "t" + t.id, at: t.deadline, title: t.title, ref: t.ref,
+                             kind: "Tender", onOpen: () => go({ page: "bidroom", id: t.id }) })),
+    ...aucs.filter((a) => a.live && a.endsAt)
+           .map((a) => ({ key: "a" + a.id, at: a.endsAt, title: a.title, ref: a.ref,
+                          kind: "Auction", live: true, onOpen: () => go({ page: "auction", id: a.id }) })),
+  ].sort((x, y) => x.at - y.at).slice(0, 4);
+
+  const winRate = decided.length ? Math.round((wins.length / decided.length) * 100) : null;
+
+  /* The vendor opens this page to find out one thing: is there anything to
+     bid on, and when does it close. So that is the guide - the open
+     invitations as a list you can act on, the nearest deadline as the
+     headline. */
   const guide = (
-    <Guide art={notStarted.length ? "draft" : openNow.length ? "clear" : "tray"}
-           tone={openNow.length && !notStarted.length ? "good" : undefined}
-           headline={notStarted.length
-             ? `${notStarted.length} ${notStarted.length === 1 ? "tender is" : "tenders are"} waiting for your bid`
-             : openNow.length ? "Every open bid is sealed" : "Nothing to bid on right now"}
+    <Guide art={notStarted.length ? "draft" : openNow.length || liveAucs.length ? "clear" : "tray"}
+           headline={liveAucs.length
+             ? `${liveAucs.length} auction${liveAucs.length === 1 ? " is" : "s are"} open now`
+             : openNow.length
+               ? `${openNow.length} tender${openNow.length === 1 ? " is" : "s are"} waiting for your bid`
+               : "Nothing open right now"}
            why={soonest
              ? <>The nearest closes {fmtDate(soonest.deadline)}. Nothing you seal is visible to the buyer before then.</>
              : "When a buyer invites you, it appears here with its closing date."}
-           items={notStarted.map((t) => ({ key: t.id, label: t.title, note: <Countdown t={t.deadline} />,
-                                           onPick: () => go({ page: "bidroom", id: t.id }) }))}>
+           items={[
+             ...liveAucs.map((a) => ({ key: a.id, label: a.title, note: "Live auction, prices moving",
+                                       onPick: () => go({ page: "auction", id: a.id }) })),
+             ...notStarted.map((t) => ({ key: t.id, label: t.title, note: `${daysLeft(t.deadline)} days left`,
+                                         onPick: () => go({ page: "bidroom", id: t.id }) })),
+           ]}>
       <Figures>
-        <Quiet n={<CountUp n={invited.length} />} label="invitations" />
-        <Quiet n={<CountUp n={wins.length} />} label="won" tone={wins.length ? "var(--green)" : undefined} />
-        <Quiet n={decided.length ? Math.round((wins.length / decided.length) * 100) + "%" : "-"} label="win rate" />
+        <Quiet n={invitations.length} label="invitations" />
+        <Quiet n={wins.length} label="won" tone={wins.length ? "var(--green)" : undefined} />
+        {winRate != null && <Quiet n={winRate + "%"} label="win rate" />}
         <Quiet n={<CountUp n={value} format={fmtCompact} />} label="awarded value" />
       </Figures>
     </Guide>
   );
+
+  const TABS = [
+    ["overview", "Overview"],
+    ["invitations", `Invitations${openNow.length + liveAucs.length ? ` (${openNow.length + liveAucs.length})` : ""}`],
+    ["outcomes", "Outcomes"],
+    ["company", "Company"],
+  ];
 
   return (
     <Page guide={guide}>
@@ -113,132 +167,254 @@ export function PortalHome({ api }) {
         </span>
       </div>
 
+      {/* NO data-reveal ANYWHERE UNDER THE TABS. useReveal observes what is in
+          the document when it runs, which is the first paint. Everything on a
+          tab other than the one that opens first mounts later, is never
+          observed, never gets .seen, and stays at opacity 0 - present in the
+          DOM, invisible on the page. Company and Outcomes were rendering
+          completely blank. Reveal-on-scroll is the wrong idea for tab content
+          regardless: it arrives because somebody clicked, not because they
+          scrolled to it. */}
+      <div className="segmented portaltabs" role="tablist" aria-label="Your portal">
+        {TABS.map(([key, label]) => (
+          <button key={key} role="tab" aria-selected={tab === key} className={tab === key ? "on" : ""}
+                  onClick={() => setTab(key)}>{label}</button>
+        ))}
+      </div>
+
       {!supplier.prequalified && (
         <div className="notice" style={{ marginBottom: 16, borderLeft: supplier.rejectedReason ? "3px solid var(--wax)" : undefined }}>
           {supplier.rejectedReason
-            ? <>The buyer reviewed your registration and needs more before prequalifying you: <b>{supplier.rejectedReason}</b>. Update your documents below and they will take another look.</>
-            : <>Your registration is with the buyer's procurement team. You can already bid. Uploading your compliance documents below speeds their review up.</>}
+            ? <>The buyer reviewed your registration and needs more before prequalifying you: <b>{supplier.rejectedReason}</b>. Update your documents in Company and they will take another look.</>
+            : <>Your registration is with the buyer's procurement team. You can already bid. Uploading your compliance documents under Company speeds their review up.</>}
         </div>
       )}
 
-      {/* No data-reveal on this one. useReveal observes what is in the document
-          when it runs, and this card mounts later, when /auctions/mine/ comes
-          back - so it would never be observed, never get .seen, and sit at
-          opacity 0 for ever. It was doing exactly that. */}
-      {aucs.length > 0 && (
-        <div className="card" style={{ marginBottom: 14 }}>
-          <div className="chead"><h3>Auctions you can bid in</h3>
-            <span className="mono faint" style={{ marginLeft: "auto" }}>prices move live</span>
+      {tab === "overview" && (
+        <>
+          <div className="grid g4" style={{ marginBottom: 14 }}>
+            {/* No tone on the figure. It is a count of what is open, not a
+                warning, and painting it wax red said "something is wrong with
+                these two" when the only thing worth flagging is the one that
+                has not been started - which the line underneath says. */}
+            <Stat k="Open to bid" v={openNow.length + liveAucs.length}
+                  d={notStarted.length ? `${notStarted.length} not started` : "all started"}
+                  onClick={() => setTab("invitations")} />
+            <Stat k="Bids submitted" v={bidsMade.length} d={`across ${invitations.length + outcomes.length} events`} />
+            <Stat k="Win rate" v={winRate == null ? "—" : winRate + "%"}
+                  d={decided.length ? `${wins.length} of ${decided.length} decided` : "nothing decided yet"}
+                  tone={winRate ? "var(--green)" : undefined}
+                  onClick={() => setTab("outcomes")} />
+            <Stat k="Awarded value" v={<CountUp n={value} format={fmtCompact} />}
+                  d={wins.length ? `${wins.length} award${wins.length === 1 ? "" : "s"}` : "no awards yet"} />
           </div>
-          <Rows>
-            {aucs.map((a) => {
-              const lot = (a.lots || [])[0];
+
+          {(expired.length > 0 || expiringSoon.length > 0) && (
+            <div className="notice" style={{ marginBottom: 14, borderLeft: "3px solid var(--wax)" }}>
+              {expired.length > 0
+                ? <><b>{expired.length} document{expired.length === 1 ? " has" : "s have"} expired.</b> A lapsed document can cost you a prequalification you already hold. </>
+                : <><b>{expiringSoon.length} document{expiringSoon.length === 1 ? "" : "s"} expire{expiringSoon.length === 1 ? "s" : ""} within sixty days.</b> </>}
+              {[...expired, ...expiringSoon].slice(0, 3).map((d) => d.name || d.label).join(", ")}
+              {". "}
+              <button className="doclink" onClick={() => setTab("company")}>Update them under Company</button>
+            </div>
+          )}
+
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div className="chead"><h3>Closing next</h3>
+              <span className="mono faint" style={{ marginLeft: "auto" }}>tenders and auctions together</span>
+            </div>
+            <Rows empty={<Empty art="tray">Nothing with a clock on it. When a buyer invites you, it appears here with its closing date.</Empty>}>
+              {closingNext.map((x) => (
+                <Row key={x.key} title={x.title}
+                     meta={<><span className="mono">{x.ref}</span><span>{x.kind}</span></>}
+                     right={x.live ? <LiveCountdown deadline={x.at} /> : <Countdown t={x.at} />}
+                     onOpen={x.onOpen} />
+              ))}
+            </Rows>
+          </div>
+
+          {decided.length > 0 && (
+            <div className="card">
+              <div className="chead"><h3>Your record with {state.org.name}</h3>
+                <span className="mono faint" style={{ marginLeft: "auto" }}>decided events only</span>
+              </div>
+              <div className="cbody">
+                <Meter label="Won" value={wins.length} max={decided.length} format={(n) => String(n)} />
+                <div style={{ height: 10 }} />
+                <Meter label="Not successful" value={losses} max={decided.length} tone="warn" format={(n) => String(n)} />
+                <div className="hint" style={{ marginTop: 12 }}>
+                  Bids that are still being evaluated are not counted either way.
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {tab === "invitations" && (
+        <>
+          {aucs.length > 0 && (
+            <div className="card" style={{ marginBottom: 14 }}>
+              <div className="chead"><h3>Auctions you can bid in</h3>
+                <span className="mono faint" style={{ marginLeft: "auto" }}>prices move live</span>
+              </div>
+              <Rows>
+                {aucs.map((a) => {
+                  const lot = (a.lots || [])[0];
+                  return (
+                    <Row key={a.id}
+                         title={a.title}
+                         meta={<>{a.ref}{lot && lot.ceiling ? <> &middot; ceiling {fmtCompact(lot.ceiling)}</> : null}
+                           {a.disqualified ? <> &middot; you were removed</> : null}</>}
+                         right={a.live
+                           ? <LiveCountdown deadline={a.endsAt} />
+                           : <span className="chip">{a.status === "awarded" ? "Awarded" : a.status === "scheduled" ? "Opens soon" : "Closed"}</span>}
+                         onOpen={a.disqualified ? undefined : () => go({ page: "auction", id: a.id })} />
+                  );
+                })}
+              </Rows>
+            </div>
+          )}
+
+          <div className="card">
+            <div className="chead"><h3>Tenders you can bid on</h3></div>
+            <Rows empty={<Empty art="tray">Nothing to bid on right now. When a buyer invites you, it appears here with its closing date.</Empty>}>
+              {invitations.map((t) => {
+                const st = effStatus(t);
+                const rnd = activeRound(t);
+                const myBid = state.bids.find((b) => b.tenderId === t.id && b.supplierId === me
+                  && (rnd && rnd.id ? b.roundId === rnd.id : true));
+                return (
+                  <Row key={t.id} title={t.title}
+                       onOpen={st === "published" ? () => go({ page: "bidroom", id: t.id }) : undefined}
+                       meta={<>
+                         <span className="mono">{t.ref}</span>
+                         <span>ceiling <Money n={t.budget} /></span>
+                         {t.lines && t.lines.length > 0 && <span>{t.lines.length} priced lines</span>}
+                         {(t.rounds || []).length > 1 && <span>round {t.currentRound} of {t.rounds.length}</span>}
+                         {(t.addenda || []).length > 0 && <span>{(t.addenda || []).length} addendum</span>}
+                         {(t.deadlineChanges || []).length > 0 && <span>deadline extended</span>}
+                       </>}
+                       right={<>
+                         <Countdown t={t.deadline} />
+                         {st === "paused" ? <span className="chip warn">Paused by the buyer</span>
+                           : myBid ? <span className="chip ok">Sealed</span>
+                           : st === "published" ? <span className="chip warn">Not started</span>
+                           : <span className="chip">Closed</span>}
+                         {st === "published" && <button className="btn sm pri" onClick={() => go({ page: "bidroom", id: t.id })}>{myBid ? "View receipt" : "Bid"}</button>}
+                       </>} />
+                );
+              })}
+            </Rows>
+          </div>
+        </>
+      )}
+
+      {tab === "outcomes" && (
+        <div className="card">
+          <div className="chead"><h3>Outcomes</h3>
+            <span className="mono faint" style={{ marginLeft: "auto" }}>
+              {outcomes.length ? `${wins.length} won · ${losses} not successful · ${outcomes.filter((t) => t.status === "evaluation").length} being evaluated` : "nothing decided yet"}
+            </span>
+          </div>
+          <Rows empty={<Empty art="clear">Nothing decided yet. Awards and outcomes for your bids land here, with the buyer's letter attached.</Empty>}>
+            {outcomes.map((t) => {
+              const letter = t.letters && t.letters[me];
+              const won = t.status === "awarded" && t.awardedTo === me;
+              const lost = t.status === "awarded" && t.awardedTo !== me;
               return (
-                <Row key={a.id}
-                     title={a.title}
-                     meta={<>{a.ref}{lot && lot.ceiling ? <> &middot; ceiling {fmtCompact(lot.ceiling)}</> : null}
-                       {a.disqualified ? <> &middot; you were removed</> : null}</>}
-                     right={a.live
-                       ? <LiveCountdown deadline={a.endsAt} />
-                       : <span className="chip">{a.status === "awarded" ? "Awarded" : a.status === "scheduled" ? "Opens soon" : "Closed"}</span>}
-                     onOpen={a.disqualified ? undefined : () => go({ page: "auction", id: a.id })} />
+                <Row key={t.id} title={t.title} meta={<span className="mono">{t.ref}</span>}
+                     right={<>
+                       {t.status === "evaluation" && <span className="chip">Being evaluated</span>}
+                       {won && <span className="chip gold">Awarded to you &middot; {fmtCompact(t.awardedAmount)}</span>}
+                       {lost && <span className="chip">Not successful</span>}
+                       {letter && <button className="btn sm" onClick={() => setOpenL((o) => ({ ...o, [t.id]: !o[t.id] }))}>{openL[t.id] ? "Hide letter" : "Read the letter"}</button>}
+                     </>}>
+                  {letter && openL[t.id] && <div className={"letter unfold" + (won ? " sheen" : "")} style={{ marginTop: 10 }}>{letter.text}</div>}
+                </Row>
               );
             })}
           </Rows>
         </div>
       )}
 
-      <div className="card" data-reveal style={{ marginBottom: 14 }}>
-        <div className="chead"><h3>Tenders you can bid on</h3></div>
-        <Rows empty={<Empty art="tray">Nothing to bid on right now. When a buyer invites you, it appears here with its closing date.</Empty>}>
-          {invitations.map((t) => {
-            const st = effStatus(t);
-            const rnd = activeRound(t);
-            const myBid = state.bids.find((b) => b.tenderId === t.id && b.supplierId === me
-              && (rnd && rnd.id ? b.roundId === rnd.id : true));
-            return (
-              <Row key={t.id} title={t.title}
-                   onOpen={st === "published" ? () => go({ page: "bidroom", id: t.id }) : undefined}
-                   meta={<>
-                     <span className="mono">{t.ref}</span>
-                     <span>ceiling <Money n={t.budget} /></span>
-                     {t.lines && t.lines.length > 0 && <span>{t.lines.length} priced lines</span>}
-                     {(t.rounds || []).length > 1 && <span>round {t.currentRound} of {t.rounds.length}</span>}
-                     {(t.addenda || []).length > 0 && <span>{(t.addenda || []).length} addendum</span>}
-                     {(t.deadlineChanges || []).length > 0 && <span>deadline extended</span>}
-                   </>}
-                   right={<>
-                     <Countdown t={t.deadline} />
-                     {st === "paused" ? <span className="chip warn">Paused by the buyer</span>
-                       : myBid ? <span className="chip ok">Sealed</span>
-                       : st === "published" ? <span className="chip warn">Not started</span>
-                       : <span className="chip">Closed</span>}
-                     {st === "published" && <button className="btn sm pri" onClick={() => go({ page: "bidroom", id: t.id })}>{myBid ? "View receipt" : "Bid"}</button>}
-                   </>} />
-            );
-          })}
-        </Rows>
-      </div>
-
-      <More title="Outcomes" summary={outcomes.length ? `${wins.length} won · ${losses} not successful · ${outcomes.filter((t) => t.status === "evaluation").length} being evaluated` : "nothing decided yet"}>
-        <Rows empty={<Empty>Nothing decided yet. Awards and outcomes for your bids land here.</Empty>}>
-          {outcomes.map((t) => {
-            const letter = t.letters && t.letters[me];
-            const won = t.status === "awarded" && t.awardedTo === me;
-            const lost = t.status === "awarded" && t.awardedTo !== me;
-            return (
-              <Row key={t.id} title={t.title} meta={<span className="mono">{t.ref}</span>}
-                   right={<>
-                     {t.status === "evaluation" && <span className="chip">Being evaluated</span>}
-                     {won && <span className="chip gold">Awarded to you · {fmtCompact(t.awardedAmount)}</span>}
-                     {lost && <span className="chip">Not successful</span>}
-                     {letter && <button className="btn sm" onClick={() => setOpenL((o) => ({ ...o, [t.id]: !o[t.id] }))}>{openL[t.id] ? "Hide letter" : "Read the letter"}</button>}
-                   </>}>
-                {letter && openL[t.id] && <div className={"letter unfold" + (won ? " sheen" : "")} style={{ marginTop: 10 }}>{letter.text}</div>}
-              </Row>
-            );
-          })}
-        </Rows>
-      </More>
-
-      <More title="Your company, and the documents that keep you eligible"
-            summary={`${supplier.category} · ${supplier.location} · ${myComplianceDocs.length || (supplier.docs || []).length} ${(myComplianceDocs.length || (supplier.docs || []).length) === 1 ? "document" : "documents"} on file`}>
-        <div className="grid g2" style={{ marginBottom: 12 }}>
-          <div className="frow"><label className="lbl">Company name</label>
-            <input className="in" value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} /></div>
-          <div className="frow"><label className="lbl">Category</label>
-            <input className="in" value={profileForm.category} onChange={(e) => setProfileForm({ ...profileForm, category: e.target.value })} /></div>
-          <div className="frow"><label className="lbl">Location</label>
-            <input className="in" value={profileForm.location} onChange={(e) => setProfileForm({ ...profileForm, location: e.target.value })} /></div>
-        </div>
-        <div className="gaterow" style={{ marginBottom: 14 }}>
-          <button className="btn" disabled={profileForm.name.trim().length < 2}
-                  onClick={() => act.rename({ name: profileForm.name, category: profileForm.category, location: profileForm.location })}>Save details</button>
-          {profileForm.name.trim().length < 2 && <span className="hint gatehint">The company name needs at least two characters.</span>}
-        </div>
-        {myComplianceDocs.map((x) => (
-          <div className="docrow" key={x.id}>
-            <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}><Icon n="file" s={13} />{x.name}</button>
-            {x.expiry ? <span className="hint" style={{ marginTop: 0 }}>expires {fmtDate(x.expiry)}</span> : null}
-            <span style={{ flex: 1 }} />
-            <button className="btn sm iconly" aria-label="Remove document" onClick={() => act.deleteMyDoc(x.id)}><Icon n="close" s={12} /></button>
+      {tab === "company" && (
+        <>
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div className="chead"><h3>Your company</h3>
+              <span className="mono faint" style={{ marginLeft: "auto" }}>{supplier.category} &middot; {supplier.location}</span>
+            </div>
+            <div className="cbody">
+              <div className="grid g2" style={{ marginBottom: 12 }}>
+                <div className="frow"><label className="lbl">Company name</label>
+                  <input className="in" value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} /></div>
+                <div className="frow"><label className="lbl">Category</label>
+                  <input className="in" value={profileForm.category} onChange={(e) => setProfileForm({ ...profileForm, category: e.target.value })} /></div>
+                <div className="frow"><label className="lbl">Location</label>
+                  <input className="in" value={profileForm.location} onChange={(e) => setProfileForm({ ...profileForm, location: e.target.value })} /></div>
+              </div>
+              <div className="gaterow">
+                <button className="btn" disabled={profileForm.name.trim().length < 2}
+                        onClick={() => act.rename({ name: profileForm.name, category: profileForm.category, location: profileForm.location })}>Save details</button>
+                {profileForm.name.trim().length < 2 && <span className="hint gatehint">The company name needs at least two characters.</span>}
+              </div>
+            </div>
           </div>
-        ))}
-        {myComplianceDocs.length === 0 && (supplier.docs || []).map((d, i) => (
-          <div className="docrow" key={"seeded" + i}><span>{d.name}</span><span className="hint" style={{ marginTop: 0 }}>{d.expiry ? "expires " + fmtDate(d.expiry) : ""}</span></div>
-        ))}
-        <div className="formrow" style={{ marginTop: 10, alignItems: "center" }}>
-          <input className="in" placeholder="What is this document? e.g. Tax clearance 2026"
-                 value={docForm.label} onChange={(e) => setDocForm({ ...docForm, label: e.target.value })} />
-          <input className="in" type="date" aria-label="Expiry date"
-                 value={docForm.expiry} onChange={(e) => setDocForm({ ...docForm, expiry: e.target.value })} />
-          <label className="btn sm"><Icon n="upload" s={14} />Upload<input type="file" hidden onChange={uploadCompliance} /></label>
-        </div>
-        <div className="hint">The buyer's procurement team sees these when reviewing your prequalification, and Docket reminds them before anything expires.</div>
-      </More>
+
+          <div className="card">
+            <div className="chead"><h3>Documents that keep you eligible</h3>
+              <span className="mono faint" style={{ marginLeft: "auto" }}>
+                {myComplianceDocs.length || (supplier.docs || []).length} on file
+                {expired.length ? ` · ${expired.length} expired` : expiringSoon.length ? ` · ${expiringSoon.length} expiring` : ""}
+              </span>
+            </div>
+            <div className="cbody">
+              {myComplianceDocs.map((x) => {
+                const gone = x.expiry && x.expiry < nowMs();
+                const soon = x.expiry && !gone && x.expiry - nowMs() < SOON_MS;
+                return (
+                  <div className="docrow" key={x.id}>
+                    <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}><Icon n="file" s={13} />{x.name}</button>
+                    {x.expiry
+                      ? <span className={"hint" + (gone || soon ? " docwarn" : "")} style={{ marginTop: 0 }}>
+                          {gone ? "expired " : "expires "}{fmtDate(x.expiry)}
+                        </span>
+                      : null}
+                    <span style={{ flex: 1 }} />
+                    <button className="btn sm iconly" aria-label="Remove document" onClick={() => act.deleteMyDoc(x.id)}><Icon n="close" s={12} /></button>
+                  </div>
+                );
+              })}
+              {myComplianceDocs.length === 0 && (supplier.docs || []).map((d, i) => (
+                <div className="docrow" key={"seeded" + i}><span>{d.name}</span><span className="hint" style={{ marginTop: 0 }}>{d.expiry ? "expires " + fmtDate(d.expiry) : ""}</span></div>
+              ))}
+              {myComplianceDocs.length === 0 && !(supplier.docs || []).length && (
+                <Empty art="tray">No documents on file yet. Upload your tax clearance, CAC certificate and anything else the buyer asks for.</Empty>
+              )}
+              <div className="formrow" style={{ marginTop: 10, alignItems: "center" }}>
+                <input className="in" placeholder="What is this document? e.g. Tax clearance 2026"
+                       value={docForm.label} onChange={(e) => setDocForm({ ...docForm, label: e.target.value })} />
+                <input className="in" type="date" aria-label="Expiry date"
+                       value={docForm.expiry} onChange={(e) => setDocForm({ ...docForm, expiry: e.target.value })} />
+                <label className="btn sm"><Icon n="upload" s={14} />Upload<input type="file" hidden onChange={uploadCompliance} /></label>
+              </div>
+              <div className="hint">The buyer's procurement team sees these when reviewing your prequalification, and Docket reminds them before anything expires.</div>
+            </div>
+          </div>
+        </>
+      )}
     </Page>
   );
 }
+
+export const PORTAL_CSS = `
+.portaltabs{margin-bottom:16px;overflow-x:auto;max-width:100%}
+.portaltabs button{white-space:nowrap}
+/* An expiry that has passed, or is about to, stops being a quiet grey note.
+   It is the commonest way a vendor loses a prequalification they had. */
+.docwarn{color:var(--wax);font-weight:600}
+`;
 
 export function BidRoom({ api, id }) {
   const { state, user, act, ai, go, toast } = api;
