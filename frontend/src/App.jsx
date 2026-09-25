@@ -25,7 +25,7 @@ import { ICON_CSS, Icon } from "./icons";
 import { MOTION_CSS, hasViewTransitions, useReveal, withViewTransition } from "./motion";
 import { BASELINE_CSS } from "./baselines";
 import { DESIGN_CSS } from "./designs";
-import { STUDIO_CSS } from "./studio";
+import { applyLayout, STUDIO_CSS } from "./studio";
 import { LANDING_CSS, Landing } from "./landing";
 import { LOGO_CSS, Wordmark } from "./logo";
 import { LPART_CSS } from "./lpart";
@@ -335,10 +335,9 @@ export default function App() {
     let active = true;
     authConfig().then((cfg) => {
       if (!active) return;
-      if (cfg.landing === "studio") document.documentElement.dataset.layout = "studio";
-      else delete document.documentElement.dataset.layout;
+      applyLayout(cfg.landing);
     }).catch(() => {});
-    return () => { active = false; delete document.documentElement.dataset.layout; };
+    return () => { active = false; applyLayout(null); };
   }, [token, screen?.name]);
   /* Back to the front door, and put the address bar back with it. Named
      `toLogin` when the root WAS the sign-in form; it goes to the landing page

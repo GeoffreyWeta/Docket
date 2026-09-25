@@ -16,15 +16,16 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(HERE, "..", "src", "styles.js");
 const src = fs.readFileSync(SRC, "utf8");
+const studioSrc = fs.readFileSync(path.join(HERE, "..", "src", "studio.js"), "utf8");
 const verbose = process.argv.includes("--all");
 
 /* ---------- read the token blocks ---------- */
-function blockAt(selector, from = 0) {
-  const at = src.indexOf(selector + "{", from);
+function blockAt(selector, from = 0, source = src) {
+  const at = source.indexOf(selector + "{", from);
   if (at < 0) return null;
-  const end = src.indexOf("\n}", at);
+  const end = source.indexOf("\n}", at);
   const out = new Map();
-  for (const m of src.slice(at, end).matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) out.set(m[1], m[2].trim());
+  for (const m of source.slice(at, end).matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) out.set(m[1], m[2].trim());
   return out;
 }
 const base = blockAt(":root");
@@ -37,6 +38,8 @@ const dark = blockAt(':root[data-theme="dark"]');
 const THEMES = {
   light: [base],
   dark: [base, dark],
+  studioLight: [base, blockAt(':root[data-layout="studio"]', 0, studioSrc)],
+  studioDark: [base, dark, blockAt(':root[data-layout="studio"]', 0, studioSrc), blockAt(':root[data-layout="studio"][data-theme="dark"]', 0, studioSrc)],
 };
 
 /* status stamp values live in rules, not the token blocks */
@@ -55,6 +58,16 @@ const STAMPS = {
   light: stamps(null),
   dark: stamps("dark"),
 };
+
+for (const [name, selector] of [["studioLight", ':root[data-layout="studio"]'], ["studioDark", ':root[data-layout="studio"][data-theme="dark"]']]) {
+  STAMPS[name] = {};
+  for (const line of studioSrc.split("\n")) {
+    if (!line.startsWith(selector + " .st-")) continue;
+    const match = line.match(/\.st-(\w+)\{--st-fg:([^;]+);--st-bg:([^}]+)\}/);
+    if (match) STAMPS[name][match[1]] = { fg: match[2], bg: match[3] };
+  }
+  if (Object.keys(STAMPS[name]).length !== 9) throw new Error(`Missing Studio status colours: ${name}`);
+}
 
 /* ---------- colour maths ---------- */
 const resolve = (value, chain) => {

@@ -288,6 +288,19 @@ export const CSS = `
 }
 *{box-sizing:border-box}
 html,body{margin:0}
+/* THE FAMILY BELONGS ON body, not only on .dk.
+
+   .dk is the signed-in shell. The landing page (.lp), the Studio landing
+   (.st-page), the setup wizard and the administration console all render
+   OUTSIDE it, so for as long as the only font-family declaration was .dk's,
+   every one of those surfaces inherited nothing and the browser fell back to
+   its default serif. The front page has been shipping in Times New Roman.
+
+   Declared here it cannot be missed again: body is the ancestor of every
+   surface this application has, and .dk's own rule below still wins where it
+   applies. The smoothing moves with it for the same reason. */
+body{font-family:var(--font-sans);-webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
 /* the drawer is open: stop the page behind it scrolling under the finger */
 body.navopen{overflow:hidden}
 

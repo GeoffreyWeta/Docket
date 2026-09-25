@@ -59,8 +59,7 @@ export function applyTheme(id) {
   // keep the tab chrome and the pre-paint background in step with the theme
   const meta = document.querySelector('meta[name="color-scheme"]');
   if (meta) meta.setAttribute("content", DARK.has(theme) ? "dark" : "light");
-  const tc = document.querySelector('meta[name="theme-color"]');
-  if (tc) tc.setAttribute("content", DARK.has(theme) ? "#0C1511" : "#F2F6F3");
+  syncThemeChrome();
   return theme;
 }
 
@@ -74,4 +73,12 @@ export function setTheme(id) {
     same thing, which is what lets the switch be a toggle rather than a menu. */
 export function otherTheme(id) {
   return id === "dark" ? "light" : "dark";
+}
+
+export function syncThemeChrome() {
+  const root = document.documentElement;
+  const dark = root.dataset.theme === "dark";
+  const studio = root.dataset.layout === "studio";
+  const tc = document.querySelector('meta[name="theme-color"]');
+  if (tc) tc.setAttribute("content", studio ? (dark ? "#161618" : "#f5f5f7") : (dark ? "#0C1511" : "#F2F6F3"));
 }

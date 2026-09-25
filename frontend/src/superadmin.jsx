@@ -14,6 +14,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 import { DESIGNS } from "./designs";
+import { applyLayout, STUDIO_CSS } from "./studio";
 import { ICON_CSS, Icon } from "./icons";
 import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
 import { Dialog, Toasts, useToasts } from "./ui";
@@ -1145,13 +1146,22 @@ export default function SuperAdmin() {
 
   useEffect(() => { if (signedIn) reload(); /* eslint-disable-next-line */ }, [signedIn]);
 
+  useEffect(() => {
+    let active = true;
+    if (state?.landing) applyLayout(state.landing);
+    else fetch("/api/auth/config/").then((r) => r.ok ? r.json() : null).then((cfg) => {
+      if (active && cfg) applyLayout(cfg.landing);
+    }).catch(() => {});
+    return () => { active = false; applyLayout(null); };
+  }, [state?.landing]);
+
   const signOut = async () => {
     try { await req("/logout/", { method: "POST", body: {} }); } catch (e) { /* going anyway */ }
     localStorage.removeItem(TKEY);
     setSignedIn(false); setState(null);
   };
 
-  const style = <style>{CSS + EXTRA_CSS + THEME_CSS + ICON_CSS + ADMIN_CSS}</style>;
+  const style = <style>{CSS + EXTRA_CSS + THEME_CSS + ICON_CSS + ADMIN_CSS + STUDIO_CSS}</style>;
 
   if (!signedIn) {
     return <>{style}<AdminLogin onIn={() => setSignedIn(true)} /></>;

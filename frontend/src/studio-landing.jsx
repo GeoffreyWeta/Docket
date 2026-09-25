@@ -99,7 +99,7 @@ export function StudioLanding({ cfg = {}, onScreen }) {
 }
 
 export const STUDIO_LANDING_CSS = `
-.st-page{--st-bg:#fff;--st-soft:#f5f5f7;--st-ink:#1d1d1f;--st-muted:#65656b;--st-line:#dcdce1;--st-blue:#0066cc;--st-card:#fff;background:var(--st-bg);color:var(--st-ink);font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased;font-size:16px;line-height:1.47;overflow-x:clip}
+.st-page{--st-bg:#fff;--st-soft:#f5f5f7;--st-ink:#1d1d1f;--st-muted:#65656b;--st-line:#dcdce1;--st-blue:#0066cc;--st-card:#fff;background:var(--st-bg);color:var(--st-ink);font-family:var(--font-sans);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;font-size:16px;line-height:1.47;overflow-x:clip}
 :root[data-theme="dark"] .st-page{--st-bg:#111113;--st-soft:#1c1c1f;--st-ink:#f5f5f7;--st-muted:#a5a5ad;--st-line:#39393f;--st-blue:#82baff;--st-card:#252528}
 .st-page button,.st-page a{font:inherit;letter-spacing:inherit;touch-action:manipulation}
 .st-page button{cursor:pointer}.st-page a{color:inherit;text-decoration:none}
