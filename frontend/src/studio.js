@@ -278,4 +278,26 @@ export const STUDIO_CSS = `
   --pri-line:#e8e8ed;--on-brand:#1d1d1f;--side-on-bg:#333338;--side-on-ink:#e0e0e7;
   --newbtn-bg-h:#333338;--newbtn-line-h:#c7c7ce;
   --seal-hi:#e0e0e7;--seal-core:#c7c7ce;--seal-crack:#39393e}
+
+/* ------------------------------------------------- the accent, for the FRONT
+   The landing page is not inside the app shell and carries its own token
+   namespace (--st-*, see studio-landing.jsx), so the blocks above — which
+   override the app's --brand family — never reached it. That is why picking
+   teal repainted the workspace and left the front page blue.
+
+   These publish the same accent under the names the front page reads. On
+   :root rather than [data-layout="studio"] because the landing page sets
+   data-design on its own wrapper and is not necessarily under that attribute;
+   the tokens are inert unless something asks for them, so a page that does not
+   read --st-accent is unaffected by their presence. */
+:root[data-accent="forest"]{--st-accent:#0f6b45;--st-accent-fill:#138354;--st-accent-fill-h:#0f6b45}
+:root[data-accent="forest"][data-theme="dark"]{--st-accent-dark:#6cc79b;--st-accent-fill:#6cc79b;--st-accent-fill-h:#6cc79b}
+:root[data-accent="teal"]{--st-accent:#0f6b6b;--st-accent-fill:#118080;--st-accent-fill-h:#0f6b6b}
+:root[data-accent="teal"][data-theme="dark"]{--st-accent-dark:#5ecfcf;--st-accent-fill:#5ecfcf;--st-accent-fill-h:#5ecfcf}
+:root[data-accent="indigo"]{--st-accent:#4b3fd4;--st-accent-fill:#5a4ef0;--st-accent-fill-h:#4b3fd4}
+:root[data-accent="indigo"][data-theme="dark"]{--st-accent-dark:#a99dff;--st-accent-fill:#a99dff;--st-accent-fill-h:#a99dff}
+:root[data-accent="crimson"]{--st-accent:#b3243a;--st-accent-fill:#cc2a44;--st-accent-fill-h:#b3243a}
+:root[data-accent="crimson"][data-theme="dark"]{--st-accent-dark:#f58a9c;--st-accent-fill:#f58a9c;--st-accent-fill-h:#f58a9c}
+:root[data-accent="graphite"]{--st-accent:#3a3a3f;--st-accent-fill:#1d1d1f;--st-accent-fill-h:#39393e}
+:root[data-accent="graphite"][data-theme="dark"]{--st-accent-dark:#c7c7ce;--st-accent-fill:#c7c7ce;--st-accent-fill-h:#c7c7ce}
 `;
