@@ -243,19 +243,10 @@ def admin_log(request, admin, body):
 
 @guard(["POST"])
 def admin_appearance(request, admin, body):
-    """Choose which of the four designs the front page wears.
+    """Save deployment appearance. Studio also styles the signed-in workspace.
 
-    It lives in this console and not in workspace settings on purpose. The front
-    page is the one screen in DOCKET that people who have never signed in will
-    see, so changing it is not a preference belonging to whoever is logged in at
-    the time — it is a change to what the deployment looks like to everyone,
-    which is exactly the class of thing this console exists for. The workspace
-    settings page can rename the organisation and set the approval ladder; it
-    cannot repaint the front door.
-
-    There is no per-visitor override and no query parameter, because a front
-    page that different people see differently is not a front page. Light and
-    dark still follow the reader's own choice within whichever design is set.
+    Restricted to administrators; changes are mirrored into the audit chain.
+    Light and dark remain each reader's preference.
     """
     from .models import OrgSetting
     want = str(body.get("landing", "")).strip().lower()

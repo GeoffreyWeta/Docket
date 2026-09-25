@@ -887,21 +887,8 @@ export function LogTab() {
   );
 }
 
-/* ---------------- the front page ----------------
-
-   The one screen in DOCKET that people who have never signed in will see, and
-   therefore the one whose look is not a preference belonging to whoever
-   happens to be logged in. It is set here, once, for the whole deployment.
-
-   WHAT THIS DOES NOT DO. It does not touch the signed-in workspace: nobody's
-   tender list changes colour because a visitor found the front page boring.
-   And it does not override light and dark, which stay the reader's own choice
-   inside whichever design is set — so each of the four below is really two,
-   and both halves are written in designs.js.
-
-   The change is live for the next visitor. There is no draft, no preview mode
-   and no scheduling, because a front page has one state and a switch that
-   could leave it in two is a worse problem than the one it solves. */
+/* Deployment appearance. Studio includes the signed-in workspace.
+   Selection is saved by the admin-only API and applies on the next load. */
 
 function AppearanceTab({ current, onChanged, toast }) {
   const [busy, setBusy] = useState("");
@@ -913,8 +900,8 @@ function AppearanceTab({ current, onChanged, toast }) {
       await req("/appearance/", { method: "POST", body: { landing: key } });
       await onChanged();
       const d = DESIGNS.find((x) => x.key === key);
-      toast.ok(`The front page is now ${d.label}`,
-               "Every visitor sees it from their next load.");
+      toast.ok(`Appearance is now ${d.label}`,
+               "The new appearance takes effect on the next reload.");
     } catch (e) {
       toast.warn("That didn't go through", e.message || "");
     } finally {
@@ -925,10 +912,11 @@ function AppearanceTab({ current, onChanged, toast }) {
   return (
     <div className="card">
       <div className="chead">
-        <h2>The front page</h2>
+        <h2>App appearance</h2>
         <span className="sub">
-          What a visitor sees at the address before they sign in. One choice for the
-          whole deployment; light and dark stay theirs.
+          Choose a look for your deployment. Studio changes the front page and the
+          signed-in workspace; the other choices change the front-page palette.
+          Everyone keeps their own light or dark mode.
         </span>
       </div>
       <div className="cbody">
@@ -946,6 +934,7 @@ function AppearanceTab({ current, onChanged, toast }) {
                     <i key={i} style={{ background: c }} />
                   ))}
                 </span>
+                {d.key === "studio" && <span className="studio-preview" aria-hidden="true"><span /><span><i /><i /><i /></span></span>}
                 <b>
                   {d.label}
                   {on && <span className="designnow">In use</span>}
@@ -960,7 +949,7 @@ function AppearanceTab({ current, onChanged, toast }) {
       <div className="cbody" style={{ borderTop: "1px solid var(--line)" }}>
         <div className="muted" style={{ fontSize: 12 }}>
           Changing this is written to the console log and to the workspace's audit chain,
-          so &ldquo;who repainted the front page, and when&rdquo; is answerable later. Visitors
+          so appearance changes can be traced later. People
           already on the page keep the old one until they reload.
         </div>
       </div>
@@ -1131,7 +1120,7 @@ function greeting() {
   return "Good evening";
 }
 
-const TABS = [["people", "People"], ["roles", "Roles"], ["front", "Front page"],
+const TABS = [["people", "People"], ["roles", "Roles"], ["front", "Appearance"],
               ["demo", "Demo data"], ["log", "What has changed"]];
 
 export default function SuperAdmin() {
@@ -1249,6 +1238,10 @@ export const ADMIN_CSS = `
    aria-pressed as well as the border, because "which one is on" is the entire
    content of this screen and a colour is not an answer for everybody. */
 .designgrid{display:grid;gap:12px;grid-template-columns:minmax(0,1fr)}
+.studio-preview{display:flex;height:90px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#f5f5f7;gap:12px;padding:10px}
+.studio-preview>span:first-child{width:22%;border-radius:6px;background:#e2e2e7}
+.studio-preview>span:last-child{flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding-top:20px}
+.studio-preview i{background:white;border-radius:6px;border:1px solid #e5e5ea}
 .designcard{display:grid;gap:8px;text-align:left;font:inherit;color:inherit;cursor:pointer;
   background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;
   transition:border-color var(--t) var(--ease),background var(--t) var(--ease)}

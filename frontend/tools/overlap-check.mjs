@@ -47,6 +47,7 @@ const EXPORTS = [
   // beats it by being read later. DESIGN_CSS is read LAST because the `paper`
   // tear line and the dark hero are overrides of both.
   ["lpart.jsx", "LPART_CSS"], ["landing.jsx", "LANDING_CSS"], ["designs.js", "DESIGN_CSS"],
+  ["studio.js", "STUDIO_CSS"],
   ["superadmin.jsx", "ADMIN_CSS"],
 ];
 

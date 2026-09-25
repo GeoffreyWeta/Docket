@@ -1,28 +1,6 @@
-/* The front page's palette.
-
-   WHAT THIS IS NOW. It used to hold four different PAGES. It holds four
-   PALETTES for one page. The four-page version was wrong twice over: it made
-   the marketing site argue with the product, and the differences between the
-   four were mood rather than reasoning. There is one landing page now
-   (landing.jsx, built on the section spine enterprise buyers already know from
-   every vendor they have evaluated) and this file decides what colour it is.
-
-   WHY GREEN IS THE DEFAULT. The house colour is EatnGo's, and the front page
-   is the parent brand's front page before it is anything else, so `forest` is
-   what a visitor gets. It is not the brand's #00A651: that green is bright,
-   warm and appetising, which is right for a food business and wrong for a
-   product whose entire claim is that a procurement record survives an audit.
-   #0F6B45 is the same lineage taken somewhere serious, and it clears AA on
-   white at body size, which #00A651 does not. `slate` is the institutional
-   blue ramp and stays in the catalogue, one console setting away, for a
-   deployment that would rather not wear the parent brand at all.
-
-   EVERY PAIR IS MEASURED, not eyeballed — text on surface, label on fill, and
-   copy on the dark band all clear WCAG AA at the size they are actually set.
-
-   TWO AXES. The palette belongs to the deployment and is set once in the
-   administration console. Light and dark stay the reader's, so every palette
-   is written twice and neither half inherits from the other. */
+/* Deployment appearance catalogue. Forest, Slate, Graphite and Ink are
+   front-page palettes. Studio is an alternate front-page and workspace layout
+   whose scoped styling lives in studio.js. Light/dark remains reader-owned. */
 
 import { BP } from "./breakpoints";
 
@@ -31,6 +9,12 @@ import { BP } from "./breakpoints";
    action, band — duplicated from the light block below because the console
    does not load this stylesheet and should not have to. */
 export const DESIGNS = [
+  {
+    key: "studio",
+    label: "Studio",
+    swatch: ["#F5F5F7", "#FFFFFF", "#0066CC", "#1D1D1F"],
+    note: "An Apple-inspired layout. A centred product showcase, soft panels and a calm, silver workspace. Applies to the front page and app.",
+  },
   {
     key: "forest",
     label: "Forest",

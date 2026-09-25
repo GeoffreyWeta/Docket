@@ -25,6 +25,7 @@ import { ICON_CSS, Icon } from "./icons";
 import { MOTION_CSS, hasViewTransitions, useReveal, withViewTransition } from "./motion";
 import { BASELINE_CSS } from "./baselines";
 import { DESIGN_CSS } from "./designs";
+import { STUDIO_CSS } from "./studio";
 import { LANDING_CSS, Landing } from "./landing";
 import { LOGO_CSS, Wordmark } from "./logo";
 import { LPART_CSS } from "./lpart";
@@ -45,7 +46,7 @@ import {
 const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS
   + SCORECARD_CSS + MENU_CSS + BOOT_CSS + PALETTE_CSS + CHART_CSS + CAMPAIGN_CSS
   + FINANCE_CSS + BASELINE_CSS + LIFECYCLE_CSS + ILLUS_CSS + DRAFT_CSS + PAGE_CSS
-  + LPART_CSS + LANDING_CSS + DESIGN_CSS + LOGO_CSS + CHAIN_CSS;
+  + LPART_CSS + LANDING_CSS + DESIGN_CSS + LOGO_CSS + CHAIN_CSS + STUDIO_CSS;
 
 /* Where you land and where you may go are both read off the capabilities the
    server sent with the bootstrap payload — see perms.js. Nothing here enumerates
@@ -329,6 +330,16 @@ function publicScreenFromUrl() {
 export default function App() {
   const [token, setToken] = useState(getToken());
   const [screen, setScreen] = useState(publicScreenFromUrl);
+  // Deployment appearance also applies to direct sign-in and workspace loads.
+  useEffect(() => {
+    let active = true;
+    authConfig().then((cfg) => {
+      if (!active) return;
+      if (cfg.landing === "studio") document.documentElement.dataset.layout = "studio";
+      else delete document.documentElement.dataset.layout;
+    }).catch(() => {});
+    return () => { active = false; delete document.documentElement.dataset.layout; };
+  }, [token, screen?.name]);
   /* Back to the front door, and put the address bar back with it. Named
      `toLogin` when the root WAS the sign-in form; it goes to the landing page
      now, which is what every one of its call sites meant by "out of here". */

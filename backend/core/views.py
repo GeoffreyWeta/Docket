@@ -456,13 +456,13 @@ DEFAULT_PROFILE = {k: "" for k in PROFILE_FIELDS}
 DEFAULT_PROFILE.update({"country": "Nigeria", "currency": "NGN",
                         "timezone": "Africa/Lagos", "fiscalYearStart": "01-01"})
 
-# The front page comes in four designs. The keys live here because two
+# Deployment appearance supports front-page palettes and the Studio layout. The keys live here because two
 # surfaces have to agree on them — auth/config/ serves the chosen one to every
 # visitor, and the administration console is the only place it can be changed —
 # and a list that lived in the frontend could be edited by whoever is asking.
-# Adding a fifth means a key here AND a block in frontend/src/designs.js;
+# Adding an option means a key here AND an entry in frontend/src/designs.js;
 # anything the console sends that is not in this tuple is refused.
-LANDING_DESIGNS = ("forest", "slate", "graphite", "ink")
+LANDING_DESIGNS = ("forest", "slate", "graphite", "ink", "studio")
 # Green, because the front page wears the parent brand. Kept in step with
 # DEFAULT_DESIGN in frontend/src/designs.js, which decides what the page
 # paints with before this config has arrived.

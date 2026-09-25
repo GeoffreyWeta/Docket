@@ -415,6 +415,7 @@ export function Landing({ cfg, onScreen }) {
      preference. A front page that different visitors see differently is not a
      front page, and the one place it changes is the administration console. */
   const design = designOf(cfg && cfg.landing);
+  const studio = design.key === "studio";
 
   /* Re-run once the config lands: the first paint happens before the fetch
      returns, and useReveal only observes elements that are not already seen,
@@ -458,7 +459,7 @@ export function Landing({ cfg, onScreen }) {
           </nav>
           <span className="lpbaracts">
             <button className="lplink lpdesk" onClick={() => onScreen("signin")}>Sign in</button>
-            <button className="btn pri sm" onClick={goSetup}>Contact us</button>
+            <button className="btn pri sm" onClick={goSetup}>{studio ? "Get started" : "Contact us"}</button>
             <button className={"lpburger" + (menu ? " on" : "")} onClick={() => setMenu(!menu)}
                     aria-expanded={menu} aria-label={menu ? "Close menu" : "Open menu"}>
               <i aria-hidden="true" />
@@ -479,13 +480,13 @@ export function Landing({ cfg, onScreen }) {
         )}
       </header>
 
-      <div className="lpevent">
+      {!studio && <div className="lpevent">
         <div className="lpwrap lpeventin">
           <b>EVENT</b>
           <span>Nigerian Procurement Forum, Lagos. 5–7 October 2026, two days on sealed tendering, evaluation practice and audit defence.</span>
           <a href="#resources" className="lpmore">Explore the event</a>
         </div>
-      </div>
+      </div>}
 
       <main id="main">
 
@@ -509,14 +510,14 @@ export function Landing({ cfg, onScreen }) {
           <div className="lpwrap lpherogrid">
             <div className="lpherocopy" data-reveal>
               <p className="lpkick">Tender &amp; spend management</p>
-              <h1>Turn every tender into a record you can defend.</h1>
+              <h1>{studio ? <>Big decisions.<br /><span className="studio-headline">Beautifully clear.</span></> : "Turn every tender into a record you can defend."}</h1>
               <p className="lplead">
-                DOCKET runs sourcing, vendor qualification, sealed bidding, blind evaluation and
+                {studio ? "From the first invitation to the final approval. Your tenders, suppliers and decisions, together in one considered workspace." : <>DOCKET runs sourcing, vendor qualification, sealed bidding, blind evaluation and
                 delegated approval as one auditable process. Encrypted end to end, governed by your own
-                reporting lines, and hash-chained so every decision stands up to review.
+                reporting lines, and hash-chained so every decision stands up to review.</>}
               </p>
               <div className="lpacts">
-                <button className="btn pri lpbtn" onClick={goSetup}>Request a demonstration</button>
+                <button className="btn pri lpbtn" onClick={goSetup}>{studio ? "Start your workspace" : "Request a demonstration"}</button>
                 {canDemo && <button className="btn lpbtn" onClick={goDemo}>See a live workspace</button>}
               </div>
               <p className="lpticks">
@@ -531,6 +532,7 @@ export function Landing({ cfg, onScreen }) {
                 picture is the thing that gets covered up. It is hidden below
                 `tab`, where there is no room to crop anything. */}
             <div className="lpheropanel" data-reveal style={{ transitionDelay: "120ms" }}>
+              {studio && <div className="studio-window"><span aria-hidden="true"><i /><i /><i /></span><span>DOCKET · Workspace preview</span><Icon n="seal" s={14} /></div>}
               <LivePanel />
               {/* Two readings lifted off the panel and floated over its
                   corners. Both are figures the panel itself is showing, said
