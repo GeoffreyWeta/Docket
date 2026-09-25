@@ -14,6 +14,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 import { DESIGNS } from "./designs";
+import { ACCENTS, accentOf, applyAccent } from "./studio";
 import { applyLayout, STUDIO_CSS } from "./studio";
 import { ICON_CSS, Icon } from "./icons";
 import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
@@ -891,8 +892,30 @@ export function LogTab() {
 /* Deployment appearance. Studio includes the signed-in workspace.
    Selection is saved by the admin-only API and applies on the next load. */
 
-function AppearanceTab({ current, onChanged, toast }) {
+function AppearanceTab({ current, accent, onChanged, toast }) {
   const [busy, setBusy] = useState("");
+
+  /* Painted the moment it is clicked, before the save returns. The console is
+     itself rendered in the Studio layout, so the picker IS the preview — which
+     is the whole point of offering six rather than recommending one. A failed
+     save puts it back. */
+  const tryAccent = async (key) => {
+    if (key === accent || busy) return;
+    const was = accent;
+    setBusy(key);
+    applyAccent(key);
+    try {
+      await req("/appearance/", { method: "POST", body: { accent: key } });
+      await onChanged();
+      toast.ok(`Accent is now ${accentOf(key).label}`,
+               "Everyone sees it on their next reload.");
+    } catch (e) {
+      applyAccent(was);
+      toast.warn("That didn't go through", e.message || "");
+    } finally {
+      setBusy("");
+    }
+  };
 
   const choose = async (key) => {
     if (key === current || busy) return;
@@ -947,6 +970,35 @@ function AppearanceTab({ current, onChanged, toast }) {
           })}
         </div>
       </div>
+      {current === "studio" && (
+        <div className="cbody" style={{ borderTop: "1px solid var(--line)" }}>
+          <div className="lbl" style={{ marginBottom: 4 }}>Studio accent</div>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
+            The one colour inside the Studio look. Click to see it — this console
+            wears the same layout, so it repaints as you go. Every option was
+            measured first: each carries text on white, survives white text on
+            top of it as a button, and has a dark-mode step that works.
+          </div>
+          <div className="accentrow">
+            {ACCENTS.map((a) => {
+              const on = a.key === accent;
+              return (
+                <button type="button" key={a.key} disabled={!!busy}
+                        className={"accentchip" + (on ? " on" : "")}
+                        aria-pressed={on} title={a.note}
+                        onClick={() => tryAccent(a.key)}>
+                  <i style={{ background: a.hex }} aria-hidden="true" />
+                  <span>{a.label}</span>
+                  {on && <b>in use</b>}
+                </button>
+              );
+            })}
+          </div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
+            {accentOf(accent).note}
+          </div>
+        </div>
+      )}
       <div className="cbody" style={{ borderTop: "1px solid var(--line)" }}>
         <div className="muted" style={{ fontSize: 12 }}>
           Changing this is written to the console log and to the workspace's audit chain,
@@ -1148,12 +1200,12 @@ export default function SuperAdmin() {
 
   useEffect(() => {
     let active = true;
-    if (state?.landing) applyLayout(state.landing);
+    if (state?.landing) { applyLayout(state.landing); applyAccent(state.accent); }
     else fetch("/api/auth/config/").then((r) => r.ok ? r.json() : null).then((cfg) => {
-      if (active && cfg) applyLayout(cfg.landing);
+      if (active && cfg) { applyLayout(cfg.landing); applyAccent(cfg.accent); }
     }).catch(() => {});
-    return () => { active = false; applyLayout(null); };
-  }, [state?.landing]);
+    return () => { active = false; applyLayout(null); applyAccent(null); };
+  }, [state?.landing, state?.accent]);
 
   const signOut = async () => {
     try { await req("/logout/", { method: "POST", body: {} }); } catch (e) { /* going anyway */ }
@@ -1222,7 +1274,8 @@ export default function SuperAdmin() {
 
           {tab === "people" && <PeopleTab state={state} reload={reload} toast={toast} />}
           {tab === "roles" && <RolesTab state={state} reload={reload} toast={toast} />}
-          {tab === "front" && <AppearanceTab current={state.landing} onChanged={reload} toast={toast} />}
+          {tab === "front" && <AppearanceTab current={state.landing} accent={state.accent}
+                                            onChanged={reload} toast={toast} />}
           {tab === "demo" && <DemoTab toast={toast} onCleared={reload} />}
           {tab === "log" && <LogTab />}
 
@@ -1243,6 +1296,21 @@ export default function SuperAdmin() {
 /* ---------------- console-only styling ---------------- */
 
 export const ADMIN_CSS = `
+/* The accent picker. Chips rather than a select, because the whole point is
+   to see six colours beside each other and the one in use. */
+.accentrow{display:flex;flex-wrap:wrap;gap:8px}
+.accentchip{display:inline-flex;align-items:center;gap:8px;cursor:pointer;
+  background:var(--card);border:1px solid var(--line);border-radius:999px;
+  padding:7px 13px 7px 8px;font:inherit;font-size:13px;color:inherit;
+  transition:border-color var(--t) var(--ease),background var(--t) var(--ease)}
+.accentchip:hover:not(:disabled){border-color:var(--line2);background:var(--sunk)}
+.accentchip:disabled{opacity:.55;cursor:default}
+.accentchip i{width:18px;height:18px;border-radius:50%;flex-shrink:0;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
+.accentchip.on{border-color:var(--brand);background:var(--brand-tint)}
+.accentchip b{font-size:10.5px;font-weight:600;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--brand)}
+
 /* ---- the front page tab ----
    Four cards that are really one radio group. Pressed state is carried by
    aria-pressed as well as the border, because "which one is on" is the entire

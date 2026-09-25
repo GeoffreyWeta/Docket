@@ -26,7 +26,7 @@ import { MOTION_CSS, hasViewTransitions, useReveal, withViewTransition } from ".
 import { AUCTION_CSS, AuctionPage, AuctionsPage } from "./auctions";
 import { BASELINE_CSS } from "./baselines";
 import { DESIGN_CSS } from "./designs";
-import { applyLayout, STUDIO_CSS } from "./studio";
+import { applyAccent, applyLayout, STUDIO_CSS } from "./studio";
 import { LANDING_CSS, Landing } from "./landing";
 import { LOGO_CSS, Wordmark } from "./logo";
 import { LPART_CSS } from "./lpart";
@@ -338,8 +338,9 @@ export default function App() {
     authConfig().then((cfg) => {
       if (!active) return;
       applyLayout(cfg.landing);
+      applyAccent(cfg.accent);
     }).catch(() => {});
-    return () => { active = false; applyLayout(null); };
+    return () => { active = false; applyLayout(null); applyAccent(null); };
   }, [token, screen?.name]);
   /* Back to the front door, and put the address bar back with it. Named
      `toLogin` when the root WAS the sign-in form; it goes to the landing page

@@ -474,6 +474,15 @@ LANDING_DESIGNS = ("studio", "forest", "slate", "graphite", "ink")
 # same question for the first paint, before this config has arrived.
 DEFAULT_LANDING = "studio"
 
+# The accent inside the Studio layout. A separate axis from the design: Studio
+# is a typeface, a radius scale and a set of surfaces, and this is the ten
+# tokens of brand colour sitting inside it. Keys must match ACCENTS in
+# frontend/src/studio.js, which is where the measured values live; this tuple
+# is only the allow-list, so the console cannot set a colour that has no block
+# to paint with. Ignored by the designs that are not Studio.
+STUDIO_ACCENTS = ("blue", "forest", "teal", "indigo", "crimson", "graphite")
+DEFAULT_ACCENT = "blue"
+
 DEFAULT_SETTINGS = {
     "approvalThreshold": 50_000_000,
     # The delegation-of-authority ladder. Empty means the single threshold
@@ -482,6 +491,9 @@ DEFAULT_SETTINGS = {
     "dimensions": DEFAULT_DIMENSIONS,
     "profile": DEFAULT_PROFILE,
     "logo": "",
+    # Which accent the Studio layout paints with. Inert under every other
+    # design, and kept beside `landing` because they are set together.
+    "accent": DEFAULT_ACCENT,
     # Which of LANDING_DESIGNS the front door wears. One setting for the whole
     # deployment: a visitor is not asked to pick a skin, and neither is anyone
     # on the team — see admin_views.admin_appearance for who may change it.
@@ -512,6 +524,13 @@ def clean_profile(given, current=None):
 
 def org_name():
     return org_settings()["name"]
+
+
+def studio_accent():
+    """The Studio accent, always one of STUDIO_ACCENTS. Falls back rather than
+    serving a key the stylesheet has no block for."""
+    want = org_settings().get("accent")
+    return want if want in STUDIO_ACCENTS else DEFAULT_ACCENT
 
 
 def landing_design():

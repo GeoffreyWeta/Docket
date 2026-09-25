@@ -101,7 +101,7 @@ def _demo_accounts():
 @csrf_exempt
 def auth_config(request):
     from .setup_views import needs_setup
-    from .views import landing_design, org_settings
+    from .views import landing_design, org_settings, studio_accent
     return JsonResponse({
         "demoLogin": settings.DEMO_LOGIN,
         "accounts": _demo_accounts() if settings.DEMO_LOGIN else [],
@@ -123,6 +123,10 @@ def auth_config(request):
         # read by people who are not signed in and never will be, and this is
         # the one call it already makes before first paint.
         "landing": landing_design(),
+        # Rides with the design because the page needs both before first paint,
+        # and a second round trip for ten colour tokens would show the visitor
+        # the default accent and then repaint it.
+        "accent": studio_accent(),
     })
 
 

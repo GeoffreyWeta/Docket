@@ -33,7 +33,7 @@ from .permissions import (ADMIN_ROLE, ALL_KEYS, BUYER_ROLES, CATALOGUE,
                           SUPPLIER_ROLE, assignable_roles, custom_roles,
                           defaults_for, grantable_for, resolve, role_label)
 from .util import now_ms, record_event, rid
-from .views import DEFAULT_LANDING, LANDING_DESIGNS, landing_design
+from .views import DEFAULT_LANDING, LANDING_DESIGNS, landing_design, studio_accent
 
 LOCKOUT_ATTEMPTS = 5
 LOCKOUT_WINDOW_MS = 15 * 60 * 1000
@@ -228,6 +228,7 @@ def admin_state(request, admin, body):
         },
         "demoLogin": settings.DEMO_LOGIN,
         "landing": landing_design(),
+        "accent": studio_accent(),
     })
 
 
@@ -249,12 +250,32 @@ def admin_appearance(request, admin, body):
     Light and dark remain each reader's preference.
     """
     from .models import OrgSetting
+    from .views import DEFAULT_ACCENT, STUDIO_ACCENTS
+
+    # Either axis may be sent on its own: the console changes the design and
+    # the accent from two separate pickers, and making each send both would
+    # mean whichever loaded first could overwrite the other.
+    row, _ = OrgSetting.objects.get_or_create(pk=1, defaults={"data": {}})
+    data = dict(row.data or {})
+
+    if "accent" in body:
+        acc = str(body.get("accent", "")).strip().lower()
+        if acc not in STUDIO_ACCENTS:
+            return _err("Unknown accent: " + (acc or "(none given)"))
+        was = data.get("accent", DEFAULT_ACCENT)
+        if was == acc:
+            return JsonResponse({"accent": acc, "changed": False})
+        data["accent"] = acc
+        row.data = data
+        row.save(update_fields=["data"])
+        _log(request, admin, "Front page accent changed", target=acc,
+             detail=f"{was} \u2192 {acc}", mirror=True)
+        return JsonResponse({"accent": acc, "changed": True})
+
     want = str(body.get("landing", "")).strip().lower()
     if want not in LANDING_DESIGNS:
         return _err("Unknown design: " + (want or "(none given)"))
 
-    row, _ = OrgSetting.objects.get_or_create(pk=1, defaults={"data": {}})
-    data = dict(row.data or {})
     before = data.get("landing", DEFAULT_LANDING)
     if before == want:
         return JsonResponse({"landing": want, "changed": False})
