@@ -13,7 +13,7 @@ export const DESIGNS = [
     key: "studio",
     label: "Studio",
     swatch: ["#F5F5F7", "#FFFFFF", "#0066CC", "#1D1D1F"],
-    note: "An Apple-inspired layout. A centred product showcase, soft panels and a calm, silver workspace. Applies to the front page and app.",
+    note: "An Apple-inspired layout. Larger type, focused product stories and a calm, silver workspace. Applies to the front page and app.",
   },
   {
     key: "forest",
