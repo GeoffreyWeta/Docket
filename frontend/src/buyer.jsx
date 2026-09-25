@@ -35,7 +35,7 @@ const PAGE = 60;
    a working sidebar without a change here. */
 export const NAV_LABEL = {
   dashboard: "Dashboard", approvals: "Approvals", evals: "My evaluations",
-  tenders: "Tenders", suppliers: "Suppliers", scorecards: "Scorecards",
+  tenders: "Tenders", auctions: "Auctions", suppliers: "Suppliers", scorecards: "Scorecards",
   team: "Team", analytics: "Analytics", finance: "Finance", audit: "Audit trail",
   portal: "My invitations",
 };
@@ -44,6 +44,7 @@ export const NAV_LABEL = {
 const NAV_ICON = {
   dashboard: "dashboard", tenders: "tender", suppliers: "suppliers", team: "team",
   analytics: "analytics", finance: "finance", audit: "audit", evals: "scales",
+  auctions: "gavel",
   approvals: "stamp", portal: "portal", scorecards: "trophy",
 };
 
@@ -58,7 +59,7 @@ export function Sidebar({ api, chrome, open, desktop, onClose }) {
   const isOn = (key) =>
     route.page === key ||
     (route.page === "tender" && key === "tenders") ||
-    (route.page === "auction" && key === "tenders") ||
+    (route.page === "auction" && key === "auctions") ||
     (route.page === "bidroom" && key === "portal") ||
     (route.page === "new" && key === "tenders");
 
@@ -4826,229 +4827,10 @@ function ReportingLines({ api, team, onReload }) {
   );
 }
 
-/* ---------------- reverse auction ---------------- */
-
-/* The live board is its own page rather than a tab inside the tender. While an
-   auction is running it is the whole job: a tab strip above it kept implying
-   there was something else worth reading, and there isn't. */
-
-/* The poll, lifted out of the board so the page head, the side panel and the
-   table all read the same numbers from one request rather than three. */
-function useAuction(api, t) {
-  const { toast } = api;
-  const [a, setA] = useState(null);
-  const [extended, setExtended] = useState(0);
-  const [moved, setMoved] = useState(new Set());
-  const prevAmounts = useRef(new Map());
-  const prevLeader = useRef(null);
-  const prevDeadline = useRef(null);
-
-  const poll = async () => {
-    try {
-      const next = await raw(`/tenders/${t.id}/auction/`);
-      const board = next.leaderboard || [];
-      // flash the rows whose price actually changed since the last poll
-      const changed = new Set(board.filter((x) => prevAmounts.current.get(x.supplierId) !== x.amount &&
-                                                  prevAmounts.current.size > 0).map((x) => x.supplierId));
-      if (changed.size) {
-        setMoved(changed);
-        setTimeout(() => setMoved(new Set()), DUR.ceremony);
-      }
-      const leader = board[0]?.supplierId || null;
-      if (prevLeader.current && leader && leader !== prevLeader.current) {
-        cue.tick();
-        toast.info("New leader in the auction", `${board[0].supplier} now holds the best price at ${fmtCompact(board[0].amount)}.`);
-      }
-      if (prevDeadline.current && next.deadline > prevDeadline.current + 1000 && next.live) {
-        setExtended(next.deadline);
-        toast.info("Close extended by two minutes", "A bid landed inside the final two minutes (anti-sniping).");
-      }
-      prevAmounts.current = new Map(board.map((x) => [x.supplierId, x.amount]));
-      prevLeader.current = leader;
-      prevDeadline.current = next.deadline;
-      setA(next);
-    } catch (e) { /* keep last */ }
-  };
-  useEffect(() => {
-    if (!t) return undefined;
-    poll();
-    const h = setInterval(poll, a?.live === false ? 10000 : 2500);
-    return () => clearInterval(h);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t?.id, a?.live]);
-
-  return { a, moved, extended };
-}
-
-/** The standings themselves, and the closing ceremony under them. Everything
-    that explains the rules now lives in the page around it. */
-function AuctionBoard({ api, t, a, moved, extended }) {
-  const { user, act, toast } = api;
-  const body = useRef(null);
-  const live = a?.live;
-  const board = a?.leaderboard || [];
-  useFlip(body, board.map((x) => x.supplierId).join("|"));
-
-  return (
-    <div>
-      <div className="card" style={{ marginBottom: 14 }}>
-        <div className="chead"><h3>{live ? "Live standings" : "Final standings"}</h3>
-          {extended === a?.deadline && live && <span className="extbadge" style={{ marginLeft: 10 }}>+2:00 anti-snipe</span>}
-          <span className="mono faint" style={{ marginLeft: "auto" }}>
-            {a ? <><span className={moved.size ? "tickbump" : ""}>{a.movements} price movements</span> · ceiling {fmtCompact(a.ceiling)}</> : "loading…"}
-          </span>
-        </div>
-        <table className="tbl">
-          <thead><tr><th style={{ width: 68 }}>Rank</th><th>Supplier</th><th className="num">Current price</th><th className="num">vs ceiling</th><th>Last movement</th></tr></thead>
-          <tbody ref={body}>
-            {board.map((x, i) => (
-              <tr key={x.supplierId} data-flip={x.supplierId} className={moved.has(x.supplierId) ? "flash" : ""}>
-                <td className="mono" style={{ color: i === 0 ? "var(--green)" : undefined, fontWeight: i === 0 ? 700 : 400 }}>
-                  {i === 0 ? "▲ " : ""}#{i + 1}
-                </td>
-                <td><b>{x.supplier}</b>{i === 0 && <span className="chip ok" style={{ marginLeft: 8, fontSize: 10.5 }}>leading</span>}</td>
-                <td className="num" data-l="Price"><Money n={x.amount} strong={i === 0} /></td>
-                <td className="num mono" data-l="vs ceiling" style={{ color: "var(--green)" }}>{(((x.amount - (a?.ceiling || t.budget)) / (a?.ceiling || t.budget)) * 100).toFixed(1)}%</td>
-                <td className="mono muted" data-l="Last bid">{fmtDateTime(x.at)}</td>
-              </tr>
-            ))}
-            {!board.length && <tr><td colSpan={5}><Empty>No bids yet. The room is open and waiting.</Empty></td></tr>}
-          </tbody>
-        </table>
-      </div>
-      {!live && a && can(user, "award.recommend") && board.length > 0 && (
-        <div className="ceremony">
-          <SealMark s={26} className="stamped" />
-          <h3>Auction closed</h3>
-          <p className="muted" style={{ maxWidth: 480, margin: "0 auto 16px", fontSize: 13 }}>
-            Recording the results locks the final standings as formal bids and moves the tender into the
-            standard recommendation → CFO approval → letters flow. It cannot be undone.
-          </p>
-          <HoldButton label={`Hold to record ${board.length} final standing(s)`}
-                      onDone={async () => {
-                        const ok = await act.openBids(t.id);
-                        if (ok) toast.ok("Results recorded", "The standings are now formal bids, ready for an award recommendation.");
-                      }} />
-          <div className="holdhint" style={{ marginTop: 8 }}>Press and hold: this is recorded in the audit trail under your name.</div>
-        </div>
-      )}
-      {live && <div className="muted" style={{ fontSize: 12 }}>This board refreshes every 2.5 seconds.</div>}
-    </div>
-  );
-}
-
-/** The auction room, buyer-side: its own destination, reached from the tender.
-    A running auction wants the whole width and a countdown that is the first
-    thing on the page rather than a chip inside a tab. */
-export function AuctionPage({ api, id }) {
-  const { state, user, go } = api;
-  const t = state.tenders.find((x) => x.id === id);
-  const { a, moved, extended } = useAuction(api, t);
-  if (!t) return <Empty>Tender not found.</Empty>;
-  if (t.type !== "AUC") {
-    return (
-      <Empty>
-        This tender is not a reverse auction.{" "}
-        <button className="doclink" onClick={() => go({ page: "tender", id: t.id })}>Open the tender file</button>
-      </Empty>
-    );
-  }
-
-  const live = a?.live;
-  const board = a?.leaderboard || [];
-  const best = board[0];
-  const recorded = !!a?.recorded;
-
-  /* One next step, and only one. While the room is open there is nothing to do
-     but watch it; once it closes the standings have to be recorded before the
-     award flow can start. */
-  const items = live
-    ? [{ key: "wait", label: "Wait for the close",
-         note: "A bid inside the final two minutes pushes the deadline out by two." }]
-    : recorded
-      ? [{ key: "award", label: "Recommend an award", note: "The standings are formal bids now.",
-           onPick: () => go({ page: "tender", id: t.id, tab: "bids" }) }]
-      : can(user, "award.recommend")
-        ? [{ key: "record", label: "Record the final standings", note: "Turns them into formal bids." }]
-        : [];
-
-  const guide = (
-    <Guide art={live ? "chart" : "clear"} tone={recorded ? "good" : undefined}
-           headline={live ? "The room is open"
-                          : recorded ? "Results recorded" : "The auction has closed"}
-           why={live
-             ? "Suppliers see only their own rank, never a competitor's price. This leaderboard is buyer-side only."
-             : recorded
-               ? "The final standings are formal bids, and the award follows the usual recommendation → approval → letters flow."
-               : "No further bids can land. Recording the standings turns them into formal bids."}
-           items={items}>
-      <Figures>
-        <Quiet n={a ? a.bidders : "—"} label="bidders in the room" />
-        <Quiet n={a ? a.movements : "—"} label="price movements" />
-        <Quiet n={best ? fmtCompact(best.amount) : "—"} label="best price" tone={best ? "var(--green)" : undefined} />
-        <Quiet n={a ? fmtCompact(a.ceiling) : "—"} label="ceiling" />
-      </Figures>
-      <button className="btn sm" onClick={() => go({ page: "tender", id: t.id })}>Open the tender file</button>
-    </Guide>
-  );
-
-  return (
-    <Page guide={guide} wide>
-      <button className="btn sm" style={{ marginBottom: 14 }} onClick={() => go({ page: "tender", id: t.id })}>← Back to {t.ref}</button>
-      <div className="pagehead" style={{ marginBottom: 12 }}>
-        <div>
-          <div className="mono muted" style={{ marginBottom: 3 }}>{t.ref} · REVERSE AUCTION · {t.category}</div>
-          <h1>{t.title}</h1>
-        </div>
-        <div className="grow" />
-        {live
-          ? <LiveCountdown deadline={a.deadline} />
-          : <span className="chip">{recorded ? "Results recorded" : "Auction closed"}</span>}
-      </div>
-      <AuctionBoard api={api} t={t} a={a} moved={moved} extended={extended} />
-      <More title="How this auction runs" summary="decrement, anti-sniping, what suppliers can see">
-        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.6 }}>
-          <li>Every bid has to undercut that supplier's own last one by at least the minimum decrement{(a?.minDecrement ?? t.minDecrement) ? ` (${fmtMoney(a?.minDecrement ?? t.minDecrement)})` : ""}.</li>
-          <li>A bid landing inside the final two minutes extends the close by two minutes, so nobody can snipe the room.</li>
-          <li>Suppliers see their own rank and their own price, never a competitor's number. This board is buyer-side only.</li>
-          <li>A reverse auction is price-only, so there is nothing to score and no evaluation panel.</li>
-        </ul>
-      </More>
-    </Page>
-  );
-}
-
-
-/* The company's own record: what it is called, what it is called on a
-   certificate, where it is, and the mark that goes in the chrome.
-
-   The setup wizard collects all of this, and this is where it is corrected
-   afterwards — which is most of the time, because an RC number gets typed
-   wrong once and read a hundred times. Grouped as one card rather than
-   scattered across a settings tree: it is one form about one thing, and the
-   fields that matter (the registered name, the RC number) are the ones people
-   only look for when a letter is already going out.
-
-   The logo posts separately. It is a file, the rest is JSON, and bundling a
-   quarter-megabyte data URI into every rename would be a strange thing to do
-   to a text field. */
-const PROFILE_FIELDS = [
-  ["legalName",    "Registered name",    "text",  "As on the CAC certificate"],
-  ["rcNumber",     "RC number",          "mono",  "RC 1234567"],
-  ["tin",          "Tax identification", "mono",  "01234567-0001"],
-  ["industry",     "Industry",           "text",  ""],
-  ["addressLine1", "Registered address", "text",  "Street and number"],
-  ["addressLine2", "Address, continued", "text",  "Building, floor, district"],
-  ["city",         "City",               "text",  ""],
-  ["state",        "State",              "text",  ""],
-  ["country",      "Country",            "text",  ""],
-  ["phone",        "Switchboard",        "text",  "+234 …"],
-  ["email",        "Procurement email",  "text",  "tenders@company.com"],
-  ["website",      "Website",            "text",  "company.com"],
-  ["currency",     "Reporting currency", "mono",  "NGN"],
-  ["fiscalYearStart", "Financial year starts", "mono", "01-01"],
-  ["timezone",     "Time zone",          "text",  "Africa/Lagos"],
-];
+/* THE REVERSE AUCTION MOVED OUT. useAuction, AuctionBoard and AuctionPage
+   lived here and polled /tenders/<id>/auction/, which stopped existing when
+   auctions stopped being tenders. They are auctions.jsx now, reading the
+   /api/auctions/ tree that replaced it. git log has the old versions. */
 
 function WorkspaceCard({ api }) {
   const { state, refresh, toast } = api;

@@ -8,7 +8,7 @@ import {
   fmtDateTime, fmtMoney, regStatusOf, roundsOf, verifyStatusOf,
 } from "./helpers";
 import { Icon, SealMark } from "./icons";
-import { DUR, useCountUp, useFlip } from "./motion";
+import { DUR, cue, useCountUp, useFlip, usePrev } from "./motion";
 import { ConfirmDialog, CountUp, LiveCountdown, RollNumber, Sparkline, TypeOut } from "./ui";
 
 /* ---------------- supplier portal ---------------- */
@@ -30,6 +30,22 @@ export function PortalHome({ api }) {
     e.target.value = "";
   };
   const [openL, setOpenL] = useState({});
+  /* Auctions come from their own endpoint. They are not in the bootstrap
+     payload and they are not tenders, so there is nothing in `state` to filter
+     - /auctions/mine/ is the vendor's own invitation list and the server
+     already drops drafts from it. */
+  const [aucs, setAucs] = useState([]);
+  useEffect(() => {
+    let active = true;
+    const load = () => raw("/auctions/mine/")
+      .then((d) => { if (active) setAucs(d.auctions || []); })
+      .catch(() => { /* the rest of the portal still works without them */ });
+    load();
+    /* A live room's clock is the thing a bidder came to see, so the list
+       refreshes while one is open rather than going stale behind them. */
+    const h = setInterval(load, 15000);
+    return () => { active = false; clearInterval(h); };
+  }, []);
   /* A paused event is still an invitation the vendor holds — dropping it off
      the list would tell them nothing, which is exactly the silence pausing an
      event is supposed to replace. Cancelled events move to Outcomes below:
@@ -102,6 +118,33 @@ export function PortalHome({ api }) {
           {supplier.rejectedReason
             ? <>The buyer reviewed your registration and needs more before prequalifying you: <b>{supplier.rejectedReason}</b>. Update your documents below and they will take another look.</>
             : <>Your registration is with the buyer's procurement team. You can already bid. Uploading your compliance documents below speeds their review up.</>}
+        </div>
+      )}
+
+      {/* No data-reveal on this one. useReveal observes what is in the document
+          when it runs, and this card mounts later, when /auctions/mine/ comes
+          back - so it would never be observed, never get .seen, and sit at
+          opacity 0 for ever. It was doing exactly that. */}
+      {aucs.length > 0 && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="chead"><h3>Auctions you can bid in</h3>
+            <span className="mono faint" style={{ marginLeft: "auto" }}>prices move live</span>
+          </div>
+          <Rows>
+            {aucs.map((a) => {
+              const lot = (a.lots || [])[0];
+              return (
+                <Row key={a.id}
+                     title={a.title}
+                     meta={<>{a.ref}{lot && lot.ceiling ? <> &middot; ceiling {fmtCompact(lot.ceiling)}</> : null}
+                       {a.disqualified ? <> &middot; you were removed</> : null}</>}
+                     right={a.live
+                       ? <LiveCountdown deadline={a.endsAt} />
+                       : <span className="chip">{a.status === "awarded" ? "Awarded" : a.status === "scheduled" ? "Opens soon" : "Closed"}</span>}
+                     onOpen={a.disqualified ? undefined : () => go({ page: "auction", id: a.id })} />
+              );
+            })}
+          </Rows>
         </div>
       )}
 
@@ -574,77 +617,114 @@ export function BidRoom({ api, id }) {
 const POLL_LIVE_MS = 2500;   // a live auction is a market, so poll like one
 const POLL_IDLE_MS = 10000;
 
+/* THE BIDDER'S ROOM.
+
+   Rewritten onto /api/auctions/. It used to look its auction up in
+   state.tenders and poll /tenders/<id>/auction/, and both of those stopped
+   existing when auctions left tenders - as did `usePrev` and `cue`, which this
+   function called without ever importing. It could not have run.
+
+   WHAT THE SERVER DECIDES. `toLead` is the price that would take the lead, and
+   it is computed on the server on purpose: in rank mode the browser is never
+   told the standing best, so it cannot work that number out for itself. Every
+   quick-bid button below is built from it rather than from arithmetic here. */
 export function AuctionRoom({ api, id }) {
-  const { state, user, go, toast } = api;
-  const t = state.tenders.find((x) => x.id === id);
+  const { go, toast } = api;
   const [a, setA] = useState(null);
   const [amount, setAmount] = useState("");
   const [msg, setMsg] = useState("");
   const [extended, setExtended] = useState(0);
   const [placing, setPlacing] = useState(false);
-  const prevRank = usePrev(a?.myRank ?? null);
-  const prevMovements = usePrev(a?.movements ?? 0);
-  const prevDeadline = useRef(null);
 
-  const poll = async () => {
-    try {
-      const next = await raw(`/tenders/${id}/auction/`);
-      // the buyer never sees this, but the supplier should feel the room move
-      if (prevDeadline.current && next.deadline > prevDeadline.current + 1000 && next.live) {
-        setExtended(next.deadline);
-        toast.info("Close extended by two minutes", "A bid landed inside the final two minutes, so anti-sniping pushed the deadline out.");
-      }
-      prevDeadline.current = next.deadline;
-      setA(next);
-    } catch (e) { /* keep the last known state rather than blanking the room */ }
-  };
+  const lot = ((a && a.lots) || [])[0] || null;
+  const st = (((a && a.lotState) || []).find((x) => lot && x.lotId === lot.id)) || {};
+  const prevRank = usePrev(st.myRank == null ? null : st.myRank);
+  const prevMovements = usePrev(st.movements || 0);
+  const prevEnds = useRef(null);
+  const live = a ? a.live : null;
+
   useEffect(() => {
+    let stop = false;
+    const poll = async () => {
+      try {
+        const next = await raw(`/auctions/${id}/room/`);
+        if (stop) return;
+        if (prevEnds.current && next.endsAt > prevEnds.current + 1000 && next.live) {
+          setExtended(next.endsAt);
+          toast.info("Close extended", "A bid landed inside the closing window, so anti-sniping pushed the deadline out.");
+        }
+        prevEnds.current = next.endsAt;
+        setA(next);
+      } catch (e) { /* keep the last known room rather than blanking it */ }
+    };
     poll();
-    const h = setInterval(poll, a?.live === false ? POLL_IDLE_MS : POLL_LIVE_MS);
-    return () => clearInterval(h);
+    const h = setInterval(poll, live === false ? POLL_IDLE_MS : POLL_LIVE_MS);
+    return () => { stop = true; clearInterval(h); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, a?.live]);
+  }, [id, live]);
 
   /* Overtaken or back in front, announced in words, with a glyph, and only
      then in colour (see the CVD note in ui.jsx). */
   useEffect(() => {
-    if (prevRank == null || a?.myRank == null || prevRank === a.myRank) return;
-    if (a.myRank > prevRank) {
+    if (prevRank == null || st.myRank == null || prevRank === st.myRank) return;
+    if (st.myRank > prevRank) {
       cue.outbid();
-      toast.warn(`▼ Outbid, now position ${a.myRank}`, `You held position ${prevRank}. Undercut your own price by at least ${fmtCompact(a.minDecrement)} to take the lead back.`);
+      toast.warn(`▼ Outbid, now position ${st.myRank}`,
+                 `You held position ${prevRank}. ${st.toLead ? `Bid ${fmtCompact(st.toLead)} or less to take the lead back.` : ""}`);
     } else {
       cue.lead();
-      toast.ok(`▲ Position ${a.myRank}${a.myRank === 1 ? ", you lead" : ""}`, `Up from position ${prevRank}.`);
+      toast.ok(`▲ Position ${st.myRank}${st.myRank === 1 ? ", you lead" : ""}`, `Up from position ${prevRank}.`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [a?.myRank]);
+  }, [st.myRank]);
 
-  if (!t) return null;
-  const myBids = a?.myBids || [];
+  if (!a) return <Empty art="chart">Opening the room&hellip;</Empty>;
+  if (a.disqualified) {
+    return (
+      <div>
+        <button className="btn sm" onClick={() => go({ page: "portal" })} style={{ marginBottom: 16 }}>&larr; All invitations</button>
+        <Empty art="sealed">You were removed from this auction{a.disqualifiedReason ? `: ${a.disqualifiedReason}` : "."}</Empty>
+      </div>
+    );
+  }
+
+  const myBids = st.myBids || [];
   const myLast = myBids.length ? myBids[myBids.length - 1] : null;
-  const floor = myLast ? myLast.amount - (a?.minDecrement || 0) : (a?.ceiling || t.budget);
-  const leading = !!a?.leading;
-  const stateColor = a?.myRank ? (leading ? "var(--green)" : "var(--wax)") : "var(--muted)";
-  const roomMoved = (a?.movements ?? 0) > (prevMovements ?? 0);
-  const quick = myLast
-    ? [floor, floor - (a?.minDecrement || 0), floor - (a?.minDecrement || 0) * 3].filter((v) => v > 0)
-    : [a?.ceiling ?? t.budget, Math.round((a?.ceiling ?? t.budget) * 0.97), Math.round((a?.ceiling ?? t.budget) * 0.94)];
+  const leading = !!st.leading;
+  const stateColor = st.myRank ? (leading ? "var(--green)" : "var(--wax)") : "var(--muted)";
+  const roomMoved = (st.movements || 0) > (prevMovements || 0);
+  const ceiling = lot ? lot.ceiling : null;
+  const step = lot ? lot.minDecrement : 0;
+
+  /* Built from the server's own toLead, because in rank mode the browser is
+     never told the standing best and cannot work it out.
+
+     toLead is absent in two opposite situations and they need opposite
+     ladders. If nobody has bid, the ceiling is the opening price. If the
+     bidder is ALREADY LEADING there is nobody to beat, and offering the
+     ceiling then would hand the leader a ladder of prices worse than their own
+     bid - every rung of it rejected by the server. They improve on themselves
+     instead, a step at a time. */
+  const from = st.toLead || (myLast ? myLast.amount - step : ceiling);
+  const quick = (from ? [from, from - step, from - step * 3] : [])
+    .filter((v) => v && v > 0);
 
   const place = async () => {
     setMsg("");
     setPlacing(true);
     try {
-      const r = await raw(`/tenders/${id}/auction/bids/`, { method: "POST", body: { amount: Number(amount) } });
+      const r = await raw(`/auctions/${a.id}/lots/${lot.id}/bid/`, {
+        method: "POST", body: { amount: Number(amount) },
+      });
       setAmount("");
       cue.tick();
       if (r.extended) {
-        setExtended(r.deadline);
-        toast.info("Your bid extended the close by two minutes", "Bids inside the final two minutes push the deadline out, so nobody can snipe this auction.");
+        setExtended(r.endsAt);
+        toast.info("Your bid extended the close", "Bids inside the closing window push the deadline out, so nobody can snipe this auction.");
       }
       toast.ok(r.myRank === 1 ? "▲ Bid placed, you lead" : `Bid placed, position ${r.myRank}`,
                "Binding until someone undercuts you.");
-      prevDeadline.current = r.deadline;
-      poll();
+      prevEnds.current = r.endsAt;
     } catch (e) {
       setMsg(e.message);
       toast.warn("Bid rejected", e.message);
@@ -652,80 +732,118 @@ export function AuctionRoom({ api, id }) {
     setPlacing(false);
   };
 
+  const accept = async () => {
+    try {
+      await raw(`/auctions/${a.id}/accept/`, { method: "POST", body: {} });
+      toast.ok("Terms accepted", "You can bid now.");
+    } catch (e) { toast.warn("Could not accept the terms", e.message); }
+  };
+
+  const needsAccept = a.requireAcceptance && !a.accepted;
+
   return (
     <div>
-      <button className="btn sm" onClick={() => go({ page: "portal" })} style={{ marginBottom: 16 }}>← All invitations</button>
+      <button className="btn sm" onClick={() => go({ page: "portal" })} style={{ marginBottom: 16 }}>&larr; All invitations</button>
       <div className="pagehead">
         <div>
-          <div className="mono muted" style={{ marginBottom: 3 }}>{t.ref} · REVERSE AUCTION</div>
-          <h1>{t.title}</h1>
+          <div className="mono muted" style={{ marginBottom: 3 }}>{a.ref} &middot; REVERSE AUCTION</div>
+          <h1>{a.title}</h1>
         </div>
         <div className="grow" />
-        {extended === a?.deadline && a?.live && <span className="extbadge">+2:00 anti-snipe</span>}
-        {a?.live
-          ? <LiveCountdown deadline={a.deadline} />
-          : <span className="chip">{a?.recorded ? "Results recorded" : "Auction closed"}</span>}
+        {extended === a.endsAt && live && <span className="extbadge">anti-snipe</span>}
+        {live ? <LiveCountdown deadline={a.endsAt} />
+              : <span className="chip">{a.status === "awarded" ? "Awarded" : "Auction closed"}</span>}
       </div>
+
+      {needsAccept && (
+        <div className="notice" style={{ marginBottom: 14 }}>
+          You have to accept this auction&rsquo;s terms before you can bid.{" "}
+          <button className="btn sm pri" style={{ marginLeft: 8 }} onClick={accept}>Accept the terms</button>
+        </div>
+      )}
 
       <div className="grid2" style={{ alignItems: "start" }}>
         <div>
           <div className="card" style={{ marginBottom: 14 }}>
-            <div className="chead"><h3>Where you stand</h3><span className="mono faint" style={{ marginLeft: "auto" }}>rank only, competitor prices are never shown</span></div>
+            <div className="chead"><h3>Where you stand</h3>
+              <span className="mono faint" style={{ marginLeft: "auto" }}>
+                {a.visibility === "rank" ? "rank only, competitor prices are never shown"
+                  : a.visibility === "price" ? "rank and the standing best" : "blind, no rank shown"}
+              </span>
+            </div>
             <div className="cbody" style={{ textAlign: "center", padding: "20px 18px" }}>
-              {a?.myRank
+              {st.myRank
                 ? <>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                       <span aria-hidden="true" style={{ fontSize: 19, color: stateColor, fontWeight: 700 }}>{leading ? "▲" : "▼"}</span>
-                      <RollNumber value={a.myRank} size={54} color={stateColor} />
+                      <RollNumber value={st.myRank} size={54} color={stateColor} />
                     </div>
                     <div style={{ marginTop: 6, fontSize: 13, fontWeight: leading ? 600 : 400, color: leading ? "var(--green)" : "var(--ink)" }}>
                       {leading ? "You hold the leading price" : "You are being outbid"}
                     </div>
                     <div className="muted" style={{ fontSize: 12.5, marginTop: 2 }}>
-                      of {a.bidders} bidder{a.bidders === 1 ? "" : "s"} · your price <Money n={myLast?.amount} />
+                      {st.bidders ? `of ${st.bidders} bidder${st.bidders === 1 ? "" : "s"} · ` : ""}
+                      your price <Money n={myLast ? myLast.amount : null} />
+                      {st.best ? <> &middot; best <Money n={st.best} /></> : null}
                     </div>
                   </>
-                : <div className="muted" style={{ fontSize: 13.5 }}>No bid placed yet. {a?.bidders || 0} bidder(s) are already in. Your opening bid must be at or under the <b><Money n={a?.ceiling ?? t.budget} /></b> ceiling.</div>}
+                : <div className="muted" style={{ fontSize: 13.5 }}>
+                    No bid placed yet.{st.bidders ? ` ${st.bidders} bidder(s) are already in.` : ""}
+                    {ceiling ? <> Your opening bid must be at or under the <b><Money n={ceiling} /></b> ceiling.</> : null}
+                  </div>}
             </div>
           </div>
 
-          {a?.live && (
+          {live && !needsAccept && lot && (
             <div className="card" style={{ marginBottom: 14 }}>
               <div className="chead"><h3>Place a bid</h3>
                 <span className={"mono faint" + (roomMoved ? " tickbump" : "")} style={{ marginLeft: "auto" }}>
-                  {a.movements} movement{a.movements === 1 ? "" : "s"} in the room
+                  {st.movements || 0} movement{st.movements === 1 ? "" : "s"} in the room
                 </span>
               </div>
               <div className="cbody">
                 <div className="frow" style={{ marginBottom: 9 }}>
                   <label className="lbl" htmlFor="auc-amt">Your price</label>
-                  <div className="hint" style={{ marginTop: 0, marginBottom: 6 }}>In naira. It has to come in under <Money n={Math.max(0, floor)} />, the current floor.</div>
+                  <div className="hint" style={{ marginTop: 0, marginBottom: 6 }}>
+                    In naira.{st.toLead
+                      ? <> It has to come in at or under <Money n={st.toLead} /> to take the lead.</>
+                      : leading ? <> You already lead. A new bid has to beat your own by at least <Money n={step} />.</>
+                      : null}
+                  </div>
                   <input id="auc-amt" className="in" type="number" value={amount} onChange={(e) => setAmount(e.target.value)}
-                         onKeyDown={(e) => e.key === "Enter" && Number(amount) && place()} placeholder={String(Math.max(0, floor))} />
+                         onKeyDown={(e) => e.key === "Enter" && Number(amount) && place()}
+                         placeholder={String(from || "")} />
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 11 }}>
                   {quick.map((v, i) => (
                     <button key={i} className="btn sm" onClick={() => setAmount(String(v))}
-                            title={myLast ? "Undercut your own price" : "Open at this price"}>
-                      {i === 0 && myLast ? "match floor · " : ""}{fmtCompact(v)}
+                            title={i === 0 && st.toLead ? "Take the lead" : "Bid this price"}>
+                      {i === 0 ? (st.toLead ? "take the lead · " : leading ? "improve on yours · " : "") : ""}{fmtCompact(v)}
                     </button>
                   ))}
                 </div>
-                {myLast && <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>Your current bid: <Money n={myLast.amount} /> · minimum decrement <Money n={a.minDecrement} /></div>}
+                {myLast && <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+                  Your current bid: <Money n={myLast.amount} /> &middot; minimum decrement <Money n={step} />
+                </div>}
+                {st.myLimit && <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+                  Standing limit: keep me leading down to <Money n={st.myLimit} />.
+                </div>}
                 {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 10 }}>{msg}</div>}
                 <button className="btn pri" onClick={place} disabled={!Number(amount) || placing}>{placing ? "Placing…" : "Place bid"}</button>
-                <div className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>Bids are binding. A bid inside the final two minutes extends the close by two minutes.</div>
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>Bids are binding. A bid inside the closing window extends the close.</div>
               </div>
             </div>
           )}
-          {!a?.live && !a?.recorded && (
-            <div className="notice" style={{ marginBottom: 14 }}>The auction has closed. The buyer will record the results and any award follows the standard approval flow, and you'll be notified either way.</div>
+          {!live && (
+            <div className="notice" style={{ marginBottom: 14 }}>
+              The auction has closed. The buyer settles the standings, any award follows the standard approval flow, and you&rsquo;ll be notified either way.
+            </div>
           )}
         </div>
 
         <div className="card">
           <div className="chead"><h3>How your price has moved</h3>
-            <span className="mono faint" style={{ marginLeft: "auto" }}>yours only, never a competitor's</span>
+            <span className="mono faint" style={{ marginLeft: "auto" }}>yours only, never a competitor&rsquo;s</span>
           </div>
           <div className="cbody" style={{ paddingTop: 12 }}>
             {myBids.length > 0 && (
@@ -748,10 +866,12 @@ export function AuctionRoom({ api, id }) {
         </div>
       </div>
 
-      <div className="card" style={{ marginTop: 14 }}>
-        <div className="chead"><h3>Scope</h3></div>
-        <div className="cbody" style={{ fontSize: 13.5, lineHeight: 1.6 }}>{t.scope}</div>
-      </div>
+      {a.scope && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <div className="chead"><h3>Scope</h3></div>
+          <div className="cbody" style={{ fontSize: 13.5, lineHeight: 1.6 }}>{a.scope}</div>
+        </div>
+      )}
     </div>
   );
 }

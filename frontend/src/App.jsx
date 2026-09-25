@@ -16,13 +16,14 @@ import {
 } from "./onboarding";
 import { SetupWorkspace } from "./setup";
 import {
-  AnalyticsPage, ApprovalsPage, AuctionPage, AuditPage, Dashboard, EvalsPage, NewTender,
+  AnalyticsPage, ApprovalsPage, AuditPage, Dashboard, EvalsPage, NewTender,
   CHAIN_CSS, DRAFT_CSS, MENU_CSS, Sidebar, SuppliersPage, TeamPage, TenderDetail,
   TendersPage, Topbar,
 } from "./buyer";
 import { allowedPages, homePage } from "./perms";
 import { ICON_CSS, Icon } from "./icons";
 import { MOTION_CSS, hasViewTransitions, useReveal, withViewTransition } from "./motion";
+import { AUCTION_CSS, AuctionPage, AuctionsPage } from "./auctions";
 import { BASELINE_CSS } from "./baselines";
 import { DESIGN_CSS } from "./designs";
 import { applyLayout, STUDIO_CSS } from "./studio";
@@ -46,7 +47,8 @@ import {
 const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS
   + SCORECARD_CSS + MENU_CSS + BOOT_CSS + PALETTE_CSS + CHART_CSS + CAMPAIGN_CSS
   + FINANCE_CSS + BASELINE_CSS + LIFECYCLE_CSS + ILLUS_CSS + DRAFT_CSS + PAGE_CSS
-  + LPART_CSS + LANDING_CSS + DESIGN_CSS + LOGO_CSS + CHAIN_CSS + STUDIO_CSS;
+  + LPART_CSS + LANDING_CSS + DESIGN_CSS + LOGO_CSS + CHAIN_CSS + STUDIO_CSS
+  + AUCTION_CSS;
 
 /* Where you land and where you may go are both read off the capabilities the
    server sent with the bootstrap payload — see perms.js. Nothing here enumerates
@@ -655,7 +657,15 @@ export default function App() {
           {page === "dashboard" && <Dashboard api={api} />}
           {page === "tenders" && <TendersPage api={api} />}
           {page === "tender" && <TenderDetail key={route.id + (route.tab || "")} api={api} id={route.id} initialTab={route.tab} />}
-          {page === "auction" && <AuctionPage key={route.id} api={api} id={route.id} />}
+          {page === "auctions" && <AuctionsPage api={api} />}
+          {/* One page name, two rooms. A bidder and a buyer are looking at the
+              same auction and at almost opposite views of it: the bidder sees
+              their own rank and their own prices, the buyer sees the whole
+              board. The server already decides which is which, so the only
+              question here is whose screen to draw. */}
+          {page === "auction" && (user.role === "supplier"
+            ? <AuctionRoom key={route.id} api={api} id={route.id} />
+            : <AuctionPage key={route.id} api={api} id={route.id} />)}
           {page === "new" && <NewTender key={route.editId || "new"} api={api} editId={route.editId} />}
           {page === "suppliers" && <SuppliersPage api={api} />}
           {page === "team" && <TeamPage api={api} />}
@@ -666,9 +676,7 @@ export default function App() {
           {page === "approvals" && <ApprovalsPage api={api} />}
           {page === "evals" && <EvalsPage api={api} />}
           {page === "portal" && <PortalHome api={api} />}
-          {page === "bidroom" && (data.tenders.find((t) => t.id === route.id)?.type === "AUC"
-            ? <AuctionRoom key={route.id} api={api} id={route.id} />
-            : <BidRoom key={route.id} api={api} id={route.id} />)}
+          {page === "bidroom" && <BidRoom key={route.id} api={api} id={route.id} />}
         </main>
       </div>
       <Toasts items={toasts} onDismiss={dropToast} />

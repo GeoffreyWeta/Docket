@@ -39,7 +39,7 @@ const EXPORTS = [
   ["scorecards.jsx", "SCORECARD_CSS"], ["buyer.jsx", "MENU_CSS"], ["ui.jsx", "BOOT_CSS"],
   ["palette.jsx", "PALETTE_CSS"], ["charts-css.js", "CHART_CSS"],
   ["campaign.jsx", "CAMPAIGN_CSS"], ["finance.jsx", "FINANCE_CSS"],
-  ["baselines.jsx", "BASELINE_CSS"],
+  ["baselines.jsx", "BASELINE_CSS"], ["auctions.jsx", "AUCTION_CSS"],
   // The front page, its drawings and its four designs. The order is ALL_CSS's
   // order and all three positions are load-bearing. LPART_CSS is read FIRST so
   // that the page can place its own instances of a scene: the art sheet sets

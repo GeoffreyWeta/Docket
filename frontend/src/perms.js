@@ -19,6 +19,13 @@ export const PAGE_PERM = {
   approvals: "page.approvals",
   evals: "page.evals",
   tenders: "page.tenders",
+  /* Auctions are their own section, as they are their own event. This map was
+     the last place in the product that still treated a reverse auction as a
+     kind of tender: the server has had page.auctions since auctions left
+     tenders, and grants it to procurement, finance and the executive, but
+     nothing here claimed it — so the capability was issued to people whose
+     sidebar had nowhere to put it and the auction list was unreachable. */
+  auctions: "page.auctions",
   suppliers: "page.suppliers",
   scorecards: "page.scorecards",
   team: "page.team",
@@ -33,9 +40,14 @@ export const PAGE_ORDER = Object.keys(PAGE_PERM);
 /** Destinations reached from within a section rather than from the sidebar. */
 function subPages(pages, user) {
   const out = [];
-  if (pages.some((p) => ["dashboard", "tenders", "approvals", "evals", "audit", "scorecards", "finance"].includes(p))) out.push("tender", "auction");
+  if (pages.some((p) => ["dashboard", "tenders", "approvals", "evals", "audit", "scorecards", "finance"].includes(p))) out.push("tender");
+  /* The room is reached from the auction list, and also from the dashboard and
+     the approvals queue, which link straight into a live one. */
+  if (pages.some((p) => ["auctions", "dashboard", "approvals", "audit", "finance"].includes(p))) out.push("auction");
   if (can(user, "tender.create") || can(user, "tender.edit")) out.push("new");
-  if (pages.includes("portal")) out.push("bidroom");
+  /* A bidder reaches the auction room from their invitations, and it is the
+     same route name the buyer uses - App.jsx picks the screen by role. */
+  if (pages.includes("portal")) out.push("bidroom", "auction");
   return out;
 }
 
