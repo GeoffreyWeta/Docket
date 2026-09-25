@@ -42,7 +42,14 @@ export const DESIGNS = [
 ];
 
 export const DESIGN_KEYS = DESIGNS.map((d) => d.key);
-export const DEFAULT_DESIGN = "forest";
+/* Studio, so a workspace that has never been to the appearance console wears
+   the house look rather than a palette somebody has to go and choose. That is
+   most of them: the demo had never stored a design at all, so it was showing
+   this constant, and the two deployments ended up looking like two products
+   because only the real one had been set by hand. Kept in step with
+   DEFAULT_LANDING in backend/core/views.py, which answers the same question
+   for a visitor whose config has already arrived. */
+export const DEFAULT_DESIGN = "studio";
 
 /** Always a real palette. A workspace holding one since removed, or a config
     fetch that failed, gets the default rather than an unstyled page.

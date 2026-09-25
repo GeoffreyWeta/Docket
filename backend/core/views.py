@@ -462,11 +462,17 @@ DEFAULT_PROFILE.update({"country": "Nigeria", "currency": "NGN",
 # and a list that lived in the frontend could be edited by whoever is asking.
 # Adding an option means a key here AND an entry in frontend/src/designs.js;
 # anything the console sends that is not in this tuple is refused.
-LANDING_DESIGNS = ("forest", "slate", "graphite", "ink", "studio")
-# Green, because the front page wears the parent brand. Kept in step with
-# DEFAULT_DESIGN in frontend/src/designs.js, which decides what the page
-# paints with before this config has arrived.
-DEFAULT_LANDING = "forest"
+LANDING_DESIGNS = ("studio", "forest", "slate", "graphite", "ink")
+# Studio: the house look, and what a workspace gets when nobody has chosen.
+# This is not a cosmetic default. A deployment only stores a design once
+# somebody opens the appearance console, and the demo workspace has no route to
+# its own console, so it had never stored one and was serving this constant
+# while the real workspace served the design it had been given by hand. Two
+# deployments of one product, looking like two products.
+#
+# Kept in step with DEFAULT_DESIGN in frontend/src/designs.js, which answers the
+# same question for the first paint, before this config has arrived.
+DEFAULT_LANDING = "studio"
 
 DEFAULT_SETTINGS = {
     "approvalThreshold": 50_000_000,
