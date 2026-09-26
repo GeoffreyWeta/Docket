@@ -8,6 +8,7 @@ import {
 import { ICON_CSS } from "./icons";
 import { MOTION_CSS } from "./motion";
 import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
+import { STUDIO_CSS } from "./studio";
 
 const CLAIM_CSS = `
 .claimcard{background:var(--sunk);border:1px solid var(--line);border-radius:10px;
@@ -17,10 +18,18 @@ const CLAIM_CSS = `
 .claimnote{font-size:12.5px;color:var(--muted);line-height:1.6;margin-top:11px}
 `;
 
+/* STUDIO_CSS travels with every self-assembled stylesheet.
+
+   This screen returns before App renders ALL_CSS, so it builds its own sheet
+   and gets only what is listed here. Leave STUDIO_CSS off and the deployment's
+   chosen layout stops at the door: the front page and the workspace wear it,
+   and the one screen in between - the first screen a new customer ever sees -
+   falls back to the house tokens. The layout attribute is already on <html>,
+   set by App before any of these early returns; only the rules were missing. */
 function Shell({ title, sub, children }) {
   return (
     <div className="loginwrap">
-      <style>{CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + CLAIM_CSS}</style>
+      <style>{CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + CLAIM_CSS + STUDIO_CSS}</style>
       <div className="logincard">
         <div className="loginlogo"><span className="seal" aria-hidden="true" /><b>DOCKET</b></div>
         <div className="card">

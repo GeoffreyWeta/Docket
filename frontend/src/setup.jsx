@@ -31,6 +31,7 @@ import { DRAFT_CSS } from "./buyer";
 import { fmtMoney, uid } from "./helpers";
 import { ICON_CSS, Icon } from "./icons";
 import { ILLUS_CSS, Illus } from "./illus";
+import { STUDIO_CSS } from "./studio";
 import { LOGO_CSS, Wordmark, initialsOf } from "./logo";
 import { MOTION_CSS, reducedMotion } from "./motion";
 import { PAGE_CSS } from "./page";
@@ -420,8 +421,16 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
 
   const enter = () => { if (done) onLoggedIn(done, f.email.trim().toLowerCase()); };
 
+  /* STUDIO_CSS travels with every self-assembled stylesheet.
+  
+     This screen returns before App renders ALL_CSS, so it builds its own sheet
+     and gets only what is listed here. Leave STUDIO_CSS off and the deployment's
+     chosen layout stops at the door: the front page and the workspace wear it,
+     and the one screen in between - the first screen a new customer ever sees -
+     falls back to the house tokens. The layout attribute is already on <html>,
+     set by App before any of these early returns; only the rules were missing. */
   const css = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + ILLUS_CSS
-    + DRAFT_CSS + PAGE_CSS + LOGO_CSS + SETUP_CSS;
+    + DRAFT_CSS + PAGE_CSS + LOGO_CSS + SETUP_CSS + STUDIO_CSS;
 
   /* ------------------------------------------------------------- closed */
   if (status && status.open === false) {
