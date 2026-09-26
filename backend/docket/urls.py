@@ -1,4 +1,8 @@
 from django.urls import include, path, re_path
+
+# The admin site is Docket's own subclass, not django.contrib.admin.site: see
+# core/admin.py for what it gates on and what it refuses to edit.
+from core.admin import site as django_admin
 from django.views.decorators.cache import never_cache
 from django.views.generic import TemplateView
 
@@ -19,5 +23,12 @@ index = never_cache(TemplateView.as_view(template_name="index.html"))
 
 urlpatterns = [
     path("api/", include("core.urls")),
-    re_path(r"^(?!api/|static/).*$", index),
+    # Direct table access. NOT /admin/ and not /superadmin/: the first is the
+    # path every scanner on the internet tries first, and the second is already
+    # the workspace's own administration console, which is a different thing
+    # with a different sign-in.
+    path("django-admin/", django_admin.urls),
+    # The catch-all has to skip it too, or the negative lookahead hands
+    # /django-admin/ to the SPA and the page renders the front door instead.
+    re_path(r"^(?!api/|static/|django-admin/).*$", index),
 ]

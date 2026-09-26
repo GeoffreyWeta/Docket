@@ -38,8 +38,16 @@ if RENDER_HOST and f"https://{RENDER_HOST}" not in CSRF_TRUSTED_ORIGINS:
     CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_HOST}")
 
 INSTALLED_APPS = [
+    # django.contrib.admin is here for direct table access at /django-admin/,
+    # and it drags in three dependencies that the API itself never needed:
+    # sessions (the admin signs in with a cookie, not a bearer token),
+    # messages (its "1 row changed" banners) and the admin app itself. See
+    # core/admin.py for what it may and may not edit.
+    "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
+    "django.contrib.messages",
+    "django.contrib.sessions",
     "django.contrib.staticfiles",
     "core",
 ]
@@ -53,6 +61,18 @@ MIDDLEWARE = [
     "django.middleware.gzip.GZipMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.middleware.common.CommonMiddleware",
+    # The admin's three. Session must precede Authentication, which reads it,
+    # and Message must follow Session, which it stores into.
+    #
+    # CsrfViewMiddleware is deliberately NOT here. The API authenticates with a
+    # bearer token and its views are csrf-exempt; switching global CSRF on
+    # would put a cookie requirement in front of every endpoint for the sake of
+    # one page. Django's admin applies csrf_protect to its own views, so it is
+    # protected either way - which is worth verifying rather than trusting, and
+    # was.
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
 ]
 
 ROOT_URLCONF = "docket.urls"
@@ -62,8 +82,16 @@ TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "DIRS": [FRONTEND_DIST],
-        "APP_DIRS": False,
-        "OPTIONS": {"context_processors": []},
+        # APP_DIRS finds the admin's own templates. DIRS is searched first, so
+        # the SPA shell still wins for index.html.
+        "APP_DIRS": True,
+        "OPTIONS": {"context_processors": [
+            # The admin needs all three: request for its sidebar, auth for the
+            # user menu, messages for its banners.
+            "django.template.context_processors.request",
+            "django.contrib.auth.context_processors.auth",
+            "django.contrib.messages.context_processors.messages",
+        ]},
     }
 ]
 
