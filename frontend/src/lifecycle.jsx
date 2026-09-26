@@ -464,6 +464,7 @@ function AddVendorsDialog({ api, t, invited, onClose, onDone }) {
     return s && !s.prequalified;
   }).length;
   const live = ["published", "paused"].includes(t.status) || effStatus(t) === "closed";
+  const [mail, setMail] = useState(true);
 
   return (
     <Dialog wide title="Add vendors to this event" onClose={onClose} footer={
@@ -472,11 +473,12 @@ function AddVendorsDialog({ api, t, invited, onClose, onDone }) {
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn pri" disabled={!picked.length} onClick={async () => {
           onClose();
-          const r = await act.addEventVendors(t.id, picked);
+          const r = await act.addEventVendors(t.id, picked, live && mail);
           if (r) {
             toast.ok(`${picked.length} vendor(s) added`,
-                     live ? "They have been invited by email and can see the bid room now."
-                          : "They will be invited when this event is published.");
+                     !live ? "They will be invited when this event is published."
+                       : mail ? "They have been invited by email and can see the bid room now."
+                              : "Nobody was emailed. They can see the bid room, and you can write to them from the event's vendor list.");
             onDone();
           }
         }}>Add {picked.length ? `${picked.length} vendor${picked.length === 1 ? "" : "s"}` : "vendors"}</button>
@@ -486,9 +488,17 @@ function AddVendorsDialog({ api, t, invited, onClose, onDone }) {
              aria-label="Search the vendor register" value={q} onChange={(e) => setQ(e.target.value)} />
       {live && (
         <div className="notice" style={{ marginTop: 10 }}>
-          This event is already live. Anyone added now is emailed an invitation immediately and has
-          less time to price than the vendors invited at publication — which is a fact the audit
-          trail records.
+          This event is already live, so anyone added now has less time to price than the vendors
+          invited at publication — which is a fact the audit trail records.
+          {/* The mail is a choice rather than a consequence of adding somebody.
+              It stays ticked by default on a LIVE event: a vendor added to a
+              running tender and never told has been given a deadline nobody
+              mentioned, which is worse than an email they did not expect. On a
+              draft there is nothing to tell them about and nothing is sent. */}
+          <label className="checkline" style={{ marginTop: 8 }}>
+            <input type="checkbox" checked={mail} onChange={(e) => setMail(e.target.checked)} />
+            <span>Email them the invitation now</span>
+          </label>
         </div>
       )}
       <div className="picklist" style={{ marginTop: 10 }}>

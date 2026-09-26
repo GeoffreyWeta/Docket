@@ -26,7 +26,8 @@ from . import auction as engine
 from .models import Auction, AuctionLot, AuctionParticipant, LotBid, Supplier
 from .permissions import has
 from .util import now_ms, record_event, rid
-from .views import err, log, route
+from .notify import notify_supplier
+from .views import err, log, org_name, route
 
 
 # ---------------- serialization ----------------
@@ -228,6 +229,68 @@ def lot_delete(request, p, body, aid, lid):
 
 # ---------------- who may bid ----------------
 
+def _send_invites(a, p, only=None):
+    """Email the vendors who have not been told yet, and count it on the row.
+
+    SENDING IS ITS OWN ACT. Adding a vendor to an auction used to be
+    indistinguishable from inviting them, which meant a buyer could not build
+    the room quietly - pick the vendors, set the lots, sleep on the ceiling -
+    without every one of those vendors getting mail the moment they were
+    picked. So the list and the invitation came apart: adding is silent, and
+    this is the only thing in the product that writes to a vendor about an
+    auction.
+
+    `invite_count` is the idempotence. A vendor already emailed is skipped, so
+    calling this twice does not mail anybody twice, and re-running it after
+    adding three more people tells only the three.
+    """
+    rows = a.participants.filter(invite_count=0, disqualified=False)
+    if only:
+        rows = rows.filter(supplier_id__in=only)
+    lot = a.lots.order_by("number").first()
+    sent = 0
+    for part in list(rows):
+        try:
+            reached = notify_supplier(
+                part.supplier_id, f"Invitation to a reverse auction: {a.title}",
+                f"{org_name()} invites you to bid in {a.ref} - {a.title}. "
+                + ("Prices move live and you will see your own rank, never a "
+                   "competitor's price. " if a.visibility == "rank" else "")
+                + (f"The opening price is {lot.ceiling:,} {a.currency}. "
+                   if lot and lot.ceiling and a.ceiling_visible else "")
+                + ("The room is open now. " if a.is_live()
+                   else "You will be told when the room opens. "))
+            if reached:
+                part.invite_count += 1
+                part.invited_at = part.invited_at or now_ms()
+                part.invite_error = ""
+                sent += 1
+            else:
+                # Left at invite_count 0 on purpose: they are still untold, and
+                # the next send will try them again once somebody has put an
+                # address against the company.
+                part.invite_error = "No account and no contact address on the register."
+        except Exception as e:                      # a bad address is one vendor's problem
+            part.invite_error = str(e)[:200]
+        part.save(update_fields=["invite_count", "invited_at", "invite_error"])
+    return sent
+
+
+@route(["POST"], perm="auction.invite")
+def send_invites(request, p, body, aid):
+    """Tell the vendors. Explicit, repeatable, and never a side effect."""
+    a = _find(aid)
+    if not a:
+        return err("Auction not found.", 404)
+    sent = _send_invites(a, p, body.get("supplierIds"))
+    if not sent:
+        return err("Everybody on this auction has already been invited.", 409)
+    log(p, "Auction invitations sent", f"{sent} vendor(s) emailed for {a.ref}.")
+    return JsonResponse({"ok": True, "sent": sent,
+                         "untold": a.participants.filter(invite_count=0,
+                                                         disqualified=False).count()})
+
+
 @route(["GET", "POST"], perm="auction.invite")
 def participants(request, p, body, aid):
     a = _find(aid)
@@ -239,7 +302,8 @@ def participants(request, p, body, aid):
         return JsonResponse({"participants": [
             {"id": x.id, "supplierId": x.supplier_id,
              "supplier": names.get(x.supplier_id, x.supplier_id),
-             "invitedAt": x.invited_at, "acceptedAt": x.accepted_at,
+             "invitedAt": x.invited_at, "inviteCount": x.invite_count,
+             "inviteError": x.invite_error or "", "acceptedAt": x.accepted_at,
              "joinedAt": x.joined_at, "withdrawnAt": x.withdrawn_at,
              "disqualified": x.disqualified, "reason": x.disqualified_reason or ""}
             for x in a.participants.all()]})
@@ -254,11 +318,22 @@ def participants(request, p, body, aid):
             continue
         _, made = AuctionParticipant.objects.get_or_create(
             auction=a, supplier_id=sid,
-            defaults={"id": rid("ap"), "invited_at": now_ms(), "invite_count": 1})
+            defaults={"id": rid("ap"), "invited_at": now_ms(), "invite_count": 0})
         added += 1 if made else 0
-    log(p, "Auction vendors invited", f"{added} vendor(s) added to {a.ref}.")
-    return JsonResponse({"ok": True, "added": added,
-                         "total": a.participants.count()})
+
+    # invite_count is how many times this vendor has actually been EMAILED, and
+    # it was being set to 1 by a code path that has never sent anything. Adding
+    # somebody to the list is not telling them, and the column that exists to
+    # answer "were they asked?" must not answer yes on their behalf.
+    sent = _send_invites(a, p, ids) if body.get("notify") else 0
+
+    log(p, "Auction vendors invited",
+        f"{added} vendor(s) added to {a.ref}."
+        + (f" {sent} emailed." if sent else " No invitations sent yet."))
+    return JsonResponse({"ok": True, "added": added, "sent": sent,
+                         "total": a.participants.count(),
+                         "untold": a.participants.filter(invite_count=0,
+                                                         disqualified=False).count()})
 
 
 @route(["POST"], perm="auction.invite")
@@ -287,7 +362,15 @@ def auction_open(request, p, body, aid):
     bad = engine.open_auction(a, p["name"])
     if bad:
         return err(bad, 409)
-    return JsonResponse(_auction_view(a, p, monitor=True))
+    # Anyone still untold is told now. Up to here silence was the point - the
+    # buyer was still shaping the thing - but an open room nobody was invited
+    # to is just a clock running in an empty building.
+    sent = _send_invites(a, p)
+    if sent:
+        log(p, "Auction invitations sent", f"{sent} vendor(s) emailed when {a.ref} opened.")
+    out = _auction_view(a, p, monitor=True)
+    out["sent"] = sent
+    return JsonResponse(out)
 
 
 @route(["POST"], perm="auction.lifecycle")

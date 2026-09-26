@@ -402,11 +402,15 @@ function DraftAuction({ api, a, refresh }) {
 
   const invite = async () => {
     if (!pick.length) return;
+    /* notify is not passed, so the server adds them silently. */
     const ok = await call("/participants/", { supplierIds: pick },
-                          `${pick.length} vendor${pick.length === 1 ? "" : "s"} invited.`);
+                          `${pick.length} vendor${pick.length === 1 ? "" : "s"} added. Nobody emailed yet.`);
     if (ok) setPick([]);
   };
 
+  const sendInvites = () => call("/invite/", {}, "Invitations sent.");
+
+  const untold = parts.filter((x) => !x.inviteCount && !x.disqualified).length;
   const invited = new Set(parts.map((x) => x.supplierId));
   const available = (state.suppliers || []).filter((x) => !invited.has(x.id));
 
@@ -618,7 +622,9 @@ function DraftAuction({ api, a, refresh }) {
       {canInvite && (
         <div className="card" style={{ marginBottom: 14 }}>
           <div className="chead"><h3>Who may bid</h3>
-            <span className="mono faint" style={{ marginLeft: "auto" }}>{parts.length} invited</span>
+            <span className="mono faint" style={{ marginLeft: "auto" }}>
+              {parts.length} on the list{untold ? ` · ${untold} not told yet` : parts.length ? " · all told" : ""}
+            </span>
           </div>
           <div className="cbody">
             {parts.length > 0 && (
@@ -626,7 +632,14 @@ function DraftAuction({ api, a, refresh }) {
                 {parts.map((x) => (
                   <div className="docrow" key={x.id}>
                     <span>{x.supplier}</span>
-                    {x.disqualified && <span className="chip warn">removed{x.reason ? ` · ${x.reason}` : ""}</span>}
+                    {x.disqualified ? <span className="chip warn">removed{x.reason ? ` · ${x.reason}` : ""}</span>
+                      : x.inviteCount ? <span className="chip ok">invited</span>
+                      /* Still not told, and the row already says why. "Failed"
+                         would be the wrong word for a vendor who simply has no
+                         address on the register, and it would contradict the
+                         count in the card's header, which calls them untold. */
+                      : x.inviteError ? <span className="chip warn" title={x.inviteError}>not told &middot; no address</span>
+                      : <span className="chip">not told yet</span>}
                     <span style={{ flex: 1 }} />
                     {!x.disqualified && (
                       <button className="btn sm" onClick={() => call(`/participants/${x.id}/disqualify/`,
@@ -644,10 +657,27 @@ function DraftAuction({ api, a, refresh }) {
               {available.map((x) => <option key={x.id} value={x.id}>{x.name}{x.category ? ` — ${x.category}` : ""}</option>)}
             </select>
             <div className="hint">Hold Ctrl or Cmd to pick several. {available.length} vendor(s) not yet invited.</div>
-            <div style={{ marginTop: 12 }}>
+            <div className="formrow" style={{ marginTop: 12 }}>
               <button className="btn" onClick={invite} disabled={!pick.length || !!busy}>
-                {busy === "/participants/" ? "Inviting…" : pick.length ? `Invite ${pick.length}` : "Invite"}
+                {busy === "/participants/" ? "Adding…" : pick.length ? `Add ${pick.length} to the list` : "Add to the list"}
               </button>
+              {untold > 0 && (
+                <button className="btn pri" onClick={sendInvites} disabled={!!busy}>
+                  {busy === "/invite/" ? "Sending…" : `Send ${untold} invitation${untold === 1 ? "" : "s"}`}
+                </button>
+              )}
+            </div>
+            {/* SETTING UP IS SILENT. Adding a vendor used to be the same act as
+                writing to them, so a buyer could not pick the room, set the
+                lots and sleep on the ceiling without every vendor hearing
+                about it as they were picked. Now the list is built quietly and
+                the invitation is a button somebody presses. */}
+            <div className="hint" style={{ marginTop: 8 }}>
+              {untold > 0
+                ? `Adding somebody does not write to them. ${untold} vendor${untold === 1 ? " is" : "s are"} on the list and have not been told; they are emailed when you send, or automatically when the room opens.`
+                : parts.length
+                  ? "Everybody on the list has been invited. Anyone added after this stays silent until you send again."
+                  : "Nobody is emailed as you build the list. Invitations go out when you send them, or when the room opens."}
             </div>
           </div>
         </div>
@@ -682,6 +712,8 @@ function DraftAuction({ api, a, refresh }) {
                          const ok = await call("/open/", {}, "The room is open.");
                          if (ok) refresh();
                        }}>
+          {untold > 0 && <><b>{untold} vendor{untold === 1 ? "" : "s"} on the list
+          {untold === 1 ? " has" : " have"} not been told yet, and will be emailed now.</b>{" "}</>}
           The clock starts now and invited vendors can bid. The rules stop being editable:
           bidders price against what you published, so changing them afterwards would mean
           pausing and cancelling instead.

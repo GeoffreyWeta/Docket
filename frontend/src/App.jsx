@@ -528,8 +528,11 @@ export default function App() {
     cancelEvent: wrap((id, reason) => raw(`/tenders/${id}/cancel/`, { method: "POST", body: { reason } })),
 
     /* ---- the event's vendors ---- */
-    addEventVendors: wrap((id, supplierIds) =>
-      raw(`/tenders/${id}/vendors/`, { method: "POST", body: { supplierIds } })),
+    /* `notify` is passed explicitly rather than left to the server's default,
+       because the default is true and the caller is the only thing that knows
+       whether the person adding these vendors meant to write to them. */
+    addEventVendors: wrap((id, supplierIds, notify) =>
+      raw(`/tenders/${id}/vendors/`, { method: "POST", body: { supplierIds, notify: !!notify } })),
     removeEventVendor: wrap((id, supplierId) =>
       raw(`/tenders/${id}/vendors/`, { method: "DELETE", body: { supplierId } })),
     notifyVendors: wrap((id, b) => raw(`/tenders/${id}/vendors/notify/`, { method: "POST", body: b })),

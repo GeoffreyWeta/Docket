@@ -101,7 +101,7 @@ def _mail_unclaimed(supplier_id, subject, body):
     s = Supplier.objects.filter(pk=supplier_id).first()
     email = (s.contact_email or "").strip().lower() if s else ""
     if not email:
-        return
+        return False
 
     from .account_views import CAMPAIGN_TTL_MS, _mail, _mint
 
@@ -118,17 +118,31 @@ def _mail_unclaimed(supplier_id, subject, body):
           f"{s.name} is on {org_name()}'s vendor register but nobody has claimed the account yet. "
           f"Set a password to sign in, read the full terms and submit a sealed bid:\n\n"
           f"{base_url()}/?register={tok.token}")
+    return True
 
 
 def notify_supplier(supplier_id, subject, body, tender_id=None):
+    """Tell a vendor. Returns whether anybody was actually reachable.
+
+    THE RETURN VALUE IS NOT DECORATION. This function is silent in two ways
+    that look identical to the caller: a vendor with no account and no contact
+    address on the register, and an unclaimed vendor whose mail threw. Both
+    used to return None, exactly like success, so a caller counting how many
+    vendors it had told counted the ones it had not - and in an auction that
+    count is written to the row that answers "were they asked?".
+
+    So it says. True means a notification or an email went out; False means
+    nobody was reachable and the caller should record that rather than assume.
+    """
     users = list(_users_for_supplier(supplier_id))
     if users:
         notify_users(users, subject, body, tender_id)
-        return
+        return True
     try:
-        _mail_unclaimed(supplier_id, subject, body)
+        return bool(_mail_unclaimed(supplier_id, subject, body))
     except Exception:
         log.warning("could not reach unclaimed vendor %s", supplier_id, exc_info=True)
+        return False
 
 
 def notify_suppliers(supplier_ids, subject, body, tender_id=None):
