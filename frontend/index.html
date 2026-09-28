@@ -1,5 +1,10 @@
 <!doctype html>
-<html lang="en">
+<!-- The deployment's appearance, stamped by the server before this reaches a
+     browser (see docket/urls.py SpaShell). Written as attribute VALUES rather
+     than conditional attributes because vite's HTML parser rejects a Django
+     tag between attributes; an empty value matches no selector, so "not set"
+     and "absent" behave identically here. -->
+<html lang="en" data-layout="{{ layout }}" data-accent="{{ accent }}">
   <head>
     <meta charset="UTF-8" />
     <!-- viewport-fit=cover lets the shell paint under the notch and home bar;
@@ -38,6 +43,11 @@
          correctly. Only a remembered "dark" changes anything here. */
       html { background: #F2F6F3; }
       html[data-theme="dark"] { background: #0C1511; color-scheme: dark; }
+      /* Studio paints on silver rather than the house green, and the server
+         has already stamped data-layout above, so first paint can be the right
+         surface instead of a green flash under a silver page. */
+      html[data-layout="studio"] { background: #f5f5f7; }
+      html[data-layout="studio"][data-theme="dark"] { background: #161618; }
     </style>
     <script>
       /* Stamp the remembered theme on <html> before first paint. Kept inline and

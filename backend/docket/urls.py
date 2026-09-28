@@ -19,7 +19,53 @@ from django.views.generic import TemplateView
 # never_cache sends no-store/no-cache/must-revalidate, so the shell is always
 # refetched and always names a bundle that exists. The hashed assets it points
 # at are immutable by construction and keep their own caching.
-index = never_cache(TemplateView.as_view(template_name="index.html"))
+class SpaShell(TemplateView):
+    """The SPA shell, with the deployment's appearance already stamped on it.
+
+    WHY THE SERVER HAS TO DO THIS. The layout and the accent are deployment
+    settings, not the reader's: they live in OrgSetting and arrive with
+    /api/auth/config/. That is a fetch, so the page paints once before it
+    lands — in the default blue — and repaints when it does. On a fast
+    connection that is a flicker; on a slow one it is a second of the wrong
+    brand, on the front page, to somebody seeing the product for the first
+    time.
+
+    localStorage cannot fix it the way it fixes the theme. A theme is the
+    reader's own and they chose it in this browser, so it is already there to
+    be read before first paint. An accent belongs to the deployment and a
+    first-time visitor has never stored anything, which is exactly the visit
+    that matters most.
+
+    So the shell is rendered with the attributes already on <html>. No fetch,
+    no flash, and the bundle's applyLayout/applyAccent become confirmation of
+    what is already painted rather than the thing that paints it.
+
+    never_cache below is what makes this safe to do per-deployment: the shell
+    is already uncacheable because it names a content-hashed bundle, so
+    stamping a per-deployment value into it adds no new caching hazard.
+    """
+
+    template_name = "index.html"
+
+    def get_context_data(self, **kw):
+        ctx = super().get_context_data(**kw)
+        try:
+            from core.views import landing_design, studio_accent
+            layout = landing_design()
+            ctx["layout"] = layout if layout == "studio" else ""
+            # Blue is the block already written on the layout, applied by the
+            # ABSENCE of the attribute — see applyAccent in studio.js. Emitting
+            # it would mean two places decide what blue is.
+            accent = studio_accent()
+            ctx["accent"] = accent if accent and accent != "blue" else ""
+        except Exception:
+            # A shell that renders unstyled is recoverable; one that 500s is a
+            # blank page. The bundle still applies both from the config fetch.
+            ctx["layout"] = ctx["accent"] = ""
+        return ctx
+
+
+index = never_cache(SpaShell.as_view())
 
 urlpatterns = [
     path("api/", include("core.urls")),

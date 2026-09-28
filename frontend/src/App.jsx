@@ -340,7 +340,13 @@ export default function App() {
       applyLayout(cfg.landing);
       applyAccent(cfg.accent);
     }).catch(() => {});
-    return () => { active = false; applyLayout(null); applyAccent(null); };
+    /* The cleanup does NOT strip the attributes, and that is the fix for the
+       flash rather than an oversight. They are stamped server-side on <html>
+       (see docket/urls.py SpaShell), and this effect re-runs on navigation —
+       so clearing them here repainted the page in the default accent for the
+       moment between unmount and the next fetch resolving. The deployment's
+       appearance does not change because somebody opened a different page. */
+    return () => { active = false; };
   }, [token, screen?.name]);
   /* Back to the front door, and put the address bar back with it. Named
      `toLogin` when the root WAS the sign-in form; it goes to the landing page
