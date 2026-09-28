@@ -214,7 +214,9 @@ done
 failed=no
 for role in $ROLES; do
   say "[$role] Checking"
-  host="$(awk -F= '/^ALLOWED_HOSTS=/{split($2,a,","); print a[1]; exit}' "$ENV_DIR/env.$role" | tr -d '\r')"
+  # Provisioned env files quote values. Remove those quotes before choosing
+  # the first host, otherwise nginx receives a literal leading quote and 404s.
+  host="$(awk -F= '/^ALLOWED_HOSTS=/{gsub(/["\047\r]/,"",$2); split($2,a,","); gsub(/^[[:space:]]+|[[:space:]]+$/,"",a[1]); print a[1]; exit}' "$ENV_DIR/env.$role")"
   host="${host:-127.0.0.1}"
   code=""
   for _ in $(seq 1 20); do
