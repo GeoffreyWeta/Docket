@@ -313,6 +313,12 @@ function publicScreenFromUrl() {
      drawing the persona buttons — would ask the real workspace whether it has
      a demo, be told no, and show "no demo here" on a deployment that has one. */
   if (PATHS[path] === "demo") setDemo(true);
+  /* And the way back out, by the same rule goScreen follows: loading any
+     other address leaves the demo unless somebody is signed in to it. The
+     flag lives in sessionStorage, so without this a tab that had opened /demo
+     and then loaded /signin sent the real sign-in form — password and all —
+     to the demo's backend, and the password was refused there. */
+  else if (!getToken()) setDemo(false);
   if (PATHS[path]) return { name: PATHS[path] };
   const q = new URLSearchParams(window.location.search);
   if (q.get("vtoken")) return { name: "verify", token: q.get("vtoken") };

@@ -89,6 +89,11 @@ export function PortalHome({ api }) {
   const losses = decided.length - wins.length;
   const value = wins.reduce((s2, t) => s2 + (t.awardedAmount || 0), 0);
   const liveAucs = aucs.filter((a) => a.live);
+  /* A decided auction used to leave no trace on the winner's page: nothing
+     under Outcomes, no alert, only an "Awarded" chip on the invitation that
+     did not say to whom. Each lot already carries who it went to. */
+  const aucWon = (a) => (a.lots || []).filter((l) => l.awardedTo === me);
+  const decidedAucs = aucs.filter((a) => !a.disqualified && ["awarded", "cancelled"].includes(a.status));
 
   /* THE PAPERWORK CLOCK. A lapsed document is the commonest way a vendor loses
      a prequalification they had already earned, and the old page mentioned it
@@ -130,7 +135,8 @@ export function PortalHome({ api }) {
            items={[
              ...liveAucs.map((a) => ({ key: a.id, label: a.title, note: "Live auction, prices moving",
                                        onPick: () => go({ page: "auction", id: a.id }) })),
-             ...notStarted.map((t) => ({ key: t.id, label: t.title, note: `${daysLeft(t.deadline)} days left`,
+             ...notStarted.map((t) => ({ key: t.id, label: t.title,
+                                         note: daysLeft(t.deadline) === 1 ? "1 day left" : `${daysLeft(t.deadline)} days left`,
                                          onPick: () => go({ page: "bidroom", id: t.id }) })),
            ]}>
       <Figures>
@@ -269,7 +275,9 @@ export function PortalHome({ api }) {
                            {a.disqualified ? <> &middot; you were removed</> : null}</>}
                          right={a.live
                            ? <LiveCountdown deadline={a.endsAt} />
-                           : <span className="chip">{a.status === "awarded" ? "Awarded" : a.status === "scheduled" ? "Opens soon" : "Closed"}</span>}
+                           : a.status === "awarded" && aucWon(a).length
+                             ? <span className="chip gold">Awarded to you</span>
+                             : <span className="chip">{a.status === "awarded" ? "Awarded" : a.status === "scheduled" ? "Opens soon" : "Closed"}</span>}
                          onOpen={a.disqualified ? undefined : () => go({ page: "auction", id: a.id })} />
                   );
                 })}
@@ -315,10 +323,23 @@ export function PortalHome({ api }) {
         <div className="card">
           <div className="chead"><h3>Outcomes</h3>
             <span className="mono faint" style={{ marginLeft: "auto" }}>
-              {outcomes.length ? `${wins.length} won · ${losses} not successful · ${outcomes.filter((t) => t.status === "evaluation").length} being evaluated` : "nothing decided yet"}
+              {outcomes.length ? `${wins.length} won · ${losses} not successful · ${outcomes.filter((t) => t.status === "evaluation").length} being evaluated`
+                : decidedAucs.length ? `${decidedAucs.length} auction${decidedAucs.length === 1 ? "" : "s"} decided` : "nothing decided yet"}
             </span>
           </div>
           <Rows empty={<Empty art="clear">Nothing decided yet. Awards and outcomes for your bids land here, with the buyer's letter attached.</Empty>}>
+            {decidedAucs.map((a) => {
+              const mine = aucWon(a);
+              return (
+                <Row key={"a" + a.id} title={a.title}
+                     meta={<span className="mono">{a.ref} &middot; reverse auction</span>}
+                     onOpen={() => go({ page: "auction", id: a.id })}
+                     right={a.status === "cancelled" ? <span className="chip">Cancelled</span>
+                       : mine.length
+                         ? <span className="chip gold">Awarded to you &middot; {fmtCompact(mine.reduce((s2, l) => s2 + (l.awardedAmount || 0), 0))}</span>
+                         : <span className="chip">Not successful</span>} />
+              );
+            })}
             {outcomes.map((t) => {
               const letter = t.letters && t.letters[me];
               const won = t.status === "awarded" && t.awardedTo === me;

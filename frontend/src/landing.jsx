@@ -1471,6 +1471,17 @@ export const LANDING_CSS = `
 .demobar .doclink{color:inherit;text-decoration:underline;font-size:inherit;opacity:.85}
 .demobar .doclink:hover{opacity:1}
 .isdemo .side,.isdemo .topbar{top:26px}
+/* On a desktop the shell is a flex row, so the strip became a third column of
+   it: a 170px sliver in the corner, pushing the sidebar across and leaving a
+   blank band down the left of every page. Lift it out of the row and give the
+   row the 26px it covers instead. The sidebar is in the flow there and the top
+   bar is position:relative, so the top:26px above would only shove the bar
+   down over the content — it is for the phone layout, where both are pinned. */
+@media(min-width:${BP.desk}px){
+  .isdemo{padding-top:26px}
+  .isdemo .demobar{position:fixed;left:0;right:0}
+  .isdemo .side,.isdemo .topbar{top:auto}
+}
 
 @media(min-width:${BP.sm}px){
   .lputilin > span:first-child{display:block}

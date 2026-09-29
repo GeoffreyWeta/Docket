@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.http import JsonResponse
 from django.urls import include, path, re_path
 
 # The admin site is Docket's own subclass, not django.contrib.admin.site: see
@@ -67,8 +69,29 @@ class SpaShell(TemplateView):
 
 index = never_cache(SpaShell.as_view())
 
+
+def no_demo(request):
+    """/demo-api/ on a deployment that is not a demo.
+
+    JSON rather than the SPA shell, so the demo door reads it as "no demo here"
+    instead of parsing a page of HTML as the config and sitting on Loading…
+    for ever."""
+    return JsonResponse({"error": "There is no demo on this deployment."}, status=404)
+
+
+# /demo points the browser at /demo-api/ (see frontend/src/api.js). Behind the
+# Lightsail nginx that prefix is proxied to the demo's own gunicorn and never
+# reaches this process. Everywhere else — Render, a laptop, the container on
+# its own — nothing was answering it, so the demo door never opened. A
+# deployment with the one-click personas switched on IS the demo, so here the
+# prefix is simply this workspace's own API again. A deployment with them off
+# answers "no demo", and its data stays behind /api/ where it always was.
+demo_api = (path("demo-api/", include("core.urls")) if settings.DEMO_LOGIN
+            else re_path(r"^demo-api/", no_demo))
+
 urlpatterns = [
     path("api/", include("core.urls")),
+    demo_api,
     # Direct table access. NOT /admin/ and not /superadmin/: the first is the
     # path every scanner on the internet tries first, and the second is already
     # the workspace's own administration console, which is a different thing
@@ -76,5 +99,5 @@ urlpatterns = [
     path("django-admin/", django_admin.urls),
     # The catch-all has to skip it too, or the negative lookahead hands
     # /django-admin/ to the SPA and the page renders the front door instead.
-    re_path(r"^(?!api/|static/|django-admin/).*$", index),
+    re_path(r"^(?!api/|demo-api/|static/|django-admin/).*$", index),
 ]

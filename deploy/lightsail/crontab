@@ -25,3 +25,13 @@ MAILTO=""
 # quarter hour" is the tightest promise worth making on one box.
 */15 * * * *  docket  nice -n 10 ionice -c 3 /usr/local/bin/docket-manage app  run_sweep >> /var/log/docket/sweep.log 2>&1
 */15 * * * *  docket  nice -n 10 ionice -c 3 /usr/local/bin/docket-manage demo run_sweep >> /var/log/docket/sweep.log 2>&1
+
+# The demo, back to its seed every night at 03:00. Every date in the seed is
+# relative to the moment it ran — an auction closing the next afternoon,
+# tenders open for five and nine days — so a demo seeded once at deploy and
+# left alone runs out of story: within a week there is nothing left for a
+# supplier to bid on. This is exactly the account menu's "Reset demo data",
+# on a timer, so it also undoes whatever visitors changed and puts back the
+# seeded suppliers in place of an imported register. The demo only: the app
+# line must never exist, and the reset endpoint refuses outside DEMO_LOGIN=1.
+0 3 * * *     docket  nice -n 10 ionice -c 3 /usr/local/bin/docket-manage demo seed_demo --force >> /var/log/docket/sweep.log 2>&1

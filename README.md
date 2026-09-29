@@ -110,8 +110,12 @@ dispatch, and an idempotent background sweep — no worker dyno required.
   leaderboard. Minimum decrements are enforced, bids in the final two minutes extend
   the close (anti-sniping), every price movement is kept, and closing feeds the final
   standings straight into the standard recommendation → CFO approval → letters flow.
-  The demo seeds a live auction (KST-AUC-2026-030) closing about two hours after
-  seeding — sign in as coldline/harmattan/bluechip to bid against each other.
+  The demo seeds a live auction (KST-AUC-2026-030) closing a day and a half after
+  seeding — sign in as coldline/harmattan/bluechip to bid against each other. Its
+  reserve is ₦84m: close the room above that and there is, correctly, nothing to
+  award. On Lightsail the demo is reseeded every night (see `deploy/lightsail/crontab`)
+  so the auction and the open tenders never run out of time; anywhere else, use
+  **Reset demo data** from the account menu.
 
 * **Finance — procurement's consequences, for the people who carry them.** A section
   of its own, because "how is the buying going" and "what did it cost, what do we

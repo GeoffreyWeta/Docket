@@ -228,9 +228,13 @@ function AccountMenu({ api, accounts, username, onSwitch, onLogout, onReset, onG
             <Icon n="shield" s={15} /><span className="mlabel">Security and sessions</span>
           </button>
           <div className="mrow"><ThemeSwitch /><SoundToggle /></div>
-          <button className="mitem" role="menuitem" onClick={run(onReset)}>
-            <Icon n="refresh" s={15} /><span className="mlabel">Reset demo data</span>
-          </button>
+          {/* Only where there is a demo to reset. On a real workspace this was
+              a way to replace the company's whole record with invented data. */}
+          {state.demoLogin && (
+            <button className="mitem" role="menuitem" onClick={run(onReset)}>
+              <Icon n="refresh" s={15} /><span className="mlabel">Reset demo data</span>
+            </button>
+          )}
           <div className="msep" />
           <button className="mitem danger" role="menuitem" onClick={run(onLogout)}>
             <Icon n="exit" s={15} /><span className="mlabel">Sign out</span>
@@ -270,7 +274,7 @@ function ChromeActions({ api, accounts, username, onSwitch, onLogout, onReset, o
       <button className="btn sm" onClick={onGuide}><Icon n="question" s={14} />Guide</button>
       <button className="btn sm" onClick={onSecurity}><Icon n="shield" s={14} />Security</button>
       <div className="mrow"><ThemeSwitch /><SoundToggle /></div>
-      <button className="btn sm" onClick={onReset}><Icon n="refresh" s={14} />Reset demo</button>
+      {state.demoLogin && <button className="btn sm" onClick={onReset}><Icon n="refresh" s={14} />Reset demo</button>}
       <button className="btn sm" onClick={onLogout}><Icon n="exit" s={14} />Sign out</button>
     </div>
   );
@@ -1462,7 +1466,7 @@ export function BidsTab({ api, t }) {
           their commercial envelopes returned unopened.
         </div>
         <div className="grid" style={{ gridTemplateColumns: "1fr", gap: 10, marginBottom: 16 }}>
-          {bids.map((b) => {
+          {bids.map((b, i) => {
             const s = state.suppliers.find((x) => x.id === b.supplierId);
             const scored = Object.keys(b.scores || {}).length;
             return (
@@ -4831,6 +4835,38 @@ function ReportingLines({ api, team, onReload }) {
    lived here and polled /tenders/<id>/auction/, which stopped existing when
    auctions stopped being tenders. They are auctions.jsx now, reading the
    /api/auctions/ tree that replaced it. git log has the old versions. */
+
+
+/* The company's own record: what it is called, what it is called on a
+   certificate, where it is, and the mark that goes in the chrome.
+
+   The setup wizard collects all of this, and this is where it is corrected
+   afterwards — which is most of the time, because an RC number gets typed
+   wrong once and read a hundred times. Grouped as one card rather than
+   scattered across a settings tree: it is one form about one thing, and the
+   fields that matter (the registered name, the RC number) are the ones people
+   only look for when a letter is already going out.
+
+   The logo posts separately. It is a file, the rest is JSON, and bundling a
+   quarter-megabyte data URI into every rename would be a strange thing to do
+   to a text field. */
+const PROFILE_FIELDS = [
+  ["legalName",    "Registered name",    "text",  "As on the CAC certificate"],
+  ["rcNumber",     "RC number",          "mono",  "RC 1234567"],
+  ["tin",          "Tax identification", "mono",  "01234567-0001"],
+  ["industry",     "Industry",           "text",  ""],
+  ["addressLine1", "Registered address", "text",  "Street and number"],
+  ["addressLine2", "Address, continued", "text",  "Building, floor, district"],
+  ["city",         "City",               "text",  ""],
+  ["state",        "State",              "text",  ""],
+  ["country",      "Country",            "text",  ""],
+  ["phone",        "Switchboard",        "text",  "+234 …"],
+  ["email",        "Procurement email",  "text",  "tenders@company.com"],
+  ["website",      "Website",            "text",  "company.com"],
+  ["currency",     "Reporting currency", "mono",  "NGN"],
+  ["fiscalYearStart", "Financial year starts", "mono", "01-01"],
+  ["timezone",     "Time zone",          "text",  "Africa/Lagos"],
+];
 
 function WorkspaceCard({ api }) {
   const { state, refresh, toast } = api;

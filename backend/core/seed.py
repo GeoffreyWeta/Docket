@@ -1,6 +1,7 @@
 """Idempotent demo seed for the Kestrel Hospitality Group workspace."""
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.db import transaction
 
 from .models import (AccessRole, ActionToken, Auction, AuctionLot, AuctionParticipant,
                      AuthToken, Bid, ChainHead, Clarification, Contract, DemoFixture,
@@ -77,6 +78,10 @@ EXEC_ROLE = "exec"
 EXEC_PERMS = {
     "page.dashboard", "page.tenders", "page.suppliers", "page.scorecards",
     "page.analytics", "page.audit", "page.team", "page.finance",
+    # Watching a live room is reading; running or awarding one is not. The
+    # auditor holds the same pair, and a chief executive who can see every
+    # tender but not the auction beside it is not seeing everything.
+    "page.auctions", "auction.monitor",
     "team.view", "desk.see_reports",
     "bid.see_all_scores", "award.see_recommendation",
     "audit.integrity", "audit.export",
@@ -117,6 +122,12 @@ def wipe():
         Profile.objects.get_or_create(user=u)
 
 
+# One transaction, because a reset starts by deleting everything. Run it bare
+# and a request that dies part way — a worker timeout, a deploy, a crash —
+# leaves the shared demo wiped and half rebuilt for every visitor after it.
+# Atomic, it either lands whole or not at all. It is also most of the speed:
+# on SQLite each of a thousand-odd inserts was otherwise its own commit.
+@transaction.atomic
 def seed_all():
     wipe()
     T = now_ms()
@@ -218,6 +229,13 @@ def seed_all():
         sup(id="s11", name="Crestpack Nigeria", category="Printing & packaging", location="Lagos", rating=4.1, prequalified=True,
             docs=[{"name": "Food-contact compliance", "expiry": T + d(210)}], perf={"onTime": 90, "quality": 89}),
     ])
+    # Registration is its own fact since it was split from verification, and a
+    # vendor with no registered_at reads "Pending registration" — on the
+    # buyer's register and on its own portal, beside "Verified", to a supplier
+    # who is signed in and has a year of bids behind it. The verified ones
+    # registered long ago; FrostLine stays as it was, unregistered and
+    # unverified, so the register still shows what that looks like.
+    Supplier.objects.filter(prequalified=True).update(registered_at=T - d(400), source="self")
 
     t1 = Tender(
         id="t1", ref="KST-RFP-2026-014", title="Annual supply of mozzarella & dairy inputs", ttype="RFP",
@@ -341,11 +359,17 @@ def seed_all():
     # The reverse auction. Its own event now, not a tender wearing a type flag
     # — see the comment above Auction in models.py. Seeded live so the demo has
     # a room somebody can actually walk into and bid in.
+    #
+    # Open for a day and a half. It used to close two hours after the seed ran,
+    # and the seed runs at deploy: everybody who opened the demo after that
+    # found the room shut, with prices still above the reserve and so nothing
+    # to award. The nightly reseed (deploy/lightsail/crontab) keeps it open.
+    AUC_CLOSES = T + d(1.5)
     auc = Auction.objects.create(
         id="a1", ref="KST-AUC-2026-030",
         title="Diesel supply for store generators",
         status="live", visibility="rank", owner_id="u7",
-        starts_at=T - d(1), scheduled_ends_at=T + d(0.085), ends_at=T + d(0.085),
+        starts_at=T - d(1), scheduled_ends_at=AUC_CLOSES, ends_at=AUC_CLOSES,
         created_at=T - d(1), created_by="Amara Okafor",
         snipe_window_ms=120_000, extend_by_ms=120_000, max_extensions=20,
         ceiling_visible=True, require_acceptance=False,
@@ -371,7 +395,7 @@ def seed_all():
                            ("s6", 86_800_000, T - d(0.4)), ("s2", 86_500_000, T - d(0.1))):
         LotBid.objects.create(id=rid("ab"), lot=diesel, auction=auc, supplier_id=sid,
                               amount=amt, at=when, kind="manual",
-                              closes_at_bid_time=T + d(0.085))
+                              closes_at_bid_time=AUC_CLOSES)
 
     Bid.objects.bulk_create([
         Bid(id="b1", tender=t1, supplier_id="s3", submitted_at=T - d(8), amount=452_000_000, lines={},

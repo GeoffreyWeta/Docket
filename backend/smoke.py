@@ -14,11 +14,12 @@ from django.test import Client  # noqa: E402
 from core.seed import DEMO_USERS, seed_all  # noqa: E402
 from core.seed_finance import HISTORY  # noqa: E402
 
-# The seven hand-written competitions, plus the 2025 awards that sit behind the
+# The six hand-written competitions, plus the 2025 awards that sit behind the
 # imported ledger (seed_finance.HISTORY). Derived rather than hardcoded: this
 # assertion is about the buyer seeing everything, and a magic number turns that
-# into a test that fails whenever the demo gains a tender.
-SEEDED_TENDERS = 7 + len(HISTORY)
+# into a test that fails whenever the demo gains a tender. The reverse auction
+# used to be the seventh; it is its own event now and is not in this list.
+SEEDED_TENDERS = 6 + len(HISTORY)
 
 seed_all()  # every run starts from the pristine demo state
 
@@ -259,43 +260,10 @@ assert call("GET", "/api/audit/integrity/", "aisha")["ok"]
 
 print("FULL PLATFORM TESTS PASSED")
 
-# ================= two-stage opening + reverse auctions =================
+# ================= two-stage opening =================
+# Reverse auctions are their own event with their own endpoints now, and
+# test_auction.py walks them end to end; nothing here reaches into them.
 from core.models import Tender as _T
-
-# --- reverse auction on seeded t7 ---
-a = call("GET", "/api/tenders/t7/auction/", "coldline")
-assert a["live"] and a["myRank"] == 1 and a["bidders"] == 3, a
-assert "leaderboard" not in a, "suppliers must never see the leaderboard"
-h = call("GET", "/api/tenders/t7/auction/", "harmattan")
-assert h["myRank"] == 3 and all("amount" not in k for k in ("leaderboard",) if k in h)
-buyer = call("GET", "/api/tenders/t7/auction/", "amara")
-assert buyer["leaderboard"][0]["supplier"] == "Coldline Logistics" and buyer["leaderboard"][0]["amount"] == 86_500_000
-# decrement rule: harmattan must undercut own 87.9m by ≥0.5m
-call("POST", "/api/tenders/t7/auction/bids/", "harmattan", {"amount": 87_600_000}, expect=400)
-r = call("POST", "/api/tenders/t7/auction/bids/", "harmattan", {"amount": 86_000_000})
-assert r["myRank"] == 1
-# first bid over the ceiling rejected; at/below accepted
-call("POST", "/api/tenders/t7/auction/bids/", "bluechip", {"amount": 95_000_000}, expect=400)
-call("POST", "/api/tenders/t7/auction/bids/", "bluechip", {"amount": 89_000_000})
-# sealed-bid endpoint is closed on auctions
-call("POST", "/api/tenders/t7/bids/", "coldline", {"amount": 80_000_000, "acks": []}, expect=409)
-# anti-sniping: with <2min left, a bid extends the close
-_T.objects.filter(pk="t7").update(deadline=int(time.time() * 1000) + 60_000)
-before = _T.objects.get(pk="t7").deadline
-r = call("POST", "/api/tenders/t7/auction/bids/", "coldline", {"amount": 85_500_000})
-assert r["extended"] and r["deadline"] > before, "anti-sniping extension failed"
-# recording blocked while live; then close and record
-call("POST", "/api/tenders/t7/open/", "amara", {}, expect=409)
-_T.objects.filter(pk="t7").update(deadline=int(time.time() * 1000) - 1000)
-call("POST", "/api/tenders/t7/open/", "amara", {})
-d = call("GET", "/api/bootstrap/", "amara")
-t7bids = sorted([b for b in d["bids"] if b["tenderId"] == "t7"], key=lambda b: b["amount"])
-assert t7bids[0]["amount"] == 85_500_000 and len(t7bids) == 4
-# award the auction through the normal CFO flow
-call("POST", "/api/tenders/t7/recommend/", "amara", {"bidId": t7bids[0]["id"]})
-call("POST", "/api/tenders/t7/award_decision/", "mark", {"ok": True})
-d = call("GET", "/api/bootstrap/", "coldline")
-assert [t for t in d["tenders"] if t["id"] == "t7"][0]["letters"]["s2"]["type"] == "award"
 
 # --- two-stage envelope opening, full lifecycle on a fresh tender ---
 r = call("POST", "/api/tenders/", "amara", {
@@ -354,7 +322,7 @@ call("POST", f"/api/tenders/{ts_id}/recommend/", "amara", {"bidId": b_harm.id}, 
 call("POST", f"/api/tenders/{ts_id}/recommend/", "amara", {"bidId": b_cold.id})
 call("POST", f"/api/tenders/{ts_id}/award_decision/", "mark", {"ok": True})
 
-print("STAGE-2 + AUCTION TESTS PASSED")
+print("STAGE-2 TESTS PASSED")
 
 # ================= reminder mails =================
 from core.tasks import run_sweep as _sweep

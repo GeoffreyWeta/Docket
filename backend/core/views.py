@@ -1469,6 +1469,13 @@ def reset_demo(request, p, body):
     import secrets
 
     from django.contrib.auth.models import User
+    # A reset deletes every tender, bid, vendor and account and puts the
+    # invented demo company in their place. On the demo that is the point; on a
+    # real workspace it is the whole company's record gone, and it was one
+    # press-and-hold away for anybody signed in, a vendor included. The demo is
+    # the deployment with the one-click personas on, so that is the gate.
+    if not settings.DEMO_LOGIN:
+        return err("This is a real workspace. There is no demo data here to reset.", 403)
     username = User.objects.get(pk=p["userId"]).username
     seed_all()
     user = User.objects.filter(username=username).select_related("profile").first()

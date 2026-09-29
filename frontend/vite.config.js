@@ -6,6 +6,8 @@ export default defineConfig({
   base: "/static/",
   plugins: [react()],
   server: {
-    proxy: { "/api": "http://localhost:8000" },
+    // /demo-api is where the bundle talks once /demo has been opened; Django
+    // answers it as its own API while DEMO_LOGIN is on (see docket/urls.py).
+    proxy: { "/api": "http://localhost:8000", "/demo-api": "http://localhost:8000" },
   },
 });

@@ -772,11 +772,20 @@ export function AuctionPage({ api, id }) {
                  note: "Restarts the clock where it stopped.",
                  onPick: () => setAsk("resume") });
   }
-  if (a.status === "closed" && can(user, "auction.award")) {
+  /* Closing settles each lot against its reserve, and a lot whose best price
+     stayed above it gets no winner. When that is every lot there is nothing to
+     award: the server refuses, and offering the button anyway turned the end of
+     the demo's auction into a red error after a hold-to-confirm. Say what
+     happened instead. */
+  const nothingWon = a.status === "closed" && lots.length > 0 && !lots.some((l) => l.awardedTo);
+  if (a.status === "closed" && !nothingWon && can(user, "auction.award")) {
     items.push({ key: "award", label: "Award the auction",
                  note: "Commits to the winning price on every lot.",
                  onPick: () => setAsk("award") });
   }
+  const missed = nothingWon && lots.length === 1 && lot && lot.reserve && best
+    ? `The best price, ${fmtCompact(best.amount)}, stayed above the ${fmtCompact(lot.reserve)} reserve, so there is no winner to commit to.`
+    : "No lot reached its reserve, so there is no winner to commit to.";
 
   const guide = (
     <Guide art={live ? "chart" : "clear"} tone={a.status === "awarded" ? "good" : undefined}
@@ -784,14 +793,17 @@ export function AuctionPage({ api, id }) {
              : a.status === "paused" ? "The room is paused"
              : a.status === "awarded" ? "Awarded"
              : a.status === "cancelled" ? "Abandoned"
-             : a.status === "scheduled" ? "Not open yet" : "The auction has closed"}
+             : a.status === "scheduled" ? "Not open yet"
+             : nothingWon ? "Closed without a winner" : "The auction has closed"}
            why={live
              ? "Bidders see their own rank and never a competitor's price. Every movement is written to the record as it happens."
              : a.status === "scheduled"
                ? "The room opens on its start time, or when somebody with the open capability starts it."
                : a.status === "awarded"
                  ? "The winning prices are committed. The award is on the chain with the standings that produced it."
-                 : "No further bids can land. The standings are final."}
+                 : nothingWon
+                   ? `${missed} The reserve is the walk-away price, and nobody is owed a contract at a price nobody met.`
+                   : "No further bids can land. The standings are final."}
            items={items}>
       <Figures>
         <Quiet n={a.participants != null ? a.participants : "—"} label="invited" />

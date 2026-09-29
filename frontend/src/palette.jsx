@@ -90,7 +90,8 @@ export function buildCommands({ api, allowed, chrome }) {
   const acts = [
     ["guide", "question", "Open the guide for your role", chrome.onGuide],
     ["security", "shield", "Security and sessions", chrome.onSecurity],
-    ["reset", "refresh", "Reset demo data", chrome.onReset],
+    // demo only: on a real workspace the server refuses it, and should
+    ["reset", "refresh", "Reset demo data", state.demoLogin ? chrome.onReset : null],
     ["signout", "exit", "Sign out", chrome.onLogout],
   ];
   for (const [id, icon, label, run] of acts) {
