@@ -556,6 +556,7 @@ function RiskTab({ api, tenders }) {
               tone={splits.length ? "var(--s4)" : null} />
       </div>
 
+      {/* AI OFF (no ANTHROPIC_API_KEY): weekly insights card hidden. Uncomment to restore.
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="chead"><h3>This week's read</h3>
           <button className="btn sm" style={{ marginLeft: "auto" }} onClick={gen} disabled={busy}>
@@ -571,6 +572,7 @@ function RiskTab({ api, tenders }) {
           )}
         </div>
       </div>
+      */}
 
       <div className="grid g2">
         <Figure title="Compliance runway" sub="days until each document expires"

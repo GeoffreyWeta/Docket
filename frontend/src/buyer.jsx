@@ -1387,7 +1387,9 @@ export function ClarTab({ api, t }) {
                   <textarea className="in" placeholder="Write the answer that all invited suppliers will see…" value={drafts[c.id] || ""} onChange={(e) => setDrafts((d) => ({ ...d, [c.id]: e.target.value }))} />
                   <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                     <button className="btn pri sm" onClick={() => answer(c.id)} disabled={!(drafts[c.id] || "").trim()}>Publish answer</button>
+                    {/* AI OFF (no ANTHROPIC_API_KEY): clarification draft button.
                     <button className="btn sm" onClick={() => draftAI(c)} disabled={busyId === c.id}>{busyId === c.id ? "Drafting…" : "Draft with AI"}</button>
+                    */}
                   </div>
                 </div>
               ) : (
@@ -1909,6 +1911,7 @@ export function EvalTab({ api, t }) {
           </table>
         </div>
       </div>
+      {/* AI OFF (no ANTHROPIC_API_KEY): comparison brief card hidden.
       {can(user, "ai.use") && (
         <div className="card">
           <div className="chead"><h3>Comparison brief</h3>
@@ -1919,6 +1922,7 @@ export function EvalTab({ api, t }) {
           </div>
         </div>
       )}
+      */}
     </div>
   );
 }
@@ -3116,9 +3120,11 @@ export function NewTender({ api, editId }) {
                 <label className="lbl" htmlFor="nt-scope">Scope of work <span className="faint">optional, you can add it later</span></label>
                 <textarea id="nt-scope" className="in" placeholder="What is being bought, at what service level, under which compliance rules…"
                           value={f.scope} onChange={(e) => set("scope", e.target.value)} />
+                {/* AI OFF (no ANTHROPIC_API_KEY): scope drafting button.
                 <button className="btn sm" style={{ marginTop: 8 }} onClick={draftScope} disabled={busy}>
                   {busy ? "Drafting…" : "Draft scope for me"}
                 </button>
+                */}
               </div>
             </div>
           </div>
@@ -3126,9 +3132,11 @@ export function NewTender({ api, editId }) {
           {!isAuction && (
             <div className="card" id="nt-weights">
               <div className="chead"><h3>How you will score the bids</h3>
+                {/* AI OFF (no ANTHROPIC_API_KEY): criteria suggestion button.
                 <button className="btn sm" style={{ marginLeft: "auto" }} onClick={suggestCriteria} disabled={busyC}>
                   {busyC ? "Suggesting…" : "Suggest criteria"}
-                </button></div>
+                </button>
+                */}</div>
               <div className="cbody">
                 <div className="wt">
                   {f.criteria.map((c, i) => (
