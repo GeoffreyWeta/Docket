@@ -35,7 +35,7 @@ export function PortalHome({ api }) {
   const { state, user, go, act } = api;
   const me = user.supplierId;
   const supplier = state.suppliers.find((s) => s.id === me);
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState(api.route.tab || "overview");
   const [docForm, setDocForm] = useState({ label: "", expiry: "" });
   const [profileForm, setProfileForm] = useState({ name: supplier.name, category: supplier.category, location: supplier.location });
   const myComplianceDocs = (state.documents || []).filter((x) => x.kind === "supplier" && x.supplierId === me);

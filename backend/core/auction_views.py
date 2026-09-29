@@ -263,7 +263,8 @@ def _send_invites(a, p, only=None):
                 + (f"The opening price is {lot.ceiling:,} {a.currency}. "
                    if lot and lot.ceiling and a.ceiling_visible else "")
                 + ("The room is open now. " if a.is_live()
-                   else "You will be told when the room opens. "))
+                   else "You will be told when the room opens. "),
+                destination={"page": "auction", "id": a.id})
             if reached:
                 part.invite_count += 1
                 part.invited_at = part.invited_at or now_ms()

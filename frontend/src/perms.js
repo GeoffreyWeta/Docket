@@ -53,13 +53,14 @@ function subPages(pages, user) {
 
 /** Every route this person may open. */
 export function allowedPages(user) {
-  const pages = PAGE_ORDER.filter((p) => can(user, PAGE_PERM[p]));
+  const pages = navPages(user);
   return [...pages, ...subPages(pages, user)];
 }
 
 /** Sidebar destinations only — no sub-pages. */
 export function navPages(user) {
-  return PAGE_ORDER.filter((p) => can(user, PAGE_PERM[p]));
+  return PAGE_ORDER.filter((p) => can(user, PAGE_PERM[p])
+    || (p === "auctions" && can(user, "page.portal")));
 }
 
 /* Where a role likes to land, when it still may. Anything else — including a

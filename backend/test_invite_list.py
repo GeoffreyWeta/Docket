@@ -211,6 +211,31 @@ st, denied = call("POST", f"/api/auctions/{AID}/lots/{lot}/bid/", None,
                   {"amount": 83_000_000})
 ok("bidding still requires an authenticated account", st in (401, 403), denied)
 
+print("\n=== notification destinations and bidder access ===")
+from core.models import Notification, Profile
+from core.notify import notify_supplier
+individual_profile = Profile.objects.get(user__username=individual_result["demoLinks"][0]["email"])
+notify_supplier(individual_profile.supplier_id, "Auction invitation", "Review the auction",
+                destination={"page": "auction", "id": AID})
+notify_supplier(individual_profile.supplier_id, "Document expiring", "Update your documents")
+for prefix in ("/api", "/demo-api"):
+    st, bootstrap = call("GET", f"{prefix}/bootstrap/", individual_auth)
+    notices = bootstrap.get("notifications", [])
+    auction_notice = next((n for n in notices if n["subject"] == "Auction invitation"), {})
+    document_notice = next((n for n in notices if n["subject"] == "Document expiring"), {})
+    ok(f"{prefix}: auction alert points to the invited room",
+       st == 200 and auction_notice.get("destination") == {"page": "auction", "id": AID})
+    ok(f"{prefix}: document alert opens the bidder profile",
+       document_notice.get("destination") == {"page": "portal", "tab": "company"})
+    st, mine = call("GET", f"{prefix}/auctions/mine/", individual_auth)
+    ok(f"{prefix}: individual sees their auction", st == 200 and any(a["id"] == AID for a in mine["auctions"]))
+st, _ = call("POST", "/api/notifications/read/", individual_auth, {"ids": [auction_notice["id"]]})
+ok("opening one alert leaves the other unread", st == 200
+   and Notification.objects.get(pk=auction_notice["id"]).read
+   and not Notification.objects.get(pk=document_notice["id"]).read)
+st, _ = call("GET", "/api/auctions/", individual_auth)
+ok("bidders cannot read the buyer auction list", st == 403)
+
 print("\n=== only while there is a room ===")
 Auction.objects.filter(pk=AID).update(status="closed")
 st, b = upload(AMARA, AID, LIST)

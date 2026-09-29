@@ -43,10 +43,11 @@ def _users_for_supplier(supplier_id):
     return User.objects.filter(profile__supplier_id=supplier_id).select_related("profile")
 
 
-def notify_users(users, subject, body, tender_id=None):
+def notify_users(users, subject, body, tender_id=None, destination=None):
     for u in users:
         n = Notification.objects.create(
             id=rid("n"), user=u, at=now_ms(), subject=subject, body=body, tender_id=tender_id,
+            destination=destination or {},
         )
         if u.email:
             try:
@@ -62,7 +63,15 @@ def notify_role(role, subject, body, tender_id=None):
 
 
 def notify_perm(key, subject, body, tender_id=None):
-    notify_users(_users_for_perm(key), subject, body, tender_id)
+    target = None
+    if not tender_id:
+        page = "suppliers" if key.startswith("supplier.") else "finance" if key == "page.finance" else None
+        target = {"page": page} if page else None
+    elif key in ("bid.score", "bid.open", "clarification.answer", "award.recommend"):
+        target = {"page": "tender", "id": tender_id,
+                  "tab": {"bid.score": "eval", "bid.open": "bids",
+                          "clarification.answer": "clar", "award.recommend": "bids"}[key]}
+    notify_users(_users_for_perm(key), subject, body, tender_id, destination=target)
 
 
 def notify_personas(persona_ids, subject, body, tender_id=None):
@@ -121,7 +130,7 @@ def _mail_unclaimed(supplier_id, subject, body):
     return True
 
 
-def notify_supplier(supplier_id, subject, body, tender_id=None):
+def notify_supplier(supplier_id, subject, body, tender_id=None, destination=None):
     """Tell a vendor. Returns whether anybody was actually reachable.
 
     THE RETURN VALUE IS NOT DECORATION. This function is silent in two ways
@@ -136,7 +145,8 @@ def notify_supplier(supplier_id, subject, body, tender_id=None):
     """
     users = list(_users_for_supplier(supplier_id))
     if users:
-        notify_users(users, subject, body, tender_id)
+        notify_users(users, subject, body, tender_id,
+                     destination=destination or ({} if tender_id else {"page": "portal", "tab": "company"}))
         return True
     try:
         return bool(_mail_unclaimed(supplier_id, subject, body))

@@ -20,6 +20,14 @@ Group=docket
 WorkingDirectory=/srv/docket/backend
 EnvironmentFile=/etc/docket/env.%i
 
+# libpq probes ~/.postgresql for optional TLS credentials. ProtectHome makes
+# /home inaccessible, so using the account's default home fails even when no
+# client certificate is configured. Give each service an accessible home while
+# keeping /home protected. Explicit PGSSL* paths still take precedence.
+StateDirectory=docket/%i
+StateDirectoryMode=0700
+Environment=HOME=/var/lib/docket/%i
+
 # --max-requests recycles a worker after roughly this many requests, which is the
 # only thing that hands its accumulated heap back to the OS. CPython does not
 # return freed memory readily, and this app parses a 434KB bootstrap payload on

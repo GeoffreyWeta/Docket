@@ -151,14 +151,17 @@ export function AuctionsPage({ api }) {
   const [draft, setDraft] = useState(null);      // the new-auction dialog
   const [making, setMaking] = useState(false);
   const [demoAuction, setDemoAuction] = useState("");
+  const bidder = user.role === "supplier";
 
   useEffect(() => {
     let active = true;
-    raw("/auctions/")
-      .then((d) => { if (active) setRows(d.auctions || []); })
+    const load = () => raw(bidder ? "/auctions/mine/" : "/auctions/")
+      .then((d) => { if (active) { setRows(d.auctions || []); setErr(""); } })
       .catch((e) => { if (active) setErr(e.message || "Could not load auctions."); });
-    return () => { active = false; };
-  }, []);
+    load();
+    const timer = bidder ? setInterval(load, 15000) : null;
+    return () => { active = false; if (timer) clearInterval(timer); };
+  }, [bidder]);
 
 
   /* Create takes a title and nothing else. Everything that shapes an auction
@@ -202,7 +205,7 @@ export function AuctionsPage({ api }) {
   const guide = (
     <Guide art="chart"
            headline={liveOnes ? "A room is open" : "Reverse auctions"}
-           why={monitor
+           why={bidder ? "Your reverse auction invitations appear here. Open an auction to review its terms and submit your bid when bidding starts." : monitor
              ? "Prices move live and every movement is on the record. You see names and amounts; bidders see only their own rank."
              : "You can see that a competition is running. Watching the prices and the names needs the monitor capability."}
            items={can(user, "auction.create")
@@ -225,7 +228,7 @@ export function AuctionsPage({ api }) {
       <Page guide={guide}>
         {newDialog}
         <Empty art="chart">
-          No reverse auctions yet.
+          {bidder ? "No reverse auction invitations yet. Invitations appear here once the buyer schedules or opens the auction." : "No reverse auctions yet."}
           {can(user, "auction.create") && " An auction is for a price-only requirement where several vendors can quote the same thing."}
         </Empty>
       </Page>
@@ -236,7 +239,7 @@ export function AuctionsPage({ api }) {
     <Page guide={guide} wide>
       {newDialog}
       <div className="pagehead">
-        <div><h1>Auctions</h1></div>
+        <div><h1>{bidder ? "My reverse auctions" : "Auctions"}</h1></div>
         <div className="grow" />
         {can(user, "auction.create") &&
           <button className="btn pri" onClick={() => setDraft({ title: "" })}>Draft an auction</button>}

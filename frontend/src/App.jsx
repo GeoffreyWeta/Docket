@@ -511,7 +511,7 @@ export default function App() {
     declareCoi: wrap((id) => raw(`/tenders/${id}/coi/`, { method: "POST", body: {} })),
     upload: wrap((path, file, extra) => uploadFile(path, file, extra)),
     deleteDoc: wrap((docId) => raw(`/docs/${docId}/`, { method: "DELETE", body: {} })),
-    markRead: wrap(() => raw(`/notifications/read/`, { method: "POST", body: {} })),
+    markRead: wrap((ids) => raw(`/notifications/read/`, { method: "POST", body: ids ? { ids } : {} })),
     prequalDecision: wrap((sid, ok, reason) => raw(`/suppliers/${sid}/prequalify/`, { method: "POST", body: { ok, reason } })),
     inviteVendor: wrap((email) => raw(`/suppliers/invite/`, { method: "POST", body: { email } })),
     setReportingLine: wrap((personId, managerId) =>
@@ -692,7 +692,7 @@ export default function App() {
           {page === "audit" && <AuditPage api={api} />}
           {page === "approvals" && <ApprovalsPage api={api} />}
           {page === "evals" && <EvalsPage api={api} />}
-          {page === "portal" && <PortalHome api={api} />}
+          {page === "portal" && <PortalHome key={route.tab || "overview"} api={api} />}
           {page === "bidroom" && <BidRoom key={route.id} api={api} id={route.id} />}
         </main>
       </div>

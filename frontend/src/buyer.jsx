@@ -117,14 +117,13 @@ export function Sidebar({ api, chrome, open, desktop, onClose }) {
 }
 
 function Bell({ api }) {
-  const { state, act } = api;
+  const { state, act, user, go } = api;
   const [open, setOpen] = useState(false);
   const items = state.notifications || [];
   const unread = items.filter((n) => !n.read).length;
   const toggle = () => {
     const next = !open;
     setOpen(next);
-    if (next && unread) act.markRead();
   };
   return (
     <div className="bellwrap">
@@ -133,13 +132,21 @@ function Bell({ api }) {
       </button>
       {open && (
         <div className="ndrop" role="dialog" aria-label="Notifications">
-          {items.map((n) => (
+          {items.map((n) => {
+            const destination = n.destination?.page ? n.destination : n.tenderId
+              ? { page: user.role === "supplier" ? "bidroom" : "tender", id: n.tenderId }
+              : null;
+            return (
             <div key={n.id} className={"nitem" + (n.read ? "" : " unread")}>
               <div className="mono faint" style={{ fontSize: 10.5 }}>{fmtDateTime(n.at)}</div>
               <div className="ns">{n.subject}</div>
               <div className="nb">{n.body}</div>
+              {destination && <button className="doclink" onClick={() => {
+                setOpen(false); go(destination); if (!n.read) act.markRead([n.id]);
+              }}>Open item <span aria-hidden="true">→</span></button>}
+              {!destination && !n.read && <button className="doclink" onClick={() => act.markRead([n.id])}>Mark as read</button>}
             </div>
-          ))}
+          ); })}
           {!items.length && <div className="nitem nb">Nothing yet. Invitations, sealed bids, deadlines and awards will land here (and by email when SMTP is configured).</div>}
         </div>
       )}

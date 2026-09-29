@@ -370,7 +370,7 @@ def bootstrap(request, p, body):
         docs += [doc_view(d) for d in Document.objects.filter(kind="supplier")]
 
     notifs = [{"id": n.id, "at": n.at, "subject": n.subject, "body": n.body,
-               "tenderId": n.tender_id, "read": n.read}
+               "tenderId": n.tender_id, "destination": n.destination, "read": n.read}
               for n in Notification.objects.filter(user_id=p["userId"])[:50]]
 
     return JsonResponse({
