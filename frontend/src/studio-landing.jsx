@@ -111,7 +111,7 @@ export const STUDIO_LANDING_CSS = `
 .st-navinner{max-width:1120px;padding:0 28px;min-height:64px;margin:auto;display:flex;align-items:center;gap:28px}
 .st-brand{display:flex;align-items:center;gap:8px;font-weight:650!important;font-size:21px!important;letter-spacing:-.055em!important}
 .st-links{margin-left:auto;display:flex;align-items:center;gap:30px;font-size:12px}.st-links button{padding:8px 0;background:none;color:inherit}.st-links a:hover,.st-footer a:hover,.st-footer button:hover{text-decoration:underline}
-.st-page .st-button{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:13px 26px;background:var(--st-accent-fill,#0071e3);color:#fff;font-size:16px;font-weight:400;line-height:1.4;min-height:48px;transition:background .2s}.st-page .st-button:hover{background:var(--st-accent-fill-h,#005fca)}.st-page .st-button.compact{font-size:12px;padding:7px 17px;min-height:32px}
+.st-page .st-button{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:13px 26px;background:var(--st-accent-fill,#0071e3);color:var(--on-brand,#fff);font-size:16px;font-weight:400;line-height:1.4;min-height:48px;transition:background .2s}.st-page .st-button:hover{background:var(--st-accent-fill-h,#005fca)}.st-page .st-button.compact{font-size:12px;padding:7px 17px;min-height:32px}
 .st-menubutton{display:none;padding:8px;background:none;color:inherit}.st-eyebrow{font-size:19px;font-weight:600;letter-spacing:-.025em}
 .st-hero{text-align:center;padding:77px 24px 52px;background:linear-gradient(var(--st-bg) 60%,var(--st-soft))}
 .st-page .st-hero h1{font-size:clamp(64px,7.9vw,112px);font-weight:600;letter-spacing:-.075em;line-height:.99;margin:22px auto 27px}.st-hero h1>span{color:var(--st-muted)}

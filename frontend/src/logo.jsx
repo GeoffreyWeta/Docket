@@ -58,7 +58,7 @@ export function initialsOf(name) {
     .split(/[\s\-–—/&,.]+/)
     .map((w) => w.replace(/[^A-Za-z0-9]/g, ""))
     .filter((w) => w && !skip.has(w.toLowerCase()));
-  if (!words.length) return "—";
+  if (!words.length) return "-";
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
   return (words[0][0] + words[1][0]).toUpperCase();
 }
@@ -103,7 +103,7 @@ export const LOGO_CSS = `
 .dkmark .dkm-rays{fill:none;stroke:var(--brand-2);stroke-width:1.9;
   stroke-linecap:round;opacity:.5}
 
-/* The seal turns once on arrival — a stamp being set down, not a spinner.
+/* The seal turns once on arrival - a stamp being set down, not a spinner.
    620ms is the ceremony duration from motion.js; anything quicker reads as a
    loading state and anything slower reads as decoration. */
 @media(prefers-reduced-motion:no-preference){
@@ -119,7 +119,7 @@ export const LOGO_CSS = `
 .dkword{display:inline-flex;align-items:center;gap:9px;color:var(--ink)}
 .dkword b{font-weight:700;letter-spacing:.14em;line-height:1}
 .dkwordtag{font-style:normal;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
-  color:var(--brand);background:var(--brand-tint);border:1px solid var(--green-2);
+  color:var(--brand);background:var(--brand-tint);border:1px solid var(--brand-2);
   border-radius:999px;padding:2px 7px;font-weight:650;align-self:center}
 
 .orgmark{display:inline-flex;align-items:center;gap:9px;min-width:0}
@@ -127,7 +127,7 @@ export const LOGO_CSS = `
   background:var(--card)}
 .orgmark .orginit{display:inline-flex;align-items:center;justify-content:center;
   border-radius:8px;background:var(--brand-tint);color:var(--brand);
-  font-weight:700;letter-spacing:.02em;border:1px solid var(--green-2);flex-shrink:0}
+  font-weight:700;letter-spacing:.02em;border:1px solid var(--brand-2);flex-shrink:0}
 .orgmark .orgname{font-weight:650;letter-spacing:-.01em;white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis;min-width:0}
 

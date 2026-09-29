@@ -136,11 +136,11 @@ export function parseVendors(text) {
     const name = get("name");
     if (!name) continue;
     const key = name.toLowerCase();
-    if (seen.has(key)) { warnings.push(`${name} appears more than once — kept once.`); continue; }
+    if (seen.has(key)) { warnings.push(`${name} appears more than once - kept once.`); continue; }
     seen.add(key);
     const email = get("email");
     if (email && !EMAIL.test(email)) {
-      warnings.push(`${name}: "${email}" is not a valid address — they will be added without one.`);
+      warnings.push(`${name}: "${email}" is not a valid address - they will be added without one.`);
     }
     rows.push({
       id: uid(), name: name.slice(0, 120),
@@ -644,7 +644,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
               <div className="cbody">
                 <p className="setupintro">
                   You become the workspace's procurement lead: you draft tenders, run the vendor
-                  register and configure everything here. You do not sign off your own work —
+                  register and configure everything here. You do not sign off your own work -
                   that is what the authority ladder two steps from now is for.
                 </p>
                 <div className="frow"><label className="lbl" htmlFor="su-name">What is your name?</label>
@@ -703,7 +703,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                       <span className="logoprev" aria-hidden="true">
                         {f.logo
                           ? <img src={f.logo} alt="" />
-                          : <b>{initialsOf(f.company) === "—" ? "?" : initialsOf(f.company)}</b>}
+                          : <b>{initialsOf(f.company) === "-" ? "?" : initialsOf(f.company)}</b>}
                       </span>
                       <div className="logoacts">
                         <input ref={logoInput} type="file" hidden
@@ -732,7 +732,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                 <div className="cbody">
                   <p className="setupintro">
                     What belongs on a letter, a memo or a compliance report. Anything left blank
-                    is simply left off — nothing here is invented for you.
+                    is simply left off - nothing here is invented for you.
                   </p>
                   <div className="f2">
                     <div className="frow"><label className="lbl" htmlFor="su-rc">RC number</label>
@@ -879,7 +879,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                         <select className="in" value={l.role}
                                 aria-label={`Who signs level ${i + 1} if nobody is placed on it`}
                                 onChange={(e) => editLevel(l.id, { role: e.target.value })}>
-                          <option value="">Nobody — it waits</option>
+                          <option value="">Nobody - it waits</option>
                           {ROLES.map(([k, lb]) => <option key={k} value={k}>Any {lb}</option>)}
                         </select>
                         <button className="btn sm" aria-label={`Remove level ${i + 1}`}
@@ -893,7 +893,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                         <Icon n="plus" s={13} /> Add a level
                       </button>
                       <span className="hint" style={{ marginTop: 0 }}>
-                        Up to eight. Leave a limit at 0 for unlimited authority — exactly one level
+                        Up to eight. Leave a limit at 0 for unlimited authority - exactly one level
                         must have it, and it is the top of the ladder. Who signs a level is whoever
                         you place on it on the next step; the last column only matters for a level
                         you leave empty.
@@ -922,13 +922,13 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                       <label className="lbl" htmlFor="su-ownerlvl">Your own signing authority</label>
                       <select id="su-ownerlvl" className="in" value={f.ownerLevel}
                               onChange={(e) => set("ownerLevel", e.target.value)}>
-                        <option value="">None — I raise requests, I do not sign them</option>
+                        <option value="">None - I raise requests, I do not sign them</option>
                         {sortedLevels.filter((l) => l.name.trim()).map((l) =>
                           <option key={l.id} value={l.id}>{l.name.trim()} · {money(l.limit)}</option>)}
                       </select>
                       <div className="hint">
                         Most procurement leads leave this as none. It never lets you approve your
-                        own request either way — the chain always starts above the raiser.
+                        own request either way - the chain always starts above the raiser.
                       </div>
                     </div>
                   </>
@@ -947,7 +947,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
               <div className="cbody">
                 <p className="setupintro">
                   Each person gets an email with a link to set their own password, and each one
-                  is placed on the org chart now — so reporting lines and signing authority work
+                  is placed on the org chart now - so reporting lines and signing authority work
                   from the first minute rather than from whenever the last invitation is clicked.
                   Separation of duties is enforced by the server: an evaluator cannot publish or
                   award, an approver cannot score, an auditor cannot change anything.
@@ -1018,7 +1018,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                                   onChange={(e) => editPerson(t.key, { level: e.target.value })}>
                             <option value="">None</option>
                             {sortedLevels.filter((l) => l.name.trim()).map((l) => (
-                              <option key={l.id} value={l.id}>{l.name.trim()} — {money(l.limit)}</option>
+                              <option key={l.id} value={l.id}>{l.name.trim()} - {money(l.limit)}</option>
                             ))}
                           </select>
                           <div className="hint">
@@ -1073,7 +1073,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
               <div className="cbody">
                 <p className="setupintro">
                   Load the register you already have. Upload a CSV, or paste it straight from a
-                  spreadsheet — column names are matched for you, and a name is the only thing
+                  spreadsheet - column names are matched for you, and a name is the only thing
                   actually required. Duplicates are reported rather than silently merged.
                 </p>
 
@@ -1146,7 +1146,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                           {f.vendors.filter((v) => v.email).length} vendors will be asked to set a
                           password, upload their compliance documents and start receiving
                           invitations to bid. Sent in the background, a batch at a time, once each
-                          — nobody is emailed twice, and failures are recorded as failures.
+                          - nobody is emailed twice, and failures are recorded as failures.
                         </i>
                       </span>
                     </label>

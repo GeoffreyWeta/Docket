@@ -328,7 +328,7 @@ export const MENU_CSS = `
 .radarrow.click:hover{background:var(--sunk)}
 .radarrow.click:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
 .radarrow>svg{color:var(--faint);flex:0 0 auto}
-/* Proximity, drawn. Square at the baseline, 4px at the data end — the same
+/* Proximity, drawn. Square at the baseline, 4px at the data end - the same
    rule the charts follow, so a bar means the same thing everywhere. */
 .rprox{flex:0 0 54px;height:6px;border-radius:4px;background:var(--sunk);overflow:hidden}
 .rprox>span{display:block;height:100%;border-radius:0 4px 4px 0;
@@ -401,7 +401,7 @@ export const MENU_CSS = `
    relative at the desktop breakpoint, and both of those are positioned
    ancestors. Setting position:relative here would win on the cascade (MENU_CSS
    is concatenated after CSS) and quietly unstick
-   the app bar on phones — which also unmoors the notification sheet, since that
+   the app bar on phones - which also unmoors the notification sheet, since that
    is placed a fixed distance below a bar it assumes is pinned. */
 /* the navigation indicator: a bright rail down the left edge of the current
    item, in the accent rather than the seal red, because the rail it rides on
@@ -868,10 +868,10 @@ function WaitingOnOthers({ api, items }) {
               {g.people.length ? (
                 <span className="avstack">
                   {g.people.slice(0, 3).map((p) => (
-                    <span className="av" key={p.id} title={`${p.name} — ${p.title}`}>{initials(p.name)}</span>
+                    <span className="av" key={p.id} title={`${p.name} - ${p.title}`}>{initials(p.name)}</span>
                   ))}
                 </span>
-              ) : <span className="av none" title="nobody holds this capability">—</span>}
+              ) : <span className="av none" title="nobody holds this capability">-</span>}
               <div className="waitwho">
                 <b>{g.people.length
                   ? g.people.length === 1
@@ -2327,7 +2327,7 @@ export function ApprovalsPage({ api }) {
            why={queue.length
              ? "Nothing reaches a supplier without a named signature. Pick one to go to it."
              : elsewhere.length
-               ? `Nothing is yours to sign. ${elsewhere.length} ${elsewhere.length === 1 ? "request is" : "requests are"} with somebody else in the chain — they are listed below.`
+               ? `Nothing is yours to sign. ${elsewhere.length} ${elsewhere.length === 1 ? "request is" : "requests are"} with somebody else in the chain - they are listed below.`
                : "Tenders above your authority come here before they publish. Awards always do."}
            items={queue} />
   );
@@ -2580,7 +2580,7 @@ function ItemPick({ line, onPick }) {
             {rows === null && <div className="muted" style={{ padding: 8, fontSize: 12 }}>Searching…</div>}
             {rows && !rows.length && (
               <div className="muted" style={{ padding: 8, fontSize: 12 }}>
-                Nothing matches. Leave the line as free text — not everything has an item number.
+                Nothing matches. Leave the line as free text - not everything has an item number.
               </div>
             )}
             {(rows || []).map((it) => (
@@ -2690,7 +2690,7 @@ function InviteStep({ api, f, set }) {
         <span className="chipck" aria-hidden="true"><Icon n="check" s={12} /></span>
         {s.name}
         <small>
-          {s.suspended ? "suspended — remove to publish"
+          {s.suspended ? "suspended - remove to publish"
                        : (s.category === f.category ? s.location : s.category)
                          + (!s.prequalified ? " · unverified" : "")}
         </small>
@@ -2847,8 +2847,8 @@ function AddVendorDialog({ api, category, onClose, onAdded }) {
         </button>
       </>
     }>
-      They go onto the register as <b>unverified</b> — somebody typed them in and nobody has checked
-      them — and they are emailed a link to set a password. That does not hold up this tender: they can
+      They go onto the register as <b>unverified</b> - somebody typed them in and nobody has checked
+      them - and they are emailed a link to set a password. That does not hold up this tender: they can
       be invited and can bid while prequalification runs its course.
       {problem && <div className="notice wax" style={{ marginTop: 10 }}>{problem}</div>}
       {clash && (
@@ -3693,7 +3693,7 @@ export function SuppliersPage({ api }) {
                  ? `${queue.length} waiting on you`
                  : "Nothing waiting for review"}
                why={queue.length
-                 ? "Each one registered themselves and uploaded what they had. Verification gates prequalification, not participation — an unverified vendor can still be invited and can still bid."
+                 ? "Each one registered themselves and uploaded what they had. Verification gates prequalification, not participation - an unverified vendor can still be invited and can still bid."
                  : "Registrations appear here the moment a vendor completes the form."}
                items={queue.slice(0, 6).map((s) => ({
                  key: s.id, label: s.name, note: `${s.category} · ${s.location}`,
@@ -4174,7 +4174,7 @@ function RegisterImport({ api, onClose }) {
       ) : (
         <>
           <p style={{ marginTop: 0, fontSize: 13.5 }}>
-            Export the vendor master to JSON — one entry per sheet, each a list of rows — and pick it
+            Export the vendor master to JSON - one entry per sheet, each a list of rows - and pick it
             here. Nothing is written until you have seen what it would do.
           </p>
           <label className="btn" style={{ marginBottom: 12 }}>
@@ -4390,7 +4390,7 @@ export function AuditPage({ api }) {
              ? (integrity.ok
                  ? `Every one of the ${integrity.count} entries is linked to the one before it. Rewriting any of them would break every hash that follows, and none are broken.`
                  : `Entry ${integrity.brokenAt ? "#" + integrity.brokenAt : "unknown"} does not match the hash before it, which means the recorded history has been altered. ${integrity.error || ""}`)
-             : "Nothing here can be edited quietly: each entry carries a hash of the one before it. Check it yourself — the answer is arithmetic, not a promise."}
+             : "Nothing here can be edited quietly: each entry carries a hash of the one before it. Check it yourself - the answer is arithmetic, not a promise."}
            action={
              <button className="btn pri" onClick={verify} disabled={!!integrity?.busy}>
                {integrity?.busy ? "Checking…" : checked ? "Check it again" : "Verify the chain"}
@@ -4557,7 +4557,7 @@ export function TeamPage({ api }) {
         </div>
       </More>
 
-      <More title="Company record" summary="names, registered details, logo — what goes on letters and memos">
+      <More title="Company record" summary="names, registered details, logo - what goes on letters and memos">
         <WorkspaceCard api={api} />
       </More>
 
@@ -4571,7 +4571,7 @@ export function TeamPage({ api }) {
           <More title="Delegation of authority"
                 summary={(team?.levels || []).length
                   ? `${team.levels.length} level${team.levels.length === 1 ? "" : "s"}, lowest first`
-                  : "not set up — one threshold applies"}>
+                  : "not set up - one threshold applies"}>
             <AuthorityLadder api={api} team={team} onReload={load} />
           </More>
         </>
@@ -4661,7 +4661,7 @@ function AuthorityLadder({ api, team, onReload }) {
         A request walks up the reporting line of whoever raised it, collecting a signature at
         every rung it passes, and stops at the first person whose limit covers the amount.
         Nobody signs their own request. A chain already under way keeps the ladder it was
-        raised under — changing this never rewrites who was meant to sign something.
+        raised under - changing this never rewrites who was meant to sign something.
       </div>
 
       {gaps.length > 0 && !dirty && (
@@ -4786,7 +4786,7 @@ function ReportingLines({ api, team, onReload }) {
       <div className="cbody">
         <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 14 }}>
           A manager with <b>See your reports' desks</b> can see the workload and savings of
-          everyone below them here — directly or at any depth. This is separate from their
+          everyone below them here - directly or at any depth. This is separate from their
           role: it decides <i>whose</i> work they see, not <i>what</i> they may do.
         </div>
 
@@ -4805,7 +4805,7 @@ function ReportingLines({ api, team, onReload }) {
                 <select className="in" value={m.managerId || ""} disabled={busy === m.id}
                         aria-label={`Who ${m.name} reports to`}
                         onChange={(e) => change(m.id, e.target.value)}>
-                  <option value="">— nobody (top of the chart) —</option>
+                  <option value="">- nobody (top of the chart) -</option>
                   {(state.users || [])
                     .filter((u) => u.id !== m.id)
                     .map((u) => <option key={u.id} value={u.id}>{u.name} · {u.title}</option>)}
@@ -4816,7 +4816,7 @@ function ReportingLines({ api, team, onReload }) {
                     <select className="in" value={m.approvalLevel || ""} disabled={busy === m.id}
                             aria-label={`${m.name}'s signing authority`}
                             onChange={(e) => changeLevel(m.id, e.target.value)}>
-                      <option value="">— no signing authority —</option>
+                      <option value="">- no signing authority -</option>
                       {levels.map((l) => (
                         <option key={l.id} value={l.id}>
                           {l.name} · {l.limit ? "up to " + fmtCompact(l.limit) : "unlimited"}

@@ -25,7 +25,7 @@ export const DESIGNS = [
     key: "slate",
     label: "Slate",
     swatch: ["#FFFFFF", "#F4F7FB", "#1D63C4", "#0B2A5B"],
-    note: "Institutional blue on white. The register, the bank, the regulator — what an enterprise buyer expects to see.",
+    note: "Institutional blue on white. The register, the bank, the regulator - what an enterprise buyer expects to see.",
   },
   {
     key: "graphite",
@@ -37,7 +37,7 @@ export const DESIGNS = [
     key: "ink",
     label: "Ink",
     swatch: ["#F6F3EC", "#EFEBE1", "#B4261A", "#141312"],
-    note: "Ink on paper with a red seal — the registry look, matched to the signed-in screens.",
+    note: "Ink on paper with a red seal - the registry look, matched to the signed-in screens.",
   },
 ];
 

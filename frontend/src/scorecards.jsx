@@ -161,7 +161,7 @@ export function ScorecardsPage({ api }) {
               <tr>
                 <th style={{ width: 56 }}>Rank</th>
                 <th>Supplier</th>
-                {DIMENSIONS.map((d) => head(d.key, d.label, `${d.full} — ${d.weight}% of the composite`))}
+                {DIMENSIONS.map((d) => head(d.key, d.label, `${d.full} - ${d.weight}% of the composite`))}
                 {head("composite", "Composite", "The weighted model")}
               </tr>
             </thead>
@@ -418,13 +418,13 @@ export const SCORECARD_CSS = `
 /* An even split: the web chart takes half the card, the five dimension tracks
    take the other half. The chart used to sit in a fixed 320px column while the
    tracks absorbed everything left over, which on a wide monitor made the shape
-   — the thing the chart exists to show — the smaller half of its own section. */
+   - the thing the chart exists to show - the smaller half of its own section. */
 @media(min-width:900px){
   .scwrap{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}
 }
 /* Centre the chart in its half and let it grow into the space. The Radar caps
    itself with an inline max-width taken from its size prop, so the value passed
-   by SupplierCard is what actually decides how large it gets — this only keeps
+   by SupplierCard is what actually decides how large it gets - this only keeps
    it centred once it stops growing. */
 .scchart{display:flex;flex-direction:column;align-items:center}
 /* No label gutter here any more. Radar measures its own drawn content and sizes
@@ -465,7 +465,7 @@ export const SCORECARD_CSS = `
   font-variant-numeric:tabular-nums;color:var(--muted)}
 .sc-rank .lead{background:var(--green-tint);color:var(--green-deep);font-weight:700}
 
-/* The wash behind a score. One hue, opacity carries magnitude — sequential,
+/* The wash behind a score. One hue, opacity carries magnitude - sequential,
    because this is "how much", not "which one". The digits sit above it in ink
    so contrast never depends on the fill. */
 .sc-cell{position:relative;isolation:isolate}

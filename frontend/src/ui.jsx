@@ -532,7 +532,7 @@ export const RADAR_CSS = `
 .radarwrap{display:flex;flex-direction:column;align-items:center;gap:10px}
 /* A safety net, not the mechanism: Radar measures its content and widens its
    viewBox to fit the labels (see the comment there). This only covers the frame
-   before that measurement lands, and the case where getBBox cannot run at all —
+   before that measurement lands, and the case where getBBox cannot run at all -
    a clipped label is worse than one that briefly overlaps its neighbour. */
 .radar{overflow:visible}
 .radar .ring{fill:none;stroke:var(--line);stroke-width:1}

@@ -207,7 +207,7 @@ export function PortalHome({ api }) {
                   d={notStarted.length ? `${notStarted.length} not started` : "all started"}
                   onClick={() => setTab("invitations")} />
             <Stat k="Bids submitted" v={bidsMade.length} d={`across ${invitations.length + outcomes.length} events`} />
-            <Stat k="Win rate" v={winRate == null ? "—" : winRate + "%"}
+            <Stat k="Win rate" v={winRate == null ? "-" : winRate + "%"}
                   d={decided.length ? `${wins.length} of ${decided.length} decided` : "nothing decided yet"}
                   tone={winRate ? "var(--green)" : undefined}
                   onClick={() => setTab("outcomes")} />
@@ -605,7 +605,7 @@ export function BidRoom({ api, id }) {
       )}
       {rounds.length > 1 && rnd && (
         <div className="notice" style={{ marginBottom: 14 }}>
-          <b>{rnd.name} of {rounds.length}.</b> This is a fresh submission against the same scope —
+          <b>{rnd.name} of {rounds.length}.</b> This is a fresh submission against the same scope -
           your earlier bid stands as the record of that round and is not replaced by this one.
           {rnd.instructions ? <div style={{ marginTop: 6 }}>{rnd.instructions}</div> : null}
           {priorBids.length > 0 && (

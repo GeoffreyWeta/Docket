@@ -238,10 +238,7 @@ function DemoDoor({ onBack, onScreen, onLoggedIn }) {
                 <span className="mono faint" style={{ marginLeft: "auto" }}>one click, no password</span></div>
               <div className="cbody">
                 <p style={{ marginTop: 0, fontSize: 13.5, lineHeight: 1.6 }}>
-                  A workspace already in motion: tenders open for bids, envelopes sealed and waiting,
-                  a panel mid-scoring, an award waiting on a signature. Pick whose desk you want to
-                  see it from — <b>separation of duties is the product</b>, so each of these people
-                  can do genuinely different things.
+                  Choose an account to try the demo.
                 </p>
                 {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 12 }}>{msg}</div>}
                 <div className="demogrid">
@@ -253,8 +250,7 @@ function DemoDoor({ onBack, onScreen, onLoggedIn }) {
                   ))}
                 </div>
                 <div className="muted" style={{ fontSize: 11.5, marginTop: 10 }}>
-                  Everything here is invented. Nothing you do to it matters, and it can be reset from
-                  the account menu at any time.
+                  Sample data. Reset anytime from the account menu.
                 </div>
               </div>
             </div>
@@ -268,8 +264,7 @@ function DemoDoor({ onBack, onScreen, onLoggedIn }) {
                   Seen enough?
                 </div>
                 <div className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
-                  Three short steps — you, your company, your team — and you land signed in to an
-                  empty workspace of your own. About two minutes.
+                  Create a workspace for your company.
                 </div>
                 {cfg.signupUrl
                   ? <a className="btn pri" style={{ width: "100%", justifyContent: "center" }}
@@ -341,18 +336,21 @@ export default function App() {
   // Deployment appearance also applies to direct sign-in and workspace loads.
   useEffect(() => {
     let active = true;
-    authConfig().then((cfg) => {
+    const loadAppearance = () => authConfig().then((cfg) => {
       if (!active) return;
       applyLayout(cfg.landing);
       applyAccent(cfg.accent);
     }).catch(() => {});
+    loadAppearance();
+    const timer = setInterval(loadAppearance, 30000);
+    window.addEventListener("focus", loadAppearance);
     /* The cleanup does NOT strip the attributes, and that is the fix for the
        flash rather than an oversight. They are stamped server-side on <html>
        (see docket/urls.py SpaShell), and this effect re-runs on navigation —
        so clearing them here repainted the page in the default accent for the
        moment between unmount and the next fetch resolving. The deployment's
        appearance does not change because somebody opened a different page. */
-    return () => { active = false; };
+    return () => { active = false; clearInterval(timer); window.removeEventListener("focus", loadAppearance); };
   }, [token, screen?.name]);
   /* Back to the front door, and put the address bar back with it. Named
      `toLogin` when the root WAS the sign-in form; it goes to the landing page

@@ -48,7 +48,7 @@ async function req(path, { method = "GET", body } = {}) {
 
 /* ---------------- helpers ---------------- */
 
-const fmtDate = (ms) => (ms ? new Date(ms).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" }) : "—");
+const fmtDate = (ms) => (ms ? new Date(ms).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" }) : "-");
 const fmtWhen = (ms) => (ms ? new Date(ms).toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "never");
 
 const ALPHABET = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%^&*-_=+";
@@ -142,7 +142,7 @@ function Pills({ user: u }) {
   const consoleOnly = u.role === "superadmin";
   return (
     <>
-      {!consoleOnly && <span className="chip soft">{u.roleLabel.split("—")[0].trim()}</span>}
+      {!consoleOnly && <span className="chip soft">{u.roleLabel.split(/\s[—-]\s/)[0].trim()}</span>}
       {u.isAdmin && <span className="chip gold">administrator</span>}
       {consoleOnly && <span className="chip soft">no workspace access</span>}
     </>
@@ -373,7 +373,7 @@ export function UserPanel({ state, user, onClose, onSaved, toast }) {
           {isVendor ? (
             <div className="notice">
               This is a vendor account: {u.name} registered themselves and is prequalified in the
-              workspace. Vendors hold no buyer-side capabilities and cannot be given a buyer role —
+              workspace. Vendors hold no buyer-side capabilities and cannot be given a buyer role -
               they sit on the other side of the seal.
             </div>
           ) : (
@@ -399,8 +399,8 @@ export function UserPanel({ state, user, onClose, onSaved, toast }) {
           )}
 
           <div className="lbl" style={{ marginTop: 22 }}>How their account stands</div>
-          <div className="kv"><span>Can sign in</span><b>{u.active ? "Yes" : "No — disabled"}</b></div>
-          <div className="kv"><span>This console</span><b>{u.isAdmin ? "Yes — full access" : "No"}</b></div>
+          <div className="kv"><span>Can sign in</span><b>{u.active ? "Yes" : "No - disabled"}</b></div>
+          <div className="kv"><span>This console</span><b>{u.isAdmin ? "Yes - full access" : "No"}</b></div>
           <div className="kv"><span>Two-factor</span><b>{u.mfa ? "On" : "Not set up yet"}</b></div>
           <div className="kv"><span>With you since</span><b>{fmtDate(u.joined)}</b></div>
 
@@ -552,7 +552,7 @@ export function NewUserDialog({ state, onClose, onSaved, toast }) {
       <div className="frow"><label className="lbl">Role</label>
         <select className="in" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>
           {state.roles.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
-          <option value="superadmin">Administrator only — this console, no workspace access</option>
+          <option value="superadmin">Administrator only - this console, no workspace access</option>
         </select></div>
       {f.role !== "superadmin" && (
         <div className="frow"><label className="lbl">Job title (optional)</label>
@@ -666,7 +666,7 @@ export function PeopleTab({ state, reload, toast }) {
 
       {filter !== "attention" && needing > 0 && (
         <div className="notice friendly">
-          {needing === 1 ? "One account needs a look" : `${needing} accounts need a look`} — disabled,
+          {needing === 1 ? "One account needs a look" : `${needing} accounts need a look`} - disabled,
           or signed in with nothing assigned yet.{" "}
           <button className="doclink" onClick={() => setFilter("attention")}>Show them</button>
         </div>
@@ -724,7 +724,7 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
   return (
     <Dialog title={creating ? "New role" : role.label} onClose={onClose} wide footer={
       <>
-        {readOnly && <span className="mono faint" style={{ marginRight: "auto", fontSize: 11 }}>built-in — separation of duties is enforced in code</span>}
+        {readOnly && <span className="mono faint" style={{ marginRight: "auto", fontSize: 11 }}>built-in - separation of duties is enforced in code</span>}
         <button className="btn" onClick={onClose} disabled={busy}>{readOnly ? "Close" : "Cancel"}</button>
         {!readOnly && (
           <button className="btn pri" onClick={save} disabled={busy || f.label.trim().length < 2}>
@@ -806,7 +806,7 @@ export function RolesTab({ state, reload, toast }) {
       <div className="toolrow">
         <div className="muted" style={{ fontSize: 12.5, flex: 1 }}>
           The four built-in roles carry the separation of duties the system is built on and cannot be
-          edited. Anything else you need — a CEO, a legal reviewer, a board observer — you invent here.
+          edited. Anything else you need - a CEO, a legal reviewer, a board observer - you invent here.
         </div>
         <button className="btn pri sm" onClick={() => setCreating(true)}><Icon n="plus" s={14} /> New role</button>
       </div>
@@ -815,14 +815,14 @@ export function RolesTab({ state, reload, toast }) {
         {state.roles.map((r) => (
           <div className="card rolecard" key={r.key}>
             <div className="chead">
-              <h3>{r.label.split("—")[0].trim()}</h3>
+              <h3>{r.label.split(/\s[—-]\s/)[0].trim()}</h3>
               {r.builtin
                 ? <span className="chip" style={{ marginLeft: "auto" }}>built-in</span>
                 : <span className="chip gold" style={{ marginLeft: "auto" }}>custom</span>}
             </div>
             <div className="cbody">
               <div className="muted" style={{ fontSize: 12.5, minHeight: 34 }}>
-                {r.note || (r.builtin ? r.label.split("—")[1]?.trim() || "" : "No note.")}
+                {r.note || (r.builtin ? r.label.split(/\s[—-]\s/)[1]?.trim() || "" : "No note.")}
               </div>
               <div className="kv"><span>Can do</span><b>{r.perms.length} thing{r.perms.length === 1 ? "" : "s"}</b></div>
               <div className="kv"><span>People on it</span><b>{r.people === 0 ? "nobody yet" : r.people}</b></div>
@@ -869,9 +869,9 @@ export function LogTab() {
                 <td data-l="When" className="faint" title={fmtWhen(e.at)}>{ago(e.at)}</td>
                 <td data-l="Administrator">{e.actor}</td>
                 <td data-l="Action"><b>{e.action}</b></td>
-                <td data-l="Target">{e.target || "—"}</td>
-                <td data-l="Detail" className="muted">{e.detail || "—"}</td>
-                <td data-l="From" className="mono faint">{e.ip || "—"}</td>
+                <td data-l="Target">{e.target || "-"}</td>
+                <td data-l="Detail" className="muted">{e.detail || "-"}</td>
+                <td data-l="From" className="mono faint">{e.ip || "-"}</td>
               </tr>
             ))}
             {rows && !rows.length && <tr><td colSpan={6} className="muted" style={{ padding: 18 }}>Nothing has been changed here yet.</td></tr>}
@@ -908,7 +908,7 @@ function AppearanceTab({ current, accent, onChanged, toast }) {
       await req("/appearance/", { method: "POST", body: { accent: key } });
       await onChanged();
       toast.ok(`Accent is now ${accentOf(key).label}`,
-               "Everyone sees it on their next reload.");
+               "Applied across the app. Open sessions update automatically.");
     } catch (e) {
       applyAccent(was);
       toast.warn("That didn't go through", e.message || "");
@@ -970,35 +970,30 @@ function AppearanceTab({ current, accent, onChanged, toast }) {
           })}
         </div>
       </div>
-      {current === "studio" && (
-        <div className="cbody" style={{ borderTop: "1px solid var(--line)" }}>
-          <div className="lbl" style={{ marginBottom: 4 }}>Studio accent</div>
-          <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
-            The one colour inside the Studio look. Click to see it — this console
-            wears the same layout, so it repaints as you go. Every option was
-            measured first: each carries text on white, survives white text on
-            top of it as a button, and has a dark-mode step that works.
-          </div>
-          <div className="accentrow">
-            {ACCENTS.map((a) => {
-              const on = a.key === accent;
-              return (
-                <button type="button" key={a.key} disabled={!!busy}
-                        className={"accentchip" + (on ? " on" : "")}
-                        aria-pressed={on} title={a.note}
-                        onClick={() => tryAccent(a.key)}>
-                  <i style={{ background: a.hex }} aria-hidden="true" />
-                  <span>{a.label}</span>
-                  {on && <b>in use</b>}
-                </button>
-              );
-            })}
-          </div>
-          <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-            {accentOf(accent).note}
-          </div>
+      <div className="cbody" style={{ borderTop: "1px solid var(--line)" }}>
+        <div className="lbl" style={{ marginBottom: 4 }}>App colour</div>
+        <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
+          Applies to the website, sign-in and workspace in every layout.
         </div>
-      )}
+        <div className="accentrow">
+          {ACCENTS.map((a) => {
+            const on = a.key === accent;
+            return (
+              <button type="button" key={a.key} disabled={!!busy}
+                      className={"accentchip" + (on ? " on" : "")}
+                      aria-pressed={on} title={a.note}
+                      onClick={() => tryAccent(a.key)}>
+                <i style={{ background: a.hex }} aria-hidden="true" />
+                <span>{a.label}</span>
+                {on && <b>in use</b>}
+              </button>
+            );
+          })}
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
+          {accentOf(accent).note}
+        </div>
+      </div>
       <div className="cbody" style={{ borderTop: "1px solid var(--line)" }}>
         <div className="muted" style={{ fontSize: 12 }}>
           Changing this is written to the console log and to the workspace's audit chain,
@@ -1058,7 +1053,7 @@ function DemoTab({ toast, onCleared }) {
             <div className="muted" style={{ fontSize: 12.5, marginTop: 6, lineHeight: 1.6 }}>
               {done
                 ? "The demo data has been removed. This workspace now holds only what you put in it."
-                : `This workspace has no demo manifest — either the demo was never seeded here, or it
+                : `This workspace has no demo manifest - either the demo was never seeded here, or it
                    was already cleared. There is deliberately no fallback that guesses which rows look
                    like demo data: on a workspace holding an imported vendor register, guessing wrong
                    deletes the real thing.`}
@@ -1075,12 +1070,12 @@ function DemoTab({ toast, onCleared }) {
         <div className="chead">
           <h3>Demo data</h3>
           <span className="faint" style={{ marginLeft: "auto", fontSize: 11.5 }}>
-            seeded {p.seededAt ? ago(p.seededAt) : "—"}
+            seeded {p.seededAt ? ago(p.seededAt) : "-"}
           </span>
         </div>
         <div className="cbody">
           <div className="muted" style={{ fontSize: 13, lineHeight: 1.65, marginBottom: 14 }}>
-            This workspace was set up with a worked example — a fictional company called{" "}
+            This workspace was set up with a worked example - a fictional company called{" "}
             <b>Kestrel Hospitality Group</b>, its vendors, tenders and a two-year finance ledger.
             It is there so the product has something to show before you have data of your own.
             Removing it leaves the accounts, roles and settings you have made, and anything you
@@ -1091,7 +1086,7 @@ function DemoTab({ toast, onCleared }) {
             <div className="demoside gone">
               <div className="dsh">
                 <Icon n="alert" s={14} />
-                Removed — {p.totals.removing.toLocaleString()} {p.totals.removing === 1 ? "record" : "records"}
+                Removed - {p.totals.removing.toLocaleString()} {p.totals.removing === 1 ? "record" : "records"}
               </div>
               {p.removing.map((r) => (
                 <div className="dsrow" key={r.model}>
@@ -1102,7 +1097,7 @@ function DemoTab({ toast, onCleared }) {
             <div className="demoside kept">
               <div className="dsh">
                 <Icon n="shield" s={14} />
-                Kept — {p.totals.keeping.toLocaleString()} {p.totals.keeping === 1 ? "record" : "records"}
+                Kept - {p.totals.keeping.toLocaleString()} {p.totals.keeping === 1 ? "record" : "records"}
               </div>
               {p.keeping.length ? p.keeping.map((r) => (
                 <div className="dsrow" key={r.model}>

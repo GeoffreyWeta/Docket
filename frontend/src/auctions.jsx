@@ -214,8 +214,8 @@ export function AuctionsPage({ api }) {
                   onPick: () => setDraft({ title: "" }) }]
              : []}>
       <Figures>
-        <Quiet n={rows ? rows.length : "—"} label="auctions" />
-        <Quiet n={rows ? liveOnes : "—"} label="open now"
+        <Quiet n={rows ? rows.length : "-"} label="auctions" />
+        <Quiet n={rows ? liveOnes : "-"} label="open now"
                tone={liveOnes ? "var(--green)" : undefined} />
       </Figures>
     </Guide>
@@ -854,7 +854,7 @@ function DraftAuction({ api, a, refresh }) {
             <label className="lbl" htmlFor="ac-pick" style={{ marginTop: 12 }}>Invite from your register</label>
             <select id="ac-pick" className="in" multiple size={Math.min(8, Math.max(3, available.length))}
                     value={pick} onChange={(e) => setPick([...e.target.selectedOptions].map((o) => o.value))}>
-              {available.map((x) => <option key={x.id} value={x.id}>{x.name}{x.category ? ` — ${x.category}` : ""}</option>)}
+              {available.map((x) => <option key={x.id} value={x.id}>{x.name}{x.category ? ` - ${x.category}` : ""}</option>)}
             </select>
             <div className="hint">Hold Ctrl or Cmd to pick several. {available.length} vendor(s) not yet invited.</div>
             <div className="formrow" style={{ marginTop: 12 }}>
@@ -1011,9 +1011,9 @@ export function AuctionPage({ api, id }) {
                    : "No further bids can land. The standings are final."}
            items={items}>
       <Figures>
-        <Quiet n={a.participants != null ? a.participants : "—"} label="invited" />
-        <Quiet n={a.movements != null ? a.movements : "—"} label="price movements" />
-        <Quiet n={best ? fmtCompact(best.amount) : "—"} label="best price"
+        <Quiet n={a.participants != null ? a.participants : "-"} label="invited" />
+        <Quiet n={a.movements != null ? a.movements : "-"} label="price movements" />
+        <Quiet n={best ? fmtCompact(best.amount) : "-"} label="best price"
                tone={best ? "var(--green)" : undefined} />
         <Quiet n={a.extensions || 0} label="extensions used" />
       </Figures>

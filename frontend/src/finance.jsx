@@ -239,7 +239,7 @@ function SavingsTab({ d, api }) {
               d={`${bud.n} award${bud.n === 1 ? "" : "s"} with no prior price recorded`}
               tone="var(--s4)" />
         <Stat k="Highest single saving"
-              v={s.highest ? fmtCompact(s.highest.amount) : "—"}
+              v={s.highest ? fmtCompact(s.highest.amount) : "-"}
               d={s.highest ? s.highest.ref : "nothing awarded yet"} />
       </div>
 
@@ -247,7 +247,7 @@ function SavingsTab({ d, api }) {
         <div className="cbody" style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6 }}>
           <b style={{ color: "var(--ink)" }}>Three numbers, kept apart.</b>{" "}
           <b>Negotiated</b> compares an award to what the organisation was actually paying
-          before — a prior contract, an incumbent's renewal quote. That is the figure that
+          before - a prior contract, an incumbent's renewal quote. That is the figure that
           survives a review. <b>Against budget</b> compares it to the ceiling somebody
           estimated beforehand, which measures the estimate as much as the buying.{" "}
           <b>Cost avoidance</b> compares it to the median bid received: real money not
@@ -293,7 +293,7 @@ function SavingsTab({ d, api }) {
             : <Empty>Nothing awarded yet.</Empty>}
         </Figure>
 
-        <Figure title="Negotiated savings over time" sub="cumulative — the defensible line" tall
+        <Figure title="Negotiated savings over time" sub="cumulative - the defensible line" tall
                 table={<DataTable
                   cols={[{ key: "key", label: "Month" },
                          { key: "value", label: "Cumulative", num: true, render: (r) => fmtMoney(r.value) }]}
@@ -324,7 +324,7 @@ function SavingsTab({ d, api }) {
                         fromLabel="Budget" toLabel="Awarded" goodDown />
               <div className="muted" style={{ fontSize: 12, paddingTop: 10, lineHeight: 1.5 }}>
                 Months with an award that carried an approved budget. Ledger contracts
-                that never had one are not counted here — they appear under Spend.
+                that never had one are not counted here - they appear under Spend.
               </div>
             </>
           ) : (
@@ -384,13 +384,13 @@ function SpendTab({ d, api }) {
         <Stat k="Committed spend" v={<CountUp n={spend._total} format={fmtCompact} />}
               d={`${spend._units} contracts and awards`} />
         <Stat k="Largest single line"
-              v={slice.rows.length ? fmtCompact(slice.rows[0].value) : "—"}
-              d={slice.rows.length ? `${slice.rows[0].label} — ${slice.label.toLowerCase()}` : ""} />
+              v={slice.rows.length ? fmtCompact(slice.rows[0].value) : "-"}
+              d={slice.rows.length ? `${slice.rows[0].label} - ${slice.label.toLowerCase()}` : ""} />
         <Stat k="Not yet recorded" v={unrecorded ? fmtCompact(unrecorded) : "none"}
               d={unrecorded ? `not coded to a ${slice.label.toLowerCase()}` : `every commitment carries a ${slice.label.toLowerCase()}`}
               tone={unrecorded ? "var(--wax)" : null} />
         <Stat k="This quarter"
-              v={t.quarterly.length ? fmtCompact(t.quarterly[t.quarterly.length - 1].value) : "—"}
+              v={t.quarterly.length ? fmtCompact(t.quarterly[t.quarterly.length - 1].value) : "-"}
               d={t.quarterly.length ? t.quarterly[t.quarterly.length - 1].key : ""} />
       </div>
 
@@ -405,7 +405,7 @@ function SpendTab({ d, api }) {
 
       <div className="grid g2">
         <Figure title={`Spend by ${slice.label.toLowerCase()}`}
-                sub="committed — awarded or contracted, not invoiced"
+                sub="committed - awarded or contracted, not invoiced"
                 table={<DataTable
                   cols={[{ key: "label", label: slice.label },
                          { key: "value", label: "Committed", num: true, render: (r) => fmtMoney(r.value) },
@@ -469,7 +469,7 @@ function SpendTab({ d, api }) {
                 table={<DataTable
                   cols={[{ key: "key", label: "Month" },
                          { key: "value", label: "Days", num: true,
-                           render: (r) => (r.value == null ? "—" : Math.round(r.value)) }]}
+                           render: (r) => (r.value == null ? "-" : Math.round(r.value)) }]}
                   rows={t.cycleTime} />}>
           {t.cycleTime.length ? (
             <Columns data={columns(t.cycleTime, slot(6))}
@@ -673,7 +673,7 @@ function ContractList({ rows }) {
       })}
       {rows.length > 40 && (
         <div className="muted" style={{ fontSize: 12, padding: "10px 6px 0" }}>
-          and {rows.length - 40} more — the table views above have them all.
+          and {rows.length - 40} more - the table views above have them all.
         </div>
       )}
     </div>
@@ -785,7 +785,7 @@ function PaymentsTab({ d, api }) {
               ))}
               {p.overdue.length > 10 && (
                 <div className="muted" style={{ fontSize: 12, paddingTop: 8 }}>
-                  and {p.overdue.length - 10} more — the table view has them all.
+                  and {p.overdue.length - 10} more - the table view has them all.
                 </div>
               )}
             </div>
@@ -805,7 +805,7 @@ function ComplianceTab({ d, api }) {
   return (
     <>
       <div className="grid g4" style={{ marginBottom: 14 }}>
-        <Stat k="Compliance score" v={c.score == null ? "—" : Math.round(c.score) + "%"}
+        <Stat k="Compliance score" v={c.score == null ? "-" : Math.round(c.score) + "%"}
               d={`mean of ${c.measured} checks that had something to measure`}
               tone={c.score >= 90 ? "var(--green)" : c.score >= 75 ? "var(--s4)" : "var(--wax)"} />
         <Stat k="Exceptions" v={c.exceptions} d="individual failures across all checks"
@@ -820,7 +820,7 @@ function ComplianceTab({ d, api }) {
         <div className="cbody" style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6 }}>
           <b style={{ color: "var(--ink)" }}>The score is the least useful thing here.</b>{" "}
           It is the unweighted mean of the checks below, and it moves for reasons that have
-          nothing to do with control — running more tenders in a quarter changes it.
+          nothing to do with control - running more tenders in a quarter changes it.
           What is worth reading is which check is lowest and what sits behind it, so each
           one lists its own failures. Checks with nothing to measure are excluded rather
           than scored as 100%.
@@ -904,7 +904,7 @@ function RiskTab({ d, api }) {
         {/* The subtitle counts a different population from the headline, so it
             names it. "1 / 1 vendor(s) have no limit on file" reads as though
             the two numbers are the same fact. */}
-        <Stat k="Vendors over limit" v={hidden ? "—" : over.length}
+        <Stat k="Vendors over limit" v={hidden ? "-" : over.length}
               d={hidden ? "you don't have access to vendor payables"
                 : `of ${exposure.length} carrying exposure`
                   + (noLimit.length
@@ -922,7 +922,7 @@ function RiskTab({ d, api }) {
                   cols={[{ key: "supplier", label: "Vendor" },
                          { key: "exposure", label: "Exposure", num: true, render: (r) => fmtMoney(r.exposure) },
                          { key: "limit", label: "Limit", num: true, render: (r) => (r.limit ? fmtMoney(r.limit) : "none set") },
-                         { key: "usage", label: "Used", num: true, render: (r) => (r.usage == null ? "—" : pct(r.usage, 0)) }]}
+                         { key: "usage", label: "Used", num: true, render: (r) => (r.usage == null ? "-" : pct(r.usage, 0)) }]}
                   rows={exposure.map((r) => ({ ...r, key: r.supplierId }))} />}>
           {exposure.length ? (
             <Bars data={exposure.slice(0, 10).map((r) => ({
@@ -932,7 +932,7 @@ function RiskTab({ d, api }) {
           ) : hidden ? (
             <Empty icon="lock">
               Vendor exposure is part of payables, which your account cannot see. The
-              figures exist — they are withheld here, not absent.
+              figures exist - they are withheld here, not absent.
             </Empty>
           ) : <Empty icon="shield">Nothing is currently owed or committed.</Empty>}
         </Figure>
@@ -952,7 +952,7 @@ function RiskTab({ d, api }) {
               <div className="bigfig">
                 <b className={fx.movement > 0 ? "waxfg" : ""}>{delta(fx.movement)}</b>
                 <span>
-                  more to settle the same commitments than when they were signed —{" "}
+                  more to settle the same commitments than when they were signed -{" "}
                   {fmtCompact(fx.atStruck)} → {fmtCompact(fx.atToday)}
                 </span>
               </div>
@@ -983,7 +983,7 @@ function RiskTab({ d, api }) {
               <b style={{ color: "var(--ink)" }}>Signals, not a solvency estimate.</b>{" "}
               DOCKET cannot see a vendor's balance sheet. What it can see is how they bid,
               how much of our exposure sits with them, and whether their paperwork is
-              current. Each observation is listed so you can judge it — there is no score,
+              current. Each observation is listed so you can judge it - there is no score,
               because a number here would be an accusation with arithmetic painted on it.
             </div>
             {hidden ? (
@@ -1049,7 +1049,7 @@ function RiskRegister({ d }) {
                     </span>
                   </td>
                   <td className="muted">{r.basis}</td>
-                  <td className="num mono">{r.value ? fmtCompact(r.value) : "—"}</td>
+                  <td className="num mono">{r.value ? fmtCompact(r.value) : "-"}</td>
                 </tr>
               );
             })}
@@ -1082,7 +1082,7 @@ function FraudPanel({ d, api }) {
       <div className="cbody">
         <div className="muted" style={{ fontSize: 12.5, marginBottom: 12, lineHeight: 1.6 }}>
           <b style={{ color: "var(--ink)" }}>Indicators, counted separately.</b>{" "}
-          None of these proves anything on its own — a duplicate reference is usually a
+          None of these proves anything on its own - a duplicate reference is usually a
           vendor resending an invoice, and an order without a receipt is usually paperwork
           running late. They are here because <i>together</i> they are the shape a review
           looks for, and because each one is cheap to check and expensive to miss.
@@ -1134,7 +1134,7 @@ function ExceptionsTab({ d, api }) {
         <div className="cbody" style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6 }}>
           These run automatically on every background sweep, and anything marked{" "}
           <b>needs attention</b> also raises a notification to everyone who can see this
-          page — once per finding, not once per sweep. Findings marked <b>watch</b> are
+          page - once per finding, not once per sweep. Findings marked <b>watch</b> are
           listed here but do not notify: a notification for every contract ninety days from
           expiry would train everybody to ignore the channel that also carries the
           duplicate invoices.
@@ -1158,7 +1158,7 @@ function ExceptionsTab({ d, api }) {
         <div className="card"><div className="cbody">
           <Empty icon="check">
             Nothing is failing any of the eight checks. That is worth a second look at the
-            banner above — a clean sheet on a stale ledger is not the same as a clean sheet.
+            banner above - a clean sheet on a stale ledger is not the same as a clean sheet.
           </Empty>
         </div></div>
       )}
@@ -1222,7 +1222,7 @@ export const FINANCE_CSS = `
   margin-right:2px}
 
 /* A headline that is a sentence, for the places where one number needs a clause
-   after it to mean anything — an FX movement, an avoidance total. */
+   after it to mean anything - an FX movement, an avoidance total. */
 .bigfig{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:2px 0 14px}
 .bigfig b{font-size:26px;font-weight:600;letter-spacing:-.01em}
 .bigfig span{font-size:12.5px;color:var(--muted);flex:1;min-width:180px;line-height:1.5}

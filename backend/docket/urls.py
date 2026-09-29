@@ -55,11 +55,9 @@ class SpaShell(TemplateView):
             from core.views import landing_design, studio_accent
             layout = landing_design()
             ctx["layout"] = layout if layout == "studio" else ""
-            # Blue is the block already written on the layout, applied by the
-            # ABSENCE of the attribute — see applyAccent in studio.js. Emitting
-            # it would mean two places decide what blue is.
+            # Stamp the chosen colour for every layout, including default blue.
             accent = studio_accent()
-            ctx["accent"] = accent if accent and accent != "blue" else ""
+            ctx["accent"] = accent or "blue"
         except Exception:
             # A shell that renders unstyled is recoverable; one that 500s is a
             # blank page. The bundle still applies both from the config fetch.

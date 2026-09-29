@@ -78,7 +78,7 @@ export function BaselineBackfill({ api, onClose }) {
       const out = await api.finance.adoptBaselines(picks);
       const n = out.applied.length;
       toast.ok(n ? `${n} baseline${n === 1 ? "" : "s"} adopted` : "Nothing was applied",
-               out.skipped.length ? `${out.skipped.length} refused — see the list.` : "");
+               out.skipped.length ? `${out.skipped.length} refused - see the list.` : "");
       setPicked(new Set());
       await load();
       refresh();
@@ -201,7 +201,7 @@ function BackfillRow({ r, picked, onToggle, open, onOpen }) {
                     and lay out as columns. */}
                 <span>
                   This award cost <b>more</b> than the contract it replaced, so it would report a
-                  loss rather than a saving. That may be exactly right — prices rise — but it is a
+                  loss rather than a saving. That may be exactly right - prices rise - but it is a
                   claim worth making deliberately, so it is left out of bulk adoption.
                 </span>
               </div>
