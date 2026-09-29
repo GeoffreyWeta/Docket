@@ -3,7 +3,8 @@
 import React, { useEffect, useState } from "react";
 
 import {
-  acceptInvite, claimVendor, forgotPassword, lookupClaim, registerVendor, resetPassword, verifyVendor,
+  acceptInvite, claimVendor, demoLogin, forgotPassword, inDemo, lookupClaim, registerVendor,
+  resetPassword, verifyVendor,
 } from "./api";
 import { ICON_CSS } from "./icons";
 import { MOTION_CSS } from "./motion";
@@ -119,7 +120,7 @@ export function VerifyVendor({ token, onDone }) {
    So this screen tells them who they are before it asks for anything. The only
    field is a password: the company, the email and the vendor code all come from
    the register, and the token is what proves the claim. */
-export function ClaimVendor({ token, onDone }) {
+export function ClaimVendor({ token, onDone, onLoggedIn }) {
   const [sup, setSup] = useState(null);
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
@@ -136,8 +137,21 @@ export function ClaimVendor({ token, onDone }) {
   const submit = async () => {
     if (pw !== pw2) { setMsg("The two passwords don't match."); return; }
     setBusy(true); setMsg("");
-    try { await claimVendor(token, pw); setState("done"); }
-    catch (e) { setMsg(e.message); }
+    try {
+      await claimVendor(token, pw);
+      /* In the demo the visitor is walking through somebody else's shoes, not
+         keeping a password, so they go straight in as the vendor they just
+         became - onto the portal with the invitation waiting. Everywhere else
+         the done screen sends them to sign in, as it always has. */
+      if (inDemo() && onLoggedIn && sup && sup.email) {
+        try {
+          const res = await demoLogin(sup.email);
+          onLoggedIn(res, sup.email);
+          return;
+        } catch (e) { /* fall through to the done screen */ }
+      }
+      setState("done");
+    } catch (e) { setMsg(e.message); }
     setBusy(false);
   };
 

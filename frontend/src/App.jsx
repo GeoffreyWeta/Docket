@@ -444,7 +444,8 @@ export default function App() {
 
   if (screen) {
     if (screen.name === "register") return <RegisterVendor onDone={toLogin} />;
-    if (screen.name === "claim") return <ClaimVendor token={screen.token} onDone={toLogin} />;
+    if (screen.name === "claim") return <ClaimVendor token={screen.token} onDone={toLogin}
+        onLoggedIn={(res, username) => { storeAuth(res.token, username); toLogin(); setToken(res.token); }} />;
     if (screen.name === "verify") return <VerifyVendor token={screen.token} onDone={toLogin} />;
     if (screen.name === "invite") return <AcceptInvite token={screen.token} onDone={toLogin} />;
     if (screen.name === "reset") return <ResetPassword token={screen.token} onDone={toLogin} />;

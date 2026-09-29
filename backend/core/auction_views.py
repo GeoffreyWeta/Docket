@@ -20,11 +20,15 @@ default is the strictest useful one:
 A vendor never receives another vendor's identity in any position, and the
 undisclosed reserve is never sent to a bidder in any position at all.
 """
+from django.conf import settings
 from django.http import JsonResponse
 
 from . import auction as engine
-from .models import Auction, AuctionLot, AuctionParticipant, LotBid, Supplier
+from . import bulk_invite
+from .models import (ActionToken, Auction, AuctionLot, AuctionParticipant, LotBid,
+                     Profile, Supplier)
 from .permissions import has
+from .taxonomy import canonical
 from .util import now_ms, record_event, rid
 from .notify import notify_supplier
 from .views import err, log, org_name, route
@@ -350,6 +354,223 @@ def disqualify(request, p, body, aid, pid):
     part.save(update_fields=["disqualified", "disqualified_reason"])
     log(p, "Auction bidder disqualified", f"{part.supplier_id} from {a.ref}: {reason}")
     return JsonResponse({"ok": True})
+
+
+# ---------------- inviting from a list ----------------
+#
+# The people a buyer wants in the room are very often a spreadsheet: names and
+# addresses from last year's auction, a category manager's contacts, a list a
+# colleague forwarded. Picking them one by one out of a 1,400-row register is
+# how an auction ends up with three bidders instead of twelve.
+#
+# The same two steps as the bulk invitations in invite_views.py, for the same
+# reason - an invitation cannot be unsent, so the preview is the confirmation.
+# `parse` reads the file and says, row by row, what adding it would do and
+# writes nothing. `invite_list` takes back the rows that were confirmed.
+
+LIST_CAP = 500
+_OVER = ("closed", "awarded", "cancelled")
+
+
+def _vendor_index():
+    """Every way a row in somebody's spreadsheet can name a vendor we hold,
+    and which of those vendors already have a login."""
+    by_email, by_name, logins = {}, {}, {}
+    for s in Supplier.objects.only("id", "name", "contact_email"):
+        if s.contact_email:
+            by_email.setdefault(s.contact_email.strip().lower(), s)
+        by_name.setdefault(s.name.strip().lower(), s)
+    # A vendor's login is an address too, and often the one people have.
+    for pr in Profile.objects.filter(supplier__isnull=False).select_related("user", "supplier"):
+        logins.setdefault(pr.supplier_id, pr.user.email or pr.user.username)
+        for e in (pr.user.email, pr.user.username):
+            if e and "@" in e:
+                by_email.setdefault(e.strip().lower(), pr.supplier)
+    return by_email, by_name, logins
+
+
+def _label(r):
+    """The name a new vendor record gets: the company, else the person."""
+    return (r.get("company") or r.get("name") or r["email"]).strip()[:120]
+
+
+def _bidder_key(r):
+    """Group company contacts, but identify individuals by their email."""
+    company = (r.get("company") or "").strip().lower()
+    return ("company", company) if company else ("individual", r["email"].lower())
+
+
+def _list_rows(a, candidates):
+    """Classify rows: bad ones out with a reason, good ones matched to the register.
+
+    An address the register already knows is that vendor, not a new one - the
+    whole point of a register is that the same company does not get a second
+    record because it arrived in a different file. A company name is the
+    fallback, matched exactly and never fuzzily: folding "Adeola Ltd" into
+    "Adeola Limited" is a decision for a person.
+
+    Each row says where its invitation will actually go, because that is not
+    always the address in the file. A vendor is one record with one way in: a
+    vendor with a login is told through it, one without is written to at the
+    register's own address, and two people from the same new company become
+    one vendor whose invitation goes to the first of them. Saying so before
+    sending is the difference between a preview and a guess.
+    """
+    ready, rejected = bulk_invite.classify(candidates, known_emails=set())
+    by_email, by_name, logins = _vendor_index()
+    already = set(a.participants.values_list("supplier_id", flat=True))
+    first_new = {}
+    rows = []
+    for r in ready:
+        s, how = by_email.get(r["email"]), "email"
+        company = (r.get("company") or "").strip()
+        if not s and company:
+            s, how = by_name.get(company.lower()), "name"
+        note = ""
+        if s:
+            sends_to = logins.get(s.id) or s.contact_email or r["email"]
+            if s.id in already:
+                note = "Already on this auction."
+            elif s.id in logins:
+                note = "Has a DOCKET login; told there and by email."
+            elif sends_to != r["email"]:
+                note = f"The register holds {sends_to} for this vendor; the invitation goes there."
+        else:
+            key = _bidder_key(r)
+            sends_to = first_new.setdefault(key, r["email"])
+            if sends_to != r["email"]:
+                note = f"Same company as {sends_to}: one vendor, one invitation, sent there."
+        rows.append({
+            "email": r["email"], "name": (r.get("name") or "").strip()[:140],
+            "company": company[:120], "sourceRow": r.get("sourceRow"),
+            "supplierId": s.id if s else None, "supplier": s.name if s else None,
+            "matchedBy": how if s else None, "inAuction": bool(s and s.id in already),
+            "sendsTo": sends_to, "note": note,
+        })
+    return rows, rejected
+
+
+@route(["POST"], perm="auction.invite")
+def invite_list_parse(request, p, body, aid):
+    """Read an uploaded list and report what adding it would do. Writes nothing."""
+    a = _find(aid)
+    if not a:
+        return err("Auction not found.", 404)
+    if a.status in _OVER:
+        return err("This auction is over, so there is nobody left to invite.", 409)
+    f = request.FILES.get("file")
+    if not f:
+        return err("Attach a .xlsx or .csv file.")
+    table, bad = bulk_invite.read_table(f.name, f.read())
+    if bad:
+        return err(bad)
+    if not table:
+        return err("That file is empty.")
+    candidates, notes = bulk_invite.extract(table, audience="vendors")
+    if not candidates:
+        return err("No email addresses found in that file. It needs a column of "
+                   "addresses, with names beside them if you have them.")
+    rows, rejected = _list_rows(a, candidates)
+    return JsonResponse({
+        "howRead": notes.get("mode"), "columns": notes.get("columns", []),
+        "rows": rows, "rejected": rejected, "cap": LIST_CAP,
+        "counts": {"found": notes.get("found", 0), "ready": len(rows),
+                   "rejected": len(rejected),
+                   "new": sum(1 for r in rows if not r["supplierId"]),
+                   "known": sum(1 for r in rows if r["supplierId"] and not r["inAuction"]),
+                   "inAuction": sum(1 for r in rows if r["inAuction"])},
+    })
+
+
+@route(["POST"], perm="auction.invite")
+def invite_list(request, p, body, aid):
+    """Put the confirmed rows on the auction, and email them if asked to.
+
+    The rows come back from the preview and are checked again here: the
+    preview is a courtesy to the person, not an authorisation.
+
+    Somebody the register does not know becomes a vendor record first -
+    unverified and unregistered, source "buyer", exactly what a buyer typing
+    them in from the Vendors page produces - because an auction invites
+    vendors, and a name and an address are enough to hold a place for one.
+    Their invitation then carries the claim link that turns that record into a
+    login (notify._mail_unclaimed), so the email and the way to act on it
+    arrive together.
+    """
+    a = _find(aid)
+    if not a:
+        return err("Auction not found.", 404)
+    if a.status in _OVER:
+        return err("This auction is over, so there is nobody left to invite.", 409)
+    raw_rows = body.get("rows") or []
+    if not isinstance(raw_rows, list) or not raw_rows:
+        return err("Nothing to add.")
+    if len(raw_rows) > LIST_CAP:
+        return err(f"That is {len(raw_rows)} people. Add them {LIST_CAP} at a time - one "
+                   f"request emailing more than that will time out before it finishes, "
+                   f"and you will not know which ones went.")
+    clean = [{"email": str(r.get("email") or ""), "name": str(r.get("name") or ""),
+              "company": str(r.get("company") or ""), "sourceRow": r.get("sourceRow")}
+             for r in raw_rows if isinstance(r, dict)]
+    rows, rejected = _list_rows(a, clean)
+
+    made, ids, created = {}, [], 0
+    for r in rows:
+        sid = r["supplierId"]
+        if not sid:
+            # Two people from the same new company share one record rather
+            # than making two vendors out of one firm.
+            label = _label(r)
+            key = _bidder_key(r)
+            sid = made.get(key)
+            if not sid:
+                s = Supplier.objects.create(
+                    id=rid("s"), name=label, contact_email=r["email"],
+                    contact_person=r["name"], category=canonical(""), location="—",
+                    prequalified=False, docs=[], perf={}, registry={},
+                    source="buyer", registered_at=None)
+                sid = made[key] = s.id
+                created += 1
+        else:
+            # A register record with no address can be reached through this one.
+            Supplier.objects.filter(pk=sid, contact_email="").update(contact_email=r["email"])
+        AuctionParticipant.objects.get_or_create(
+            auction=a, supplier_id=sid,
+            defaults={"id": rid("ap"), "invited_at": now_ms(), "invite_count": 0})
+        ids.append(sid)
+    ids = list(dict.fromkeys(ids))
+
+    # Never with an empty list: _send_invites reads "no filter" as everybody.
+    sent = _send_invites(a, p, ids) if (body.get("send") and ids) else 0
+
+    log(p, "Auction vendors invited from a list",
+        f"{len(ids)} vendor(s) from an uploaded list put on {a.ref}, {created} of them new "
+        f"to the register." + (f" {sent} emailed." if sent else " Nobody emailed yet."))
+
+    # The demo has no mailbox, so it shows the link the email carries. That is
+    # the one way a visitor can see the other side of this: open it, set a
+    # password, and arrive in the room as the vendor who was just invited.
+    links = []
+    if settings.DEMO_LOGIN and sent:
+        claimed = set(Profile.objects.filter(supplier_id__in=ids)
+                      .values_list("supplier_id", flat=True))
+        names = dict(Supplier.objects.filter(pk__in=ids).values_list("id", "name"))
+        for sid in ids:
+            if sid in claimed:
+                continue
+            tok = (ActionToken.objects.filter(kind="vendor_claim", used_at__isnull=True,
+                                              payload__supplierId=sid)
+                   .order_by("-created").first())
+            if tok:
+                links.append({"supplierId": sid, "name": names.get(sid, ""),
+                              "email": tok.email, "url": f"/?register={tok.token}"})
+
+    return JsonResponse({
+        "ok": True, "added": len(ids), "created": created, "sent": sent,
+        "notAdded": rejected, "demoLinks": links,
+        "total": a.participants.count(),
+        "untold": a.participants.filter(invite_count=0, disqualified=False).count(),
+    })
 
 
 # ---------------- the lifecycle ----------------

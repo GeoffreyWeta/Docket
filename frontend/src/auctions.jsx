@@ -29,7 +29,7 @@
    describes a phone. */
 import React, { useEffect, useRef, useState } from "react";
 
-import { raw } from "./api";
+import { raw, uploadFile } from "./api";
 import { BP } from "./breakpoints";
 import { Empty } from "./atoms";
 import { Figures, Guide, Page, Quiet } from "./page";
@@ -145,11 +145,12 @@ function useRoom(api, id) {
 /* ------------------------------------------------------------------ the list */
 
 export function AuctionsPage({ api }) {
-  const { user, go, toast } = api;
+  const { user, go, toast, state } = api;
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState("");
   const [draft, setDraft] = useState(null);      // the new-auction dialog
   const [making, setMaking] = useState(false);
+  const [demoAuction, setDemoAuction] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -194,6 +195,9 @@ export function AuctionsPage({ api }) {
   const open = (a) => go({ page: "auction", id: a.id });
   const liveOnes = (rows || []).filter((a) => a.status === "live").length;
   const monitor = can(user, "auction.monitor");
+  const inviteable = (rows || []).filter((a) => !["closed", "awarded", "cancelled"].includes(a.status));
+  const demoTarget = inviteable.find((a) => a.id === demoAuction)
+    || inviteable.find((a) => a.live) || inviteable[0];
 
   const guide = (
     <Guide art="chart"
@@ -237,6 +241,24 @@ export function AuctionsPage({ api }) {
         {can(user, "auction.create") &&
           <button className="btn pri" onClick={() => setDraft({ title: "" })}>Draft an auction</button>}
       </div>
+      {state.demoLogin && can(user, "auction.invite") && demoTarget && (
+        <div className="card">
+          <div className="chead"><h3>Try auction invitations</h3></div>
+          <div className="cbody">
+            <p>Invite a company or an individual, then open their invitation to create an account and try bidding.</p>
+            <label className="lbl" htmlFor="auction-invite-demo">Auction for this demo</label>
+            <select id="auction-invite-demo" className="in" value={demoTarget.id}
+                    onChange={(e) => setDemoAuction(e.target.value)}>
+              {inviteable.map((a) => <option key={a.id} value={a.id}>{a.ref} · {a.title}</option>)}
+            </select>
+            <div style={{ marginTop: 12 }}>
+              <InviteFromList key={demoTarget.id} api={api} a={demoTarget}
+                onChanged={() => raw("/auctions/").then((d) => setRows(d.auctions || []))
+                  .catch((e) => toast.warn("Could not refresh auctions", e.message || ""))} />
+            </div>
+          </div>
+        </div>
+      )}
       <ul className="auclist">
         {rows.map((a) => {
           const lots = lotsOf(a);
@@ -336,6 +358,185 @@ function Ready({ ok, children }) {
     <div className={"aucready" + (ok ? " on" : "")}>
       <span aria-hidden="true">{ok ? <Icon n="check" s={13} /> : <i />}</span>
       <span>{children}</span>
+    </div>
+  );
+}
+
+/* INVITING FROM A LIST. The people a buyer wants in the room are usually a
+   spreadsheet - last year's bidders, a category manager's contacts - and
+   picking them one at a time out of a 1,400-row register is how an auction
+   ends up with three bidders instead of twelve.
+
+   Two steps, like every bulk invitation in the product: the file is read and
+   shown - who each row is, whether the register already knows them, where
+   their invitation will actually go - and nothing is written or sent until
+   somebody confirms. An email cannot be unsent. */
+const SAMPLE_ROWS = [
+  ["Name", "Company", "Email"],
+  ["Tolu Bakare", "Sahel Fuels Ltd", "tolu@sahelfuels.example"],
+  ["Kemi Ade", "Sahel Fuels Ltd", "kemi@sahelfuels.example"],
+  ["Musa Bello", "", "musa@bidder.example"],
+];
+
+function sampleFile(demo) {
+  /* In the demo, one row the register already knows, so the preview shows a
+     match beside the new ones instead of only ever saying "new". */
+  const rows = demo ? [...SAMPLE_ROWS, ["Ada Obi", "Coldline Logistics", "coldline@example.com"]] : SAMPLE_ROWS;
+  return new File([rows.map((r) => r.join(",")).join("\n") + "\n"], "bidders-sample.csv", { type: "text/csv" });
+}
+
+function InviteFromList({ api, a, onChanged }) {
+  const { state, toast } = api;
+  const demo = !!state.demoLogin;
+  const input = useRef(null);
+  const [pv, setPv] = useState(null);
+  const [send, setSend] = useState(!!a.live);
+  const [busy, setBusy] = useState(false);
+  const [links, setLinks] = useState(null);
+
+  const read = async (file) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      setPv(await uploadFile(`/auctions/${a.id}/invite_list/parse/`, file));
+      setSend(!!a.live);
+    } catch (e) {
+      toast.warn("Could not read that list", e.message || "");
+    } finally {
+      setBusy(false);
+      if (input.current) input.current.value = "";
+    }
+  };
+
+  const download = () => {
+    const url = URL.createObjectURL(sampleFile(false));
+    const el = document.createElement("a");
+    el.href = url; el.download = "bidders-sample.csv";
+    document.body.appendChild(el); el.click(); el.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const confirm = async () => {
+    setBusy(true);
+    try {
+      const r = await raw(`/auctions/${a.id}/invite_list/`, { method: "POST", body: { rows: pv.rows, send } });
+      const made = r.created ? `${r.created} new to the register` : "";
+      toast.ok(`${r.added} vendor${r.added === 1 ? "" : "s"} on the auction`,
+               r.sent ? `${r.sent} invitation${r.sent === 1 ? "" : "s"} sent${made ? `, ${made}` : ""}.`
+                      : `Nobody emailed yet${made ? `; ${made}` : ""}.`);
+      setPv(null);
+      if (r.demoLinks && r.demoLinks.length) setLinks(r.demoLinks);
+      if (onChanged) onChanged();
+    } catch (e) {
+      toast.warn("That did not go through", e.message || "");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const adding = pv ? pv.rows.length - (pv.counts.inAuction || 0) : 0;
+
+  return (
+    <div>
+      <input ref={input} type="file" hidden accept=".csv,.xlsx,.xlsm,.txt"
+             onChange={(e) => read(e.target.files && e.target.files[0])} />
+      <div className="formrow" style={{ alignItems: "center" }}>
+        <button className="btn" onClick={() => input.current && input.current.click()} disabled={busy}>
+          <Icon n="upload" s={14} />{busy && !pv ? "Reading…" : "Upload a list"}
+        </button>
+        {demo && <button className="btn" onClick={() => read(sampleFile(true))} disabled={busy}>Try it with a sample list</button>}
+        <button className="doclink" onClick={download}>Download a sample file</button>
+      </div>
+      <div className="hint" style={{ marginTop: 8 }}>
+        A spreadsheet or CSV with a name and an email address on each row, and the company if you have
+        it. Leave company blank for an individual bidder. New bidders are added automatically;
+        their invitation lets them activate an account by setting a password. An account is required
+        before bidding. You review the recipients before any invitations are sent.
+      </div>
+
+      {pv && (
+        <Dialog wide title="Invite from this list?" onClose={() => !busy && setPv(null)} footer={
+          <>
+            <button className="btn" onClick={() => setPv(null)} disabled={busy}>Cancel</button>
+            <button className="btn pri" onClick={confirm} disabled={busy || !pv.rows.length}>
+              {busy ? "Adding…" : !adding ? "Nothing new to add"
+                : send ? `Add ${adding} and email them` : `Add ${adding} to the list`}
+            </button>
+          </>
+        }>
+          <p className="hint" style={{ marginTop: 0 }}>
+            {pv.howRead === "scanned"
+              ? "No column headings were recognised, so every cell was searched for addresses. Check the names before you send."
+              : `Read by column: ${(pv.columns || []).join(", ")}.`}
+          </p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <span className="chip">{pv.counts.new} new to the register</span>
+            <span className="chip ok">{pv.counts.known} already on the register</span>
+            {pv.counts.inAuction > 0 && <span className="chip">{pv.counts.inAuction} already on this auction</span>}
+            {pv.counts.rejected > 0 && <span className="chip warn">{pv.counts.rejected} left out</span>}
+          </div>
+          {pv.rows.length > 0 && (
+            <div className="tscroll">
+              <table className="tbl wide">
+                <thead><tr><th>Person</th><th>Vendor</th><th>Invitation goes to</th></tr></thead>
+                <tbody>
+                  {pv.rows.map((r, i) => (
+                    <tr key={r.email + i}>
+                      <td>{r.name || <span className="faint">no name</span>}
+                        <div className="hint mono" style={{ marginTop: 2 }}>{r.email}</div></td>
+                      <td>{r.supplier || r.company || r.name || r.email}{" "}
+                        {r.inAuction ? <span className="chip">on this auction</span>
+                          : r.supplierId ? <span className="chip ok">on the register</span>
+                          : <span className="chip">new</span>}</td>
+                      <td><span className="mono" style={{ fontSize: 12 }}>{r.sendsTo}</span>
+                        {r.note && <div className="hint" style={{ marginTop: 2 }}>{r.note}</div>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {pv.rejected.length > 0 && (
+            <details style={{ marginTop: 12 }}>
+              <summary className="hint">{pv.rejected.length} row{pv.rejected.length === 1 ? "" : "s"} left out, and why</summary>
+              {pv.rejected.map((r, i) => (
+                <div className="docrow" key={i}>
+                  <span className="mono faint">row {r.sourceRow}</span>
+                  <span>{r.email || "no address"}</span>
+                  <span className="hint" style={{ marginTop: 0 }}>{r.why}</span>
+                </div>
+              ))}
+            </details>
+          )}
+          <label className="checkline" style={{ marginTop: 14 }}>
+            <input type="checkbox" checked={send} onChange={(e) => setSend(e.target.checked)} />
+            <span>Email them now{a.live ? ": the room is open, so they can bid as soon as they arrive"
+              : ". Leave it unticked to build the list quietly; they are told when you send or when the room opens"}</span>
+          </label>
+        </Dialog>
+      )}
+
+      {/* The demo has no mailbox, so it shows the link each email carries.
+          Opening one is the only way a visitor sees the other side: set a
+          password as that vendor and arrive on their portal, auction waiting. */}
+      {links && (
+        <Dialog title="The invitations that just went out" onClose={() => setLinks(null)}
+                footer={<button className="btn pri" onClick={() => setLinks(null)}>Done</button>}>
+          <p style={{ marginTop: 0, fontSize: 13.5, lineHeight: 1.6 }}>
+            In the demo nobody's inbox is real, so here is the link each new vendor was emailed. Open one to
+            see their side: set a password as that vendor and you arrive on their portal with this auction
+            waiting.
+          </p>
+          {links.map((l) => (
+            <div className="docrow" key={l.supplierId}>
+              <span><b>{l.name}</b><div className="hint mono" style={{ marginTop: 2 }}>{l.email}</div></span>
+              <span style={{ flex: 1 }} />
+              <button className="btn sm pri" onClick={() => { window.location.href = l.url; }}>Open as this vendor</button>
+            </div>
+          ))}
+          <div className="hint" style={{ marginTop: 10 }}>You leave the buyer's desk when you do; the account menu switches you back.</div>
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -679,6 +880,11 @@ function DraftAuction({ api, a, refresh }) {
                   ? "Everybody on the list has been invited. Anyone added after this stays silent until you send again."
                   : "Nobody is emailed as you build the list. Invitations go out when you send them, or when the room opens."}
             </div>
+
+            <div className="lbl" style={{ marginTop: 18, paddingTop: 14, borderTop: "1px dashed var(--line)" }}>
+              Or invite from a list
+            </div>
+            <InviteFromList api={api} a={a} onChanged={() => { refresh(); loadParts(); }} />
           </div>
         </div>
       )}
@@ -863,6 +1069,22 @@ export function AuctionPage({ api, id }) {
           </div>
           <div className="cbody">
             <Standings st={st} moved={moved} monitor={monitor} />
+          </div>
+        </div>
+      )}
+
+      {/* More bidders while the clock runs. A room that opened with three
+          vendors is not stuck with three; the server takes a list at any
+          point before the close. */}
+      {(live || a.status === "paused") && can(user, "auction.invite") && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <div className="chead"><h3>Invite more bidders</h3>
+            <span className="mono faint" style={{ marginLeft: "auto" }}>
+              {a.participants != null ? `${a.participants} invited so far` : ""}
+            </span>
+          </div>
+          <div className="cbody">
+            <InviteFromList api={api} a={a} onChanged={refresh} />
           </div>
         </div>
       )}
