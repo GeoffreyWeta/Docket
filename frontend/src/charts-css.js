@@ -186,7 +186,7 @@ export const CHART_CSS = `
 .segmented button:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
 
 .deskfilters{display:flex;align-items:center;gap:7px;flex-wrap:wrap;
-  padding:0 16px 10px;border-bottom:1px solid var(--hair)}
+  padding:12px 16px;border-bottom:1px solid var(--hair)}
 .deskchip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);
   background:var(--card);border-radius:999px;padding:5px 12px;font:inherit;font-size:12px;
   color:var(--muted);cursor:pointer;transition:border-color .15s,color .15s}
