@@ -248,8 +248,7 @@ export function AuctionsPage({ api }) {
         <div className="card">
           <div className="chead"><h3>Try auction invitations</h3></div>
           <div className="cbody">
-            <p>Invite a company or an individual, then open their invitation to create an account and try bidding.</p>
-            <label className="lbl" htmlFor="auction-invite-demo">Auction for this demo</label>
+            <label className="lbl" htmlFor="auction-invite-demo">Auction</label>
             <select id="auction-invite-demo" className="in" value={demoTarget.id}
                     onChange={(e) => setDemoAuction(e.target.value)}>
               {inviteable.map((a) => <option key={a.id} value={a.id}>{a.ref} · {a.title}</option>)}
@@ -447,14 +446,11 @@ function InviteFromList({ api, a, onChanged }) {
         <button className="btn" onClick={() => input.current && input.current.click()} disabled={busy}>
           <Icon n="upload" s={14} />{busy && !pv ? "Reading…" : "Upload a list"}
         </button>
-        {demo && <button className="btn" onClick={() => read(sampleFile(true))} disabled={busy}>Try it with a sample list</button>}
-        <button className="doclink" onClick={download}>Download a sample file</button>
+        {demo && <button className="btn" onClick={() => read(sampleFile(true))} disabled={busy}>Try sample</button>}
+        <button className="doclink" onClick={download}>Download template</button>
       </div>
       <div className="hint" style={{ marginTop: 8 }}>
-        A spreadsheet or CSV with a name and an email address on each row, and the company if you have
-        it. Leave company blank for an individual bidder. New bidders are added automatically;
-        their invitation lets them activate an account by setting a password. An account is required
-        before bidding. You review the recipients before any invitations are sent.
+        Excel or CSV: name, email, optional company. Review before sending; new bidders set a password to join.
       </div>
 
       {pv && (
