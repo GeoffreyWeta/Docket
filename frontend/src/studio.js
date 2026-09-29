@@ -53,8 +53,7 @@ export function accentOf(key) {
     that could drift from the first. */
 export function applyAccent(id) {
   const root = document.documentElement;
-  if (id && id !== DEFAULT_ACCENT && ACCENT_KEYS.includes(id)) root.dataset.accent = id;
-  else delete root.dataset.accent;
+  root.dataset.accent = ACCENT_KEYS.includes(id) ? id : DEFAULT_ACCENT;
 }
 
 // Deployment layout, independent of the reader's light/dark preference.
@@ -197,82 +196,97 @@ export const STUDIO_CSS = `
 
    Each triple was measured before it was written down. The numbers in the
    comments are contrast ratios and they are the reason these six and not
-   others — see the note above ACCENTS. */
+   others - see the note above ACCENTS. */
 
-/* Forest — 6.54 on white · 4.77 under white · 8.85 on dark */
-:root[data-layout="studio"][data-accent="forest"]{
+/* Blue is explicit so it also overrides the house palette outside Studio. */
+:root[data-accent="blue"]{
+  --brand:#0066cc;--brand-2:#0066cc;--brand-deep:#004d99;--brand-tint:#e7f1ff;
+  --pri-from:#0071e3;--pri-to:#0071e3;--pri-from-h:#0055ad;--pri-to-h:#0055ad;
+  --pri-line:#0066cc;--pri-glow:rgba(0,102,204,.13);--on-brand:#fff;
+  --brand-ring:rgba(0,102,204,.22);--side-on-bg:#dce9fb;--side-on-ink:#004d99;
+  --newbtn-bg-h:#e7f1ff;--newbtn-line-h:#0066cc;--unread-bg:#e7f1ff;
+  --seal-hi:#b5d8ff;--seal-core:#0071e3;--seal-crack:#003f7d}
+:root[data-accent="blue"][data-theme="dark"]{
+  --brand:#80baff;--brand-2:#80baff;--brand-deep:#b6d7ff;--brand-tint:#203650;
+  --pri-from:#80baff;--pri-to:#80baff;--pri-from-h:#acd2ff;--pri-to-h:#acd2ff;
+  --pri-line:#80baff;--on-brand:#082343;--side-on-bg:#203650;--side-on-ink:#b6d7ff;
+  --newbtn-bg-h:#203650;--newbtn-line-h:#80baff;
+  --seal-hi:#d2e7ff;--seal-core:#80baff;--seal-crack:#183e69}
+
+/* Forest - 6.54 on white · 4.77 under white · 8.85 on dark */
+:root[data-accent="forest"]{
   --brand:#0f6b45;--brand-2:#0f6b45;--brand-deep:#0b5334;--brand-tint:#e6f3ed;
   --pri-from:#138354;--pri-to:#138354;--pri-from-h:#0f6b45;--pri-to-h:#0f6b45;
   --pri-line:#0f6b45;--pri-glow:rgba(19,131,84,.13);--on-brand:#fff;
   --brand-ring:rgba(19,131,84,.22);--side-on-bg:#e0efe8;--side-on-ink:#0b5334;
   --newbtn-bg-h:#e6f3ed;--newbtn-line-h:#0f6b45;--unread-bg:#eaf5ef;
   --seal-hi:#b7ddc9;--seal-core:#138354;--seal-crack:#08301f}
-:root[data-layout="studio"][data-accent="forest"][data-theme="dark"]{
+:root[data-accent="forest"][data-theme="dark"]{
   --brand:#6cc79b;--brand-2:#6cc79b;--brand-deep:#9adebd;--brand-tint:#1d3a2c;
   --pri-from:#6cc79b;--pri-to:#6cc79b;--pri-from-h:#8fd9b3;--pri-to-h:#8fd9b3;
   --pri-line:#6cc79b;--on-brand:#06281a;--side-on-bg:#1d3a2c;--side-on-ink:#9adebd;
   --newbtn-bg-h:#1d3a2c;--newbtn-line-h:#6cc79b;
   --seal-hi:#c8e9d8;--seal-core:#6cc79b;--seal-crack:#17442f}
 
-/* Teal — 6.30 on white · 4.75 under white · 9.73 on dark */
-:root[data-layout="studio"][data-accent="teal"]{
+/* Teal - 6.30 on white · 4.75 under white · 9.73 on dark */
+:root[data-accent="teal"]{
   --brand:#0f6b6b;--brand-2:#0f6b6b;--brand-deep:#0b5252;--brand-tint:#e4f2f2;
   --pri-from:#118080;--pri-to:#118080;--pri-from-h:#0f6b6b;--pri-to-h:#0f6b6b;
   --pri-line:#0f6b6b;--pri-glow:rgba(17,128,128,.13);--on-brand:#fff;
   --brand-ring:rgba(17,128,128,.22);--side-on-bg:#dcefef;--side-on-ink:#0b5252;
   --newbtn-bg-h:#e4f2f2;--newbtn-line-h:#0f6b6b;--unread-bg:#e8f4f4;
   --seal-hi:#b4dcdc;--seal-core:#118080;--seal-crack:#07302f}
-:root[data-layout="studio"][data-accent="teal"][data-theme="dark"]{
+:root[data-accent="teal"][data-theme="dark"]{
   --brand:#5ecfcf;--brand-2:#5ecfcf;--brand-deep:#92e2e2;--brand-tint:#193c3c;
   --pri-from:#5ecfcf;--pri-to:#5ecfcf;--pri-from-h:#86dede;--pri-to-h:#86dede;
   --pri-line:#5ecfcf;--on-brand:#052827;--side-on-bg:#193c3c;--side-on-ink:#92e2e2;
   --newbtn-bg-h:#193c3c;--newbtn-line-h:#5ecfcf;
   --seal-hi:#c4ecec;--seal-core:#5ecfcf;--seal-crack:#144646}
 
-/* Indigo — 7.09 on white · 5.55 under white · 7.71 on dark */
-:root[data-layout="studio"][data-accent="indigo"]{
+/* Indigo - 7.09 on white · 5.55 under white · 7.71 on dark */
+:root[data-accent="indigo"]{
   --brand:#4b3fd4;--brand-2:#4b3fd4;--brand-deep:#3a30a8;--brand-tint:#ecebfd;
   --pri-from:#5a4ef0;--pri-to:#5a4ef0;--pri-from-h:#4b3fd4;--pri-to-h:#4b3fd4;
   --pri-line:#4b3fd4;--pri-glow:rgba(90,78,240,.13);--on-brand:#fff;
   --brand-ring:rgba(90,78,240,.22);--side-on-bg:#e5e3fb;--side-on-ink:#3a30a8;
   --newbtn-bg-h:#ecebfd;--newbtn-line-h:#4b3fd4;--unread-bg:#eeedfd;
   --seal-hi:#c9c5f7;--seal-core:#5a4ef0;--seal-crack:#241c68}
-:root[data-layout="studio"][data-accent="indigo"][data-theme="dark"]{
+:root[data-accent="indigo"][data-theme="dark"]{
   --brand:#a99dff;--brand-2:#a99dff;--brand-deep:#c7bfff;--brand-tint:#2b2657;
   --pri-from:#a99dff;--pri-to:#a99dff;--pri-from-h:#c0b6ff;--pri-to-h:#c0b6ff;
   --pri-line:#a99dff;--on-brand:#140f3d;--side-on-bg:#2b2657;--side-on-ink:#c7bfff;
   --newbtn-bg-h:#2b2657;--newbtn-line-h:#a99dff;
   --seal-hi:#d6d0ff;--seal-core:#a99dff;--seal-crack:#332c66}
 
-/* Crimson — 6.50 on white · 5.27 under white · 7.74 on dark.
+/* Crimson - 6.50 on white · 5.27 under white · 7.74 on dark.
    Offered, but read the note in ACCENTS: this interface already uses red for
    a refusal, and an accent that shares it makes "primary" and "destructive"
    the same colour on a page holding both. */
-:root[data-layout="studio"][data-accent="crimson"]{
+:root[data-accent="crimson"]{
   --brand:#b3243a;--brand-2:#b3243a;--brand-deep:#8c1a2c;--brand-tint:#fce9ec;
   --pri-from:#cc2a44;--pri-to:#cc2a44;--pri-from-h:#b3243a;--pri-to-h:#b3243a;
   --pri-line:#b3243a;--pri-glow:rgba(204,42,68,.13);--on-brand:#fff;
   --brand-ring:rgba(204,42,68,.22);--side-on-bg:#f9dfe4;--side-on-ink:#8c1a2c;
   --newbtn-bg-h:#fce9ec;--newbtn-line-h:#b3243a;--unread-bg:#fdecef;
   --seal-hi:#f2c2cb;--seal-core:#cc2a44;--seal-crack:#5a0e1b}
-:root[data-layout="studio"][data-accent="crimson"][data-theme="dark"]{
+:root[data-accent="crimson"][data-theme="dark"]{
   --brand:#f58a9c;--brand-2:#f58a9c;--brand-deep:#ffb3c0;--brand-tint:#4a2028;
   --pri-from:#f58a9c;--pri-to:#f58a9c;--pri-from-h:#ffa3b3;--pri-to-h:#ffa3b3;
   --pri-line:#f58a9c;--on-brand:#3d0a14;--side-on-bg:#4a2028;--side-on-ink:#ffb3c0;
   --newbtn-bg-h:#4a2028;--newbtn-line-h:#f58a9c;
   --seal-hi:#ffc9d2;--seal-core:#f58a9c;--seal-crack:#52242c}
 
-/* Graphite — 11.31 on white · 16.83 under white · 10.75 on dark.
+/* Graphite - 11.31 on white · 16.83 under white · 10.75 on dark.
    The one with no hue at all. Every status colour in the interface still does
    its job; this only removes the accent competing with them. */
-:root[data-layout="studio"][data-accent="graphite"]{
+:root[data-accent="graphite"]{
   --brand:#3a3a3f;--brand-2:#3a3a3f;--brand-deep:#1d1d1f;--brand-tint:#ededf1;
   --pri-from:#1d1d1f;--pri-to:#1d1d1f;--pri-from-h:#39393e;--pri-to-h:#39393e;
   --pri-line:#1d1d1f;--pri-glow:rgba(29,29,31,.13);--on-brand:#fff;
   --brand-ring:rgba(29,29,31,.22);--side-on-bg:#e4e4e9;--side-on-ink:#1d1d1f;
   --newbtn-bg-h:#ededf1;--newbtn-line-h:#3a3a3f;--unread-bg:#f0f0f3;
   --seal-hi:#c7c7ce;--seal-core:#3a3a3f;--seal-crack:#1d1d1f}
-:root[data-layout="studio"][data-accent="graphite"][data-theme="dark"]{
+:root[data-accent="graphite"][data-theme="dark"]{
   --brand:#c7c7ce;--brand-2:#c7c7ce;--brand-deep:#e0e0e7;--brand-tint:#333338;
   --pri-from:#e8e8ed;--pri-to:#e8e8ed;--pri-from-h:#fff;--pri-to-h:#fff;
   --pri-line:#e8e8ed;--on-brand:#1d1d1f;--side-on-bg:#333338;--side-on-ink:#e0e0e7;
@@ -281,8 +295,8 @@ export const STUDIO_CSS = `
 
 /* ------------------------------------------------- the accent, for the FRONT
    The landing page is not inside the app shell and carries its own token
-   namespace (--st-*, see studio-landing.jsx), so the blocks above — which
-   override the app's --brand family — never reached it. That is why picking
+   namespace (--st-*, see studio-landing.jsx), so the blocks above - which
+   override the app's --brand family - never reached it. That is why picking
    teal repainted the workspace and left the front page blue.
 
    These publish the same accent under the names the front page reads. On
@@ -300,4 +314,35 @@ export const STUDIO_CSS = `
 :root[data-accent="crimson"][data-theme="dark"]{--st-accent-dark:#f58a9c;--st-accent-fill:#f58a9c;--st-accent-fill-h:#f58a9c}
 :root[data-accent="graphite"]{--st-accent:#3a3a3f;--st-accent-fill:#1d1d1f;--st-accent-fill-h:#39393e}
 :root[data-accent="graphite"][data-theme="dark"]{--st-accent-dark:#c7c7ce;--st-accent-fill:#c7c7ce;--st-accent-fill-h:#c7c7ce}
+/* Shared branding; status colours retain their meaning. */
+:root[data-accent]{
+  --app-brand:var(--brand);--app-brand-deep:var(--brand-deep);
+  --app-brand-tint:var(--brand-tint);--app-on-brand:var(--on-brand);
+  --engo:var(--brand-2);--engo-ink:var(--brand);--engo-deep:var(--brand-deep);
+  --engo-band:var(--seal-crack);--login-glow:var(--brand-tint);
+  --st-accent:var(--brand);--st-accent-dark:var(--brand);
+  --st-accent-fill:var(--pri-from);--st-accent-fill-h:var(--pri-from-h)}
+:root[data-accent]:not([data-layout="studio"]){
+  --paper:#f5f5f7;--paper-2:#ebebef;--card:#fff;--sunk:#f5f5f7;
+  --ink:#1d1d1f;--muted:#55555c;--faint:#686870;--line:#dedee3;--line2:#c7c7ce;
+  --topbar-bg:rgba(245,245,247,.9);--btn-hover:#ededf2;
+  --green:#00803e;--green-2:#00a651;--green-deep:#04562b;
+  --side:var(--seal-crack);--side-from:var(--seal-crack);--side-to:var(--seal-crack);
+  --side-ink:#fff;--side-dim:#ddd;--side-sec:#ddd;--side-on-line:var(--brand);
+  --wordmark-ink:#fff;--wordmark-rule:rgba(255,255,255,.2)}
+:root[data-accent][data-theme="dark"]{
+  --brand-ring:color-mix(in srgb,var(--brand) 28%,transparent);
+  --unread-bg:var(--brand-tint);--pri-glow:color-mix(in srgb,var(--brand) 15%,transparent)}
+:root[data-accent][data-theme="dark"]:not([data-layout="studio"]){
+  --paper:#161618;--paper-2:#242426;--card:#232326;--sunk:#1b1b1e;
+  --ink:#f5f5f7;--muted:#b5b5be;--faint:#a1a1ab;--line:#39393e;--line2:#505058;
+  --topbar-bg:rgba(22,22,24,.9);--btn-hover:#303036;
+  --green:#5fd98f;--green-2:#2fc46e;--green-deep:#8fe8b5}
+:root[data-accent] .lp[data-design],
+:root[data-accent][data-theme="dark"] .lp[data-design]{
+  --lp-pri:var(--app-brand);--lp-pri-deep:var(--app-brand-deep);
+  --lp-pri-dark:var(--seal-crack);--lp-pri-tint:var(--app-brand-tint);
+  --lp-on-pri:var(--app-on-brand);--lp-on-band:#fff;
+  --lp-on-band-muted:#ddd;--lp-on-band-accent:#fff}
+
 `;

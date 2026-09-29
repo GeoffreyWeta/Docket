@@ -171,7 +171,7 @@ export function ClaimVendor({ token, onDone, onLoggedIn }) {
       <Shell title="You're registered" sub="vendor registration">
         <p style={{ fontSize: 13.5, lineHeight: 1.6 }}>
           <b>{sup.name}</b> now has a DOCKET account. Sign in with <b>{sup.email}</b>, then
-          upload your compliance documents from your company profile — tax clearance,
+          upload your compliance documents from your company profile - tax clearance,
           certifications, anything the buyer asks for. Once those are reviewed you can be
           invited to tenders.
         </p>
@@ -193,7 +193,7 @@ export function ClaimVendor({ token, onDone, onLoggedIn }) {
         </div>
         <div className="claimnote">
           You're already on the register. Setting a password here attaches a login to that
-          existing record — nothing is duplicated, and your vendor code and history stay
+          existing record - nothing is duplicated, and your vendor code and history stay
           as they are.
         </div>
       </div>

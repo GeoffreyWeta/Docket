@@ -160,7 +160,7 @@ export const PAGE_CSS = `
   box-shadow:var(--sh-2);transition:border-color var(--t) var(--ease)}
 .guidebox.good{border-color:var(--green-2)}
 /* The counterpart tone, for a guide whose headline is bad news. Only the audit
-   trail uses it today — a broken hash chain is the one state in the product
+   trail uses it today - a broken hash chain is the one state in the product
    that has to stop somebody, and reporting it in the same calm grey as "42
    entries recorded" would be the interface lying about what it found. */
 .guidebox.bad{border-color:var(--wax)}
@@ -185,7 +185,7 @@ export const PAGE_CSS = `
 /* Figures that open the guide's foot sit directly under the foot's own rule,
    so their border drew a second hairline twelve pixels below the first and the
    numbers were pinched between the two. One line, then room: the separation
-   here is the space, not another border. Only when they lead — where an action
+   here is the space, not another border. Only when they lead - where an action
    button comes first, the border is doing real work and stays. */
 .guidefoot .figures:first-child{border-top:0;margin-top:8px}
 .quiet{display:flex;flex-direction:column;gap:2px;padding:12px 14px;background:var(--card);min-width:0;

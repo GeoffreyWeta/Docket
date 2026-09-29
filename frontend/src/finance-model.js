@@ -131,13 +131,13 @@ export function topN(rows, n = 10, otherLabel = "All other") {
 /* ---------------- formatting ---------------- */
 
 export const pct = (n, dp = 1) =>
-  n == null ? "—" : (n < 0 ? "−" : "") + Math.abs(n).toFixed(dp) + "%";
+  n == null ? "-" : (n < 0 ? "−" : "") + Math.abs(n).toFixed(dp) + "%";
 
-export const days = (n) => (n == null ? "—" : Math.round(n) + (Math.round(n) === 1 ? " day" : " days"));
+export const days = (n) => (n == null ? "-" : Math.round(n) + (Math.round(n) === 1 ? " day" : " days"));
 
 /** A signed money delta, with the sign carried in words rather than colour. */
 export const delta = (n) =>
-  n == null ? "—" : (n > 0 ? "+" : n < 0 ? "−" : "") + fmtCompact(Math.abs(n));
+  n == null ? "-" : (n > 0 ? "+" : n < 0 ? "−" : "") + fmtCompact(Math.abs(n));
 
 /** How a contract's remaining term reads. */
 export function term(daysLeft) {

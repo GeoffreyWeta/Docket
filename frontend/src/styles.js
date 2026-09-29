@@ -781,7 +781,7 @@ label.btn{cursor:pointer}
   .formrow>.frow{flex:1 1 180px}
   .formrow>.in{flex:1 1 180px}
   .formrow>.btn,.formrow>label.btn{flex:0 0 auto}
-  /* Wide: five columns — item link, description, quantity, unit, remove. The
+  /* Wide: five columns - item link, description, quantity, unit, remove. The
      link column sizes to content, so an unlinked line gives its width back to
      the description instead of reserving space for a chip that is not there. */
   .lineedit{grid-template-columns:auto 1fr 100px 120px auto}
@@ -1107,7 +1107,7 @@ export const EXTRA_CSS = `
 @media(min-width:${BP.sm}px){
   .loginwrap{align-items:center;padding:24px calc(24px + var(--sar)) 24px calc(24px + var(--sal))}
   .loginlogo{margin-bottom:20px}
-  .demogrid{grid-template-columns:1fr 1fr}
+  .demogrid{grid-template-columns:minmax(0,1fr)}
   .demogrid .btn{font-size:12.5px;padding:9px 11px}
   .panelwrap{align-items:center;padding:20px}
   .panel{max-width:640px;max-height:88dvh;border-radius:var(--r);padding-bottom:0;

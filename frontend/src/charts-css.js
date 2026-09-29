@@ -50,7 +50,7 @@ export const CHART_CSS = `
 .b2l{flex:0 0 132px;font-size:12px;color:var(--muted);text-align:right;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .b2t{flex:1;height:18px;background:var(--sunk);border-radius:4px;min-width:0;position:relative}
-/* Square at the baseline, 4px rounded at the data end — the end that means
+/* Square at the baseline, 4px rounded at the data end - the end that means
    something is the end that gets the radius. */
 .b2f{display:block;height:100%;border-radius:0 4px 4px 0;transition:width .5s cubic-bezier(.22,.61,.36,1)}
 .b2t.stack{display:flex;background:transparent;gap:2px;overflow:visible}
@@ -76,14 +76,14 @@ export const CHART_CSS = `
 .colw.click{cursor:pointer}
 .colw:hover .colstack{filter:brightness(1.06)}
 .colw.click:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
-/* 4px rounded at the data end, square at the baseline — the same rule the
+/* 4px rounded at the data end, square at the baseline - the same rule the
    horizontal bars follow, turned through ninety degrees. */
 .colstack{display:flex;flex-direction:column-reverse;gap:2px;min-height:2px;
   border-radius:4px 4px 0 0;overflow:hidden;
   transition:height .5s cubic-bezier(.22,.61,.36,1)}
 .colstack>span{display:block;width:100%}
 /* Overflow is visible on purpose. The label is centred on a column that can be
-   twenty pixels wide, and only every Nth column carries one — so "Aug 25" is
+   twenty pixels wide, and only every Nth column carries one - so "Aug 25" is
    allowed to spill across its blank neighbours. Clipping it instead produced
    "Aug 2", which is not a shortened label, it is a wrong one. */
 .collbl{position:absolute;top:100%;left:50%;transform:translateX(-50%);
@@ -134,13 +134,13 @@ export const CHART_CSS = `
   font-family:var(--font-mono);font-size:10.5px;font-variant-numeric:tabular-nums;
   color:var(--muted);cursor:default}
 /* Inside a saturated fill the label switches to the on-brand ink so it always
-   clears contrast — the one place text may sit on a series colour. */
+   clears contrast - the one place text may sit on a series colour. */
 .hcell .on{color:var(--on-brand);font-weight:600}
 
 /* ---------------- meter ---------------- */
 /* meter2, not meter: styles.js owns .meter as a bare 6px rail (supplier.jsx
    uses it). Sharing the name gave this component that fixed height and
-   collapsed it — label, track and all — everywhere it appeared. */
+   collapsed it - label, track and all - everywhere it appeared. */
 .meter2{display:flex;flex-direction:column;gap:6px}
 .mlab{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--muted);gap:12px}
 .mlab b{font-family:var(--font-mono);font-size:12px;color:var(--ink);font-variant-numeric:tabular-nums}

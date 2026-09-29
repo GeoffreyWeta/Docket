@@ -67,9 +67,12 @@ def _demo_accounts():
     for group in reports.values():
         group.sort(key=lambda u: u.profile.persona_id)
 
+    from .permissions import custom_roles, role_label
+    custom = custom_roles()
+    short = lambda role: role_label(role, custom).split("—")[0].strip()
     out, seen = [], set()
     row = lambda u: {"username": u.username,
-                     "label": f"{u.profile.persona.name} — {u.profile.persona.title}",
+                     "label": f"{u.profile.persona.name} · {short(u.profile.persona.role)}",
                      "role": u.profile.persona.role}
 
     def walk(manager_id):
@@ -94,7 +97,7 @@ def _demo_accounts():
               .exclude(is_superuser=True)
               .select_related("profile__supplier").order_by("profile__supplier__id")):
         s = u.profile.supplier
-        out.append({"username": u.username, "label": f"{s.name} — Supplier", "role": "supplier"})
+        out.append({"username": u.username, "label": f"{s.name} · Bidder", "role": "supplier"})
     return out
 
 

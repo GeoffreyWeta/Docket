@@ -347,7 +347,7 @@ export const LPART_CSS = `
 /* THE PALETTE, resolved once on the svg itself rather than inherited from an
    ancestor. The landing page sets --lp-* on .lp, but these drawings are also
    rendered inside the dark band, where paper and line have to change without
-   the rest of the page changing with them — and a rule matching .lpart beats
+   the rest of the page changing with them - and a rule matching .lpart beats
    an inherited value whatever the ancestor said.
 
      --a-tint    the backdrop disc: a wash, never a shape you read
@@ -368,7 +368,7 @@ export const LPART_CSS = `
   --a-warm:var(--lp-warn);
   --a-shade:color-mix(in srgb,var(--lp-ink) 9%,transparent)}
 
-/* Dark. The neutrals climb rather than fall — on a dark ground the paper has
+/* Dark. The neutrals climb rather than fall - on a dark ground the paper has
    to be the surface that is genuinely raised, and --lp-card is the only token
    that always is. --a-ink stops being the primary for the same reason
    ILLUS_CSS drops it: dark palettes brighten --lp-pri until the object and

@@ -894,7 +894,7 @@ export function Landing({ cfg, onScreen }) {
 }
 
 export const LANDING_CSS = `
-/* ONE SPACING SCALE. Every margin and padding below is one of --s1…--s7 —
+/* ONE SPACING SCALE. Every margin and padding below is one of --s1…--s7 -
    4 · 8 · 16 · 24 · 40 · 64 · 96. Nothing is 13px because 13 looked right
    once; that is what stops the vertical rhythm drifting as sections get
    edited one at a time. Colour is never named here: every value is a --lp-*
@@ -909,7 +909,7 @@ export const LANDING_CSS = `
   --s1:4px; --s2:8px; --s3:16px; --s4:24px; --s5:40px; --s6:64px; --s7:96px;
   --lp-gutter:20px;
   /* One hairline, one lift. Both are derived from --lp-pri-dark because that
-     token is the only one that stays dark in BOTH themes — a shadow mixed out
+     token is the only one that stays dark in BOTH themes - a shadow mixed out
      of --lp-ink turns into a halo the moment the reader switches to dark. */
   /* The overshoot curve from motion.js (EASE.press), which only existed in
      JS. Stamps and seals land with it, so the marks that arrive on this
@@ -937,7 +937,7 @@ export const LANDING_CSS = `
    a visitor just clicked arrives underneath the header that took them there. */
 .lpsec,.lphero,#main{scroll-margin-top:var(--s6)}
 /* Smooth scrolling has to be declared on the scrolling element, not on .lp, so
-   it is scoped by asking whether the document currently holds a landing page —
+   it is scoped by asking whether the document currently holds a landing page -
    the signed-in app keeps its instant jumps. */
 @media(prefers-reduced-motion:no-preference){
   :root:has(.lp){scroll-behavior:smooth}
@@ -948,7 +948,7 @@ export const LANDING_CSS = `
   text-decoration:none;border-radius:var(--lp-radius)}
 
 /* THE SECOND VOICE. Indices, references and reserved labels are set in the
-   mono, which is the page's whole typographic contrast — there is no third
+   mono, which is the page's whole typographic contrast - there is no third
    family and main.jsx explains why there is not. */
 .lpnum{font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.12em;
   color:var(--lp-faint);font-variant-numeric:tabular-nums;display:block}
@@ -1029,7 +1029,7 @@ export const LANDING_CSS = `
 .lpsheet button:last-child{border-bottom:0}
 @keyframes lp-sheet{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 
-/* the event strip — a band, not a banner */
+/* the event strip - a band, not a banner */
 .lpevent{background:var(--lp-pri-tint);border-bottom:var(--lp-hair)}
 .lpeventin{display:flex;align-items:center;gap:var(--s3);padding-block:10px;
   font-size:var(--t5);flex-wrap:wrap}
@@ -1040,11 +1040,11 @@ export const LANDING_CSS = `
 
 /* ------------------------------------------------------------------ hero
    The only background image on the page: a drafting grid, masked to nothing
-   before it reaches the copy. It is squared paper rather than atmosphere —
+   before it reaches the copy. It is squared paper rather than atmosphere -
    the page is about a document, so the ground under it is a document's. */
 .lphero{position:relative;isolation:isolate;overflow:clip;padding-block:var(--s5) var(--s6)}
 /* THE TWO WASHES. Radial, mixed out of the palette's own primary, and soft
-   enough at the edge that there is no visible boundary anywhere — a gradient
+   enough at the edge that there is no visible boundary anywhere - a gradient
    you can find the edge of is a shape, and a shape on the ground behind a
    headline is a distraction. clip on the hero is what keeps them off the
    sections below; without it the lower wash bleeds into the sectors strip and
@@ -1063,7 +1063,7 @@ export const LANDING_CSS = `
   mask-image:radial-gradient(130% 92% at 50% 0%,#000 0%,transparent 70%)}
 /* minmax(0,1fr) rather than the default auto: an auto track is floored at its
    content's min-content width, so the product table inside would push this
-   grid — and the page with it — wider than the phone holding it. */
+   grid - and the page with it - wider than the phone holding it. */
 .lpherogrid{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--s5)}
 .lphero .lpacts{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s5)}
 .lpbtn{min-width:200px;justify-content:center;padding:var(--s3) var(--s4);font-size:var(--t4)}
@@ -1080,7 +1080,7 @@ export const LANDING_CSS = `
    and cropped by it, which is the arrangement that keeps the hierarchy the
    right way up: the screen is the evidence, the picture is the mood, so the
    picture is what gets covered. Both the drawing and the floated readings
-   wait for tab — on a phone the panel is already the full width of the
+   wait for tab - on a phone the panel is already the full width of the
    page and there is nothing to float over.
 
    The drawing is a child of .lphero, not of the panel, and z-index -1 puts it
@@ -1092,7 +1092,7 @@ export const LANDING_CSS = `
 .lpheroart{position:absolute;z-index:-1;display:none;top:-30%;right:-9%;
   width:min(42%,470px);opacity:.5;pointer-events:none}
 /* The readings sit CLEAR of the panel rather than over it. Over it they
-   covered the panel's own title bar and its last row — the two pieces of
+   covered the panel's own title bar and its last row - the two pieces of
    chrome that say what the screen is and that an award has landed. Clear of
    it, aligned to its corners and overlapping only the hero's whitespace,
    they read as annotations on the screen without hiding any of it. */
@@ -1112,7 +1112,7 @@ export const LANDING_CSS = `
 /* THE SECTORS STRIP, MOVING. A row of grey words under the fold is the most
    skippable thing a front page owns; a strip that travels gets read. The list
    is in the markup twice and each copy translates by its own full width, so
-   the second arrives exactly where the first left — the seam is invisible
+   the second arrives exactly where the first left - the seam is invisible
    because the two are identical, including the trailing gap. The duplicate is
    aria-hidden, so a screen reader hears the sectors once. */
 .lptrust{background:var(--lp-paper);border-block:var(--lp-hair);padding-block:var(--s3)}
@@ -1151,7 +1151,7 @@ export const LANDING_CSS = `
 
 /* THE SIX GUARANTEES, AS AN INDEX. Cells sit on a 1px grid background, so
    every rule between them is the same single hairline no matter how the
-   columns wrap — borders on the cells themselves double up wherever two meet.
+   columns wrap - borders on the cells themselves double up wherever two meet.
    The accent on hover is drawn inside the cell rather than on its edge, for
    the same reason. */
 .lpindex{list-style:none;margin:0;padding:0;display:grid;gap:1px;
@@ -1184,8 +1184,8 @@ export const LANDING_CSS = `
 
 /* HOW THE MARKS BEHAVE. One treatment for both the plates and the rail stops,
    because they are the same object at two jobs and two hover states would be
-   two things to keep in step. On hover the mark inverts — tint to solid, ink
-   to on-pri — lifts on the overshoot curve, and pushes one ring out of its own
+   two things to keep in step. On hover the mark inverts - tint to solid, ink
+   to on-pri - lifts on the overshoot curve, and pushes one ring out of its own
    edge. The ring is drawn on ::after at inset -1px so it starts exactly on the
    border it is leaving, rather than as a shadow that blooms from nowhere.
 
@@ -1215,7 +1215,7 @@ export const LANDING_CSS = `
    Eight stops on one rule. The rule is drawn as a SEGMENT UNDER EACH STOP
    rather than as one line behind the list, because the list rewraps from one
    column to two to four to eight and a single background line cannot follow
-   it. The last stop in every row drops its segment — which row that is
+   it. The last stop in every row drops its segment - which row that is
    depends on the breakpoint, so the nth-child rules live in the media
    queries and are switched on and off there rather than guessed at here. */
 .lprail{list-style:none;margin:0;padding:0;display:grid;gap:var(--s3)}
@@ -1366,7 +1366,7 @@ export const LANDING_CSS = `
 /* ---------------------------------------------------------- the modules
    Four rows on a ruled sheet rather than four cards. Cards imply four things
    you choose between; rows imply four parts of one system, which is what they
-   are — the copy above says every module writes to the same record. */
+   are - the copy above says every module writes to the same record. */
 .lprows{list-style:none;margin:0;padding:0;border-top:1px solid var(--lp-line-2)}
 .lprows li{position:relative;display:grid;gap:var(--s2);padding:var(--s4) 0;
   border-bottom:var(--lp-hair)}
@@ -1412,7 +1412,7 @@ export const LANDING_CSS = `
     box-shadow:var(--lp-lift)}
 }
 /* A COVER, not a photograph of a laptop. Each resource gets the drawing of
-   the thing it actually is — a book, a matrix, a ledger under a glass — and
+   the thing it actually is - a book, a matrix, a ledger under a glass - and
    the fourth gets the reserved frame, because the fourth resource is
    reserved. One drawing for "held open" is how a reader learns to read it. */
 .lprescover{display:grid;place-items:end center;overflow:hidden;
@@ -1476,7 +1476,7 @@ export const LANDING_CSS = `
    blank band down the left of every page. Lift it out of the row and give the
    row the 26px it covers instead. The sidebar is in the flow there and the top
    bar is position:relative, so the top:26px above would only shove the bar
-   down over the content — it is for the phone layout, where both are pinned. */
+   down over the content - it is for the phone layout, where both are pinned. */
 @media(min-width:${BP.desk}px){
   .isdemo{padding-top:26px}
   .isdemo .demobar{position:fixed;left:0;right:0}
@@ -1495,7 +1495,7 @@ export const LANDING_CSS = `
   .lpnext{grid-template-columns:repeat(3,minmax(0,1fr))}
   /* The rail turns the corner: the mark goes above the words and its
      connector goes across to the next stop instead of down to it. The stop
-     at the end of a row has nothing to reach, so it loses its segment —
+     at the end of a row has nothing to reach, so it loses its segment -
      which stop that is changes with the column count, hence the nth-child
      rule here and its two revisions below. */
   .lprail{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s5) var(--s4)}
@@ -1523,7 +1523,7 @@ export const LANDING_CSS = `
   /* The split just opened, so the panels are at their narrowest since the
      phone. The two least useful columns stand down again until wide. */
   .lpopt{display:none}
-  /* Four columns on a wide screen — index, name, what it does, where to go.
+  /* Four columns on a wide screen - index, name, what it does, where to go.
      .lprowtext stops being a box and lets its two children become columns of
      the row itself, which is what turns this from four headings with a link
      stranded a thousand pixels away into a specification table. */

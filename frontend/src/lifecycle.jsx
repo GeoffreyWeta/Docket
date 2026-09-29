@@ -96,7 +96,7 @@ export function LifecycleBar({ api, t }) {
       {open === "notify" && <NotifyDialog api={api} t={t} onClose={() => setOpen(null)} />}
       {open === "pause" && (
         <ReasonDialog title={`Pause ${t.ref}?`} confirmLabel="Pause the event" tone="wax"
-                      placeholder="e.g. Specification error in section 4 — corrected pack to follow."
+                      placeholder="e.g. Specification error in section 4 - corrected pack to follow."
                       onClose={() => setOpen(null)}
                       onConfirm={async (reason) => {
                         if (await act.pauseEvent(t.id, reason)) {
@@ -110,7 +110,7 @@ export function LifecycleBar({ api, t }) {
       {open === "cancel" && (
         <ReasonDialog title={`Cancel ${t.ref}?`} confirmLabel="Hold to cancel this event" tone="wax" hold
                       holdHint="Cannot be undone: hold to confirm"
-                      placeholder="e.g. Requirement withdrawn — the budget line was reallocated."
+                      placeholder="e.g. Requirement withdrawn - the budget line was reallocated."
                       onClose={() => setOpen(null)}
                       onConfirm={async (reason) => {
                         if (await act.cancelEvent(t.id, reason)) {
@@ -118,7 +118,7 @@ export function LifecycleBar({ api, t }) {
                         }
                       }}>
           No award will be made, sealed bids are never opened, and every invited vendor is told your
-          reason verbatim. <b>This cannot be undone</b> — running the requirement again means raising
+          reason verbatim. <b>This cannot be undone</b> - running the requirement again means raising
           a new event, which is also the honest record of what happened.
         </ReasonDialog>
       )}
@@ -256,7 +256,7 @@ function ResumeDialog({ api, t, onClose }) {
       ) : (
         <>
           Submissions reopen immediately, with {Math.max(0, Math.ceil((t.deadline - nowMs()) / DAY))} day(s)
-          left on the clock. The pause ate into that time — set a new deadline if bidders now need longer.
+          left on the clock. The pause ate into that time - set a new deadline if bidders now need longer.
           <DateTimeField id="rs-when" label="New deadline (optional)" value={when} onChange={setWhen} />
         </>
       )}
@@ -366,7 +366,7 @@ export function VendorsTab({ api, t }) {
         {!rows.length ? (
           <div className="cbody">
             <Empty icon="suppliers">
-              No vendors on this event yet. A competition with nobody in it cannot be published —
+              No vendors on this event yet. A competition with nobody in it cannot be published -
               {canManage ? " add vendors from the register to get started." : " ask the event owner to add some."}
             </Empty>
           </div>
@@ -401,7 +401,7 @@ export function VendorsTab({ api, t }) {
                       {r.submittedAt && <div className="mono faint" style={{ fontSize: 11 }}>{fmtDate(r.submittedAt)}</div>}
                     </td>
                     <td data-l="Rounds" className="mono">
-                      {r.roundsBid.length ? r.roundsBid.map((n) => `R${n}`).join(", ") : "—"}
+                      {r.roundsBid.length ? r.roundsBid.map((n) => `R${n}`).join(", ") : "-"}
                       {!r.inCurrentRound && r.roundsBid.length > 0 &&
                         <div className="muted" style={{ fontSize: 11 }}>not in the current round</div>}
                     </td>
@@ -409,7 +409,7 @@ export function VendorsTab({ api, t }) {
                       {r.disqualified ? <span className="chip warn">Disqualified</span>
                         : r.evaluationStatus === "scored" ? <span className="chip ok">Scored</span>
                         : r.evaluationStatus === "pending" ? <span className="chip">Awaiting scores</span>
-                        : <span className="muted">—</span>}
+                        : <span className="muted">-</span>}
                     </td>
                     <td>
                       {canManage && r.bidStatus !== "submitted" && !r.awarded && (
@@ -433,7 +433,7 @@ export function VendorsTab({ api, t }) {
           {unverified > 0 && (
             <>
               <b>{unverified} of these vendors {unverified === 1 ? "is" : "are"} unverified.</b>{" "}
-              They can still be invited and can still bid — verification gates prequalification, not
+              They can still be invited and can still bid - verification gates prequalification, not
               participation. Verify them from the Vendors page when their documents are in.{" "}
             </>
           )}
@@ -489,7 +489,7 @@ function AddVendorsDialog({ api, t, invited, onClose, onDone }) {
       {live && (
         <div className="notice" style={{ marginTop: 10 }}>
           This event is already live, so anyone added now has less time to price than the vendors
-          invited at publication — which is a fact the audit trail records.
+          invited at publication - which is a fact the audit trail records.
           {/* The mail is a choice rather than a consequence of adding somebody.
               It stays ticked by default on a LIVE event: a vendor added to a
               running tender and never told has been given a deadline nobody
@@ -520,7 +520,7 @@ function AddVendorsDialog({ api, t, invited, onClose, onDone }) {
       {unverified > 0 && (
         <div className="notice" style={{ marginTop: 10 }}>
           {unverified} of the vendors you picked {unverified === 1 ? "is" : "are"} unverified.
-          That does not stop them bidding — it is recorded, and their bid is evaluated like any other.
+          That does not stop them bidding - it is recorded, and their bid is evaluated like any other.
         </div>
       )}
     </Dialog>
@@ -544,7 +544,7 @@ export function RoundsTab({ api, t }) {
       {creating && <NewRoundDialog api={api} t={t} onClose={() => setCreating(false)} />}
       {cancelling && (
         <ReasonDialog title={`Cancel ${cancelling.name}?`} confirmLabel="Cancel the round" tone="wax"
-                      placeholder="e.g. Only one vendor responded — the round is not competitive."
+                      placeholder="e.g. Only one vendor responded - the round is not competitive."
                       onClose={() => setCancelling(null)}
                       onConfirm={async (reason) => {
                         if (await act.cancelRound(cancelling.id, reason)) {
@@ -603,7 +603,7 @@ export function RoundsTab({ api, t }) {
               <div className="cbody" style={{ paddingTop: 6 }}>
                 <div className="rowline"><span className="muted" style={{ flex: 1 }}>Submission window</span>
                   <span className="mono">
-                    {r.opensAt ? fmtDate(r.opensAt) : "—"} → {r.deadline ? fmtDateTime(r.deadline) : "—"}
+                    {r.opensAt ? fmtDate(r.opensAt) : "-"} → {r.deadline ? fmtDateTime(r.deadline) : "-"}
                   </span></div>
                 {isOpen && left != null && (
                   <div className="rowline"><span className="muted" style={{ flex: 1 }}>Time remaining</span>
@@ -673,14 +673,14 @@ function NewRoundDialog({ api, t, onClose }) {
       <div className="frow">
         <label className="lbl" htmlFor="nr-inst">Instructions to bidders <span className="faint">optional</span></label>
         <textarea id="nr-inst" className="in" value={instructions} onChange={(e) => setInstructions(e.target.value)}
-                  placeholder="e.g. Submit your best and final price for the same scope. Technical proposals already accepted stand — do not resubmit them." />
+                  placeholder="e.g. Submit your best and final price for the same scope. Technical proposals already accepted stand - do not resubmit them." />
       </div>
       {prior.length > 0 && (
         <div className="frow">
           <label className="lbl">Who bids in this round</label>
           <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
             Leave everything unticked to carry the whole invitation list forward. Tick a shortlist to
-            run this round with fewer — it can only be drawn from vendors who bid in an earlier round.
+            run this round with fewer - it can only be drawn from vendors who bid in an earlier round.
           </div>
           <div className="picklist">
             {prior.map((sid) => {
@@ -759,7 +759,7 @@ export function BidBucket({ api, t }) {
                   <b>{r.name || `Round ${r.number}`}</b>
                   <RoundChip status={r.status} />
                   <span className="mono faint">
-                    {g.bids.length} of {r.invitedCount ?? "—"} invited
+                    {g.bids.length} of {r.invitedCount ?? "-"} invited
                     {r.deadline ? ` · closed ${fmtDate(r.deadline)}` : ""}
                   </span>
                 </div>
@@ -825,7 +825,7 @@ export function BidBucket({ api, t }) {
                         const b = v.rounds[n];
                         return (
                           <td key={n} className="num mono" data-l={`R${n}`}>
-                            {!b ? <span className="muted">—</span>
+                            {!b ? <span className="muted">-</span>
                               : b.amount == null ? <span className="waxfg">sealed</span>
                               : fmtCompact(b.amount)}
                           </td>
@@ -833,7 +833,7 @@ export function BidBucket({ api, t }) {
                       })}
                       <td className="num mono" data-l="Movement"
                           style={{ color: delta == null ? undefined : delta < 0 ? "var(--green)" : "var(--wax)" }}>
-                        {delta == null ? "—"
+                        {delta == null ? "-"
                           : delta === 0 ? "no change"
                           : `${delta < 0 ? "−" : "+"}${fmtCompact(Math.abs(delta))}`}
                       </td>
@@ -888,7 +888,7 @@ export function RegisterVendorDialog({ api, onClose }) {
       </>
     }>
       You know the company; waiting for them to fill in a form is a week of nothing. They arrive
-      <b> unverified</b>, which is what they are — somebody typed them in and nobody has checked them.
+      <b> unverified</b>, which is what they are - somebody typed them in and nobody has checked them.
       That does not stop them being invited to bid.
       {problem && <div className="notice wax" style={{ marginTop: 10 }}>{problem}</div>}
       <div className="grid g2" style={{ marginTop: 10 }}>
@@ -921,7 +921,7 @@ export function RegisterVendorDialog({ api, onClose }) {
         <input type="checkbox" checked={f.invite} disabled={!f.email}
                onChange={(e) => set("invite", e.target.checked)} />
         Email them a link to claim their account
-        {!f.email && <span className="muted" style={{ marginLeft: 6 }}>— needs an email address</span>}
+        {!f.email && <span className="muted" style={{ marginLeft: 6 }}>- needs an email address</span>}
       </label>
     </Dialog>
   );
@@ -942,7 +942,7 @@ export function SuspendDialog({ api, supplier, onClose }) {
                      }}>
         They become eligible for invitations again.
         {supplier.prequalified
-          ? " They stay prequalified — a suspension never undid that."
+          ? " They stay prequalified - a suspension never undid that."
           : " They remain unverified, as they were before the suspension."}
         <div className="notice" style={{ marginTop: 10 }}>
           Suspended {supplier.suspendedAt ? fmtDate(supplier.suspendedAt) : ""}: {supplier.suspendedReason}
@@ -962,7 +962,7 @@ export function SuspendDialog({ api, supplier, onClose }) {
         }}>Suspend & send the reason</button>
       </>
     }>
-      They can no longer be added to events. Invitations they already hold are <b>not</b> withdrawn —
+      They can no longer be added to events. Invitations they already hold are <b>not</b> withdrawn -
       pulling a bidder out of a live competition is a decision for that competition, and its page has
       the control for it.
       {supplier.prequalified && <><br /><br />Their prequalification is untouched: lifting the suspension

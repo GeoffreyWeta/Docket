@@ -136,7 +136,7 @@ export function CampaignDialog({ api, onClose }) {
           makes the headline number checkable. */}
       <div className="cmpskip">
         <div className="cmpskiphead">
-          Not contacted — {totalSkipped.toLocaleString()} of {pre.total.toLocaleString()}
+          Not contacted - {totalSkipped.toLocaleString()} of {pre.total.toLocaleString()}
         </div>
         <SkipRow n={skipped.noEmail} label="no email address on the register"
                  note="nothing to send to" />
@@ -152,7 +152,7 @@ export function CampaignDialog({ api, onClose }) {
         <b>What each one receives:</b> a short note saying the organisation now runs its
         tendering through DOCKET, that their company is already on the register, and a
         single-use link to claim an account. The link attaches their login to the record
-        you already hold — same vendor code, same category, same history — rather than
+        you already hold - same vendor code, same category, same history - rather than
         creating a duplicate.
       </div>
 
@@ -186,7 +186,7 @@ function SkipRow({ n, label, note }) {
   return (
     <div className="cmpskiprow">
       <span className="mono">{n.toLocaleString()}</span>
-      <span>{label}<span className="faint"> — {note}</span></span>
+      <span>{label}<span className="faint"> - {note}</span></span>
     </div>
   );
 }

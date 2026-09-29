@@ -148,7 +148,7 @@ export function MyDesk({ api }) {
                        max={Math.max(...rows.map((x) => x.open), 1)} format={(n) => String(n)} />
               </div>
               <div className="tmsav mono">
-                {r.hardSaved > 0 ? fmtCompact(r.hardSaved) : <span className="faint">—</span>}
+                {r.hardSaved > 0 ? fmtCompact(r.hardSaved) : <span className="faint">-</span>}
               </div>
             </div>
           ))}

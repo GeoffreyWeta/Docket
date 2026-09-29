@@ -35,8 +35,8 @@ const TABS = [
   { key: "risk", label: "Risk", icon: "shield" },
 ];
 
-const pct = (n) => (n == null ? "—" : (n >= 0 ? "" : "−") + Math.abs(n).toFixed(1) + "%");
-const days = (n) => (n == null ? "—" : Math.round(n) + "d");
+const pct = (n) => (n == null ? "-" : (n >= 0 ? "" : "−") + Math.abs(n).toFixed(1) + "%");
+const days = (n) => (n == null ? "-" : Math.round(n) + "d");
 
 export function AnalyticsPage({ api }) {
   const { state, go, user, ai } = api;
@@ -139,7 +139,7 @@ function SpendTab({ api, tenders }) {
         </Figure>
 
         {drill && (
-          <Figure title={`${drill.label} — by category`}
+          <Figure title={`${drill.label} - by category`}
                   sub={`${drill.cats.length} categor${drill.cats.length === 1 ? "y" : "ies"}`}
                   right={<button className="btn xs ghost" onClick={() => setOpenFamily(null)}>Close</button>}
                   table={<DataTable
@@ -202,7 +202,7 @@ function SavingsTab({ api, tenders }) {
         <div className="cbody" style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6 }}>
           <b style={{ color: "var(--ink)" }}>Two numbers, deliberately.</b>{" "}
           <b>Verified savings</b> compare an award to what the organisation was actually
-          paying before — a prior contract, an incumbent's renewal quote, the price on the
+          paying before - a prior contract, an incumbent's renewal quote, the price on the
           shelf. That is the figure that survives a review.{" "}
           <b>Against budget</b> compares an award to the ceiling somebody estimated
           beforehand, which measures the estimate as much as the buying. They are shown
@@ -292,7 +292,7 @@ function PeopleTab({ api, tenders }) {
     <>
       <div className="grid g4" style={{ marginBottom: 14 }}>
         <Stat k="People carrying tenders" v={named.length} d="with at least one" />
-        <Stat k="Busiest desk" v={named.length ? named.slice().sort((a, b) => b.open - a.open)[0].name.split(" ")[0] : "—"}
+        <Stat k="Busiest desk" v={named.length ? named.slice().sort((a, b) => b.open - a.open)[0].name.split(" ")[0] : "-"}
               d={named.length ? `${named.slice().sort((a, b) => b.open - a.open)[0].open} open` : ""} />
         <Stat k="Median cycle" v={days(named.filter((r) => r.cycle != null).length
                 ? mean(named.filter((r) => r.cycle != null).map((r) => r.cycle)) : null)}
@@ -404,17 +404,17 @@ function MarketTab({ api, tenders }) {
   return (
     <>
       <div className="grid g4" style={{ marginBottom: 14 }}>
-        <Stat k="Bids per tender" v={comp.avg ? comp.avg.toFixed(1) : "—"} d="average, opened tenders" />
-        <Stat k="Response rate" v={comp.responseRate ? Math.round(comp.responseRate) + "%" : "—"}
+        <Stat k="Bids per tender" v={comp.avg ? comp.avg.toFixed(1) : "-"} d="average, opened tenders" />
+        <Stat k="Response rate" v={comp.responseRate ? Math.round(comp.responseRate) + "%" : "-"}
               d="of invited vendors who bid" />
         <Stat k="Single-bid tenders" v={comp.single.length}
-              d="one bid or none — not a competition"
+              d="one bid or none - not a competition"
               tone={comp.single.length ? "var(--wax)" : null} />
         <Stat k="Median cycle" v={days(cyc.med)} d="publish → award" />
       </div>
 
       <div className="grid g2">
-        <Figure title="Bids received" sub="fewest first — the top of this list is the risk"
+        <Figure title="Bids received" sub="fewest first - the top of this list is the risk"
                 table={<DataTable
                   cols={[{ key: "label", label: "Tender" },
                          { key: "value", label: "Bids", num: true },
@@ -594,7 +594,7 @@ function RiskTab({ api, tenders }) {
               ))}
               {expiring.length > 10 && (
                 <div className="muted" style={{ fontSize: 12, paddingTop: 8 }}>
-                  and {expiring.length - 10} more — the table view has them all.
+                  and {expiring.length - 10} more - the table view has them all.
                 </div>
               )}
             </div>
