@@ -149,12 +149,11 @@ function Login({ onLoggedIn, onScreen }) {
             )}
             {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 12 }}>{msg}</div>}
             <button className="btn pri" style={{ width: "100%" }} onClick={submit} disabled={busy || !u.trim() || !pw}>Sign in</button>
+            {/* Signing in is for people who already have an account. Vendor
+                registration and starting a workspace are reached from the front
+                page, and vendors are also sent a registration link by email. */}
             <div className="linkrow">
-              <button className="doclink" onClick={() => onScreen("register")}>Register your company (vendors)</button>
               <button className="doclink" onClick={() => onScreen("forgot")}>Forgot password?</button>
-              {cfg && cfg.demoLogin && !cfg.needsSetup && !cfg.signupUrl && (
-                <button className="doclink" onClick={() => onScreen("setup")}>Set up a new workspace</button>
-              )}
             </div>
           </div>
         </div>
