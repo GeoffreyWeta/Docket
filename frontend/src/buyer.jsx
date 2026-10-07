@@ -3126,6 +3126,33 @@ export function NewTender({ api, editId }) {
                 </button>
                 */}
               </div>
+
+              {!isAuction && (
+                <div className="frow" style={{ marginTop: 16, marginBottom: 0 }} id="nt-lines">
+                  <label className="lbl">Quantities <span className="faint">optional, add one line per item, or leave empty for a lump-sum bid</span></label>
+                  {f.lines.map((l, i) => (
+                    <div key={l.id} className="lineedit">
+                      <ItemPick line={l}
+                                onPick={(it) => set("lines", f.lines.map((x) => x.id === l.id
+                                  ? { ...x, itemCode: it ? it.code : "",
+                                      desc: it && !x.desc.trim() ? it.label : x.desc,
+                                      unit: it && it.uom ? it.uom.toLowerCase() : x.unit }
+                                  : x))} />
+                      <input className="in desc" placeholder="Line description" aria-label={"Line " + (i + 1)} value={l.desc}
+                             onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, desc: e.target.value } : x))} />
+                      <input className="in" type="number" min="1" placeholder="Qty" aria-label="Quantity" value={l.qty}
+                             onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, qty: e.target.value } : x))} />
+                      <input className="in" placeholder="Unit" aria-label="Unit" value={l.unit}
+                             onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, unit: e.target.value } : x))} />
+                      <button className="btn sm" aria-label="Remove line"
+                              onClick={() => set("lines", f.lines.filter((x) => x.id !== l.id))}><Icon n="close" s={13} /></button>
+                    </div>
+                  ))}
+                  <button className="btn sm" style={{ marginTop: f.lines.length ? 8 : 0 }}
+                          onClick={() => set("lines", [...f.lines, { id: uid(), desc: "", qty: "", unit: "unit", itemCode: "" }])}>
+                    Add a line item</button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -3184,7 +3211,7 @@ export function NewTender({ api, editId }) {
               <Icon n="chev" s={13} className="advcaret" />
               Advanced options
               <span className="advtag">
-                {isAuction ? "savings baseline" : "two-stage opening, line items, savings baseline"}
+                {isAuction ? "savings baseline" : "two-stage opening, savings baseline"}
               </span>
             </summary>
             <div className="cbody">
@@ -3240,32 +3267,6 @@ export function NewTender({ api, editId }) {
                        onChange={(e) => set("baselineSource", e.target.value)} />
                 <div className="hint">Recorded with the saving, so anyone reviewing it can check the comparison.</div></div>
 
-              {!isAuction && (
-                <div className="frow" style={{ marginBottom: 0 }} id="nt-lines">
-                  <label className="lbl">Priced line items <span className="faint">optional, leave empty for a lump-sum bid</span></label>
-                  {f.lines.map((l, i) => (
-                    <div key={l.id} className="lineedit">
-                      <ItemPick line={l}
-                                onPick={(it) => set("lines", f.lines.map((x) => x.id === l.id
-                                  ? { ...x, itemCode: it ? it.code : "",
-                                      desc: it && !x.desc.trim() ? it.label : x.desc,
-                                      unit: it && it.uom ? it.uom.toLowerCase() : x.unit }
-                                  : x))} />
-                      <input className="in desc" placeholder="Line description" aria-label={"Line " + (i + 1)} value={l.desc}
-                             onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, desc: e.target.value } : x))} />
-                      <input className="in" type="number" min="1" placeholder="Qty" aria-label="Quantity" value={l.qty}
-                             onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, qty: e.target.value } : x))} />
-                      <input className="in" placeholder="Unit" aria-label="Unit" value={l.unit}
-                             onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, unit: e.target.value } : x))} />
-                      <button className="btn sm" aria-label="Remove line"
-                              onClick={() => set("lines", f.lines.filter((x) => x.id !== l.id))}><Icon n="close" s={13} /></button>
-                    </div>
-                  ))}
-                  <button className="btn sm" style={{ marginTop: f.lines.length ? 8 : 0 }}
-                          onClick={() => set("lines", [...f.lines, { id: uid(), desc: "", qty: "", unit: "unit", itemCode: "" }])}>
-                    Add a line item</button>
-                </div>
-              )}
             </div>
           </details>
         </div>
