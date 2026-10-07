@@ -8,6 +8,11 @@ import { createRoot } from "react-dom/client";
    note that ₦ (U+20A6) lives in latin-ext, so money figures pull that one. */
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
+/* Inter, with its optical-size axis, is the Studio layout's stand-in for San
+   Francisco wherever SF does not exist (see STUDIO_CSS). The opsz axis is what
+   turns it into its display cut at headline sizes, the way SF Pro Display
+   takes over from SF Pro Text. A Mac or an iPhone never fetches it. */
+import "@fontsource-variable/inter/opsz.css";
 /* Source Serif 4 was here and is not any more. It cost 181 KB across six
    woff2 files and was used in exactly two places — a dialog heading and the
    auction's rolling digits — neither of which needed a second typeface to

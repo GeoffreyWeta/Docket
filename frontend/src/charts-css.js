@@ -113,6 +113,9 @@ export const CHART_CSS = `
   /* proportional figures: a large standalone number looks loose in tabular */
   font-variant-numeric:normal}
 .dlbl{font-size:10.5px;fill:var(--faint);letter-spacing:.04em;text-transform:uppercase}
+/* The ring's track sets a stroke on the svg, and text inherits it: the figure
+   in the middle was drawn with a grey outline round every glyph. */
+.dnum,.dlbl{stroke:none}
 
 /* ---------------- time chart ---------------- */
 .tchart{position:relative;padding-right:52px}
