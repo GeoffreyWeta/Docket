@@ -760,6 +760,23 @@ export function PeopleTab({ state, reload, toast }) {
 }
 
 /* ---------------- roles ---------------- */
+const ROLE_JOBS = [
+  ["officer", "Procurement officer", "Drafts and runs tenders; does not manage team access.", "procurement", ["team.invite", "team.org", "settings.rename", "supplier.import", "finance.sync", "finance.dimensions", "tender.lifecycle", "supplier.suspend", "supplier.prequalify", "desk.see_reports"]],
+  ["manager", "Procurement manager", "Runs procurement and views the workload below them.", "procurement", ["team.invite", "team.org", "settings.rename", "supplier.import", "finance.sync", "finance.dimensions"]],
+  ["head", "Head of procurement", "Runs the department, its team and reporting lines.", "procurement", []],
+  ["evaluator", "Evaluator", "Scores assigned bids and declares conflicts of interest.", "evaluator", []],
+  ["approver", "Approver", "Reviews and approves decisions within assigned authority.", "approver", []],
+  ["auditor", "Auditor", "Reviews procurement evidence without changing decisions.", "auditor", []],
+  ["executive", "Executive", "Reviews activity and reports; does not approve by default.", "auditor", []],
+];
+const ROLE_CHOICES = [
+  {label:"View the team", help:"See colleagues and who reports to whom.", keys:["page.team", "team.view"]},
+  {label:"Invite colleagues", help:"Issue invitations that give new people workspace access.", keys:["team.invite"], needs:["page.team", "team.view"]},
+  {label:"Change reporting lines", help:"Move people between managers; this changes whose work rolls up to them.", keys:["team.org"], needs:["page.team", "team.view"]},
+  {label:"View reports' workload", help:"See direct reports and people further down their reporting chain.", keys:["desk.see_reports"]},
+  {label:"Approve tender publication", help:"Sign off publication requests. Assigned signing authority still applies.", keys:["tender.publish_decision"], needs:["page.approvals", "page.tenders"]},
+  {label:"Approve awards", help:"Commit an award decision. Assigned signing authority still applies.", keys:["award.decide"], needs:["page.approvals", "page.tenders", "award.see_recommendation"]},
+];
 
 export function RoleDialog({ state, role, onClose, onSaved, toast }) {
   const creating = !role;
@@ -778,6 +795,18 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
      name is used). */
   const readOnly = false;
   const starter = !!role?.builtin;
+  const available = new Set(state.catalogue.customGrantable);
+  const chooseJob = (value) => {
+    setTemplate(value);
+    const job = ROLE_JOBS.find(([key]) => key === value);
+    const source = job ? state.roles.find((r) => r.key === job[3]) : state.roles.find((r) => "existing:" + r.key === value);
+    const next = new Set((source?.perms || []).filter((key) => available.has(key) && (!job || !job[4].includes(key))));
+    if (job?.[0] === "executive") {
+      [...next].filter((key) => ["award.decide", "tender.publish_decision", "auction.award"].includes(key)).forEach((key) => next.delete(key));
+    }
+    setPerms(next);
+    if (job) setF((previous) => ({...previous, label:job[1], title:job[1], note:job[2]}));
+  };
 
   const save = async () => {
     setBusy(true); setMsg("");
@@ -799,26 +828,24 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
         {starter && <span className="mono faint" style={{ marginRight: "auto", fontSize: 11 }}>starter role - its id stays {role.key}</span>}
         <button className="btn" onClick={onClose} disabled={busy}>{readOnly ? "Close" : "Cancel"}</button>
         {!readOnly && (
-          <button className="btn pri" onClick={save} disabled={busy || f.label.trim().length < 2}>
+          <button className="btn pri" onClick={save} disabled={busy || f.label.trim().length < 2 || (creating && !template)}>
             {busy ? "Saving…" : creating ? "Create role" : "Save role"}
           </button>
         )}
       </>
     }>
       {creating && <div className="role-start">
-        <b>Start with an existing role or build your own</b>
-        <p className="muted">Copy permissions as a starting point, then adjust them below. The original role stays unchanged.</p>
+        <b>What job will this person do?</b>
+        <p className="muted">Choose recommended access, then review it before saving. These recommendations use your workspace's current starter roles.</p>
         <div className="role-permtools">
-          <select className="in" aria-label="Starting role" value={template} onChange={(e) => setTemplate(e.target.value)} disabled={busy}>
-            <option value="">Choose a starting role</option>
-            {state.roles.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+          <select className="in" aria-label="Job and recommended access" value={template} onChange={(e) => chooseJob(e.target.value)} disabled={busy}>
+            <option value="">Choose a job</option>
+            {ROLE_JOBS.filter((job) => state.roles.some((r) => r.key === job[3])).map(([key,label]) => <option key={key} value={key}>{label}</option>)}
+            <optgroup label="Copy a workspace role">{state.roles.map((r) => <option key={r.key} value={"existing:" + r.key}>{r.label}</option>)}</optgroup>
+            <option value="blank">Custom role: start with no access</option>
           </select>
-          <button className="btn sm" disabled={!template || busy} onClick={() => {
-            const source = state.roles.find((r) => r.key === template);
-            if (source) setPerms(new Set(source.perms.filter((p) => state.catalogue.customGrantable.includes(p))));
-          }}>Copy permissions</button>
         </div>
-        <span className="muted">Skip this to start with no permissions.</span>
+        <span className="muted">Technical administrators are separate accounts: use People to assign administration access. A role here does not grant the administration console.</span>
       </div>}
       <div className="admincols">
         <div>
@@ -857,7 +884,18 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
           )}
         </div>
         <div>
-          {creating && <h3 className="role-step">2. Choose permissions</h3>}
+          <h3 className="role-step">{creating ? "2. Review access" : "Access decisions"}</h3>
+          <div className="role-start">
+            <b>Reporting and approval are separate</b>
+            <p className="muted">A manager can report to another manager at any level. Set who reports to whom and each person's signing limit in Approvals. A senior title alone grants neither approval nor team-management access.</p>
+          </div>
+          {ROLE_CHOICES.filter((choice) => choice.keys.every((key) => available.has(key))).map((choice) =>
+            <label className="permrow" key={choice.label}>
+              <input type="checkbox" checked={choice.keys.every((key) => perms.has(key))} disabled={busy}
+                     onChange={(e) => {const next = new Set(perms); if(e.target.checked) [...choice.keys,...(choice.needs || [])].filter((key) => available.has(key)).forEach((key) => next.add(key)); else {choice.keys.forEach((key) => next.delete(key)); if(choice.keys.includes("team.view")) ["team.invite","team.org"].forEach((key) => next.delete(key));} setPerms(next);}} />
+              <span className="pbody"><span className="pname">{choice.label}</span><span className="phelp">{choice.help}</span></span>
+            </label>)}
+          <details className="role-advanced" style={{marginTop:16}}><summary>Advanced access: all permissions ({perms.size} selected)</summary>
           <div className="permtop">
             <div><div className="lbl" style={{ margin: 0 }}>Capabilities</div>
               <div className="muted" style={{ fontSize: 11.5 }}>What everyone on this role can do by default.</div></div>
@@ -889,6 +927,14 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
                       if (want) n.add(key); else n.delete(key);
                       setPerms(n);
                     }} />
+          </details>
+          <div className="role-start" aria-label="Access review" style={{marginTop:16}}>
+            <b>Review before saving</b>
+            <p className="muted">{perms.size ? "This role can:" : "This role has no workspace access yet."}</p>
+            {!!perms.size && <ul style={{paddingLeft:18,margin:"8px 0",lineHeight:1.7}}>{state.catalogue.permissions.filter((p) => perms.has(p.key)).map((p) => <li key={p.key}>{p.label}</li>)}</ul>}
+            <p className="muted">{ROLE_CHOICES.filter((choice) => !choice.keys.every((key) => perms.has(key))).map((choice) => "Cannot " + choice.label.toLowerCase()).join(". ")}{ROLE_CHOICES.some((choice) => !choice.keys.every((key) => perms.has(key))) ? "." : ""}</p>
+            {!creating && <span className="muted">Saving changes the defaults for {role.people} {role.people === 1 ? "person" : "people"}. Individual account adjustments remain.</span>}
+          </div>
         </div>
       </div>
     </Dialog>
