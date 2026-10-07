@@ -4,6 +4,7 @@ import { downloadDoc, raw } from "./api";
 import { AuctionGallery } from "./auctions";
 import { Countdown, Empty, Money, Stat } from "./atoms";
 import { Meter } from "./charts";
+import { CategorySelect, DocTypeSelect, LocationSelect } from "./fields";
 import { Figures, Guide, More, Page, Quiet, Row, Rows } from "./page";
 import {
   REG_STATUS, VERIFY_STATUS, activeRound, daysLeft, effStatus, fmtCompact, fmtDate,
@@ -37,15 +38,21 @@ export function PortalHome({ api }) {
   const me = user.supplierId;
   const supplier = state.suppliers.find((s) => s.id === me);
   const [tab, setTab] = useState(api.route.tab || "overview");
-  const [docForm, setDocForm] = useState({ label: "", expiry: "" });
+  const [docForm, setDocForm] = useState({ type: "", label: "", expiry: "" });
   const [profileForm, setProfileForm] = useState({ name: supplier.name, category: supplier.category, location: supplier.location });
   const myComplianceDocs = (state.documents || []).filter((x) => x.kind === "supplier" && x.supplierId === me);
+  /* The type is chosen from the list, so a buyer filtering the register for a
+     tax clearance finds every one of them; "Other" is the only one described
+     in the vendor's own words. */
+  const docReady = !!docForm.type && (docForm.type !== "Other" || !!docForm.label.trim());
   const uploadCompliance = (e) => {
     const f = e.target.files[0];
-    if (f) {
+    if (f && docReady) {
       const expiryMs = docForm.expiry ? new Date(docForm.expiry).getTime() : "";
-      act.upload("/me/docs/", f, { label: docForm.label || f.name, expiry: expiryMs });
-      setDocForm({ label: "", expiry: "" });
+      act.upload("/me/docs/", f, {
+        type: docForm.type, label: docForm.type === "Other" ? docForm.label.trim() : docForm.type, expiry: expiryMs,
+      });
+      setDocForm({ type: "", label: "", expiry: "" });
     }
     e.target.value = "";
   };
@@ -299,7 +306,6 @@ export function PortalHome({ api }) {
                        onOpen={st === "published" ? () => go({ page: "bidroom", id: t.id }) : undefined}
                        meta={<>
                          <span className="mono">{t.ref}</span>
-                         <span>ceiling <Money n={t.budget} /></span>
                          {t.lines && t.lines.length > 0 && <span>{t.lines.length} priced lines</span>}
                          {(t.rounds || []).length > 1 && <span>round {t.currentRound} of {t.rounds.length}</span>}
                          {(t.addenda || []).length > 0 && <span>{(t.addenda || []).length} addendum</span>}
@@ -372,9 +378,11 @@ export function PortalHome({ api }) {
                 <div className="frow"><label className="lbl">Company name</label>
                   <input className="in" value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} /></div>
                 <div className="frow"><label className="lbl">Category</label>
-                  <input className="in" value={profileForm.category} onChange={(e) => setProfileForm({ ...profileForm, category: e.target.value })} /></div>
+                  <CategorySelect value={profileForm.category} required
+                                  onChange={(v) => setProfileForm({ ...profileForm, category: v })} /></div>
                 <div className="frow"><label className="lbl">Location</label>
-                  <input className="in" value={profileForm.location} onChange={(e) => setProfileForm({ ...profileForm, location: e.target.value })} /></div>
+                  <LocationSelect value={profileForm.location} required
+                                  onChange={(v) => setProfileForm({ ...profileForm, location: v })} /></div>
               </div>
               <div className="gaterow">
                 <button className="btn" disabled={profileForm.name.trim().length < 2}
@@ -415,12 +423,20 @@ export function PortalHome({ api }) {
                 <Empty art="tray">No documents on file yet. Upload your tax clearance, CAC certificate and anything else the buyer asks for.</Empty>
               )}
               <div className="formrow" style={{ marginTop: 10, alignItems: "center" }}>
-                <input className="in" placeholder="What is this document? e.g. Tax clearance 2026"
-                       value={docForm.label} onChange={(e) => setDocForm({ ...docForm, label: e.target.value })} />
+                <DocTypeSelect value={docForm.type} ariaLabel="Document type"
+                               onChange={(v) => setDocForm({ ...docForm, type: v })} />
+                {docForm.type === "Other" && (
+                  <input className="in" placeholder="What is this document?" aria-label="Describe the document"
+                         value={docForm.label} onChange={(e) => setDocForm({ ...docForm, label: e.target.value })} />
+                )}
                 <input className="in" type="date" aria-label="Expiry date"
                        value={docForm.expiry} onChange={(e) => setDocForm({ ...docForm, expiry: e.target.value })} />
-                <label className="btn sm"><Icon n="upload" s={14} />Upload<input type="file" hidden onChange={uploadCompliance} /></label>
+                <label className="btn sm" aria-disabled={!docReady}>
+                  <Icon n="upload" s={14} />Upload
+                  <input type="file" hidden disabled={!docReady} onChange={uploadCompliance} />
+                </label>
               </div>
+              {!docReady && <div className="hint">Choose what the document is, then upload it.</div>}
               <div className="hint">The buyer's procurement team sees these when reviewing your prequalification, and Docket reminds them before anything expires.</div>
             </div>
           </div>
@@ -438,8 +454,19 @@ export const PORTAL_CSS = `
 .docwarn{color:var(--wax);font-weight:600}
 `;
 
+/* The lookup and the room are two components because the room calls hooks
+   below the point where it would otherwise return early. A refresh that took
+   the tender away (withdrawn from this vendor, cancelled) then rendered fewer
+   hooks than the render before it, and React stopped the whole page. */
 export function BidRoom({ api, id }) {
+  const t = api.state.tenders.find((x) => x.id === id);
+  if (!t) return <Empty>Tender not found.</Empty>;
+  return <BidRoomFor api={api} t={t} />;
+}
+
+function BidRoomFor({ api, t }) {
   const { state, user, act, ai, go, toast } = api;
+  const id = t.id;
   const me = user.supplierId;
   const [form, setForm] = useState({ amount: "", decl: false });
   const [prices, setPrices] = useState({});
@@ -448,8 +475,6 @@ export function BidRoom({ api, id }) {
   const [aiFb, setAiFb] = useState("");
   const [busy, setBusy] = useState(false);
   const [askWithdraw, setAskWithdraw] = useState(false);
-  const t = state.tenders.find((x) => x.id === id);
-  if (!t) return <Empty>Tender not found.</Empty>;
   const st = effStatus(t);
   const rnd = activeRound(t);
   const rounds = roundsOf(t);
@@ -685,7 +710,10 @@ export function BidRoom({ api, id }) {
             {hasLines ? (
               <div className="frow" id="sb-price">
                 <label className="lbl">Your rate for each line</label>
-                <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>In naira, per unit, fixed for the contract term. The total works itself out below.</div>
+                <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>
+                  In naira, per unit, fixed for the contract term. The total works itself out below. The buyer
+                  has set the most it will pay for each line: a rate above that scores nothing on that line.
+                </div>
                 {t.lines.map((l) => (
                   /* .priceline stacks the line above its rate and running total
                      on a phone, and lays all three out in a row from 600px up */
@@ -835,6 +863,7 @@ export function AuctionRoom({ api, id }) {
   const [msg, setMsg] = useState("");
   const [extended, setExtended] = useState(0);
   const [placing, setPlacing] = useState(false);
+  const [nonce, setNonce] = useState(0);   // bumped to re-read the room after an action
 
   const lot = ((a && a.lots) || [])[0] || null;
   const st = (((a && a.lotState) || []).find((x) => lot && x.lotId === lot.id)) || {};
@@ -861,7 +890,7 @@ export function AuctionRoom({ api, id }) {
     const h = setInterval(poll, live === false ? POLL_IDLE_MS : POLL_LIVE_MS);
     return () => { stop = true; clearInterval(h); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, live]);
+  }, [id, live, nonce]);
 
   /* Overtaken or back in front, announced in words, with a glyph, and only
      then in colour (see the CVD note in ui.jsx). */
@@ -925,6 +954,7 @@ export function AuctionRoom({ api, id }) {
       toast.ok(r.myRank === 1 ? "▲ Bid placed, you lead" : `Bid placed, position ${r.myRank}`,
                "Binding until someone undercuts you.");
       prevEnds.current = r.endsAt;
+      setNonce((n) => n + 1);   // "your current bid" and the quick prices, now, not at the next tick
     } catch (e) {
       setMsg(e.message);
       toast.warn("Bid rejected", e.message);
@@ -936,6 +966,7 @@ export function AuctionRoom({ api, id }) {
     try {
       await raw(`/auctions/${a.id}/accept/`, { method: "POST", body: {} });
       toast.ok("Terms accepted", "You can bid now.");
+      setNonce((n) => n + 1);
     } catch (e) { toast.warn("Could not accept the terms", e.message); }
   };
 

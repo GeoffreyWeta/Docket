@@ -13,8 +13,8 @@ from django.views.generic import TemplateView
 # Vite content-hashes every bundle, so each deploy produces a new
 # assets/index-<hash>.js and the previous one stops existing. index.html is the
 # only thing that knows which hash is current. Served without cache headers it
-# gets HEURISTIC caching — a browser is free to reuse it for as long as it
-# likes — so a returning visitor asks for the hash from the build before last,
+# gets HEURISTIC caching - a browser is free to reuse it for as long as it
+# likes - so a returning visitor asks for the hash from the build before last,
 # gets a 404, and React never mounts. The page is blank, the server is healthy,
 # and nothing in the logs says anything is wrong.
 #
@@ -27,7 +27,7 @@ class SpaShell(TemplateView):
     WHY THE SERVER HAS TO DO THIS. The layout and the accent are deployment
     settings, not the reader's: they live in OrgSetting and arrive with
     /api/auth/config/. That is a fetch, so the page paints once before it
-    lands — in the default blue — and repaints when it does. On a fast
+    lands - in the default blue - and repaints when it does. On a fast
     connection that is a flicker; on a slow one it is a second of the wrong
     brand, on the front page, to somebody seeing the product for the first
     time.
@@ -79,8 +79,8 @@ def no_demo(request):
 
 # /demo points the browser at /demo-api/ (see frontend/src/api.js). Behind the
 # Lightsail nginx that prefix is proxied to the demo's own gunicorn and never
-# reaches this process. Everywhere else — Render, a laptop, the container on
-# its own — nothing was answering it, so the demo door never opened. A
+# reaches this process. Everywhere else - Render, a laptop, the container on
+# its own - nothing was answering it, so the demo door never opened. A
 # deployment with the one-click personas switched on IS the demo, so here the
 # prefix is simply this workspace's own API again. A deployment with them off
 # answers "no demo", and its data stays behind /api/ where it always was.

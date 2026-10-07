@@ -1,6 +1,6 @@
 /* What this signed-in person can do, on the client.
 
-   The server is the authority — every endpoint checks the same capability, and
+   The server is the authority - every endpoint checks the same capability, and
    sealing and blindness are enforced at serialization time. This module exists
    so the interface agrees with the answer: a button nobody is allowed to press
    should not be on the page, and a section somebody has just been granted
@@ -23,7 +23,7 @@ export const PAGE_PERM = {
      the last place in the product that still treated a reverse auction as a
      kind of tender: the server has had page.auctions since auctions left
      tenders, and grants it to procurement, finance and the executive, but
-     nothing here claimed it — so the capability was issued to people whose
+     nothing here claimed it - so the capability was issued to people whose
      sidebar had nowhere to put it and the auction list was unreachable. */
   auctions: "page.auctions",
   suppliers: "page.suppliers",
@@ -57,14 +57,14 @@ export function allowedPages(user) {
   return [...pages, ...subPages(pages, user)];
 }
 
-/** Sidebar destinations only — no sub-pages. */
+/** Sidebar destinations only - no sub-pages. */
 export function navPages(user) {
   return PAGE_ORDER.filter((p) => can(user, PAGE_PERM[p])
     || (p === "auctions" && can(user, "page.portal")));
 }
 
-/* Where a role likes to land, when it still may. Anything else — including a
-   role the workspace invented this morning — lands on its first section. */
+/* Where a role likes to land, when it still may. Anything else - including a
+   role the workspace invented this morning - lands on its first section. */
 const PREFERRED_HOME = {
   procurement: "dashboard", evaluator: "evals", approver: "approvals",
   auditor: "audit", supplier: "portal",

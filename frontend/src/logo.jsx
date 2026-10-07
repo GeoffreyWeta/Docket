@@ -6,7 +6,7 @@
    from currentColor plus one accent so it inherits the theme instead of
    fighting it.
 
-   `<Mark/>`     the symbol alone — favicons, avatars, tight chrome
+   `<Mark/>`     the symbol alone - favicons, avatars, tight chrome
    `<Wordmark/>` symbol + DOCKET, the signature lockup
    `<OrgMark/>`  the *customer's* logo where they have uploaded one, falling
                  back to their initials on a tinted tile, falling back to ours.
@@ -55,7 +55,7 @@ export function Wordmark({ s = 26, className = "", animate = false, tag }) {
 export function initialsOf(name) {
   const skip = new Set(["the", "a", "an", "of", "and", "plc", "ltd", "limited", "nig", "nigeria"]);
   const words = String(name || "")
-    .split(/[\s\-–—/&,.]+/)
+    .split(/[\s\-–/&,.]+/)
     .map((w) => w.replace(/[^A-Za-z0-9]/g, ""))
     .filter((w) => w && !skip.has(w.toLowerCase()));
   if (!words.length) return "-";

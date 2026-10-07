@@ -56,11 +56,11 @@ fi
 # fail deep inside a management command with a confusing error.
 for role in $ROLES; do
   [ -r "$ENV_DIR/env.$role" ] || {
-    echo "No $ENV_DIR/env.$role — run provision.sh $role first." >&2; exit 1; }
+    echo "No $ENV_DIR/env.$role - run provision.sh $role first." >&2; exit 1; }
 done
 
 # `sudo -u` does not reliably hand the target user their own HOME, and npm
-# without a writable HOME tries to cache under root's and dies on EACCES —
+# without a writable HOME tries to cache under root's and dies on EACCES -
 # halfway through, leaving node_modules in a state `npm ci` has to redo.
 APP_HOME="$(getent passwd "$APP_USER" | cut -d: -f6)"
 
@@ -71,7 +71,7 @@ manage() { sudo -u "$APP_USER" /usr/local/bin/docket-manage "$@"; }
 #
 # Checked before anything else touches a database. SECRET_KEY is the Fernet key
 # protecting every sealed bid at rest (backend/core/util.py), so a changed one
-# does not throw an error — it silently makes existing bids undecryptable while
+# does not throw an error - it silently makes existing bids undecryptable while
 # the app carries on looking healthy. The fingerprint is written once by
 # provision.sh; if it stops matching, something has rewritten the env file and
 # the right move is to put the old key back, not to deploy over it.
@@ -126,7 +126,7 @@ run "$APP_DIR/.venv/bin/pip" install --quiet -r "$APP_DIR/requirements.txt"
 # it; without that, a vite build is a plausible way to have the OOM killer take
 # Postgres instead.
 # --no-build is for the 1 GB instance. A vite build of this app peaks at about
-# 1.4 GB resident — measured, not estimated — so on the $7 plan it either dies
+# 1.4 GB resident - measured, not estimated - so on the $7 plan it either dies
 # with "JavaScript heap out of memory" or swaps for ten minutes while the OOM
 # killer eyes Postgres. Build the bundle on a machine that has the memory and
 # send the result up:
@@ -143,7 +143,7 @@ if [ "$BUILD" = no ]; then
   # bundle is the failure this flag makes possible, so it is the one it checks.
   [ -f "$APP_DIR/frontend/dist/index.html" ] || {
     echo "--no-build, but $APP_DIR/frontend/dist/index.html is not there." >&2
-    echo "Build the bundle elsewhere and rsync it in — see the comment above this check." >&2
+    echo "Build the bundle elsewhere and rsync it in - see the comment above this check." >&2
     exit 1; }
   say "Using the bundle already on disk (--no-build)"
   note "built $(date -r "$APP_DIR/frontend/dist/index.html" '+%Y-%m-%d %H:%M') · $(du -sh "$APP_DIR/frontend/dist" | cut -f1)"
@@ -166,7 +166,7 @@ for role in $ROLES; do
     else
       # Nothing to seed. The real workspace starts empty on purpose: the first
       # person through the door gets the setup wizard and becomes the owner.
-      say "[$role] Real workspace — starting empty, no seed"
+      say "[$role] Real workspace - starting empty, no seed"
       note "The first visitor gets the setup wizard. Nothing to do here."
     fi
     # The register is the exception: it is reference data either workspace can
@@ -182,7 +182,7 @@ for role in $ROLES; do
         # companies do not sit on disk waiting for the next person with a shell.
         rm -f "$APP_DIR/backend/data/vendors.json"
       else
-        note "VENDORS_URL fetch failed — keeping the register as it is."
+        note "VENDORS_URL fetch failed - keeping the register as it is."
       fi
       rm -rf "$tmp"
     fi

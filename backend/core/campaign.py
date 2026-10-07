@@ -1,7 +1,7 @@
 """The registration drive: inviting an imported register to come and sign up.
 
 Importing 1,436 vendors gives you a list. It does not give you 1,436 vendors who
-can log in, upload a tax clearance, or receive an invitation to bid — for that
+can log in, upload a tax clearance, or receive an invitation to bid - for that
 each one has to register, and somebody has to ask them to.
 
 Four things make this different from a loop over `send_mail`:
@@ -27,7 +27,7 @@ Four things make this different from a loop over `send_mail`:
 What this deliberately does not do: it does not send to a vendor who already has
 a login, it does not send to a vendor held out of the register with a rejection
 reason, and it has no "send to everyone again" switch. The last one is not an
-oversight — see `reset_campaign`, which is admin-only and logs loudly.
+oversight - see `reset_campaign`, which is admin-only and logs loudly.
 """
 import logging
 
@@ -62,10 +62,10 @@ def eligible():
     """Vendors it would be correct to email, as a queryset.
 
     Excluded, in order of how much it would matter to get wrong:
-      * no email address — nothing to send to
-      * already invited — `invited_at` is set
-      * already has a login — they have registered; asking again is noise
-      * held out with a rejection reason — the organisation has said no to
+      * no email address - nothing to send to
+      * already invited - `invited_at` is set
+      * already has a login - they have registered; asking again is noise
+      * held out with a rejection reason - the organisation has said no to
         this vendor, and inviting them to register anyway is the system
         contradicting a decision somebody made
     """
@@ -133,7 +133,7 @@ def is_live():
 def state():
     """{running, sent, failed, startedAt}.
 
-    Only `running` is stored — one TaskMark row holding the epoch the drive was
+    Only `running` is stored - one TaskMark row holding the epoch the drive was
     armed, or 0 for disarmed. The counters are *derived* from the Supplier rows
     themselves, because `invited_at` and `invite_error` are set in the same
     update as the send. A stored counter and a set of sends are two records of
@@ -170,7 +170,7 @@ def is_running():
 
 def _message(supplier, token, base_url, org):
     link = f"{base_url}/?register={token}"
-    subject = f"{org} — register as a supplier on DOCKET"
+    subject = f"{org} - register as a supplier on DOCKET"
     body = (
         f"Dear {supplier.contact_person or supplier.name},\n\n"
         f"{org} now runs its tendering through DOCKET, a sealed-bid procurement "
@@ -182,7 +182,7 @@ def _message(supplier, token, base_url, org):
         f"invitations, ask questions during a tender, and submit sealed bids:\n\n"
         f"    {link}\n\n"
         f"This link is for {supplier.name} and can be used once.\n\n"
-        f"If you believe you received this in error, ignore it — no account is "
+        f"If you believe you received this in error, ignore it - no account is "
         f"created until you complete registration.\n\n"
         f"{org} Procurement"
     )
@@ -200,7 +200,7 @@ def send_batch(base_url, org, limit=BATCH):
         return 0, 0
     batch = list(eligible()[:limit])
     if not batch:
-        stop()   # nothing left — disarm so the sweep stops looking
+        stop()   # nothing left - disarm so the sweep stops looking
         return 0, 0
 
     sent = failed = 0
@@ -218,7 +218,7 @@ def send_batch(base_url, org, limit=BATCH):
         # rather than mailing it, so the campaign still terminates.
         if not addr or addr in seen:
             Supplier.objects.filter(pk=s.id).update(
-                invited_at=now_ms(), invite_error="Duplicate address in this batch — not sent.")
+                invited_at=now_ms(), invite_error="Duplicate address in this batch - not sent.")
             continue
         seen.add(addr)
         try:
@@ -227,7 +227,8 @@ def send_batch(base_url, org, limit=BATCH):
                 payload={"supplierId": s.id, "campaign": True}, created=now_ms())
             subject, body = _message(s, tok.token, base_url, org)
             msg = EmailMessage(f"[{org}] {subject}", body,
-                               settings.DEFAULT_FROM_EMAIL, [addr], connection=conn)
+                               settings.DEFAULT_FROM_EMAIL, [addr], connection=conn,
+                               reply_to=settings.EMAIL_REPLY_TO)
             msg.send(fail_silently=False)
             Supplier.objects.filter(pk=s.id).update(
                 invited_at=now_ms(), invite_count=s.invite_count + 1, invite_error="")

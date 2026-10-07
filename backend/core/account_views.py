@@ -8,10 +8,11 @@ import secrets
 
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.core.mail import send_mail
+from django.core.mail import EmailMessage
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
+from . import vocab
 from .models import ActionToken, Persona, Profile, Supplier
 from .notify import notify_perm
 from .util import now_ms, record_event, rid
@@ -38,7 +39,8 @@ def _body(request):
 
 def _mail(to, subject, body):
     try:
-        send_mail(f"[DOCKET] {subject}", body, settings.DEFAULT_FROM_EMAIL, [to], fail_silently=False)
+        EmailMessage(f"[DOCKET] {subject}", body, settings.DEFAULT_FROM_EMAIL, [to],
+                     reply_to=settings.EMAIL_REPLY_TO).send(fail_silently=False)
     except Exception:
         pass  # console/misconfigured SMTP must never break the flow
 
@@ -62,18 +64,31 @@ def _link(request, param, token):
     return f"{base}/?{param}={token}"
 
 
+def _placed(clean, value, fallback):
+    """`clean(value)`, or `fallback` when the value cannot be placed. For a
+    payload validated in an earlier release: the vendor has already clicked
+    their link, and an account lost to a spelling rule helps nobody."""
+    try:
+        return clean(value) or fallback
+    except vocab.Refused:
+        return fallback
+
+
 def _finish_vendor(payload):
     """Create the supplier + login once identity is trusted (verified or invited)."""
     email = payload["email"]
     if User.objects.filter(username=email).exists():
         return None, "An account with this email already exists."
     sup = Supplier.objects.create(
-        id=rid("s"), name=payload["company"][:120], category=payload.get("category", "General")[:60],
-        location=payload.get("location", "")[:60] or "—", prequalified=False,
+        id=rid("s"), name=payload["company"][:120],
+        # A token minted before the dropdowns carries whatever was typed, so
+        # it is placed here too rather than trusted.
+        category=_placed(vocab.category, payload.get("category"), "Uncategorised"),
+        location=_placed(vocab.location, payload.get("location"), "-"), prequalified=False,
         contact_email=email, registered_at=now_ms(), docs=[], perf={},
         source=payload.get("_source", "self"),
         contact_person=payload.get("contactPerson", "")[:140],
-        phone=payload.get("phone", "")[:120],
+        phone=_placed(vocab.phone, payload.get("phone"), ""),
         address=payload.get("address", "")[:300],
     )
     user = User.objects.create_user(username=email, email=email, password=None)
@@ -112,9 +127,13 @@ def register_vendor(request):
         return _err("Password must be at least 8 characters.")
     if User.objects.filter(username=email).exists():
         return _err("An account with this email already exists.", 409)
+    try:
+        category = vocab.category(b.get("category"))
+        location = vocab.location(b.get("location"))
+    except vocab.Refused as e:
+        return _err(str(e))
     payload = {"email": email, "company": company, "_pw": pw,
-               "category": str(b.get("category", "")).strip() or "General",
-               "location": str(b.get("location", "")).strip()}
+               "category": category, "location": location}
     if settings.DEMO_LOGIN:  # demo: skip the mailbox round-trip
         sup, msg = _finish_vendor(payload)
         if msg:
@@ -133,7 +152,7 @@ def claim_vendor(request):
 
     This is the other half of the registration drive. Without it, a vendor
     invited off the imported register would arrive at the ordinary sign-up form
-    and create a *second* record for a company already on the register — and at
+    and create a *second* record for a company already on the register - and at
     the scale a drive operates on, that is not an edge case, it is 1,300 of
     them. The emailed token names the supplier it was minted for, so the account
     attaches to the row the buyer already has: same id, same NAV code, same
@@ -237,7 +256,7 @@ def accept_invite(request):
     # The setup wizard draws the whole org chart before anybody accepts, so the
     # invitation may already name a person: reporting line, job title, signing
     # authority and all. Attaching the login to that persona is what keeps the
-    # chart intact — creating a second one would leave a manager reporting to a
+    # chart intact - creating a second one would leave a manager reporting to a
     # ghost and an approval level held by nobody. A persona that has already
     # been claimed is not reused, because that would be two logins for one
     # person on the chart.
@@ -272,7 +291,7 @@ def forgot_password(request):
         return _err("Method not allowed", 405)
     email = str(_body(request).get("email", "")).strip().lower()
     user = User.objects.filter(username=email).first()
-    if user:  # deliberately identical response either way — no account enumeration
+    if user:  # deliberately identical response either way - no account enumeration
         tok = _mint("reset", email, {})
         _mail(email, "Reset your DOCKET password",
               f"Reset your password here:\n\n{_link(request, 'rtoken', tok.token)}\n\n"

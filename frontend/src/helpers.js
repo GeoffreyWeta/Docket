@@ -42,8 +42,8 @@ export const STATUS = {
 export const effStatus = (t) => (t.status === "published" && t.deadline < nowMs() ? "closed" : t.status);
 
 /* The status a person is shown, which is one step finer than the status the
-   server acts on. "Closing soon" is not a state a tender is in — nothing
-   transitions into or out of it — it is the last stretch of "open", surfaced
+   server acts on. "Closing soon" is not a state a tender is in - nothing
+   transitions into or out of it - it is the last stretch of "open", surfaced
    because a bidder with 30 hours left and a bidder with 30 days left are not
    in the same situation and a single green badge tells them they are. */
 export const CLOSING_SOON = 2 * DAY;
@@ -67,7 +67,7 @@ export const ROUND_STATUS = {
 };
 
 /* An event with no explicit rounds is a single-round event whose window is the
-   tender's own deadline — see ProcurementRound in the backend. The interface
+   tender's own deadline - see ProcurementRound in the backend. The interface
    says "Round 1" either way, so a manager opening a second round sees a list
    grow rather than a concept appear. */
 export const roundsOf = (t) => (t.rounds && t.rounds.length ? t.rounds : [{
@@ -129,14 +129,45 @@ export const techScore = (t, bid) => {
     .filter((x) => x != null);
   return per.length ? mean(per) : null;
 };
+/* Mirrors util.line_maxima / lines_over_max / comm_score. A line's `price` is
+   the most the buyer will pay per unit. Only the buying side receives it. */
+export const lineMaxima = (t) =>
+  t.lines && t.lines.length && t.lines.every((l) => Number(l.price) > 0) ? t.lines : null;
+export const linesCeiling = (lines) =>
+  (lines || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
+export const linesOverMax = (t, bid) => {
+  const ls = lineMaxima(t);
+  if (!ls || !bid.lines) return [];
+  return ls.filter((l) => (bid.lines[l.id] || 0) > l.price);
+};
+
+/* Price score out of 100. With a maximum on every line it is graded line by
+   line: each line counts for quantity × maximum, a rate above the maximum
+   earns nothing on that line, and at or under it the lowest rate on the line
+   gets full marks and the rest score in proportion. Without maximums, the
+   lowest total gets full marks. */
 export const commScore = (t, bid, bids) => {
-  const lo = Math.min(...bids.map((b) => b.amount));
+  if (bid.amount == null) return null;
+  const ls = lineMaxima(t);
+  if (ls && bid.lines && Object.keys(bid.lines).length) {
+    let got = 0;
+    ls.forEach((l) => {
+      const mine = bid.lines[l.id] || 0;
+      if (mine <= 0 || mine > l.price) return;
+      const rates = bids.filter((b) => b.amount != null).map((b) => b.lines?.[l.id] || 0)
+                        .filter((r) => r > 0 && r <= l.price);
+      got += l.qty * l.price * (Math.min(mine, ...rates) / mine);
+    });
+    return (got / linesCeiling(ls)) * 100;
+  }
+  const lo = Math.min(...bids.filter((b) => b.amount != null).map((b) => b.amount));
   return (lo / bid.amount) * 100;
 };
 export const totalScore = (t, bid, bids) => {
   const ts = techScore(t, bid);
-  if (ts == null) return null;
-  return (ts * t.techWeight) / 100 + (commScore(t, bid, bids) * t.commWeight) / 100;
+  const cs = commScore(t, bid, bids);
+  if (ts == null || cs == null) return null;
+  return (ts * t.techWeight) / 100 + (cs * t.commWeight) / 100;
 };
 export const varianceFlags = (t, bid) =>
   t.criteria.filter((c) => {

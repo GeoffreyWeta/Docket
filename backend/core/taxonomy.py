@@ -1,4 +1,4 @@
-"""The spend taxonomy — one tree, three layers, used by vendors and tenders alike.
+"""The spend taxonomy - one tree, three layers, used by vendors and tenders alike.
 
 Before this file the workspace held two unrelated vocabularies: the register
 carried the twenty-three categories `vendor_import.CATEGORY_RULES` derives from
@@ -10,7 +10,7 @@ the vendors that make it up.
 There is now one tree:
 
     family        Eight buckets a CFO would recognise on a spend report.
-    category      The twenty-three the register already derives. Unchanged —
+    category      The twenty-three the register already derives. Unchanged -
                   renaming them would invalidate 1,436 imported records.
     subcategory   Derived from the register's own classification wording, so
                   every leaf can be traced back to the cell it came from.
@@ -21,51 +21,16 @@ is wrong in ways you can see and fix in the rules.
 """
 import re
 
+from .vocab import VOCAB
+
 # ------------------------------------------------------------------ families
 
-# (key, label, [category labels]) — every category in CATEGORY_RULES appears
-# exactly once, and the checker at the bottom of this file enforces that.
-FAMILIES = [
-    ("food", "Food & catering", [
-        "Food & ingredients",
-        "Staff catering",
-    ]),
-    ("energy", "Energy & fuel", [
-        "Fuel, diesel & gas",
-    ]),
-    ("tech", "Technology & telecoms", [
-        "IT & telecoms",
-    ]),
-    ("brand", "Marketing, media & print", [
-        "Marketing & media",
-        "Printing & packaging",
-    ]),
-    ("works", "Works, property & facilities", [
-        "Construction & engineering",
-        "Landlord & property",
-        "Maintenance & facilities",
-        "Cleaning, pest & waste",
-    ]),
-    ("move", "Logistics, fleet & travel", [
-        "Logistics & freight",
-        "Fleet & automotive",
-        "Travel & hospitality",
-    ]),
-    ("prof", "Professional services", [
-        "Legal",
-        "Finance & audit",
-        "People & consulting",
-        "Insurance & health",
-    ]),
-    ("goods", "Goods, equipment & supplies", [
-        "Equipment & assets",
-        "Furniture & interiors",
-        "Uniforms & workwear",
-        "Chemicals",
-        "General supplies",
-        "Uncategorised",
-    ]),
-]
+# (key, label, [category labels]) - every category in CATEGORY_RULES appears
+# exactly once, and the checker at the bottom of this file enforces that. The
+# tree itself lives in vocab.json, because the category dropdown on every form
+# reads the same file: a family added here and not there would be a category
+# the server accepts and no form offers.
+FAMILIES = [(f["key"], f["label"], f["categories"]) for f in VOCAB["families"]]
 
 FAMILY_OF = {cat: key for key, _label, cats in FAMILIES for cat in cats}
 FAMILY_LABEL = {key: label for key, label, _cats in FAMILIES}
@@ -74,14 +39,14 @@ ALL_CATEGORIES = [cat for _k, _l, cats in FAMILIES for cat in cats]
 
 def family_for(category):
     """The family a category rolls up into. Unknown categories land in goods
-    rather than vanishing from the rollup — a spend report that silently drops
+    rather than vanishing from the rollup - a spend report that silently drops
     a line is worse than one with an odd line in it."""
     return FAMILY_OF.get(category, "goods")
 
 
 # -------------------------------------------------------------- subcategories
 
-# {category: [(sub label, pattern)]} — matched against the register's raw
+# {category: [(sub label, pattern)]} - matched against the register's raw
 # classification, then the vendor name, exactly like category_for. First match
 # wins, so order specific before general. A category with no rule, or a vendor
 # none of its rules match, keeps the category itself as its leaf: an honest
@@ -218,7 +183,7 @@ SUBCATEGORY_RULES = {
 def subcategory_for(category, classification="", name=""):
     """The leaf under `category`, or "" when the rules cannot place it.
 
-    Empty means "this category, not broken down further" — the caller renders
+    Empty means "this category, not broken down further" - the caller renders
     the category itself rather than inventing an "Other" bucket that would look
     like a real leaf on a chart.
     """

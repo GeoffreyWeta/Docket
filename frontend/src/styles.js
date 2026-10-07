@@ -534,6 +534,7 @@ button.chip:active{background:var(--sunk)}
 .btn.iconly{padding:0;min-width:var(--tap)}
 /* a file input dressed as a button still has to accept a fat finger */
 label.btn{cursor:pointer}
+label.btn[aria-disabled="true"]{opacity:.42;cursor:not-allowed;box-shadow:none}
 
 .in,.dk textarea,.dk select.in{width:100%;min-height:var(--tap);padding:10px 12px;
   border:1px solid var(--field-bd);border-radius:var(--field-r);
@@ -560,12 +561,49 @@ label.btn{cursor:pointer}
 .formrow>.frow{flex:1 1 100%;margin-bottom:0}
 .formrow>.in{flex:1 1 100%}
 .formrow>.btn,.formrow>label.btn{flex:1 1 auto;justify-content:center}
-/* line item: description on its own row, then qty · unit · remove */
-.lineedit{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;margin-bottom:10px}
-/* Narrow: the item link and the description each take a row of their own, and
-   quantity/unit/remove share the third. */
-.lineedit>.itempick{grid-column:1 / -1;justify-self:start}
-.lineedit>.desc{grid-column:1 / -1}
+/* fields.jsx: a value made of two choices, side by side at every width. The
+   phone's country code beside its number; the CAC prefix beside its digits. */
+.pairin{display:flex;gap:6px}
+.pairin>select.in{flex:0 0 auto;width:112px;padding-right:6px}
+.pairin>select.rcpre{width:76px}
+.pairin>input.in{flex:1 1 auto;min-width:0}
+/* what is wrong with what was typed, under the field. Unlike .hint it only
+   appears when there is something to fix. */
+.hint.fieldwarn{color:var(--wax)}
+/* csvguide.jsx: the file an upload expects, drawn as a spreadsheet. Grey
+   letters and row numbers so it reads as Excel at a glance; the heading row in
+   mono because those are the exact words the file must carry. */
+.csvguide{border:1px solid var(--line);border-radius:var(--r-sm);background:var(--sunk);
+  padding:12px 14px;margin:0 0 14px}
+.csvtop{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.csvtop>b{font-size:13px;color:var(--ink)}
+.csvtop .doclink{display:inline-flex;align-items:center;gap:6px}
+.csvsheet{border-collapse:collapse;font-size:12px;min-width:100%;background:var(--card)}
+.csvsheet th,.csvsheet td{border:1px solid var(--line);padding:5px 9px;text-align:left;white-space:nowrap;color:var(--ink)}
+.csvsheet thead th,.csvsheet .rn{background:var(--sunk);color:var(--faint);font-weight:500;
+  text-align:center;font-family:var(--font-mono);font-size:11px}
+.csvsheet .rn{width:30px}
+.csvsheet .hdr td{font-family:var(--font-mono);font-weight:600}
+.csvsheet .hdr td.req{color:var(--brand)}
+.csvcols{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:7px;font-size:12.5px;line-height:1.5;color:var(--muted)}
+.csvcols .mono{font-weight:600;color:var(--ink);margin-right:6px}
+.csvneed{font-size:11px;color:var(--faint);margin-right:6px}
+.csvneed.req{color:var(--brand);font-weight:600}
+.csvcols summary{cursor:pointer;color:var(--brand);font-weight:550;margin-top:3px;width:max-content;max-width:100%}
+.csvvals{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 2px}
+.csvvals span{font-size:11.5px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--ink)}
+/* line item: the item link and description on a row of their own, then
+   quantity · unit · remove, then the maximum per unit and what the line comes
+   to. Every number carries a small label, because two bare number boxes side
+   by side stop saying which is which the moment both are filled in. */
+.lineedit{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end;
+  margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.lineedit>.lhead{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.lineedit>.lhead>.desc{flex:1 1 220px;min-width:0}
+.lcell{display:flex;flex-direction:column;gap:4px;min-width:0}
+.lcell>span{font-size:11px;color:var(--muted)}
+.lcell>.ltot{font-weight:600;padding:9px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.linesum{display:flex;justify-content:flex-end;align-items:baseline;gap:12px;flex-wrap:wrap}
 /* criterion: name on its own row, then weight · remove */
 .critedit{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin-bottom:10px}
 .critedit>.cname{grid-column:1 / -1}
@@ -601,6 +639,7 @@ label.btn{cursor:pointer}
    the (non-mono) title column absorbs the width instead */
 .tbl .mono,.tbl .money{white-space:nowrap}
 .tbl td.best{color:var(--green);font-weight:600}
+.tbl td.over{color:var(--wax);font-weight:600}
 .subtbl td{padding:6px 12px;font-size:12.5px;border-bottom:1px dashed var(--line)}
 .subtbl tr:last-child td{border-bottom:0}
 .breakrow>td{background:var(--sunk);padding:8px 14px 15px}
@@ -781,12 +820,9 @@ label.btn{cursor:pointer}
   .formrow>.frow{flex:1 1 180px}
   .formrow>.in{flex:1 1 180px}
   .formrow>.btn,.formrow>label.btn{flex:0 0 auto}
-  /* Wide: five columns - item link, description, quantity, unit, remove. The
-     link column sizes to content, so an unlinked line gives its width back to
-     the description instead of reserving space for a chip that is not there. */
-  .lineedit{grid-template-columns:auto 1fr 100px 120px auto}
-  .lineedit>.itempick{grid-column:auto}
-  .lineedit>.desc{grid-column:auto}
+  /* Wide: the numbers share one row under the description - quantity, unit,
+     maximum per unit, line maximum, remove. */
+  .lineedit{grid-template-columns:100px 130px minmax(0,1fr) minmax(0,1fr) auto}
   .critedit{grid-template-columns:1fr 110px auto}
   .critedit>.cname{grid-column:auto}
   .priceline{grid-template-columns:1fr 150px 130px}

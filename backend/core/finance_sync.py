@@ -14,7 +14,7 @@ the dashboards.
     BC OData ───┘   (per-source)    (system-free)  (shared)
 
 The normal row is the contract between the two halves. It is a plain dict with
-documented keys, base-currency money, and epoch-millisecond dates — the same
+documented keys, base-currency money, and epoch-millisecond dates - the same
 vocabulary the rest of DOCKET already speaks.
 
 **What this module refuses to do.** It does not invent a link. A NAV invoice
@@ -41,7 +41,7 @@ BASE_CCY = "NGN"
 
 # Which of our five spend dimensions a NAV dimension code belongs to.
 #
-# Every NAV install names these differently — one company's "DEPT" is another's
+# Every NAV install names these differently - one company's "DEPT" is another's
 # "DEPARTMENT" and a third's "DIV". The defaults below cover the common spellings
 # and the whole map is overridable in OrgSetting.data["dimensionMap"], because a
 # mapping nobody can edit is a mapping that is wrong for the next customer.
@@ -65,7 +65,7 @@ def dimension_map():
 
 
 def dimension_codes():
-    """{slot: {CODE: Name}} — how a ledger row's dimension code becomes a word.
+    """{slot: {CODE: Name}} - how a ledger row's dimension code becomes a word.
 
     NAV records dimensions on a document as *codes* ("OPS"), and the tender form
     records them as the names people chose from a list ("Operations"). Without a
@@ -108,7 +108,7 @@ def resolve_dimension(slot, value):
 
 class Adapter:
     """A finance system's vocabulary. Subclasses map its columns onto normal
-    rows and nothing else — no database access, no business rules."""
+    rows and nothing else - no database access, no business rules."""
 
     key = ""
     label = ""
@@ -367,7 +367,7 @@ class BusinessCentralAdapter(NavAdapter):
     Subclasses NAV rather than repeating it: BC *is* NAV's data model with the
     captions renamed to camelCase and dates already ISO-8601. `_pick` strips
     punctuation and case before matching, so "Document Date" already finds
-    `documentDate` — which means the inherited mappings work unchanged and only
+    `documentDate` - which means the inherited mappings work unchanged and only
     the genuine renames need listing below. When the migration happens, this
     class is the diff.
 
@@ -426,7 +426,7 @@ def bc_config():
     """What is configured for a live pull, and what is missing.
 
     Reports presence, never values. `configured` is the only thing an endpoint
-    is allowed to return — a settings screen that echoes a client secret back to
+    is allowed to return - a settings screen that echoes a client secret back to
     a browser has published it, and the whole point of putting it in the
     environment was to keep it out of places things get read from.
     """
@@ -458,7 +458,7 @@ def bc_token():
     cfg = bc_config()
     if not cfg["configured"]:
         raise RuntimeError(
-            "Business Central is not configured — missing " + ", ".join(cfg["missing"])
+            "Business Central is not configured - missing " + ", ".join(cfg["missing"])
             + ". Set them in the environment and restart.")
 
     url = f"https://login.microsoftonline.com/{s.BC_TENANT_ID}/oauth2/v2.0/token"
@@ -482,7 +482,7 @@ def pull(entity, *, source="bc", now=None):
     """Fetch one entity live and apply it. The whole round trip, one call."""
     from django.conf import settings as s
     if source != "bc":
-        raise RuntimeError(f"{source!r} has no live transport — load an export instead.")
+        raise RuntimeError(f"{source!r} has no live transport - load an export instead.")
     rows = fetch_bc(entity, tenant=s.BC_TENANT_ID, company=s.BC_COMPANY_ID,
                     token=bc_token(), environment=s.BC_ENVIRONMENT)
     return sync(source, entity, rows, now=now)
@@ -494,7 +494,7 @@ def pull_all(*, source="bc", entities=None, now=None):
     Dimensions and vendors first: a contract row carries a dimension code and a
     vendor number, and importing it before those exist means it lands unlinked
     and uncoded. Items before contracts for the same reason. One feed failing
-    does not abandon the rest — a broken items view should not cost you the
+    does not abandon the rest - a broken items view should not cost you the
     invoices.
     """
     order = entities or ENTITIES
@@ -568,7 +568,7 @@ def rows_from_upload(fh):
 
 def _fx_rate(row, rates):
     """The rate to convert this row at: the one the source recorded, or today's
-    observation for that currency, or 1. Recorded beats current — a contract
+    observation for that currency, or 1. Recorded beats current - a contract
     struck at last year's rate is a commitment at last year's rate, and
     revaluing it silently would erase the exposure this page exists to show."""
     ccy = (row.get("currency") or BASE_CCY).upper()
@@ -594,7 +594,7 @@ def _supplier_index():
     """{nav code / previous code / normalised name: Supplier}.
 
     The register already carries each vendor's NAV code, and the importer kept
-    any code a vendor was previously registered under — so a ledger row keyed to
+    any code a vendor was previously registered under - so a ledger row keyed to
     the old code still lands on the right vendor instead of creating a second.
     """
     idx = {}
@@ -653,7 +653,7 @@ def _save_dimensions(ctx):
 
     Merged rather than replaced. A value somebody added by hand, or one that
     belongs to a dimension this export did not include, must survive an import
-    of the dimensions that did — otherwise every partial export silently empties
+    of the dimensions that did - otherwise every partial export silently empties
     the lists the tender form offers.
     """
     from .models import OrgSetting
@@ -708,7 +708,7 @@ def _apply_dimension(row, ctx):
     ledger importers translate through, so a contract carrying "OPS" and a
     tender carrying "Operations" land on the same bar of the same chart.
 
-    Batched at the end of the run rather than saved per row — see `sync`.
+    Batched at the end of the run rather than saved per row - see `sync`.
     """
     slot = ctx["dimmap"].get(str(row.get("dimension_code") or "").strip().upper())
     if not slot:
@@ -727,7 +727,7 @@ def _apply_dimension(row, ctx):
 def _apply_vendor(row, ctx):
     """Update a vendor from the ledger, keeping what the ledger does not know.
 
-    NAV is authoritative for the things it owns — the legal name, the address,
+    NAV is authoritative for the things it owns - the legal name, the address,
     the payment terms, whether the account is blocked. It knows nothing about
     the decisions this system makes: which category the vendor was placed in
     after somebody read their classification, whether they passed
@@ -748,7 +748,7 @@ def _apply_vendor(row, ctx):
         name = row.get("name") or code
         # The same rule engine the register import uses, so a vendor arriving
         # from NAV lands in the same bucket it would have from a spreadsheet.
-        # NAV's posting group is a posting group, not a procurement category —
+        # NAV's posting group is a posting group, not a procurement category -
         # storing it raw would put "GENERATOR AND POWER" on a chart next to
         # "Maintenance & facilities" and count them as different things.
         classification = row.get("classification") or ""
@@ -768,7 +768,7 @@ def _apply_vendor(row, ctx):
     s.contact_email = row.get("email") or s.contact_email
     s.phone = row.get("phone") or s.phone
     s.address = row.get("address") or s.address
-    s.location = row.get("location") or s.location or "—"
+    s.location = row.get("location") or s.location or "-"
     s.payment_terms = row.get("payment_terms") or s.payment_terms
     reg = dict(s.registry or {})
     if row.get("tin"):

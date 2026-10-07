@@ -6,7 +6,7 @@ import { BP } from "./breakpoints";
 
 /* The catalogue. `note` is what the console shows beside each one: what the
    reader will see, not what the colour is called. `swatch` is page, panel,
-   action, band — duplicated from the light block below because the console
+   action, band - duplicated from the light block below because the console
    does not load this stylesheet and should not have to. */
 export const DESIGNS = [
   {
@@ -57,7 +57,7 @@ export const DEFAULT_DESIGN = "studio";
     The fallback looks DEFAULT_DESIGN up by key rather than taking DESIGNS[0].
     By position it only worked while the default happened to be listed first,
     and the front page asks for a palette on its very first paint, before the
-    config has landed — so getting that fallback wrong means every visitor
+    config has landed - so getting that fallback wrong means every visitor
     sees the wrong colour for a moment. */
 export function designOf(key) {
   return DESIGNS.find((d) => d.key === key)

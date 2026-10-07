@@ -3,7 +3,7 @@
     python test_approvals.py
 
 Drives the real HTTP endpoints against a throwaway SQLite database, because
-the thing under test is not the ORM — it is that a tender raised by a buyer
+the thing under test is not the ORM - it is that a tender raised by a buyer
 collects the right signatures from the right people in the right order, and
 that nobody else can sign in their place. An ORM-level test would pass while
 the endpoint let any approver jump the queue.
@@ -66,7 +66,7 @@ PASSED, FAILED = [], []
 
 def ok(label, cond, extra=""):
     (PASSED if cond else FAILED).append(label)
-    print(("  PASS  " if cond else "  FAIL  ") + label + (f"  — {extra}" if extra and not cond else ""))
+    print(("  PASS  " if cond else "  FAIL  ") + label + (f"  - {extra}" if extra and not cond else ""))
 
 
 def call(method, path, token=None, body=None, expect=200):
@@ -140,10 +140,28 @@ setup = call("POST", "/api/setup/", body={
 owner_token = setup["token"]
 ok("setup returns a signed-in token", bool(owner_token))
 ok("the company is named", setup["company"] == "Kestrel Hospitality Group")
-ok("six invitations went out", len(setup["invited"]) == 6, str(len(setup["invited"])))
+ok("six invitations are prepared", len(setup["held"]) == 6, str(len(setup["held"])))
 ok("three vendors created, one duplicate skipped",
    setup["vendors"]["created"] == 3 and setup["vendors"]["skipped"] == 1, str(setup["vendors"]))
-ok("the vendor drive was armed", setup["vendors"]["invited"] is True)
+
+# Setup emails nobody: the company decides afterwards when people hear about it.
+from django.core import mail                # noqa: E402
+from core import campaign                   # noqa: E402
+ok("setup sends no email at all", len(mail.outbox) == 0, [m.to for m in mail.outbox])
+ok("not even when the vendor box was ticked", not campaign.is_running())
+team = call("GET", "/api/team/", owner_token)
+ok("the Team page lists the six held invitations", len(team["held"]) == 6, str(team.get("held")))
+ok("and nothing waiting to be accepted yet", team["invites"] == [], str(team["invites"]))
+
+sent = call("POST", "/api/team/send_invites/", owner_token, {"personaIds": [
+    next(h["personaId"] for h in team["held"] if h["email"] == "dele@kestrel.test")]})
+ok("one person can be sent their invitation on its own", sent["sent"] == 1
+   and [m.to for m in mail.outbox] == [["dele@kestrel.test"]], [m.to for m in mail.outbox])
+sent = call("POST", "/api/team/send_invites/", owner_token, {})
+ok("the rest go together when the company is ready", sent["sent"] == 5 and len(mail.outbox) == 6)
+ok("nobody is mailed twice", len({m.to[0] for m in mail.outbox}) == 6)
+call("POST", "/api/team/send_invites/", owner_token, {}, expect=409)
+ok("once sent, there is nothing held left to send", True)
 
 call("POST", "/api/setup/", body={"code": "ENGDOCKET1234", "name": "Someone Else",
                                   "email": "x@y.test", "password": "correct-horse",
@@ -294,6 +312,52 @@ r = c.post("/api/settings/", data=json.dumps({"approvalLevels": bad_ladder}),
 ok("a ladder with no unlimited top is refused", r.status_code == 400, str(r.status_code))
 ok("and it says why",
    b"unlimited" in r.content.lower(), r.content[:200].decode("utf-8", "replace"))
+
+
+print("\n=== the administration console redraws the chart and the limits ===")
+
+from django.contrib.auth.models import User   # noqa: E402
+
+User.objects.create_superuser("root@kestrel.test", "root@kestrel.test", "console-password-1")
+admin = call("POST", "/api/admin/login/",
+             body={"username": "root@kestrel.test", "password": "console-password-1"})["token"]
+st = call("GET", "/api/admin/state/", admin)["org"]
+ok("the console sees the ladder", [lvl["id"] for lvl in st["levels"]] == ["L1", "L2", "L3", "L4"])
+ok("and everybody on the chart", len(st["people"]) == 7, str(len(st["people"])))
+pid = {p["name"]: p["id"] for p in st["people"]}
+
+call("POST", f"/api/admin/approvals/people/{pid['Ify Okafor']}/", tokens["dir"],
+     {"levelId": "L1"}, expect=401)
+ok("a workspace sign-in cannot use the console", True)
+
+call("POST", f"/api/admin/approvals/people/{pid['Dele Ogun']}/", admin,
+     {"managerId": pid["Tunde Alabi"]}, expect=400)
+ok("a loop is refused here too: the chief executive cannot report to a buyer below them", True)
+
+call("POST", f"/api/admin/approvals/people/{pid['Ify Okafor']}/", admin,
+     {"managerId": pid["Ngozi Bello"], "levelId": "L1"})
+ify = Persona.objects.get(pk=pid["Ify Okafor"])
+ok("a manager and a level can be set together",
+   ify.manager_id == pid["Ngozi Bello"] and ify.approval_level == "L1")
+call("POST", f"/api/admin/approvals/people/{pid['Ify Okafor']}/", admin, {"levelId": ""})
+ok("and the level taken away again", Persona.objects.get(pk=pid["Ify Okafor"]).approval_level == "")
+call("POST", f"/api/admin/approvals/people/{pid['Ify Okafor']}/", admin,
+     {"levelId": "nope"}, expect=400)
+ok("a level that is not on the ladder is refused", True)
+
+raised = [dict(lvl) for lvl in LEVELS]
+raised[0]["limit"] = 10_000_000
+r = call("POST", "/api/admin/approvals/levels/", admin, {"levels": raised})
+ok("limits can be rewritten", r["org"]["levels"][0]["limit"] == 10_000_000)
+call("POST", "/api/admin/approvals/levels/", admin, {"levels": bad_ladder}, expect=400)
+ok("and the console is held to the same rules as the workspace", True)
+
+mid = draft(tokens["buyer"], "Laptops for the buying team", 8_000_000)
+call("POST", f"/api/tenders/{mid}/submit/", tokens["buyer"])
+t = next(x for x in call("GET", "/api/bootstrap/", tokens["buyer"])["tenders"] if x["id"] == mid)
+ok("the new limit applies: 8m now needs only the line manager",
+   t["publishChain"]["total"] == 1
+   and t["publishChain"]["steps"][0]["personaName"] == "Ngozi Bello", str(t["publishChain"]))
 
 
 print("\n" + "=" * 62)

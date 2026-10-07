@@ -1,25 +1,32 @@
 import React, { useEffect, useRef, useState } from "react";
 
-import { clearLogo, downloadDoc, downloadUrl, raw, setApprovalLevel, uploadLogo } from "./api";
+import { clearLogo, downloadDoc, downloadUrl, raw, setApprovalLevel, uploadFile, uploadLogo } from "./api";
 import { BP } from "./breakpoints";
 import { orgIndex, savingsSplit } from "./analytics-model";
 import { Countdown, Empty, MiniBars, Money, Stamp, Stat, StageTracker } from "./atoms";
 import { BaselineHint } from "./baselines";
+import {
+  CategorySelect, CountrySelect, CurrencySelect, FiscalStartSelect, IndustrySelect, LocationSelect,
+  PhoneInput, RcNumberInput, StateField, TimezoneSelect, UnitSelect,
+} from "./fields";
 import { Illus } from "./illus";
 import { CampaignDialog } from "./campaign";
+import { CsvGuide, VENDOR_IMPORT_CSV, staffCsv } from "./csvguide";
 import { MyDesk } from "./mydesk";
+import { StaffCsvDialog } from "./staffimport";
 import { Figures, Guide, More, Page, Quiet, Row, Rows } from "./page";
 import {
   DAY, REG_STATUS, VERIFY_STATUS, abnormallyLow, commScore, daysLeft, displayStatus,
-  effStatus, fmtCompact, fmtDate, fmtDateTime, fmtMoney, mean, median, regStatusOf,
-  roundsOf, savingsAgainst, stdev, techScore, totalScore, uid, varianceFlags,
-  verifyStatusOf,
+  effStatus, fmtCompact, fmtDate, fmtDateTime, fmtMoney, lineMaxima, linesCeiling,
+  linesOverMax, mean, median, regStatusOf, roundsOf, savingsAgainst, stdev, techScore,
+  totalScore, uid, varianceFlags, verifyStatusOf,
 } from "./helpers";
 import {
   BidBucket, LifecycleBar, RegisterVendorDialog, RoundsTab, SuspendDialog, VendorsTab,
 } from "./lifecycle";
 import { Icon, SealMark } from "./icons";
 import { Mark, OrgMark } from "./logo";
+import { fmtPhone, phoneProblem, unitFor } from "./vocab";
 import { can, homePage, navPages } from "./perms";
 import { DUR, cue, reducedMotion, useCountUp, useFlip } from "./motion";
 import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwitch, TopProgress } from "./ui";
@@ -490,12 +497,12 @@ const LATE_MS = 2 * DAY;
 /** Everything in the workspace that is mid-flight, as one list.
 
     The old dashboard had a single "Action queue" holding both the tenders whose
-    seals you can break and the ones sitting with the approver — so it showed
+    seals you can break and the ones sitting with the approver - so it showed
     you work that was not yours and offered buttons for decisions you were not
     allowed to make. Each item now names the capability needed to act on it, and
     the dashboard splits the list on exactly that: what is yours to move, and
     what you are waiting on somebody else for. Ordering is by how long the thing
-    has been waiting, because that is what makes something urgent — not what
+    has been waiting, because that is what makes something urgent - not what
     kind of thing it is. */
 function workItems(state, tenders) {
   const items = [];
@@ -550,7 +557,7 @@ function workItems(state, tenders) {
                  waiting: "an answer" });
   }
   for (const s of state.suppliers) {
-    // A suspended vendor is not waiting on a prequalification decision — that
+    // A suspended vendor is not waiting on a prequalification decision - that
     // decision has been taken, and putting them back in the queue would ask
     // somebody to take it again every week until the suspension lifts.
     if (s.prequalified || s.suspended || !s.registeredAt) continue;
@@ -596,7 +603,7 @@ export function Dashboard({ api }) {
   const awardedThisYear = tenders.filter(
     (t) => t.status === "awarded" && t.awardedAmount != null && (t.awardedAt || 0) >= yearStart);
   /* Split by what each saving was measured against. The headline is the
-     verified figure — awards compared to a recorded prior price — because that
+     verified figure - awards compared to a recorded prior price - because that
      is the one that survives being asked "compared to what?". The budget-only
      number is real too, but it measures the estimate as much as the buying, so
      it rides underneath rather than being added in. */
@@ -679,7 +686,7 @@ export function Dashboard({ api }) {
 
    One card, because it answers one question: what has a clock running on it.
    A tender closing and a vendor's licence expiring are the same shape of
-   problem — a date approaching that costs something if it passes — and the old
+   problem - a date approaching that costs something if it passes - and the old
    dashboard split them into two identical lists purely because they come from
    different tables. Merging them is also the only way to see the collision that
    matters: a document lapsing in the same week a tender it qualifies for closes.
@@ -706,8 +713,8 @@ const bandFor = (days) => RADAR_BANDS.find((b) => days <= b.max) || RADAR_BANDS[
    nine days out both come back about ninety per cent, so the bar says "soon" for
    everything inside a month and stops distinguishing the thing you have to do
    tomorrow from the thing you have to do in a fortnight. Time pressure is felt
-   logarithmically — one day versus three is a crisis, sixty versus sixty-two is
-   nothing — so the scale matches. Five days now reads 60%, nine reads 49%. */
+   logarithmically - one day versus three is a crisis, sixty versus sixty-two is
+   nothing - so the scale matches. Five days now reads 60%, nine reads 49%. */
 function proximity(days) {
   if (days <= 0) return 100;                       // overdue: full, not inverted
   const t = Math.log1p(days) / Math.log1p(RADAR_HORIZON);
@@ -718,7 +725,7 @@ function Radar({ api, open, expiring, register, held }) {
   const { state, go, user } = api;
 
   /* Both kinds normalised to the same row shape, then sorted by date. `kind`
-     survives so the two are still tellable apart — merging the cards must not
+     survives so the two are still tellable apart - merging the cards must not
      merge the meanings. */
   const rows = [];
   for (const t of open) {
@@ -950,7 +957,7 @@ function RecentActivity({ api, tenders }) {
   );
 }
 
-/* "11:57" for today, "7 Aug" beyond it — a feed of mostly-today events does not
+/* "11:57" for today, "7 Aug" beyond it - a feed of mostly-today events does not
    need the date on every line, and the full stamp is on the title attribute. */
 function fmtTimeShort(at) {
   const d = new Date(at);
@@ -967,7 +974,7 @@ export function TendersPage({ api }) {
   const { state, go, user, act, route } = api;
   const [q, setQ] = useState("");
   /* The dashboard's figures are click-throughs, and each arrives carrying the
-     filter it counted — landing on an unfiltered list would make the reader
+     filter it counted - landing on an unfiltered list would make the reader
      find the same rows again by hand. */
   const [statusF, setStatusF] = useState((route && route.filter) || "all");
   const routeFilter = route && route.filter;
@@ -981,7 +988,7 @@ export function TendersPage({ api }) {
     if (statusF === "cancelled" && st !== "cancelled") return false;
     /* "Hide awarded" has always meant "the work that is still mine". A
        cancelled event is finished too, so it belongs on the other side of that
-       line — leaving it in would grow the list of things that look outstanding
+       line - leaving it in would grow the list of things that look outstanding
        every time somebody closes one down. */
     if (statusF === "active" && ["awarded", "cancelled"].includes(st)) return false;
     if (!q.trim()) return true;
@@ -1046,7 +1053,7 @@ export function TendersPage({ api }) {
                      {bidsWord && <span>{bidsWord}{(t.rounds || []).length > 1 ? ` · round ${t.currentRound}` : ""}</span>}
                    </>}
                    right={<>
-                     {t.awardRec && t.status === "evaluation" && <span className="chip gold">With approver</span>}
+                     {t.awardRec && t.status === "evaluation" && <span className="chip gold">Awaiting sign-off</span>}
                      {/* a published pack with nothing attached is the single
                          most common thing to discover too late, so it is the
                          one column that survives as a chip, and only when wrong */}
@@ -1082,7 +1089,7 @@ export function TenderDetail({ api, id, initialTab }) {
      read-only version of the same table. */
   /* Seeing who was invited and whether they answered is oversight, so it
      follows being able to see the event at all rather than being able to change
-     its invitation list — the endpoint draws the same line. The controls inside
+     its invitation list - the endpoint draws the same line. The controls inside
      the tab are what ask for `tender.vendors`. */
   if (can(user, "page.tenders") || can(user, "page.evals") || can(user, "page.approvals")
       || can(user, "tender.vendors")) tabs.push("vendors");
@@ -1200,13 +1207,19 @@ export function OverviewTab({ api, t }) {
       </div>
       {t.lines && t.lines.length > 0 && (
         <div className="card" style={{ gridColumn: "1 / -1" }}>
-          <div className="chead"><h3>Priced line items</h3><span className="mono faint" style={{ marginLeft: "auto" }}>suppliers quote a unit rate per line</span></div>
+          <div className="chead"><h3>Priced line items</h3><span className="mono faint" style={{ marginLeft: "auto" }}>vendors quote a rate per line · your maximums stay hidden from them</span></div>
           <table className="tbl">
-            <thead><tr><th>#</th><th>Line</th><th className="num">Qty</th><th>Unit</th></tr></thead>
+            <thead><tr><th>#</th><th>Line</th><th className="num">Qty</th><th>Unit</th><th className="num">Max per unit</th><th className="num">Line maximum</th></tr></thead>
             <tbody>
               {t.lines.map((l, i) => (
-                <tr key={l.id}><td className="mono muted">{i + 1}</td><td>{l.desc}</td><td className="num mono" data-l="Qty">{l.qty.toLocaleString()}</td><td className="muted" data-l="Unit">{l.unit}</td></tr>
+                <tr key={l.id}><td className="mono muted">{i + 1}</td><td>{l.desc}</td><td className="num mono" data-l="Qty">{l.qty.toLocaleString()}</td><td className="muted" data-l="Unit">{l.unit}</td>
+                  <td className="num" data-l="Max per unit">{l.price ? <Money n={l.price} /> : <span className="faint">-</span>}</td>
+                  <td className="num" data-l="Line maximum">{l.price ? <Money n={l.price * l.qty} /> : <span className="faint">-</span>}</td></tr>
               ))}
+              {lineMaxima(t) && (
+                <tr><td /><td style={{ fontWeight: 600 }}>Ceiling</td><td /><td /><td />
+                  <td className="num" data-l="Ceiling"><Money n={linesCeiling(t.lines)} strong /></td></tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -1214,7 +1227,7 @@ export function OverviewTab({ api, t }) {
       <div className="card">
         <div className="chead"><h3>Key terms</h3></div>
         <div className="cbody" style={{ paddingTop: 6 }}>
-          <div className="rowline"><span className="muted" style={{ flex: 1 }}>Budget ceiling</span><Money n={t.budget} strong /></div>
+          <div className="rowline"><span className="muted" style={{ flex: 1 }}>{lineMaxima(t) ? "Ceiling, from your line maximums" : "Budget ceiling"}</span><Money n={t.budget} strong /></div>
           {t.projectedCost != null && (
             <div className="rowline"><span className="muted" style={{ flex: 1 }}>Projected cost</span><Money n={t.projectedCost} /></div>
           )}
@@ -1301,7 +1314,7 @@ export function OverviewTab({ api, t }) {
    A project is a spend dimension rather than a table of its own, and that is
    deliberate: the value recorded is what the project was called when the event
    was raised, and reorganising the list next year must not silently re-badge
-   last year's spend. What was missing was the other direction — a project that
+   last year's spend. What was missing was the other direction - a project that
    is being bought in four events wants to be readable as four events, and
    until now each one only knew its own name for the thing.
 
@@ -1485,7 +1498,7 @@ export function BidsTab({ api, t }) {
                 <div style={{ flex: 1 }}>
                   <b>{s.name}</b>
                   <div className="muted" style={{ fontSize: 12 }}>
-                    Technical proposal open · {scored ? `${scored} evaluator(s) scored` : "awaiting scores"}
+                    Technical proposal open · {scored ? `${scored} scorer(s) done` : "awaiting scores"}
                     {" · "}
                     {(state.documents || []).filter((x) => x.kind === "bid" && x.tenderId === t.id && x.supplierId === b.supplierId).map((x) => (
                       <button key={x.id} className="doclink" style={{ fontSize: 11.5, marginRight: 8 }} onClick={() => downloadDoc(x.id, x.name)}>{x.name}</button>
@@ -1553,10 +1566,13 @@ export function BidsTab({ api, t }) {
   }
 
   const hasLines = t.lines && t.lines.length > 0 && bids.some((b) => b.lines && Object.keys(b.lines).length);
+  const maxed = !!lineMaxima(t);
+  /* Lowest per line among the rates at or under the maximum: a rate above it
+     earns nothing on that line, so it cannot be the one to beat. */
   const lineMin = {};
   if (hasLines) {
     t.lines.forEach((l) => {
-      const ps = bids.map((b) => b.lines?.[l.id]).filter((p) => p != null);
+      const ps = bids.map((b) => b.lines?.[l.id]).filter((p) => p != null && (!maxed || p <= l.price));
       lineMin[l.id] = ps.length ? Math.min(...ps) : null;
     });
   }
@@ -1569,12 +1585,13 @@ export function BidsTab({ api, t }) {
             <button className="btn sm" style={{ marginLeft: 10 }} onClick={() => downloadUrl(`/tenders/${t.id}/export/comparison.xlsx`, `${t.ref}-comparison.xlsx`)}>Export to Excel</button>}
         </div>
         <table className="tbl">
-          <thead><tr><th>Supplier</th><th>Submitted</th><th className="num">Amount</th><th className="num">vs budget</th><th>Flags</th></tr></thead>
+          <thead><tr><th>Supplier</th><th>Submitted</th><th className="num">Amount</th><th className="num">vs ceiling</th><th>Flags</th></tr></thead>
           <tbody className={justOpened ? "stagger" : undefined}>
             {bids.map((b) => {
               const s = state.suppliers.find((x) => x.id === b.supplierId);
               const delta = ((b.amount - t.budget) / t.budget) * 100;
               const low = abnormallyLow(b, bids);
+              const over = linesOverMax(t, b);
               return (
                 <tr key={b.id}>
                   <td>
@@ -1589,7 +1606,7 @@ export function BidsTab({ api, t }) {
                   {b.disqualified ? (
                     <>
                       <td className="num mono waxfg" data-l="Amount" style={{ fontSize: 11, letterSpacing: ".08em" }}>RETURNED UNOPENED</td>
-                      <td className="num faint" data-l="vs budget">-</td>
+                      <td className="num faint" data-l="vs ceiling">-</td>
                       <td data-l="Flags"><span className="chip warn">Disqualified at technical stage</span></td>
                     </>
                   ) : (
@@ -1599,8 +1616,13 @@ export function BidsTab({ api, t }) {
                           ? <span className="money" style={{ fontWeight: 600 }}><Decrypting n={b.amount} format={fmtMoney} /></span>
                           : <Money n={b.amount} strong />}
                       </td>
-                      <td className="num mono" data-l="vs budget" style={{ color: delta < 0 ? "var(--green)" : "var(--wax)" }}>{delta > 0 ? "+" : ""}{delta.toFixed(1)}%</td>
-                      <td data-l="Flags">{low ? <span className="chip warn">Abnormally low: verify viability</span> : <span className="faint">-</span>}</td>
+                      <td className="num mono" data-l="vs ceiling" style={{ color: delta < 0 ? "var(--green)" : "var(--wax)" }}>{delta > 0 ? "+" : ""}{delta.toFixed(1)}%</td>
+                      <td data-l="Flags">
+                        {over.length > 0 && <span className="chip warn" style={{ marginRight: 4 }} title={over.map((l) => l.desc).join(", ")}>
+                          Over your maximum on {over.length} {over.length === 1 ? "line" : "lines"}</span>}
+                        {low && <span className="chip warn">Abnormally low: verify viability</span>}
+                        {!low && !over.length && <span className="faint">-</span>}
+                      </td>
                     </>
                   )}
                 </tr>
@@ -1611,25 +1633,29 @@ export function BidsTab({ api, t }) {
       </div>
       {hasLines && (
         <div className="card">
-          <div className="chead"><h3>Line by line</h3><span className="mono faint" style={{ marginLeft: "auto" }}>unit rates · lowest per line in green</span></div>
+          <div className="chead"><h3>Line by line</h3><span className="mono faint" style={{ marginLeft: "auto" }}>
+            unit rates · lowest per line in green{maxed ? " · above your maximum in red, and scores nothing on that line" : ""}</span></div>
           <div className="tscroll">
             <table className="tbl wide">
               <thead>
-                <tr><th>Line</th><th className="num">Qty</th>{bids.map((b) => <th key={b.id} className="num">{state.suppliers.find((x) => x.id === b.supplierId).name}</th>)}</tr>
+                <tr><th>Line</th><th className="num">Qty</th>{maxed && <th className="num">Your max</th>}{bids.map((b) => <th key={b.id} className="num">{state.suppliers.find((x) => x.id === b.supplierId).name}</th>)}</tr>
               </thead>
               <tbody>
                 {t.lines.map((l) => (
                   <tr key={l.id}>
                     <td>{l.desc}</td>
                     <td className="num mono muted">{l.qty.toLocaleString()}</td>
+                    {maxed && <td className="num money muted">{fmtMoney(l.price)}</td>}
                     {bids.map((b) => {
                       const p = b.lines?.[l.id];
-                      return <td key={b.id} className={"num money" + (p != null && p === lineMin[l.id] ? " best" : "")}>{p != null ? fmtMoney(p) : "-"}</td>;
+                      const cls = p != null && maxed && p > l.price ? " over" : p != null && p === lineMin[l.id] ? " best" : "";
+                      return <td key={b.id} className={"num money" + cls}>{p != null ? fmtMoney(p) : "-"}</td>;
                     })}
                   </tr>
                 ))}
                 <tr>
                   <td style={{ fontWeight: 600 }}>Evaluated total</td><td />
+                  {maxed && <td className="num money muted" style={{ fontWeight: 600 }}>{fmtMoney(t.budget)}</td>}
                   {bids.map((b) => <td key={b.id} className="num money" style={{ fontWeight: 600 }}>{fmtMoney(b.amount)}</td>)}
                 </tr>
               </tbody>
@@ -1691,16 +1717,47 @@ export function EvalTab({ api, t }) {
     bids.forEach((b) => { m[b.id] = ((b.notes || {})[user.id]) || ""; });
     return m;
   });
-  const evaluators = state.users.filter((u) => u.role === "evaluator");
+  /* Whoever can score, whatever the company calls the role, plus anyone who
+     already has, so a scorer later moved off the panel keeps their column. */
+  const scorerIds = new Set((state.capHolders || {})["bid.score"] || []);
+  const evaluators = state.users.filter((u) => scorerIds.has(u.id)
+    || bids.some((b) => (b.scores || {})[u.id]));
+
+  /* Scores save a dial at a time without reloading the bootstrap, which is
+     right while somebody is tapping and wrong for whatever mounts next: this
+     tab reads its starting scores from the bootstrap, so leaving and coming
+     back showed scores that had been saved as blank. Once the dials go quiet,
+     or the tab is left, one reload brings the bootstrap up to date. */
+  const lastSave = useRef(null);
+  const syncTimer = useRef(null);
+  const syncNow = () => {
+    clearTimeout(syncTimer.current);
+    const pending = lastSave.current;
+    lastSave.current = null;
+    if (pending) pending.then(() => api.refresh({ quiet: true }));
+  };
+  useEffect(() => syncNow, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  const track = (save) => {
+    lastSave.current = save;
+    clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(syncNow, 1500);
+    return save;
+  };
 
   if (!t.openedAt) {
     return <div className="notice">Evaluation opens once the deadline passes and the seals are formally broken. Until then there is nothing to score, by design.</div>;
   }
 
-  const setScore = (bidId, cid, v) => {
+  const setScore = async (bidId, cid, v) => {
     const num = v === "" ? "" : Math.max(0, Math.min(10, Number(v)));
+    const before = (myScores[bidId] || {})[cid];
     setMyScores((s) => ({ ...s, [bidId]: { ...s[bidId], [cid]: num } }));
-    act.saveScores(bidId, { [cid]: num });
+    if (!(await track(act.saveScores(bidId, { [cid]: num })))) {
+      /* The toast says it failed; the dial must not go on showing it saved.
+         Unless it has moved again since, in which case that newer save stands. */
+      setMyScores((s) => ((s[bidId] || {})[cid] === num
+        ? { ...s, [bidId]: { ...s[bidId], [cid]: before === undefined ? "" : before } } : s));
+    }
   };
 
   const withdrawRec = async () => {
@@ -1709,10 +1766,10 @@ export function EvalTab({ api, t }) {
     if (ok) {
       /* The server takes a recommendation back and accepts the same one again,
          so this one is genuinely reversible. */
-      api.toast.undo("Recommendation withdrawn", "It is back with the panel; the approver's queue is clear.",
+      api.toast.undo("Recommendation withdrawn", "It is back with the panel and no longer waiting for sign-off.",
                      async () => {
                        if (bidId && await act.recommend(t.id, bidId)) {
-                         api.toast.ok("Recommendation restored", "It is with the approver again.");
+                         api.toast.ok("Recommendation restored", "It is waiting for sign-off again.");
                        }
                      });
     }
@@ -1787,7 +1844,7 @@ export function EvalTab({ api, t }) {
                     placeholder="Why these scores? Auditors will ask."
                     value={myNotes[b.id] ?? ""}
                     onChange={(e) => setMyNotes((m) => ({ ...m, [b.id]: e.target.value }))}
-                    onBlur={() => act.saveScores(b.id, {}, myNotes[b.id] ?? "")} />
+                    onBlur={() => track(act.saveScores(b.id, {}, myNotes[b.id] ?? ""))} />
                 </div>
               </div>
             </div>
@@ -1803,23 +1860,23 @@ export function EvalTab({ api, t }) {
   return (
     <div>
       {recBid && (
-        <ConfirmDialog title="Recommend this bid for award?" confirmLabel="Send to the approver"
+        <ConfirmDialog title="Recommend this bid for award?" confirmLabel="Send for sign-off"
                        onClose={() => setRecBid(null)}
                        onConfirm={async () => {
                          const ok = await act.recommend(t.id, recBid.id);  // memo composed server-side
-                         if (ok) api.toast.ok("Recommendation sent", `${recSupplier.name} at ${fmtCompact(recBid.amount)} is now in the approver's queue.`);
+                         if (ok) api.toast.ok("Recommendation sent", `${recSupplier.name} at ${fmtCompact(recBid.amount)} is now waiting for sign-off.`);
                        }}>
           <b>{recSupplier?.name}</b> at <b>{fmtMoney(recBid.amount)}</b> for “{t.title}”.
           <div style={{ marginTop: 8 }}>
-            The panel memo is composed from the scores and pricing and goes to the approver with your name on it.
-            Nothing reaches any supplier until the approver signs off, and you can withdraw it until they do.
+            The panel memo is composed from the scores and pricing and goes for sign-off with your name on it.
+            Nothing reaches any supplier until it is signed off, and you can withdraw it until then.
           </div>
         </ConfirmDialog>
       )}
       {rec && t.status !== "awarded" && (
         <div className="notice" style={{ marginBottom: 14, borderLeft: "3px solid var(--brass)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{ flex: 1 }}>
-            <b>Recommended for award:</b> {state.suppliers.find((s) => s.id === rec.supplierId).name} at <Money n={rec.amount} />, with the approver since {fmtDateTime(rec.at)}.
+            <b>Recommended for award:</b> {state.suppliers.find((s) => s.id === rec.supplierId).name} at <Money n={rec.amount} />, waiting for sign-off since {fmtDateTime(rec.at)}.
           </span>
           {can(user, "award.recommend") && <button className="btn sm" onClick={withdrawRec}>Withdraw recommendation</button>}
         </div>
@@ -1839,6 +1896,8 @@ export function EvalTab({ api, t }) {
                   const ts = techScore(t, b);
                   const flags = varianceFlags(t, b);
                   const low = abnormallyLow(b, bids);
+                  const over = linesOverMax(t, b);
+                  const cs = commScore(t, b, bids);
                   const sv = savingsAgainst(t, b.amount);
                   const isOpen = openRows[b.id];
                   return (
@@ -1860,12 +1919,14 @@ export function EvalTab({ api, t }) {
                           )}
                         </td>
                         <td className="num mono">{ts != null ? ts.toFixed(0) : "-"}</td>
-                        <td className="num mono">{commScore(t, b, bids).toFixed(0)}</td>
+                        <td className="num mono">{cs != null ? cs.toFixed(0) : "-"}</td>
                         <td className="num mono" style={{ fontWeight: 600 }}>{total != null ? total.toFixed(1) : "-"}</td>
                         <td>
+                          {over.length > 0 && <span className="chip warn" style={{ marginRight: 4 }} title={over.map((l) => l.desc).join(", ")}>
+                            Over max: {over.length} {over.length === 1 ? "line" : "lines"}</span>}
                           {low && <span className="chip warn" style={{ marginRight: 4 }}>Abnormally low</span>}
                           {flags.map((c) => <span key={c.id} className="chip warn" title="Evaluators disagree strongly on this criterion" style={{ marginRight: 4 }}>Panel split: {c.name}</span>)}
-                          {!low && !flags.length && <span className="faint">-</span>}
+                          {!low && !flags.length && !over.length && <span className="faint">-</span>}
                         </td>
                         <td style={{ whiteSpace: "nowrap" }}>
                           <button className="btn sm" onClick={() => setOpenRows((o) => ({ ...o, [b.id]: !o[b.id] }))}>{isOpen ? "Hide scores" : "Scores"}</button>
@@ -2039,7 +2100,7 @@ export function EvalsPage({ api }) {
 /** Can this person sign this step?
 
     A deliberate mirror of `approvals.may_sign` on the server, and the server
-    is the one that decides — this only governs whether a button is offered.
+    is the one that decides - this only governs whether a button is offered.
     Showing somebody a control that will come back 403 is worse than not
     showing it, and hiding a control they are entitled to is worse still, so
     the two implementations have to agree. Any change here belongs in both.
@@ -2220,6 +2281,24 @@ export const CHAIN_CSS = `
 @media(min-width:1100px){.addgrid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .logoedit{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .logoedit .orgmark .orginit,.logoedit .orgmark .orglogo{border-radius:11px}
+.roleed{border-top:1px solid var(--line);padding:10px 0}
+.roleedtop{display:grid;gap:8px}
+.roleednames{display:grid;gap:6px;min-width:0}
+.roleedmeta{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.roleedperms{margin-top:10px;border:1px solid var(--line);border-radius:12px;padding:12px 13px;
+  background:var(--sunk);display:grid;gap:12px}
+.roleedgroup{display:grid;gap:2px}
+.roleedgroup > b{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);
+  margin-bottom:4px}
+.roleedperm{display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;align-items:start;
+  padding:5px 0;cursor:pointer}
+.roleedperm input{margin-top:2px;width:15px;height:15px;accent-color:var(--brand)}
+.roleedperm b{display:block;font-size:13px;font-weight:600}
+.roleedperm i{display:block;font-style:normal;font-size:12px;line-height:1.5;color:var(--muted)}
+@media(min-width:700px){
+  .roleedtop{grid-template-columns:minmax(0,1fr) auto;align-items:start}
+  .roleedmeta{justify-content:flex-end;padding-top:3px}
+}
 .ladrow2{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;
   align-items:start;padding:9px 0;border-top:1px solid var(--line)}
 .ladrow2 > .sigdot{margin-top:7px}
@@ -2241,8 +2320,8 @@ export function ApprovalsPage({ api }) {
   const ladder = state.org.approvalLevels || [];
 
   /* With a ladder configured, "waiting for approval" and "waiting for YOU" stop
-     being the same list. Both are shown — a queue that hides what it is waiting
-     on is how a tender sits for a fortnight with nobody able to say where — but
+     being the same list. Both are shown - a queue that hides what it is waiting
+     on is how a tender sits for a fortnight with nobody able to say where - but
      only the ones you can actually sign carry buttons. The alternative, offering
      everyone every control and letting the server return 403, teaches people
      that the buttons are a lie. */
@@ -2254,7 +2333,7 @@ export function ApprovalsPage({ api }) {
   const isMine = (t, kind) => {
     const cur = step(t, kind);
     /* No chain means the workspace runs on the single threshold, where the
-       capability is the whole authorisation — see approvals.py. */
+       capability is the whole authorisation - see approvals.py. */
     if (!cur) return kind === "award" ? can(me, "award.decide") : can(me, "tender.publish_decision");
     return canSignStep(cur, me, users);
   };
@@ -2281,6 +2360,7 @@ export function ApprovalsPage({ api }) {
     try {
       const r = await raw("/settings/", { method: "POST", body: { approvalThreshold: Number(thr) } });
       setThrMsg(`Saved. Publication at or above ${fmtCompact(r.approvalThreshold)} now needs your sign-off.`);
+      api.refresh();
     } catch (e) { setThrMsg(e.message); }
   };
 
@@ -2434,7 +2514,7 @@ export function ApprovalsPage({ api }) {
 
       {/* Everything in the building that is waiting on a signature, and whose.
           Read-only, and here rather than hidden because the question this
-          answers — "where has it got to" — is asked of procurement, not of the
+          answers - "where has it got to" - is asked of procurement, not of the
           approver who happens to be holding it. */}
       {elsewhere.length > 0 && (
         <More title={`${elsewhere.length} more waiting on somebody else`}
@@ -2457,7 +2537,7 @@ export function ApprovalsPage({ api }) {
 
       {/* The rule itself. A workspace on the ladder sees the ladder; one still
           on the single threshold sees the threshold and a word about what it
-          could have instead. Editing the ladder is Team's job — it is half org
+          could have instead. Editing the ladder is Team's job - it is half org
           chart, and splitting it across two pages would mean neither page
           could show you the consequence of a change. */}
       {ladder.length > 0 ? (
@@ -2500,7 +2580,7 @@ export function ApprovalsPage({ api }) {
             {!Number(thr) && <div className="hint">Enter an amount in naira to save.</div>}
             {thrMsg && <div className="notice" style={{ marginTop: 10, marginBottom: 0 }}>{thrMsg}</div>}
             <div className="hint" style={{ marginTop: 10 }}>
-              One threshold and one approver is the simple case. If your delegation of
+              One threshold is the simple case. If your delegation of
               authority has several levels, build the ladder on the Team page and this
               threshold stops being used.
             </div>
@@ -2523,7 +2603,7 @@ export function ApprovalsPage({ api }) {
 /* Attach a tender line to the material master.
 
    Optional on purpose. Plenty of what an organisation buys has no item number,
-   and a required field here would produce a master full of "MISC" — the coded
+   and a required field here would produce a master full of "MISC" - the coded
    line is worth having precisely because it means something, so it has to be
    possible to leave off.
 
@@ -2547,7 +2627,7 @@ function ItemPick({ line, onPick }) {
     return () => { live = false; clearTimeout(id); };
   }, [q, open]);
 
-  // What this item has actually been awarded at before — the reason to code the
+  // What this item has actually been awarded at before - the reason to code the
   // line at all, shown where the decision is being made rather than on a report.
   useEffect(() => {
     if (!line.itemCode) { setHist(null); return undefined; }
@@ -2612,7 +2692,7 @@ function ItemPick({ line, onPick }) {
 
    So the boolean is now a LIST. Every condition names itself, says what to do
    about it, and clicking it scrolls to the field and flashes it. The button is
-   still disabled — the server would reject an incomplete tender anyway — but
+   still disabled - the server would reject an incomplete tender anyway - but
    it is no longer silent.
 
    Two other things follow from the same idea:
@@ -2644,7 +2724,7 @@ function familyOf(taxonomy, category) {
 
 /** The invitation step of the draft. Two things were wrong with the chip wall
     it replaces: it offered all 1,400 vendors at once with no way in, and a
-    company that is not on the register yet was a dead end — you had to abandon
+    company that is not on the register yet was a dead end - you had to abandon
     the draft, go to Suppliers, register them, and come back. */
 function InviteStep({ api, f, set }) {
   const { state } = api;
@@ -2654,8 +2734,8 @@ function InviteStep({ api, f, set }) {
   const [adding, setAdding] = useState(false);
 
   const fam = familyOf(state.taxonomy, f.category);
-  /* A suspended vendor cannot be invited — the server refuses the whole event
-     if one is in the list — so it never appears here to be picked. */
+  /* A suspended vendor cannot be invited - the server refuses the whole event
+     if one is in the list - so it never appears here to be picked. */
   const pool = state.suppliers.filter((s) => !s.suspended);
   const inCat = pool.filter((s) => s.category === f.category);
   const inFam = fam ? pool.filter((s) => fam.categories.some((c) => c.key === s.category)) : [];
@@ -2782,7 +2862,7 @@ function InviteStep({ api, f, set }) {
 
         {/* The way out of "they are not on the register". It registers them,
             mails them a link to claim their account, and ticks them into this
-            event — without losing the draft. */}
+            event - without losing the draft. */}
         <div className="pickadd">
           <button className="btn" onClick={() => setAdding(true)}>
             <Icon n="plus" s={14} />Invite a vendor who isn't on the register
@@ -2817,7 +2897,8 @@ function AddVendorDialog({ api, category, onClose, onAdded }) {
   /* The email is not optional here as it is on the register form: the whole
      point of adding them from a draft is that they get asked to bid, and that
      is an email or it is nothing. */
-  const ok = f.name.trim().length > 1 && f.email.includes("@");
+  const named = f.name.trim().length > 1 && f.email.includes("@");
+  const ok = named && !phoneProblem(f.phone);
 
   const submit = async () => {
     setBusy(true); setProblem(null); setClash(null);
@@ -2844,7 +2925,7 @@ function AddVendorDialog({ api, category, onClose, onAdded }) {
   return (
     <Dialog wide title="Invite a vendor who isn't on the register" onClose={onClose} footer={
       <>
-        {!ok && <span className="hint gatehint">A company name and an email address, so there is somewhere to send the invitation.</span>}
+        {!named && <span className="hint gatehint">A company name and an email address, so there is somewhere to send the invitation.</span>}
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn pri" disabled={!ok || busy} onClick={submit}>
           {busy ? "Sending…" : "Add and invite"}
@@ -2876,37 +2957,44 @@ function AddVendorDialog({ api, category, onClose, onAdded }) {
         <div className="frow"><label className="lbl" htmlFor="av-person">Contact person <span className="faint">optional</span></label>
           <input id="av-person" className="in" value={f.contactPerson} onChange={(e) => set("contactPerson", e.target.value)} /></div>
         <div className="frow"><label className="lbl" htmlFor="av-phone">Phone <span className="faint">optional</span></label>
-          <input id="av-phone" className="in" value={f.phone} onChange={(e) => set("phone", e.target.value)} /></div>
+          <PhoneInput id="av-phone" value={f.phone} onChange={(v) => set("phone", v)} /></div>
         <div className="frow"><label className="lbl" htmlFor="av-loc">Location <span className="faint">optional</span></label>
-          <input id="av-loc" className="in" value={f.location} onChange={(e) => set("location", e.target.value)}
-                 placeholder="e.g. Lagos" /></div>
+          <LocationSelect id="av-loc" value={f.location} onChange={(v) => set("location", v)} /></div>
         <div className="frow"><label className="lbl" htmlFor="av-cat">Category</label>
-          <input id="av-cat" className="in" value={f.category} onChange={(e) => set("category", e.target.value)}
-                 placeholder="e.g. Logistics & freight" />
+          <CategorySelect id="av-cat" value={f.category} onChange={(v) => set("category", v)} />
           <div className="hint">Prefilled from this tender. It decides where they sit in the register.</div></div>
       </div>
     </Dialog>
   );
 }
 
+/* `price` is the most the buyer will pay per unit, kept as typed until save. */
+const blankLine = () => ({ id: uid(), desc: "", qty: "", unit: "unit", price: "", itemCode: "" });
+
 export function NewTender({ api, editId }) {
   const { state, act, ai, go } = api;
   const editing = editId ? state.tenders.find((t) => t.id === editId) : null;
   const [f, setF] = useState(() => editing ? {
-    title: editing.title, type: editing.type, category: editing.category, budget: String(editing.budget),
+    title: editing.title, type: editing.type, category: editing.category,
     deadline: new Date(editing.deadline).toISOString().slice(0, 10), techWeight: editing.techWeight, scope: editing.scope,
     criteria: editing.criteria.map((c) => ({ ...c })), invited: [...editing.invited],
-    lines: (editing.lines || []).map((l) => ({ ...l, qty: String(l.qty) })),
+    /* A draft from before lines carried a maximum was a single lump sum. It
+       comes back as one line for the whole scope at that figure, so nothing
+       typed is lost and it can be split up from there. */
+    lines: (editing.lines || []).length
+      ? editing.lines.map((l) => ({ ...l, qty: String(l.qty), price: l.price ? String(l.price) : "" }))
+      : [{ ...blankLine(), desc: editing.title, qty: "1", unit: "lot",
+           price: editing.budget ? String(editing.budget) : "" }],
     twoStage: !!editing.twoStage, techThreshold: editing.techThreshold ?? 70,
     minDecrement: String(editing.minDecrement || ""),
     baseline: editing.baseline ? String(editing.baseline) : "",
     baselineSource: editing.baselineSource || "",
     projectedCost: editing.projectedCost ? String(editing.projectedCost) : "",
   } : {
-    title: "", type: "RFQ", category: "", budget: "", deadline: "",
+    title: "", type: "RFQ", category: "", deadline: "",
     techWeight: 70, scope: "",
     criteria: [{ id: uid(), name: "Quality & compliance", weight: 40 }, { id: uid(), name: "Capacity & reliability", weight: 35 }, { id: uid(), name: "Commercial terms", weight: 25 }],
-    invited: [], lines: [],
+    invited: [], lines: [blankLine()],
     twoStage: false, techThreshold: 70, minDecrement: "",
     baseline: "", baselineSource: "", projectedCost: "",
   });
@@ -2914,12 +3002,17 @@ export function NewTender({ api, editId }) {
   const [busyC, setBusyC] = useState(false);
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const weightSum = f.criteria.reduce((s, c) => s + Number(c.weight || 0), 0);
-  const linesOk = f.lines.length === 0 || f.lines.every((l) => l.desc.trim() && Number(l.qty) > 0);
   const isAuction = f.type === "AUC";
-  const projOk = !(Number(f.projectedCost) > 0 && Number(f.budget) > 0
-                   && Number(f.projectedCost) > Number(f.budget));
-  const ready = f.title.trim() && f.category && Number(f.budget) > 0 && f.deadline && f.invited.length > 0 && linesOk && projOk
-    && (isAuction ? Number(f.minDecrement) > 0 && f.lines.length === 0 : weightSum === 100);
+  /* There is no "most you can spend" box any more. The ceiling is each line's
+     maximum per unit times its quantity, and bids are checked and graded
+     against those same maximums, so the two can never disagree. */
+  const ceiling = linesCeiling(f.lines);
+  const linesOk = f.lines.length > 0
+    && f.lines.every((l) => l.desc.trim() && Number(l.qty) > 0 && Number(l.price) > 0);
+  const projOk = !(Number(f.projectedCost) > 0 && ceiling > 0 && Number(f.projectedCost) > ceiling);
+  const ready = f.title.trim() && f.category && f.deadline && f.invited.length > 0 && projOk
+    && (isAuction ? Number(f.minDecrement) > 0 && f.lines.length === 0 : linesOk && weightSum === 100);
+  const setLine = (id, k, v) => set("lines", f.lines.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
 
   /* Move one weight and let the others absorb the difference, proportionally,
      so the total is always exactly 100. The rounding drift lands on the first
@@ -2965,9 +3058,10 @@ export function NewTender({ api, editId }) {
     { key: "cat", ok: !!f.category, to: "nt-cat",
       todo: "Pick a category", done: "Category picked",
       note: "It decides which vendors we suggest." },
-    { key: "budget", ok: Number(f.budget) > 0, to: "nt-budget",
-      todo: "Set the most you can spend",
-      done: "Ceiling " + fmtMoney(Number(f.budget) || 0) },
+    { key: "lines", ok: linesOk, to: "nt-lines", quiet: isAuction,
+      todo: f.lines.length ? "Give every line a quantity and a maximum price" : "Add what you are buying, line by line",
+      done: f.lines.length + (f.lines.length === 1 ? " line" : " lines") + " · ceiling " + fmtMoney(ceiling),
+      note: "Each bid is checked and graded against the maximum on every line." },
     { key: "deadline", ok: !!f.deadline, to: "nt-deadline",
       todo: "Choose a closing date", done: "Closes " + fmtDeadline(f.deadline),
       note: "Vendors need a date before they can be invited." },
@@ -2981,15 +3075,12 @@ export function NewTender({ api, editId }) {
       : { key: "weights", ok: weightSum === 100, to: "nt-weights",
           todo: "Scoring adds up to " + weightSum + ", not 100", done: "Scoring adds up to 100",
           note: "Move any slider and the rest will follow." },
-    { key: "lines", ok: linesOk, to: "nt-lines", quiet: linesOk,
-      todo: "Finish the priced line items", done: "Line items complete",
-      note: "Every line needs a description and a quantity above zero." },
     { key: "auclines", ok: !(isAuction && f.lines.length > 0), to: "nt-lines", quiet: !isAuction || f.lines.length === 0,
       todo: "Remove the line items", done: "No line items",
       note: "A reverse auction is price-only, so it cannot carry priced lines." },
     { key: "proj", ok: projOk, to: "nt-proj", quiet: projOk,
       todo: "Projected cost is above the ceiling", done: "Projection sits under the ceiling",
-      note: "Raise the ceiling, or revise the projection." },
+      note: "Raise a line maximum, or revise the projection." },
   ].filter((c) => !(c.quiet && c.ok));
 
   const outstanding = checks.filter((c) => !c.ok);
@@ -3003,7 +3094,7 @@ export function NewTender({ api, editId }) {
   useFlip(listRef, ordered.map((c) => c.key).join("|"));
   const shownPct = useCountUp(pct, DUR.ceremony, pct);
   const threshold = Number(state.org.approvalThreshold) || 0;
-  const needsApproval = threshold > 0 && Number(f.budget) >= threshold;
+  const needsApproval = threshold > 0 && ceiling >= threshold;
 
   const draftScope = async () => {
     setBusy(true);
@@ -3028,11 +3119,13 @@ export function NewTender({ api, editId }) {
   const save = async (submit) => {
     const payload = {
       title: f.title.trim(), type: f.type, category: f.category,
-      budget: Number(f.budget), deadline: f.deadline ? new Date(f.deadline + "T17:00:00").getTime() : 0,
+      budget: ceiling, deadline: f.deadline ? new Date(f.deadline + "T17:00:00").getTime() : 0,
       invited: f.invited, techWeight: Number(f.techWeight),
       criteria: f.criteria.map((c) => ({ id: c.id, name: c.name, weight: Number(c.weight) })),
       scope: f.scope.trim(),
-      lines: isAuction ? [] : f.lines.filter((l) => l.desc.trim()).map((l) => ({ id: l.id, desc: l.desc.trim(), qty: Number(l.qty), unit: l.unit.trim() || "unit" })),
+      lines: isAuction ? [] : f.lines.filter((l) => l.desc.trim()).map((l) => ({
+        id: l.id, desc: l.desc.trim(), qty: Number(l.qty), unit: l.unit.trim() || "unit",
+        itemCode: l.itemCode || "", price: Number(l.price) || 0 })),
       twoStage: f.twoStage, techThreshold: Number(f.techThreshold) || 70,
       minDecrement: Number(f.minDecrement) || 0,
       baseline: Number(f.baseline) || 0,
@@ -3063,27 +3156,20 @@ export function NewTender({ api, editId }) {
                 <input id="nt-title" className="in" placeholder="e.g. Annual supply of beverage syrups"
                        value={f.title} onChange={(e) => set("title", e.target.value)} /></div>
 
-              <div className="grid g2">
-                <div className="frow"><label className="lbl" htmlFor="nt-cat">Category</label>
-                  <select id="nt-cat" className="in" value={f.category} onChange={(e) => set("category", e.target.value)}>
-                    <option value="">Choose a category…</option>
-                    {(state.taxonomy || []).map((fam) => (
-                      <optgroup key={fam.key} label={fam.label}>
-                        {fam.categories.map((c) => (
-                          <option key={c.key} value={c.key}>
-                            {c.label}{c.count ? ` (${c.count} vendors)` : ""}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                  <div className="hint">It decides which vendors we suggest below.</div></div>
-
-                <div className="frow"><label className="lbl" htmlFor="nt-budget">Most you can spend</label>
-                  <input id="nt-budget" className="in" type="number" min="0" placeholder="120000000"
-                         value={f.budget} onChange={(e) => set("budget", e.target.value)} />
-                  <div className="hint">In naira. Bids above this are rejected automatically.</div></div>
-              </div>
+              <div className="frow"><label className="lbl" htmlFor="nt-cat">Category</label>
+                <select id="nt-cat" className="in" value={f.category} onChange={(e) => set("category", e.target.value)}>
+                  <option value="">Choose a category…</option>
+                  {(state.taxonomy || []).map((fam) => (
+                    <optgroup key={fam.key} label={fam.label}>
+                      {fam.categories.map((c) => (
+                        <option key={c.key} value={c.key}>
+                          {c.label}{c.count ? ` (${c.count} vendors)` : ""}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <div className="hint">It decides which vendors we suggest below.</div></div>
 
               <div className="grid g2">
                 <div className="frow"><label className="lbl" htmlFor="nt-deadline">Bids close on</label>
@@ -3097,7 +3183,7 @@ export function NewTender({ api, editId }) {
                     <option value="RFP">Request for proposal</option>
                     <option value="RFI">Request for information</option>
                     {/* A reverse auction is no longer a kind of tender. It is
-                        its own event with its own room, clock and lots — see
+                        its own event with its own room, clock and lots - see
                         /api/auctions/. Leaving the option here would have let
                         somebody pick it and get an RFQ, because that is what
                         the tender endpoint now coerces an unknown type to. */}
@@ -3129,28 +3215,50 @@ export function NewTender({ api, editId }) {
 
               {!isAuction && (
                 <div className="frow" style={{ marginTop: 16, marginBottom: 0 }} id="nt-lines">
-                  <label className="lbl">Quantities <span className="faint">optional, add one line per item, or leave empty for a lump-sum bid</span></label>
+                  <label className="lbl">What you are buying, and the most you will pay</label>
+                  <div className="hint" style={{ marginTop: 0, marginBottom: 10 }}>
+                    One line per item: how many, and the most you will pay for each one. Every bid is checked
+                    against these maximums line by line, and its price score is graded on them. Vendors never
+                    see your maximums.
+                  </div>
                   {f.lines.map((l, i) => (
                     <div key={l.id} className="lineedit">
-                      <ItemPick line={l}
-                                onPick={(it) => set("lines", f.lines.map((x) => x.id === l.id
-                                  ? { ...x, itemCode: it ? it.code : "",
-                                      desc: it && !x.desc.trim() ? it.label : x.desc,
-                                      unit: it && it.uom ? it.uom.toLowerCase() : x.unit }
-                                  : x))} />
-                      <input className="in desc" placeholder="Line description" aria-label={"Line " + (i + 1)} value={l.desc}
-                             onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, desc: e.target.value } : x))} />
-                      <input className="in" type="number" min="1" placeholder="Qty" aria-label="Quantity" value={l.qty}
-                             onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, qty: e.target.value } : x))} />
-                      <input className="in" placeholder="Unit" aria-label="Unit" value={l.unit}
-                             onChange={(e) => set("lines", f.lines.map((x) => x.id === l.id ? { ...x, unit: e.target.value } : x))} />
-                      <button className="btn sm" aria-label="Remove line"
+                      <div className="lhead">
+                        <ItemPick line={l}
+                                  onPick={(it) => set("lines", f.lines.map((x) => x.id === l.id
+                                    ? { ...x, itemCode: it ? it.code : "",
+                                        desc: it && !x.desc.trim() ? it.label : x.desc,
+                                        unit: (it && unitFor(it.uom)) || x.unit }
+                                    : x))} />
+                        <input className="in desc" placeholder="What this line is, e.g. Mozzarella, shredded"
+                               aria-label={"Line " + (i + 1)} value={l.desc}
+                               onChange={(e) => setLine(l.id, "desc", e.target.value)} />
+                      </div>
+                      <label className="lcell"><span>Quantity</span>
+                        <input className="in" type="number" min="1" placeholder="e.g. 500" value={l.qty}
+                               onChange={(e) => setLine(l.id, "qty", e.target.value)} /></label>
+                      <div className="lcell"><span>Unit</span>
+                        <UnitSelect ariaLabel="Unit" required value={l.unit}
+                                    onChange={(v) => setLine(l.id, "unit", v)} /></div>
+                      <button className="btn sm" aria-label="Remove line" style={{ alignSelf: "end" }}
                               onClick={() => set("lines", f.lines.filter((x) => x.id !== l.id))}><Icon n="close" s={13} /></button>
+                      <label className="lcell"><span>Most you will pay per {l.unit || "unit"}</span>
+                        <input className="in" type="number" min="0" placeholder="In naira" value={l.price}
+                               onChange={(e) => setLine(l.id, "price", e.target.value)} /></label>
+                      <div className="lcell"><span>Line maximum</span>
+                        <span className="ltot money">
+                          {Number(l.qty) > 0 && Number(l.price) > 0 ? fmtMoney(Number(l.qty) * Number(l.price)) : "-"}
+                        </span></div>
                     </div>
                   ))}
-                  <button className="btn sm" style={{ marginTop: f.lines.length ? 8 : 0 }}
-                          onClick={() => set("lines", [...f.lines, { id: uid(), desc: "", qty: "", unit: "unit", itemCode: "" }])}>
-                    Add a line item</button>
+                  <div className="linesum">
+                    <button className="btn sm" style={{ marginRight: "auto" }}
+                            onClick={() => set("lines", [...f.lines, blankLine()])}>
+                      Add another line</button>
+                    <span className="lbl" style={{ margin: 0 }}>Ceiling</span>
+                    <span className="money" style={{ fontWeight: 650, fontSize: 16 }}>{fmtMoney(ceiling)}</span>
+                  </div>
+                  <div className="hint" style={{ textAlign: "right" }}>What the line maximums add up to. It also decides who has to approve this.</div>
                 </div>
               )}
             </div>
@@ -3196,7 +3304,12 @@ export function NewTender({ api, editId }) {
                   <label className="lbl" htmlFor="nt-tw">Technical against commercial</label>
                   <input id="nt-tw" className="in" type="range" min="30" max="90" step="5"
                          value={f.techWeight} onChange={(e) => set("techWeight", e.target.value)} />
-                  <div className="hint">{f.techWeight}% of the final score comes from the criteria above, {100 - f.techWeight}% from price.</div>
+                  <div className="hint">
+                    {f.techWeight}% of the final score comes from the criteria above, {100 - f.techWeight}% from price.
+                    Price is graded line by line against your maximums: each line counts for its quantity times its
+                    maximum, the lowest rate at or under the maximum gets full marks, and a rate above the maximum
+                    scores nothing on that line.
+                  </div>
                 </div>
               </div>
             </div>
@@ -3313,10 +3426,10 @@ export function NewTender({ api, editId }) {
               {editing ? "Save draft" : "Save as draft"}
             </button>
             <div className="readyroute">
-              {!Number(f.budget) || !threshold
+              {!ceiling || !threshold
                 ? "Drafts are private to you until you send them on."
                 : needsApproval
-                  ? `${fmtMoney(Number(f.budget))} is at or above the ${fmtMoney(threshold)} sign-off threshold, so this goes to an approver instead of publishing straight away.`
+                  ? `The ${fmtMoney(ceiling)} ceiling is at or above the ${fmtMoney(threshold)} sign-off threshold, so this needs a sign-off instead of publishing straight away.`
                   : `Below the ${fmtMoney(threshold)} sign-off threshold, so it publishes as soon as you press the button.`}
             </div>
           </div>
@@ -3542,7 +3655,7 @@ export const DRAFT_CSS = `
    Five tabs, and the split is by JOB rather than by data. The old page was one
    scroll holding four unrelated tasks at equal weight: a review queue nobody
    sees for weeks at a time, a 1,400-row register somebody searches daily, the
-   import tools used twice a year — and, buried inside the import disclosure
+   import tools used twice a year - and, buried inside the import disclosure
    for no reason anybody could reconstruct, the location filter for the list
    two cards above it.
 
@@ -3557,7 +3670,7 @@ export const DRAFT_CSS = `
    COVERAGE IS THE ONE WORTH ARGUING FOR. Everything else here reports what is
    on the register; that tab reports what is MISSING from it, which is the
    question procurement actually gets asked after an award goes to the only
-   company that could bid. Three verified vendors is the line — below it a
+   company that could bid. Three verified vendors is the line - below it a
    category cannot hold a competition, and the page says so before the tender
    is drafted rather than after it is awarded.
 
@@ -3576,6 +3689,7 @@ export function SuppliersPage({ api }) {
   const [reason, setReason] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [regOpen, setRegOpen] = useState(false);   // the register upload
+  const [csvOpen, setCsvOpen] = useState(false);   // vendors from a CSV
   const [campaign, setCampaign] = useState(false); // the registration drive
   const [registerOpen, setRegisterOpen] = useState(false);
   const [suspending, setSuspending] = useState(null);
@@ -4062,17 +4176,10 @@ export function SuppliersPage({ api }) {
                 </button>
               )}
               {canImport && (
-                <label className="addcard">
+                <button className="addcard" onClick={() => setCsvOpen(true)}>
                   <Icon n="upload" s={19} /><b>Add from CSV</b>
-                  <i>Appends vendors. Columns: name, category, location, email, prequalified. Duplicates skipped.</i>
-                  <input type="file" accept=".csv" hidden onChange={async (e) => {
-                    const f = e.target.files[0];
-                    if (f && await act.upload("/suppliers/import/", f)) {
-                      toast.ok("Supplier book imported", "New vendors are on the register; duplicates and blank rows were skipped.");
-                    }
-                    e.target.value = "";
-                  }} />
-                </label>
+                  <i>Appends vendors from a spreadsheet. See the columns it expects and download a template first.</i>
+                </button>
               )}
               {canImport && (
                 <button className="addcard" onClick={() => setRegOpen(true)}>
@@ -4088,15 +4195,57 @@ export function SuppliersPage({ api }) {
       {openId && <VendorRecord row={all.find((x) => x.id === openId)}
                                detail={detail} onClose={() => setOpenId(null)} />}
       {regOpen && <RegisterImport api={api} onClose={() => setRegOpen(false)} />}
+      {csvOpen && <VendorCsvDialog api={api} onClose={() => setCsvOpen(false)} />}
     </Page>
+  );
+}
+
+/** Add from CSV: the file it expects, then the file. Appends only; a name
+    already on the register is skipped, never overwritten. */
+function VendorCsvDialog({ api, onClose }) {
+  const { refresh, toast } = api;
+  const input = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+  const read = async (file) => {
+    if (!file) return;
+    setBusy(true); setProblem("");
+    try {
+      const r = await uploadFile("/suppliers/import/", file);
+      setBusy(false);
+      onClose();
+      await refresh();
+      toast.ok(`${r.created} vendor${r.created === 1 ? "" : "s"} added to the register`,
+               r.skipped ? `${r.skipped} row${r.skipped === 1 ? " was" : "s were"} skipped: already on the `
+                           + "register, repeated in the file, or without a name."
+                         : "Every row in the file was added.");
+    } catch (e) {
+      setProblem(e.message || "Could not read that file.");
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog wide title="Add vendors from a CSV file" onClose={onClose} footer={
+      <>
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn pri" disabled={busy} onClick={() => input.current && input.current.click()}>
+          <Icon n="upload" s={14} />{busy ? "Reading…" : "Choose the file"}
+        </button>
+      </>
+    }>
+      <CsvGuide spec={VENDOR_IMPORT_CSV} />
+      {problem && <div className="notice wax" style={{ marginBottom: 0 }}>{problem}</div>}
+      <input ref={input} type="file" accept=".csv,text/csv" hidden
+             onChange={(e) => { read(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+    </Dialog>
   );
 }
 
 /** Upload the vendor master export and replace the register with it.
 
-    Two steps on purpose. Picking the file shows what it would do — how many
+    Two steps on purpose. Picking the file shows what it would do - how many
     vendors, how many new, what would be deleted and what would be kept because
-    a tender used it — and writes nothing. Only the second click applies it.
+    a tender used it - and writes nothing. Only the second click applies it.
     Replacing 1,400 vendors should not be reachable by misclicking a file
     picker, and those numbers are the only way to notice you picked last year's
     export. Same decisions and guards as the command line: both go through
@@ -4294,7 +4443,7 @@ function VendorRecord({ row, detail, onClose }) {
               <div className="msec" style={{ padding: "0 0 8px" }}>Who to call</div>
               {line("Contact", d.contactPerson)}
               {line("Email", d.contactEmail)}
-              {line("Phone", d.phone, true)}
+              {line("Phone", fmtPhone(d.phone), true)}
               {line("Address", d.address)}
             </div>
             <div>
@@ -4356,7 +4505,7 @@ export function AuditPage({ api }) {
     try { setIntegrity(await raw("/audit/integrity/")); } catch (e) { setIntegrity({ ok: false, error: e.message }); }
   };
 
-  /* Patterns worth a second look. Findings, not accusations — so each one names
+  /* Patterns worth a second look. Findings, not accusations - so each one names
      the tender it came from and opens it, because the only honest thing a flag
      can do is take you to the evidence and let you judge. They stay on the page
      rather than in the guide: the guide is what you *do* here (verify, search,
@@ -4471,30 +4620,49 @@ export function AuditPage({ api }) {
 export function TeamPage({ api }) {
   // `user` is read further down to decide whether the reporting lines are shown.
   // It was missing from this destructure, which threw a ReferenceError during
-  // render and unmounted the whole application — a blank page, not a broken card.
+  // render and unmounted the whole application - a blank page, not a broken card.
   const { act, user } = api;
   const [team, setTeam] = useState(null);
-  const [f, setF] = useState({ email: "", role: "evaluator", name: "", title: "" });
+  const [f, setF] = useState({ email: "", role: "", name: "", title: "" });
   const [msg, setMsg] = useState("");
   const [link, setLink] = useState("");
+  const [bulk, setBulk] = useState(false);   // inviting many from a spreadsheet
   const load = () => raw("/team/").then(setTeam).catch((e) => setMsg(e.message));
-  useEffect(() => { load(); }, []);
+  /* Reloaded whenever the bootstrap is, so somebody accepting an invitation
+     or another admin moving a reporting line shows up here on its own. */
+  useEffect(() => { load(); }, [api.state]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const invite = async () => {
     setMsg(""); setLink("");
     try {
-      const r = await raw("/team/invite/", { method: "POST", body: f });
-      setF({ email: "", role: "evaluator", name: "", title: "" });
+      const r = await raw("/team/invite/", { method: "POST", body: { ...f, role: inviteRole } });
+      setF({ email: "", role: "", name: "", title: "" });
       if (r.inviteLink) setLink(r.inviteLink);
       load();
     } catch (e) { setMsg(e.message); }
   };
 
-  /* The four built-ins plus whatever roles this workspace has invented — the
-     server is the one that knows, so the list comes from it. */
+  /* The company's own roles - the server is the one that knows, so the list
+     comes from it. The picker falls back to the first one rather than to a
+     role name the company may have retired. */
   const ROLES = (team?.roles || []).map((r) => [r.value, r.label]);
+  const inviteRole = ROLES.some(([v]) => v === f.role) ? f.role : (ROLES[0] || [""])[0];
   const members = team?.members || [];
   const invites = team?.invites || [];
+  /* People put on the chart during setup whose invitation nobody has sent
+     yet. Setup emails nobody; the company sends these when it is ready. */
+  const held = team?.held || [];
+  const [sending, setSending] = useState("");
+  const sendHeld = async (personaIds) => {
+    setMsg(""); setLink(""); setSending(personaIds ? personaIds[0] : "all");
+    try {
+      const r = await raw("/team/send_invites/", { method: "POST", body: personaIds ? { personaIds } : {} });
+      api.toast.ok(`${r.sent} invitation${r.sent === 1 ? "" : "s"} sent`,
+                   "Each person sets their own password from the link in their email.");
+      load();
+    } catch (e) { setMsg(e.message); }
+    setSending("");
+  };
   const guide = (
     <Guide art="desk"
            headline={members.length
@@ -4507,11 +4675,16 @@ export function TeamPage({ api }) {
              <div className="gaterow" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
                <input className="in" placeholder="Their work email" aria-label="Work email"
                       value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
-               <select className="in" aria-label="Role" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>
+               <select className="in" aria-label="Role" value={inviteRole} onChange={(e) => setF({ ...f, role: e.target.value })}>
                  {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                </select>
                <button className="btn pri" onClick={invite} disabled={!f.email.trim()}>Send invitation</button>
                {!f.email.trim() && <span className="hint gatehint">Enter their work email to send.</span>}
+               {can(user, "team.invite") && (
+                 <button className="btn" onClick={() => setBulk(true)} disabled={!ROLES.length}>
+                   <Icon n="upload" s={14} />Invite many from a spreadsheet
+                 </button>
+               )}
                {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", margin: 0 }}>{msg}</div>}
                {link && (
                  <div className="notice" style={{ margin: 0 }}>
@@ -4524,19 +4697,49 @@ export function TeamPage({ api }) {
   );
   return (
     <Page guide={guide}>
+      {bulk && <StaffCsvDialog api={api} roles={team?.roles || []} onClose={() => setBulk(false)} onSent={load} />}
       <div className="pagehead">
         <h1>Team</h1>
         <span className="sub">Who is here, and what each person can do.</span>
       </div>
+      {held.length > 0 && can(user, "team.invite") && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="chead"><h3>Not invited yet</h3>
+            <button className="btn sm pri" style={{ marginLeft: "auto" }} disabled={!!sending}
+                    onClick={() => sendHeld(null)}>
+              {sending === "all" ? "Sending…" : `Send all ${held.length} invitation${held.length === 1 ? "" : "s"}`}
+            </button></div>
+          <div className="cbody" style={{ paddingTop: 0 }}>
+            <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>
+              These people are on the org chart from setup, and nobody has emailed them yet. Send
+              when you are ready. Each link lasts three days from when it is sent.
+            </div>
+            {held.map((h) => (
+              <div key={h.personaId || h.email} className="docrow">
+                <span>{h.name || h.email}</span>
+                <span className="mono faint" style={{ fontSize: 12 }}>{h.email}</span>
+                <span className="chip">{h.roleLabel || h.role}</span>
+                <span style={{ flex: 1 }} />
+                <button className="btn sm" disabled={!!sending || !h.personaId}
+                        onClick={() => sendHeld([h.personaId])}>
+                  {sending === h.personaId ? "Sending…" : "Send"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="card">
         <Rows empty={<Empty art="desk">Nobody has been invited yet. Use the panel to bring the first person in.</Empty>}>
           {members.map((m) => (
-            <Row key={m.username}
+            <Row key={m.id || m.username}
                  title={m.name}
                  meta={<>{m.title && <span>{m.title}</span>}<span>{m.email}</span></>}
                  right={<>
                    <span className="chip">{m.roleLabel || m.role}</span>
-                   {!m.active
+                   {m.claimed === false
+                     ? <span className="chip">not joined yet</span>
+                     : !m.active
                      ? <span className="chip warn">disabled</span>
                      : m.custom ? <span className="chip" title="Permissions adjusted from the role defaults">adjusted</span> : null}
                  </>} />
@@ -4561,8 +4764,8 @@ export function TeamPage({ api }) {
             <input className="in" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
         </div>
         <div className="hint">
-          Separation of duties is enforced by the server: evaluators cannot publish or award, approvers cannot
-          score, auditors cannot change anything.
+          What they can do comes from their role, and the server enforces it. Nobody signs off their
+          own work, whatever their role is called.
         </div>
       </More>
 
@@ -4572,6 +4775,13 @@ export function TeamPage({ api }) {
 
       {can(user, "team.view") && (
         <>
+          <More title="Roles"
+                summary={ROLES.length
+                  ? `${ROLES.length} role${ROLES.length === 1 ? "" : "s"}: ${ROLES.map(([, l]) => l).join(", ")}`
+                  : "what your company calls each job, and what it can do"}>
+            <RolesEditor api={api} onReload={load} />
+          </More>
+
           <More title="Reporting lines and signing authority"
                 summary="whose work rolls up to whom, and who may commit what">
             <ReportingLines api={api} team={team} onReload={load} />
@@ -4622,7 +4832,7 @@ function AuthorityLadder({ api, team, onReload }) {
   const edit = (id, patch) =>
     setRows(current.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const add = () =>
-    setRows([...current, { id: "new" + uid(), name: "", limit: 0, role: "approver", holders: [] }]);
+    setRows([...current, { id: "new" + uid(), name: "", limit: 0, role: "", holders: [] }]);
   const drop = (id) => setRows(current.filter((l) => l.id !== id));
 
   const unlimited = current.filter((l) => !Number(l.limit)).length;
@@ -4643,12 +4853,14 @@ function AuthorityLadder({ api, team, onReload }) {
           role: l.role || "", holders: l.holders || [],
         })),
       } });
-      setRows(null);
       toast.ok("Delegation of authority saved",
                current.length ? `${current.length} level(s). Requests raised from now on follow the new ladder; anything already in a chain keeps the one it was raised under.`
                               : "The ladder was cleared; the single threshold applies again.");
-      if (onReload) onReload();
-      refresh();
+      /* The edited rows stay on screen until the saved ladder has arrived.
+         Dropping them first showed the old ladder for a moment, which reads as
+         the save having been thrown away. */
+      await Promise.all([onReload ? onReload() : null, refresh()]);
+      setRows(null);
     } catch (e) { setMsg(e.message || "Could not save."); }
     setBusy(false);
   };
@@ -4721,9 +4933,188 @@ function AuthorityLadder({ api, team, onReload }) {
       {!current.length && (
         <div className="hint" style={{ marginTop: 10 }}>
           With no levels, publication falls back to the single sign-off threshold on the
-          Approvals page and any approver may sign.
+          Approvals page, and anyone allowed to approve publications may sign.
         </div>
       )}
+    </div>
+  );
+}
+
+
+/* The company's own roles.
+
+   Every company names its jobs differently - a "Tender Board", a "Head of
+   Finance" who signs - so the names, and what each role may do, are edited
+   here by whoever may set up roles. The whole list is saved at once, like the
+   ladder below it: renaming one role and retiring another is usually one
+   decision.
+
+   The server refuses what would strand somebody (removing a role a person is
+   on) and what would let the editor promote themselves (changing what their
+   own role can do). Those rows say so before Save rather than after it. */
+function RolesEditor({ api, onReload }) {
+  const { toast, refresh } = api;
+  const [data, setData] = useState(null);
+  const [rows, setRows] = useState(null);
+  const [open, setOpen] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const load = () => raw("/team/roles/").then(setData).catch((e) => setMsg(e.message || "Could not load the roles."));
+  useEffect(() => { load(); }, [api.state]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!data) return <div className="hint" style={{ marginTop: 0 }}>{msg || "Loading the roles…"}</div>;
+
+  const editable = !!data.editable;
+  const current = rows || data.roles.map((r) => ({ ...r, ref: r.key }));
+  const dirty = rows !== null;
+  const live = current.filter((r) => !r.remove);
+  const groups = data.catalogue.groups;
+  const perms = data.catalogue.permissions.filter((p) => p.key !== "page.portal");
+
+  const edit = (ref, patch) => setRows(current.map((r) => (r.ref === ref ? { ...r, ...patch } : r)));
+  const add = () => {
+    const ref = "new" + uid();
+    setRows([...current, { ref, key: "", label: "", note: "", perms: [], people: 0, builtin: false }]);
+    setOpen(ref);
+  };
+  /* A saved role is marked for removal so the server retires it; one added in
+     this sitting simply goes. */
+  const drop = (ref) => setRows(current.flatMap((r) => (r.ref !== ref ? [r] : r.key ? [{ ...r, remove: true }] : [])));
+  const startFrom = (ref, kind) => {
+    const k = data.kinds.find((x) => x.value === kind);
+    if (k) edit(ref, { perms: [...k.perms] });
+  };
+  const toggle = (r, key) => {
+    const next = new Set(r.perms);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    edit(r.ref, { perms: [...next] });
+  };
+
+  const names = live.map((r) => r.label.trim().toLowerCase());
+  const problem = live.some((r) => r.label.trim().length < 2) ? "Give every role a name."
+    : names.some((n, i) => names.indexOf(n) !== i) ? "Two roles have the same name. Give each its own."
+    : null;
+
+  const save = async () => {
+    setBusy(true); setMsg("");
+    try {
+      const out = await raw("/team/roles/", { method: "POST", body: {
+        roles: current.map((r) => (r.remove
+          ? { key: r.key, remove: true }
+          : { key: r.key || undefined, ref: r.ref, label: r.label.trim(), note: (r.note || "").trim(), perms: r.perms })),
+      } });
+      toast.ok("Roles saved", "Everyone on each role picks up the change straight away.");
+      /* The edited rows stay until the saved list has arrived, so the screen
+         never flashes the old names as if the save had been thrown away. */
+      await Promise.all([onReload ? onReload() : null, refresh()]);
+      setData(out);
+      setRows(null); setOpen("");
+    } catch (e) { setMsg(e.message || "Could not save the roles."); }
+    setBusy(false);
+  };
+
+  return (
+    <div>
+      <div className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
+        Use the names your company already uses. What a role can do applies to everyone on it;
+        one person can still be adjusted on their own by an administrator.
+        {!editable && " Only somebody who can set up roles may change these."}
+      </div>
+
+      {live.map((r) => {
+        const mine = !!r.key && r.key === data.ownRole;
+        const shown = open === r.ref;
+        const held = new Set(r.perms);
+        const lockPerms = !editable || mine;
+        return (
+          <div className="roleed" key={r.ref}>
+            <div className="roleedtop">
+              <div className="roleednames">
+                <input className="in" placeholder="e.g. Tender Board" value={r.label} maxLength={80}
+                       aria-label="Role name" disabled={!editable}
+                       onChange={(e) => edit(r.ref, { label: e.target.value })} />
+                <input className="in" placeholder="What this role is for (optional)" value={r.note || ""}
+                       maxLength={200} aria-label="What this role is for" disabled={!editable}
+                       onChange={(e) => edit(r.ref, { note: e.target.value })} />
+              </div>
+              <div className="roleedmeta">
+                {mine && <span className="chip gold">your role</span>}
+                <span className="chip">{r.people ? `${r.people} ${r.people === 1 ? "person" : "people"}` : "nobody yet"}</span>
+                <button className="btn sm" aria-expanded={shown} onClick={() => setOpen(shown ? "" : r.ref)}>
+                  {shown ? "Hide" : `Can do ${r.perms.length} thing${r.perms.length === 1 ? "" : "s"}`}
+                </button>
+                {editable && (
+                  <button className="btn sm" disabled={mine || r.people > 0}
+                          aria-label={`Remove ${r.label || "this role"}`}
+                          title={mine ? "This is your own role" : r.people ? "Move the people on it to another role first" : ""}
+                          onClick={() => drop(r.ref)}>
+                    <Icon n="close" s={13} />
+                  </button>
+                )}
+              </div>
+            </div>
+            {shown && (
+              <div className="roleedperms">
+                {mine && editable && (
+                  <div className="hint" style={{ marginTop: 0 }}>
+                    This is your own role, so you cannot change what it can do. An administrator can.
+                  </div>
+                )}
+                {!lockPerms && (
+                  <div className="frow" style={{ marginBottom: 0 }}>
+                    <label className="lbl" htmlFor={"rk-" + r.ref}>Start from a kind of work</label>
+                    <select id={"rk-" + r.ref} className="in" value=""
+                            onChange={(e) => startFrom(r.ref, e.target.value)}>
+                      <option value="">Choose to copy its permissions…</option>
+                      {data.kinds.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
+                    </select>
+                    <div className="hint">Replaces the ticks below. Adjust them afterwards.</div>
+                  </div>
+                )}
+                {groups.map((g) => {
+                  const inGroup = perms.filter((p) => p.group === g.id);
+                  if (!inGroup.length) return null;
+                  return (
+                    <div className="roleedgroup" key={g.id}>
+                      <b>{g.title}</b>
+                      {inGroup.map((p) => (
+                        <label className="roleedperm" key={p.key}>
+                          <input type="checkbox" checked={held.has(p.key)} disabled={lockPerms}
+                                 onChange={() => toggle(r, p.key)} />
+                          <span><b>{p.label}</b><i>{p.help}</i></span>
+                        </label>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {editable && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+          <button className="btn sm" onClick={add} disabled={live.length >= 20}>
+            <Icon n="plus" s={13} /> Add a role
+          </button>
+          {dirty && (
+            <>
+              <button className="btn pri sm" onClick={save} disabled={busy || !!problem}>
+                {busy ? "Saving…" : "Save the roles"}
+              </button>
+              <button className="btn sm" onClick={() => { setRows(null); setMsg(""); setOpen(""); }}>
+                Discard changes
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {problem && dirty && (
+        <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginTop: 10 }}>{problem}</div>
+      )}
+      {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginTop: 10 }}>{msg}</div>}
     </div>
   );
 }
@@ -4736,8 +5127,8 @@ function AuthorityLadder({ api, team, onReload }) {
    on their desk and in Analytics. The same person can hold the approver role
    and report to the chief executive, and neither fact implies the other.
 
-   Changing a line is guarded server-side against cycles — see
-   views.set_reporting_line — because a loop here is not a strange-looking chart,
+   Changing a line is guarded server-side against cycles - see
+   views.set_reporting_line - because a loop here is not a strange-looking chart,
    it is a rollup that never terminates. */
 function ReportingLines({ api, team, onReload }) {
   const { state, user, act, toast, refresh } = api;
@@ -4777,7 +5168,10 @@ function ReportingLines({ api, team, onReload }) {
       const to = (state.users || []).find((u) => u.id === managerId);
       toast.ok("Reporting line updated",
                `${who ? who.name : "They"} now report${to ? "s to " + to.name : "s to nobody"}.`);
-      refresh();
+      /* The dropdown reads the team list, not the bootstrap the action has
+         already refreshed, so that list is the one to reload. Without it the
+         chart moved and the dropdown snapped back to the old manager. */
+      if (onReload) await onReload();
     }
     setBusy("");
   };
@@ -4857,7 +5251,7 @@ function ReportingLines({ api, team, onReload }) {
    certificate, where it is, and the mark that goes in the chrome.
 
    The setup wizard collects all of this, and this is where it is corrected
-   afterwards — which is most of the time, because an RC number gets typed
+   afterwards - which is most of the time, because an RC number gets typed
    wrong once and read a hundred times. Grouped as one card rather than
    scattered across a settings tree: it is one form about one thing, and the
    fields that matter (the registered name, the RC number) are the ones people
@@ -4868,20 +5262,20 @@ function ReportingLines({ api, team, onReload }) {
    to a text field. */
 const PROFILE_FIELDS = [
   ["legalName",    "Registered name",    "text",  "As on the CAC certificate"],
-  ["rcNumber",     "RC number",          "mono",  "RC 1234567"],
+  ["rcNumber",     "RC number",          RcNumberInput],
   ["tin",          "Tax identification", "mono",  "01234567-0001"],
-  ["industry",     "Industry",           "text",  ""],
+  ["industry",     "Industry",           IndustrySelect],
   ["addressLine1", "Registered address", "text",  "Street and number"],
   ["addressLine2", "Address, continued", "text",  "Building, floor, district"],
   ["city",         "City",               "text",  ""],
-  ["state",        "State",              "text",  ""],
-  ["country",      "Country",            "text",  ""],
-  ["phone",        "Switchboard",        "text",  "+234 …"],
+  ["state",        "State",              StateField],
+  ["country",      "Country",            CountrySelect],
+  ["phone",        "Switchboard",        PhoneInput],
   ["email",        "Procurement email",  "text",  "tenders@company.com"],
   ["website",      "Website",            "text",  "company.com"],
-  ["currency",     "Reporting currency", "mono",  "NGN"],
-  ["fiscalYearStart", "Financial year starts", "mono", "01-01"],
-  ["timezone",     "Time zone",          "text",  "Africa/Lagos"],
+  ["currency",     "Reporting currency", CurrencySelect],
+  ["fiscalYearStart", "Financial year starts", FiscalStartSelect],
+  ["timezone",     "Time zone",          TimezoneSelect],
 ];
 
 function WorkspaceCard({ api }) {
@@ -4957,14 +5351,20 @@ function WorkspaceCard({ api }) {
         </div>
 
         <div className="grid g2">
-          {PROFILE_FIELDS.map(([k, label, kind, ph]) => (
-            <div className="frow" key={k}>
-              <label className="lbl" htmlFor={"orgp-" + k}>{label}</label>
-              <input id={"orgp-" + k} className={"in" + (kind === "mono" ? " mono" : "")}
-                     placeholder={ph} value={profile[k] || ""}
-                     onChange={(e) => setProfile({ ...profile, [k]: e.target.value })} />
-            </div>
-          ))}
+          {PROFILE_FIELDS.map(([k, label, kind, ph]) => {
+            const put = (v) => setProfile((x) => ({ ...x, [k]: v }));
+            /* A field with fixed answers names its component; the rest are typed. */
+            const Field = typeof kind === "function" ? kind : null;
+            return (
+              <div className="frow" key={k}>
+                <label className="lbl" htmlFor={"orgp-" + k}>{label}</label>
+                {Field
+                  ? <Field id={"orgp-" + k} value={profile[k] || ""} onChange={put} country={profile.country} />
+                  : <input id={"orgp-" + k} className={"in" + (kind === "mono" ? " mono" : "")}
+                           placeholder={ph} value={profile[k] || ""} onChange={(e) => put(e.target.value)} />}
+              </div>
+            );
+          })}
         </div>
 
         <div className="frow" style={{ marginBottom: 0 }}>

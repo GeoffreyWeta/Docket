@@ -68,7 +68,7 @@ export function buildCommands({ api, allowed, chrome }) {
     out.push({
       id: "tender:" + t.id, group: "Tenders", icon: t.type === "AUC" ? "gavel" : "tender",
       label: `${t.ref} ${t.title}`,
-      meta: `${t.status} · ${fmtCompact(t.budget)}`,
+      meta: t.budget != null ? `${t.status} · ${fmtCompact(t.budget)}` : t.status,
       run: () => go(user.role === "supplier"
         ? { page: "bidroom", id: t.id }
         : t.type === "AUC" && !t.openedAt

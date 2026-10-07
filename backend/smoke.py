@@ -47,7 +47,7 @@ def call(method, path, who, body=None, expect=200, files=None):
         r = c.patch(path, data=json.dumps(body or {}), content_type=J, **kw)
     else:
         r = c.post(path, data=json.dumps(body or {}), content_type=J, **kw)
-    assert r.status_code == expect, f"{method} {path} as {who}: {r.status_code} != {expect} — {r.content[:300]}"
+    assert r.status_code == expect, f"{method} {path} as {who}: {r.status_code} != {expect} - {r.content[:300]}"
     ct = r.headers.get("Content-Type", "")
     return r.json() if ct.startswith("application/json") else r
 
@@ -150,7 +150,7 @@ assert (len(d["tenders"]) == SEEDED_TENDERS
 print("ALL SMOKE TESTS PASSED")
 
 # ================= full-platform additions =================
-# (the reset above restored the seed and revoked tokens — sign the cast back in)
+# (the reset above restored the seed and revoked tokens - sign the cast back in)
 for u in ["deji", "ngozi", "mark", "aisha", "coldline", "harmattan", "bluechip"]:
     login(u)
 
@@ -170,7 +170,7 @@ assert r.content.startswith(b"%PDF"), "owner download must transparently decrypt
 
 # --- vendor self-registration (demo auto-verify) → prequal queue → decline → fix → approve ---
 r = c.post("/api/register/vendor/", json.dumps({"company": "Sahara Fresh Farms", "email": "sahara@example.com",
-    "password": "SaharaFresh!1", "category": "Produce", "location": "Kano"}), content_type=J)
+    "password": "SaharaFresh!1", "category": "Food & ingredients", "location": "Kano"}), content_type=J)
 assert r.status_code == 200 and r.json()["verified"] is True, r.content
 login("sahara@example.com", "SaharaFresh!1")
 d = call("GET", "/api/bootstrap/", "sahara@example.com")
@@ -267,7 +267,7 @@ from core.models import Tender as _T
 
 # --- two-stage envelope opening, full lifecycle on a fresh tender ---
 r = call("POST", "/api/tenders/", "amara", {
-    "title": "Store security services — two-stage", "type": "RFP", "category": "Facilities",
+    "title": "Store security services - two-stage", "type": "RFP", "category": "Facilities",
     "budget": 40_000_000, "deadline": int(time.time() * 1000) + 86_400_000, "techWeight": 60,
     "twoStage": True, "techThreshold": 70, "scope": "Guarding for 12 flagship stores.",
     "criteria": [{"name": "Capability", "weight": 60}, {"name": "Coverage", "weight": 40}],
@@ -338,7 +338,7 @@ _sweep()  # idempotent
 assert _N.objects.filter(user__username="harmattan", subject__startswith="Document expiring").count() == before
 
 # stalled scoring: t1 opened long ago (seed); tunde (new evaluator) hasn't scored → nudged once
-_T.objects.filter(pk="t1").update(status="evaluation")  # t1 was awarded earlier in this run — restage it
+_T.objects.filter(pk="t1").update(status="evaluation")  # t1 was awarded earlier in this run - restage it
 from core.models import Tender as _T2
 _TM.objects.filter(key__startswith="scorenudge:t1").delete()
 _sweep()
@@ -360,7 +360,7 @@ assert _N.objects.filter(user__username="amara", subject__startswith="Registrati
 print("REMINDER MAIL TESTS PASSED")
 
 # ================= approval matrix, import, duplication, compliance =================
-# threshold: default 50m — a 30m tender publishes straight through; a 60m routes to approval
+# threshold: default 50m - a 30m tender publishes straight through; a 60m routes to approval
 r = call("POST", "/api/tenders/", "amara", {"title": "Small signage refresh", "type": "RFQ", "category": "Facilities",
     "budget": 30_000_000, "deadline": _now + 10 * _D, "techWeight": 60,
     "criteria": [{"name": "Quality", "weight": 60}, {"name": "Price terms", "weight": 40}],
@@ -455,7 +455,7 @@ login("bluechip")
 print("MFA + LOCKOUT + SESSIONS PASSED")
 
 # ================= rename: workspace, self, company =================
-# vendor cannot rename the workspace; procurement can — and the ref prefix follows
+# vendor cannot rename the workspace; procurement can - and the ref prefix follows
 call("POST", "/api/settings/", "coldline", {"name": "Evil Corp"}, expect=403)
 r = call("POST", "/api/settings/", "amara", {"name": "Savannah Retail Group", "short": "Savannah"})
 assert r["name"] == "Savannah Retail Group" and r["short"] == "Savannah"
@@ -470,7 +470,7 @@ assert newt["ref"].startswith("SAV-"), newt["ref"]
 d = call("GET", "/api/bootstrap/", "coldline")
 assert any("Savannah Retail Group invites" in n["body"] for n in d["notifications"])
 
-# rename myself (buyer persona) — audit keeps the trail
+# rename myself (buyer persona) - audit keeps the trail
 call("POST", "/api/me/", "deji", {"name": "Deji A. Balogun"})
 d = call("GET", "/api/bootstrap/", "deji")
 assert d["me"]["name"] == "Deji A. Balogun"

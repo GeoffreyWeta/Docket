@@ -1,8 +1,8 @@
 """Put a parsed vendor register into the database.
 
 `vendor_import.build()` turns the spreadsheet export into vendor dicts. This
-module decides what that means for the database as it stands — what is new, what
-is a refresh, what has gone from the spreadsheet, what must not be touched — and
+module decides what that means for the database as it stands - what is new, what
+is a refresh, what has gone from the spreadsheet, what must not be touched - and
 then applies it.
 
 It exists as its own module because there are two ways in: the management
@@ -38,8 +38,8 @@ DEMO_MAP = [
     ("s11", "Printing & packaging",       "RECOPLASTIC"),
 ]
 
-# Written from the file on every run. Everything else on a Supplier — perf,
-# rating, and any document the register did not supply — is earned in DOCKET,
+# Written from the file on every run. Everything else on a Supplier - perf,
+# rating, and any document the register did not supply - is earned in DOCKET,
 # not in the spreadsheet, so a re-import must not touch it. The register has no
 # delivery history to offer; overwriting one with nothing would blank every
 # scorecard and look like an import bug.
@@ -66,7 +66,7 @@ def plan(vendors):
     existing = {s.id: s for s in Supplier.objects.all()}
     from_register = [sid for sid, s in existing.items() if s.registry]
 
-    # Every return below has the same shape — callers read these keys without
+    # Every return below has the same shape - callers read these keys without
     # checking which branch produced them, and an early return with half the
     # keys is a 500 waiting to happen.
     p = {"blocked": None, "needs_confirm": None, "vendors": len(vendors),
@@ -97,8 +97,8 @@ def plan(vendors):
         else:
             remap[demo_id] = pick["id"]
 
-    # Suppliers that did not come from the register — the self-registered test
-    # company, anything added through the UI — have an empty `registry` and are
+    # Suppliers that did not come from the register - the self-registered test
+    # company, anything added through the UI - have an empty `registry` and are
     # never written to or deleted. They were not in the file, so the file has no
     # business replacing them.
     outside = [sid for sid, s in existing.items() if not s.registry and sid not in remap]
@@ -134,7 +134,7 @@ def plan(vendors):
 def referenced(sids):
     """Which of these suppliers something still points at.
 
-    A vendor deleted from the spreadsheet is deleted here too — unless a tender
+    A vendor deleted from the spreadsheet is deleted here too - unless a tender
     invited it, a bid came from it, or somebody logs in as it. Then the record
     stays, because a tender that invited a company is a fact about what
     happened, and the spreadsheet losing a row does not unhappen it."""

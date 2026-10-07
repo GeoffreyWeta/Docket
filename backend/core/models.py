@@ -11,7 +11,7 @@ from .util import rid as _rid
 
 
 # =====================================================================
-#  Change tracking — what the outbound data feed reads
+#  Change tracking - what the outbound data feed reads
 # =====================================================================
 #
 # DOCKET is a source system for somebody else's warehouse. A customer runs
@@ -21,7 +21,7 @@ from .util import rid as _rid
 # one thing this model did not have: a per-row answer to "changed since when".
 #
 # Three hazards had to be designed around rather than commented about, because
-# each of them fails *silently* — the sync keeps working and quietly stops
+# each of them fails *silently* - the sync keeps working and quietly stops
 # being complete:
 #
 #   1. `save(update_fields=[...])` is used throughout this codebase. A save
@@ -29,7 +29,7 @@ from .util import rid as _rid
 #      is computed and then dropped on the floor. Syncable.save() adds itself
 #      to update_fields rather than trusting the caller to remember.
 #
-#   2. Queryset `.update()` never calls save() at all — it compiles straight
+#   2. Queryset `.update()` never calls save() at all - it compiles straight
 #      to SQL. There are a dozen of them (vendor invitations, round closure,
 #      baseline backfill). SyncableQuerySet.update() injects the timestamp, so
 #      the bypass stops being a bypass.
@@ -49,7 +49,7 @@ class SyncableQuerySet(models.QuerySet):
     Django's `.update()` is a direct UPDATE statement: no signals, no save(),
     no auto fields. That is exactly why it is used for bulk work, and exactly
     why it would have made the feed lie. Callers that genuinely want to move
-    rows without publishing a change — a backfill, a data repair — pass
+    rows without publishing a change - a backfill, a data repair - pass
     `touch=False` and take responsibility for saying so.
     """
 
@@ -94,7 +94,7 @@ class Tombstone(models.Model):
     Written by a post_delete signal rather than by turning every delete in the
     codebase into a soft delete: the signal fires for cascades too, and a
     cascade is where the rows a warehouse would otherwise keep forever
-    actually come from — delete a tender and its bids, clarifications and
+    actually come from - delete a tender and its bids, clarifications and
     documents go with it without a single line of view code mentioning them.
 
     `seq` is the cursor. An autoincrement rather than a timestamp because
@@ -131,7 +131,7 @@ class Persona(Syncable):
     manager = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL,
                                 related_name="reports")
 
-    # Which rung of the delegation-of-authority ladder this person stands on —
+    # Which rung of the delegation-of-authority ladder this person stands on -
     # an id into OrgSetting.data["approvalLevels"], blank for the majority of a
     # workspace who hold no signing authority at all. A plain CharField rather
     # than a foreign key because the ladder is configuration, not a table: an
@@ -195,7 +195,7 @@ class Supplier(Syncable):
     classification = models.CharField(max_length=140, blank=True, default="")
     # Second layer under `category`, derived from `classification` by
     # taxonomy.subcategory_for. Blank means the rules could not place this
-    # vendor below its category — an honest gap, not an "Other" bucket.
+    # vendor below its category - an honest gap, not an "Other" bucket.
     subcategory = models.CharField(max_length=60, blank=True, default="")
     contact_person = models.CharField(max_length=140, blank=True, default="")
     phone = models.CharField(max_length=120, blank=True, default="")
@@ -216,7 +216,7 @@ class Supplier(Syncable):
     # The most this vendor may be owed at once: live contract value not yet paid,
     # plus invoices approved and not yet settled. Zero means no limit has been
     # set, which is reported as "no limit on file" rather than as a limit of
-    # nothing — the two are opposite findings and a dashboard that confuses them
+    # nothing - the two are opposite findings and a dashboard that confuses them
     # tells Finance every vendor is in breach.
     exposure_limit = models.BigIntegerField(default=0)
 
@@ -321,7 +321,7 @@ class Tender(Syncable, SpendDimensions):
     invited = models.JSONField(default=list)        # [supplier ids]
     award_rec = models.JSONField(null=True, blank=True)  # {bidId, supplierId, amount, by, at, memo}
     letters = models.JSONField(null=True, blank=True)    # {supplierId: {type, text}}
-    coi = models.JSONField(default=dict)                 # {personaId: declaredAt(ms)} — conflict-of-interest sign-offs
+    coi = models.JSONField(default=dict)                 # {personaId: declaredAt(ms)} - conflict-of-interest sign-offs
     # two-stage envelope opening (technical first; commercial only for compliant bidders)
     two_stage = models.BooleanField(default=False)
     tech_opened_at = models.BigIntegerField(null=True, blank=True)
@@ -339,7 +339,7 @@ class Tender(Syncable, SpendDimensions):
     # --- what "saving" is measured against ---------------------------------
     # `budget` is a ceiling somebody set before going to market, so budget minus
     # award measures the estimate as much as the negotiation. `baseline` is what
-    # this was actually costing before — last year's contract, the incumbent's
+    # this was actually costing before - last year's contract, the incumbent's
     # renewal quote, the price on the shelf. Where it is set, the saving is real
     # and comparable; where it is not, the UI falls back to budget and says so
     # rather than presenting the weaker number as if it were the stronger one.
@@ -379,7 +379,7 @@ class Tender(Syncable, SpendDimensions):
     deadline_changes = models.JSONField(default=list, blank=True)
 
     def savings_basis(self):
-        """(amount, basis) — the number to measure the award against and the
+        """(amount, basis) - the number to measure the award against and the
         word for where it came from. Never guesses: no baseline means budget."""
         if self.baseline:
             return self.baseline, "baseline"
@@ -493,7 +493,7 @@ class Bid(Syncable):
     lines = models.JSONField(default=dict)   # {lineId: unitPrice}
     scores = models.JSONField(default=dict)  # {personaId: {criterionId: 0-10}}
     notes = models.JSONField(default=dict)   # {personaId: justification text}
-    disqualified = models.BooleanField(default=False)  # failed stage 1 — commercial envelope returned unopened
+    disqualified = models.BooleanField(default=False)  # failed stage 1 - commercial envelope returned unopened
 
     class Meta:
         constraints = [
@@ -549,7 +549,7 @@ class Profile(models.Model):
     supplier = models.ForeignKey(Supplier, null=True, blank=True, on_delete=models.CASCADE)
     totp_secret = models.CharField(max_length=64, blank=True, default="")
     totp_confirmed = models.BooleanField(default=False)
-    # Deviations from this person's role defaults — see permissions.py. Empty on
+    # Deviations from this person's role defaults - see permissions.py. Empty on
     # every account until an administrator moves someone off their role.
     perm_extra = models.JSONField(default=list, blank=True)     # granted on top of the role
     perm_revoked = models.JSONField(default=list, blank=True)   # taken away from the role
@@ -593,10 +593,10 @@ class AuthToken(models.Model):
 class Document(models.Model):
     """Uploaded file, stored in the database so it survives Render deploys.
 
-    kind='tender'  — buyer-published tender document (visible to invited suppliers)
-    kind='bid'     — supplier submission document; sealed until the recorded opening
-    kind='auction' — a photo of what an auction is buying, shown to its bidders
-    envelope       — 'technical' or 'commercial' for bid documents
+    kind='tender'  - buyer-published tender document (visible to invited suppliers)
+    kind='bid'     - supplier submission document; sealed until the recorded opening
+    kind='auction' - a photo of what an auction is buying, shown to its bidders
+    envelope       - 'technical' or 'commercial' for bid documents
     """
     id = models.CharField(primary_key=True, max_length=16)
     kind = models.CharField(max_length=12)  # tender | bid | supplier | auction
@@ -668,7 +668,7 @@ class ApprovalStep(models.Model):
 
     The route is computed once, when the request is raised, and then kept. It is
     deliberately not recomputed on every read, because the question an auditor
-    asks is "who was required to sign this, at the time it was raised" — and a
+    asks is "who was required to sign this, at the time it was raised" - and a
     chain derived live from today's org chart answers a different question. A
     reorganisation next quarter must not rewrite who was supposed to have signed
     last quarter, so the level's name and limit are copied in rather than looked
@@ -721,13 +721,14 @@ class FailedLogin(models.Model):
 
 
 class AccessRole(models.Model):
-    """A role invented in the administration console — "CEO", "Legal", "Board".
+    """A role a company added - "CEO", "Legal", "Board" - from setup, the Team
+    page or the administration console.
 
-    The four built-in roles (procurement / evaluator / approver / auditor) are
-    code, because separation of duties is the product. These are configuration:
-    a name, a job title, and a set of capability keys from permissions.py. A
-    person on a custom role can still be moved off it individually, exactly like
-    anyone else.
+    The four starter roles (procurement / evaluator / approver / auditor) keep
+    fixed keys in code, but the company's names and capabilities for them live
+    in OrgSetting "roles" (see roles.py). These are configuration: a name, a
+    job title, and a set of capability keys from permissions.py. A person on an
+    added role can still be moved off it individually, exactly like anyone else.
     """
     key = models.CharField(primary_key=True, max_length=20)   # slug; lands in Persona.role
     label = models.CharField(max_length=80)
@@ -745,7 +746,7 @@ class AccessRole(models.Model):
 
 
 # =====================================================================
-#  The post-award ledger — a mirror, not a book of record
+#  The post-award ledger - a mirror, not a book of record
 # =====================================================================
 #
 # DOCKET runs the competition and stops at award. Contracts, purchase orders,
@@ -788,7 +789,7 @@ class Mirrored(models.Model):
 
     @property
     def from_ledger(self):
-        """False for rows this workspace invented — they carry no ERP authority."""
+        """False for rows this workspace invented - they carry no ERP authority."""
         return self.source in ("nav", "bc")
 
 
@@ -797,7 +798,7 @@ class Money(models.Model):
 
     `amount` is always base (NGN) and is the only field anything sums.
     `amount_src` is what the contract or invoice actually says. When the two
-    currencies match, `fx_rate` is 1 and the pair is redundant — which is the
+    currencies match, `fx_rate` is 1 and the pair is redundant - which is the
     common case and costs nothing. When they differ, the pair is the entire
     basis of the exchange-rate exposure figure: what we owe in a currency we do
     not earn, struck at a rate that has since moved.
@@ -819,8 +820,8 @@ class FxRate(models.Model):
     """Base-currency price of one unit of a foreign currency, over time.
 
     Kept as history rather than a single current figure so exposure can be shown
-    as a movement — "this contract was struck at 1,480 and today's rate is
-    1,655" — which is the only form of the number anyone can act on.
+    as a movement - "this contract was struck at 1,480 and today's rate is
+    1,655" - which is the only form of the number anyone can act on.
     """
     currency = models.CharField(max_length=3)
     at = models.BigIntegerField()
@@ -845,7 +846,7 @@ class SourceSync(models.Model):
     """Per-feed import state: what ran, when, and what it did or failed to do.
 
     One row per (source, entity). The failure fields are as important as the
-    success ones — a feed that silently stopped three weeks ago looks exactly
+    success ones - a feed that silently stopped three weeks ago looks exactly
     like a quiet month unless the last attempt is recorded next to the last
     success.
     """
@@ -862,12 +863,12 @@ class SourceSync(models.Model):
 
 
 class Item(Syncable, Mirrored):
-    """A line on the material master — what the organisation actually buys.
+    """A line on the material master - what the organisation actually buys.
 
     Until this existed a tender line was free text: somebody typed "Combi oven
     line (2 per store)" and the next buyer typed something else for the same
     oven. That is fine for running one competition and useless for the question
-    Finance keeps asking — *are we paying more for this than we were last year* —
+    Finance keeps asking - *are we paying more for this than we were last year* -
     because there is no "this" to compare across tenders.
 
     Mirrored from the finance system rather than maintained here: the item
@@ -899,7 +900,7 @@ class Item(Syncable, Mirrored):
 
     @property
     def label(self):
-        return " — ".join(x for x in (self.description, self.description2) if x)
+        return " - ".join(x for x in (self.description, self.description2) if x)
 
 
 class Contract(Syncable, Mirrored, Money, SpendDimensions):
@@ -908,8 +909,8 @@ class Contract(Syncable, Mirrored, Money, SpendDimensions):
     `tender` is nullable and often null: the ledger holds contracts that were
     renewed, novated or placed before this system existed, and dropping them
     would understate committed spend on the very page Finance uses to size it.
-    A contract with no tender behind it is *itself* a finding — see the
-    single-source figure on the compliance dashboard — so it is kept, counted,
+    A contract with no tender behind it is *itself* a finding - see the
+    single-source figure on the compliance dashboard - so it is kept, counted,
     and marked, never quietly excluded.
 
     `original_value` and `amount` (the current value) are stored separately so
@@ -929,7 +930,7 @@ class Contract(Syncable, Mirrored, Money, SpendDimensions):
     starts_at = models.BigIntegerField(null=True, blank=True)
     ends_at = models.BigIntegerField(null=True, blank=True)
     status = models.CharField(max_length=16, default="active")   # active|expired|closed|terminated
-    # [{at, amount, reason, ref, approved_by}] — amount is base currency, signed
+    # [{at, amount, reason, ref, approved_by}] - amount is base currency, signed
     change_orders = models.JSONField(default=list, blank=True)
     renewal_notice_days = models.IntegerField(default=90)
 
@@ -1018,7 +1019,7 @@ class Invoice(Syncable, Mirrored, Money):
     status = models.CharField(max_length=16, default="received")  # received|approved|rejected|paid|part_paid
     hold_reason = models.CharField(max_length=200, blank=True, default="")
     # Terms offered for settling early, e.g. 2% if paid within 10 days. Earned
-    # only if a payment actually lands inside the window — see finance.py.
+    # only if a payment actually lands inside the window - see finance.py.
     discount_pct = models.FloatField(default=0)
     discount_days = models.IntegerField(default=0)
 
@@ -1054,7 +1055,7 @@ class Payment(Syncable, Mirrored, Money):
 class DemoFixture(models.Model):
     """A manifest of exactly what the demo seed created, so it can be removed again.
 
-    The alternative — deleting "everything that looks like demo data" — is the
+    The alternative - deleting "everything that looks like demo data" - is the
     kind of heuristic that works until the day somebody has a real vendor called
     Coldline Logistics. A workspace that has imported a 1,400-row vendor register
     and a year of NAV contracts cannot be cleaned up by pattern-matching, and
@@ -1065,7 +1066,7 @@ class DemoFixture(models.Model):
     the seed finishes *is* the fixture, by construction.
 
     A workspace seeded before this existed has no manifest, and the console says
-    so rather than guessing — see `clear_demo`.
+    so rather than guessing - see `clear_demo`.
     """
     id = models.IntegerField(primary_key=True, default=1)
     at = models.BigIntegerField(default=0)
@@ -1082,7 +1083,7 @@ class AdminAudit(models.Model):
     Separate from Event because these are acts *on* the workspace rather than
     acts *within* it, and because the console is the only place they are read.
     Changes to who can do what are additionally mirrored into the main audit
-    chain — a permission that moved during a live tender is exactly the kind of
+    chain - a permission that moved during a live tender is exactly the kind of
     thing an auditor is there to find.
     """
     id = models.CharField(primary_key=True, max_length=16)
@@ -1101,15 +1102,15 @@ class ApiKey(models.Model):
     """A service credential for the outbound data feed.
 
     Deliberately not an AuthToken. A person's bearer token carries a domain
-    identity — a persona, a role, a set of capabilities that an administrator
-    can move — and it exists so somebody can *act*. This exists so a scheduler
+    identity - a persona, a role, a set of capabilities that an administrator
+    can move - and it exists so somebody can *act*. This exists so a scheduler
     can read, at three in the morning, with nobody signed in. Reusing the login
     token for it would have meant a warehouse integration breaking the day an
     employee left, and an employee's departure silently granting or revoking a
     pipeline's access. They are different things and they get different tables.
 
     Only the hash is stored. The key itself is shown once, when it is minted,
-    and cannot be recovered afterwards — which is the property that makes a
+    and cannot be recovered afterwards - which is the property that makes a
     leaked database dump not also a leaked integration.
     """
     id = models.CharField(primary_key=True, max_length=16, default=_rid)
@@ -1128,7 +1129,7 @@ class ApiKey(models.Model):
     # Fixed-window rate limit. Two integers rather than a dependency: the feed
     # is pulled by a scheduler on a timer, not by a browser, so the thing being
     # defended against is a misconfigured cron in a retry loop rather than an
-    # adversary — and a window that resets on the minute handles that exactly.
+    # adversary - and a window that resets on the minute handles that exactly.
     window_at = models.BigIntegerField(default=0)
     window_calls = models.IntegerField(default=0)
 

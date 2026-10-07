@@ -5,7 +5,7 @@
 #   ./deploy/lightsail.sh deploy/app.env --create   # create the service first
 #
 # The env file holds the settings for ONE deployment. Two deployments means two
-# env files and two services — see deploy/README.md for why the demo and the
+# env files and two services - see deploy/README.md for why the demo and the
 # real workspace cannot share one: DOCKET is single-tenant, and a company that
 # ran setup on the demo's database would inherit the demo's tenders.
 #
@@ -31,7 +31,7 @@ set -a; . "$ENV_FILE"; set +a
 : "${SERVICE_NAME:?SERVICE_NAME must be set in $ENV_FILE}"
 : "${PUBLIC_BASE_URL:?PUBLIC_BASE_URL must be set in $ENV_FILE}"
 : "${SECRET_KEY:?SECRET_KEY must be set in $ENV_FILE}"
-: "${DATABASE_URL:?DATABASE_URL must be set in $ENV_FILE — a container has no durable disk, so SQLite would lose every sealed bid on redeploy}"
+: "${DATABASE_URL:?DATABASE_URL must be set in $ENV_FILE - a container has no durable disk, so SQLite would lose every sealed bid on redeploy}"
 
 POWER="${POWER:-nano}"
 SCALE="${SCALE:-1}"
@@ -79,7 +79,8 @@ say "Pushed as $IMAGE_REF"
 PASSTHROUGH="SECRET_KEY DATABASE_URL PUBLIC_BASE_URL ALLOWED_HOSTS SECURE_SSL
 DEMO_LOGIN DEMO_PASSWORD SEED_DEMO VENDORS_URL SETUP_CODE
 ANTHROPIC_API_KEY AI_MODEL
-EMAIL_HOST EMAIL_PORT EMAIL_HOST_USER EMAIL_HOST_PASSWORD EMAIL_USE_TLS DEFAULT_FROM_EMAIL
+EMAIL_HOST EMAIL_PORT EMAIL_HOST_USER EMAIL_HOST_PASSWORD EMAIL_USE_TLS DEFAULT_FROM_EMAIL EMAIL_REPLY_TO
+MS365_TENANT_ID MS365_CLIENT_ID MS365_CLIENT_SECRET
 BC_TENANT_ID BC_COMPANY_ID BC_CLIENT_ID BC_CLIENT_SECRET BC_ENVIRONMENT
 WEB_CONCURRENCY GUNICORN_THREADS GUNICORN_TIMEOUT LOG_LEVEL MAX_UPLOAD_BYTES"
 
@@ -105,7 +106,7 @@ endpoint = {
     "containerName": "web",
     "containerPort": 8000,
     # The prober hits the container directly over HTTP. settings.py exempts this
-    # one path from the HTTPS redirect for exactly that reason — without the
+    # one path from the HTTPS redirect for exactly that reason - without the
     # exemption every check reads 301 and the deployment is rolled back.
     "healthCheck": {
         "path": "/api/health/",
@@ -135,7 +136,7 @@ while :; do
     --query 'containerServices[0].[state,url]' --output text)
   case "$state" in
     RUNNING) say "Live at $url"; break ;;
-    READY)   die "Deployment did not take — the service fell back to READY. Check: aws lightsail get-container-log --service-name $SERVICE_NAME --container-name web" ;;
+    READY)   die "Deployment did not take - the service fell back to READY. Check: aws lightsail get-container-log --service-name $SERVICE_NAME --container-name web" ;;
     *)       printf '    state=%s\n' "$state"; sleep 20 ;;
   esac
 done

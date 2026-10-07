@@ -4,7 +4,7 @@
    server (backend/core/finance.py) because it reads a mirrored ledger that can
    run to tens of thousands of invoices, and summing those in a browser tab
    would be both slow and a lot of somebody's payables history to ship to a
-   laptop. What is left here is the part that belongs to the interface — how
+   laptop. What is left here is the part that belongs to the interface - how
    stale the ledger is allowed to look before the page says so, how an exception
    is worded, and how a set of rows becomes a chart series.
 */
@@ -49,7 +49,7 @@ export function freshness(ledger) {
 /* The eight rules, in the order Finance would work them: money already gone or
    about to go, then things that will cost money later, then things to verify.
    The order is fixed rather than sorted by value so the list reads the same way
-   every morning — a queue that reshuffles itself is a queue nobody learns. */
+   every morning - a queue that reshuffles itself is a queue nobody learns. */
 export const EXCEPTION_KINDS = [
   { key: "duplicate_invoice", label: "Duplicate invoices", icon: "file",
     hint: "the same claim submitted twice" },
@@ -95,7 +95,7 @@ export const exceptionTotals = (list) => ({
 
    Colour is assigned by identity here, exactly once, so the same measure is the
    same colour on every chart of the page. Never by rank, and never re-derived
-   per chart — a filter that changes the row count must not repaint the
+   per chart - a filter that changes the row count must not repaint the
    survivors. */
 export const TONE = {
   committed: slot(0),
@@ -148,7 +148,7 @@ export function term(daysLeft) {
   return { label: `${Math.round(daysLeft / 30)} months left`, tone: null };
 }
 
-/** Ageing buckets carry a single hue that deepens with lateness — magnitude,
+/** Ageing buckets carry a single hue that deepens with lateness - magnitude,
     not identity, so a rainbow here would claim the buckets differ in kind. */
 export const AGE_TONE = {
   current: "var(--s3)", "1-30": "var(--s4)", "31-60": "var(--s2)",
@@ -159,7 +159,7 @@ export const AGE_TONE = {
 
    A High/Medium/Low against each finance risk. Every level is decided by a
    stated threshold and ships with the observation that triggered it, because a
-   severity nobody can reproduce is an opinion in a table — and the first
+   severity nobody can reproduce is an opinion in a table - and the first
    question anyone asks a red row is "says who".
 
    The thresholds are deliberately visible constants rather than buried
@@ -185,7 +185,7 @@ export const RISK_THRESHOLDS = {
 const lvl = (cond_high, cond_med) =>
   (cond_high ? LEVEL.HIGH : cond_med ? LEVEL.MEDIUM : LEVEL.LOW);
 
-/** [{key, label, level, basis}] — the register, worst first. */
+/** [{key, label, level, basis}] - the register, worst first. */
 export function riskLevels(d) {
   const T = RISK_THRESHOLDS;
   const ex = d.exceptions || [];
@@ -278,7 +278,7 @@ export const FRAUD_KINDS = [
   "variation_threshold", "low_bid",
 ];
 
-/** The compliance score's components, worst first — the number on its own is
+/** The compliance score's components, worst first - the number on its own is
     not actionable and the point is entirely which check is dragging it down. */
 export const weakest = (checks) =>
   (checks || []).filter((c) => c.total > 0).slice().sort((a, b) => a.rate - b.rate);

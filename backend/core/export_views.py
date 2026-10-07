@@ -5,7 +5,7 @@ import io
 from django.http import HttpResponse
 
 from .models import Bid, Event, Supplier, Tender
-from .util import fmt_date_ms, total_score
+from .util import fmt_date_ms, line_maxima, lines_over_max, total_score
 from .views import err, route
 
 
@@ -28,23 +28,31 @@ def export_comparison(request, p, body, tid):
     ws = wb.active
     ws.title = "Comparison"
     bold = Font(bold=True)
-    ws.append([f"{t.ref} — {t.title}"]); ws["A1"].font = Font(bold=True, size=13)
-    ws.append([f"Budget ceiling: {t.budget:,} · Opened: {fmt_date_ms(t.opened_at)}"])
+    ws.append([f"{t.ref} - {t.title}"]); ws["A1"].font = Font(bold=True, size=13)
+    maxima = line_maxima(t)
+    ws.append([f"{'Ceiling (line maximums × quantity)' if maxima else 'Budget ceiling'}: {t.budget:,}"
+               f" · Opened: {fmt_date_ms(t.opened_at)}"])
     ws.append([])
     sups = {s.id: s.name for s in Supplier.objects.all()}
     bids = list(Bid.objects.filter(tender=t).order_by("submitted_at"))
-    head = ["Supplier", "Amount", "vs budget"]
+    head = ["Supplier", "Amount", "vs ceiling"]
     if t.lines:
         head += [f"{l['desc']} (x{l['qty']})" for l in t.lines]
+    if maxima:
+        head += ["Lines over maximum"]
     head += ["Weighted score", "Awarded"]
     ws.append(head)
     for c in ws[4]:
         c.font = bold
+    if maxima:
+        ws.append(["Our maximum per unit", t.budget, ""] + [l["price"] for l in t.lines])
     for b in bids:
         row = [sups.get(b.supplier_id, b.supplier_id), b.amount,
                f"{(b.amount - t.budget) / t.budget * 100:+.1f}%"]
         if t.lines:
             row += [(b.lines or {}).get(l["id"], "") for l in t.lines]
+        if maxima:
+            row += [len(lines_over_max(t, b))]
         ts = total_score(t, b, bids)
         row += [round(ts, 2) if ts is not None else "not scored",
                 "YES" if t.awarded_to == b.supplier_id else ""]

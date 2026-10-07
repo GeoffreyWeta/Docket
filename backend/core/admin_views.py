@@ -1,4 +1,4 @@
-"""The administration console API — the accounts-and-capabilities plane.
+"""The administration console API - the accounts-and-capabilities plane.
 
 It is deliberately its own surface, reachable only with a superuser account:
 
@@ -31,7 +31,7 @@ from .models import AccessRole, AdminAudit, AuthToken, FailedLogin, Persona, Pro
 from .permissions import (ADMIN_ROLE, ALL_KEYS, BUYER_ROLES, CATALOGUE,
                           CUSTOM_GRANTABLE, GROUPS, RESERVED_ROLE_KEYS,
                           SUPPLIER_ROLE, assignable_roles, custom_roles,
-                          defaults_for, grantable_for, resolve, role_label)
+                          defaults_for, grantable_for, resolve, role_label, roles_map)
 from .util import now_ms, record_event, rid
 from .views import DEFAULT_LANDING, LANDING_DESIGNS, landing_design, studio_accent
 
@@ -71,7 +71,7 @@ def _locked(username):
 
 
 def current_admin(request):
-    """The signed-in administrator, or None. Authority is is_superuser — never
+    """The signed-in administrator, or None. Authority is is_superuser - never
     a URL, a header or a client-side flag."""
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
@@ -92,7 +92,7 @@ def _log(request, admin, action, target="", detail="", mirror=False):
                               target=target[:200], detail=detail, ip=_ip(request))
     if mirror:
         record_event(actor=admin.get_full_name() or admin.username, role="administrator",
-                     action=action, detail=(f"{target} — " if target else "") + detail)
+                     action=action, detail=(f"{target} - " if target else "") + detail)
 
 
 def guard(methods):
@@ -117,7 +117,7 @@ def admin_login(request):
     b = _body(request)
     username = str(b.get("username", "")).strip().lower()
     if _locked(username):
-        return _err("Too many failed attempts — this account is locked for 15 minutes.", 429)
+        return _err("Too many failed attempts - this account is locked for 15 minutes.", 429)
     user = authenticate(username=username, password=str(b.get("password", "")))
     # A correct password on a non-administrator account gets the same answer as
     # a wrong one: this endpoint must not identify who the administrators are.
@@ -133,7 +133,7 @@ def admin_login(request):
                                  "error": "Enter the 6-digit code from your authenticator app."}, status=401)
         if not pyotp.TOTP(prof.totp_secret).verify(code, valid_window=1):
             FailedLogin.objects.create(username=username, at=now_ms())
-            return _err("That code isn't right — check your authenticator app.", 401)
+            return _err("That code isn't right - check your authenticator app.", 401)
     FailedLogin.objects.filter(username=username).delete()
     tok = AuthToken.objects.create(key=secrets.token_hex(32), user=user, created=now_ms())
     _log(request, user, "Administrator signed in")
@@ -174,7 +174,7 @@ def _user_view(u, custom=None):
     return {
         "id": u.id, "username": u.username, "email": u.email, "name": name, "title": title,
         "role": role, "roleLabel": role_label(role, custom),
-        "customRole": role in custom,
+        "customRole": role in custom and not custom[role]["builtin"],
         "isAdmin": u.is_superuser, "active": u.is_active,
         "mfa": bool(prof and prof.totp_confirmed),
         "supplierId": supplier.id if supplier else None,
@@ -224,8 +224,9 @@ def admin_state(request, admin, body):
             "suppliers": sum(1 for r in rows if r["role"] == SUPPLIER_ROLE),
             "disabled": sum(1 for r in rows if not r["active"]),
             "customised": sum(1 for r in rows if r["extra"] or r["revoked"]),
-            "customRoles": len(custom),
+            "customRoles": sum(1 for r in custom.values() if not r["builtin"]),
         },
+        "org": _org_view(),
         "demoLogin": settings.DEMO_LOGIN,
         "landing": landing_design(),
         "accent": studio_accent(),
@@ -291,6 +292,108 @@ def admin_appearance(request, admin, body):
     return JsonResponse({"landing": want, "changed": True})
 
 
+# ---------------- reporting lines and approval limits ----------------
+#
+# The setup wizard asks for both, and a workspace rarely gets them right first
+# time: people join, leave and are promoted, and limits get rewritten. The Team
+# page can already edit them, but only for somebody whose role allows it, and
+# it is the administrator who is answerable for who may commit what. So the
+# console edits the same two facts - the ladder in OrgSetting and each
+# persona's manager and rung - through the same validation as the workspace.
+
+def _org_view():
+    from . import approvals
+    levels = approvals.ladder()
+    accounts = {pr.persona_id: pr.user for pr in
+                Profile.objects.select_related("user").filter(persona__isnull=False)}
+    people = []
+    for p in Persona.objects.order_by("name"):
+        u = accounts.get(p.id)
+        people.append({"id": p.id, "name": p.name, "title": p.title, "role": p.role,
+                       "managerId": p.manager_id, "levelId": p.approval_level,
+                       "userId": u.id if u else None, "active": bool(u and u.is_active)})
+    from .views import org_settings
+    currency = (org_settings().get("profile") or {}).get("currency") or "NGN"
+    return {"levels": levels, "gaps": approvals.unreachable(levels), "people": people,
+            "currency": currency}
+
+
+def _rung(lvl):
+    return f"{lvl['name']} " + ("(no limit)" if not lvl["limit"] else f"(up to {lvl['limit']:,})")
+
+
+@guard(["POST"])
+def admin_set_levels(request, admin, body):
+    """Replace the approval levels. Validation is approvals.normalise, the same
+    check the wizard and the Team page use: names, whole-number limits, and
+    exactly one level without a ceiling, at the top."""
+    from . import approvals
+    from .models import OrgSetting
+    levels, msg = approvals.normalise(body.get("levels"))
+    if msg:
+        return _err(msg)
+    row, _ = OrgSetting.objects.get_or_create(pk=1, defaults={"data": {}})
+    row.data = {**(row.data or {}), "approvalLevels": levels}
+    row.save(update_fields=["data"])
+    if levels:
+        detail = ", ".join(_rung(lvl) for lvl in levels) + "."
+        gaps = approvals.unreachable(levels)
+        if gaps:
+            detail += f" Nobody currently holds: {', '.join(gaps)}."
+    else:
+        detail = "Levels cleared; publication falls back to the single approval threshold."
+    _log(request, admin, "Approval levels changed", f"{len(levels)} level(s)", detail, mirror=True)
+    return JsonResponse({"ok": True, "org": _org_view()})
+
+
+@guard(["POST"])
+def admin_set_line(request, admin, body, pid):
+    """One person's place on the chart: who they report to (`managerId`) and
+    which approval level they hold (`levelId`). Either may be sent alone; an
+    empty value means nobody / no approval authority."""
+    from . import approvals
+    from .views import line_problem
+    person = Persona.objects.select_related("manager").filter(pk=pid).first()
+    if not person:
+        return _err("No such person.", 404)
+    fields, changes = [], []
+
+    if "managerId" in body:
+        mid = str(body.get("managerId") or "")
+        manager = None
+        if mid:
+            manager = Persona.objects.filter(pk=mid).first()
+            if not manager:
+                return _err("No such manager.", 404)
+            problem = line_problem(person, manager)
+            if problem:
+                return _err(problem)
+        if person.manager_id != (manager.id if manager else None):
+            was = person.manager.name if person.manager else "nobody"
+            person.manager = manager
+            fields.append("manager")
+            changes.append(f"now reports to {manager.name if manager else 'nobody'} (was {was})")
+
+    if "levelId" in body:
+        levels = {lvl["id"]: lvl for lvl in approvals.ladder()}
+        lid = str(body.get("levelId") or "")
+        if lid and lid not in levels:
+            return _err("That approval level no longer exists. Reload and pick again.")
+        if person.approval_level != lid:
+            was = levels.get(person.approval_level)
+            person.approval_level = lid
+            fields.append("approval_level")
+            changes.append(f"approval level {_rung(was) if was else 'none'} → "
+                           f"{_rung(levels[lid]) if lid else 'none'}")
+
+    if not fields:
+        return _err("Nothing to change.")
+    person.save(update_fields=fields)
+    _log(request, admin, "Reporting line or approval level changed", person.name,
+         "; ".join(changes).capitalize() + ".", mirror=True)
+    return JsonResponse({"ok": True, "org": _org_view()})
+
+
 # ---------------- roles ----------------
 
 def _slug(label):
@@ -300,7 +403,7 @@ def _slug(label):
 
 @guard(["POST"])
 def admin_create_role(request, admin, body):
-    """Invent a role — "CEO", "Legal", "Board observer" — and hand it a set of
+    """Invent a role - "CEO", "Legal", "Board observer" - and hand it a set of
     capabilities out of the catalogue."""
     label = str(body.get("label", "")).strip()
     if len(label) < 2:
@@ -309,7 +412,7 @@ def admin_create_role(request, admin, body):
     if not ROLE_KEY_RE.match(key):
         return _err("The role's id must start with a letter and use only letters, numbers, - or _ (2–20 characters).")
     if key in RESERVED_ROLE_KEYS:
-        return _err(f"“{key}” is a built-in role — choose another id.", 409)
+        return _err(f"“{key}” is a built-in role - choose another id.", 409)
     if AccessRole.objects.filter(pk=key).exists():
         return _err("A role with that id already exists.", 409)
     perms = sorted({str(k) for k in (body.get("perms") or [])} & CUSTOM_GRANTABLE)
@@ -322,11 +425,38 @@ def admin_create_role(request, admin, body):
     return JsonResponse({"ok": True, "role": _role_view(custom_roles()[key], {})})
 
 
+def _starter_change(request, admin, key, row):
+    """Rename, reshape or retire a starter role through the same rules the
+    workspace's Team page uses (roles.plan), so the console cannot leave the
+    company with a role list the workspace would have refused."""
+    from . import roles
+    before = role_label(key)
+    plan, msg = roles.plan([{"key": key, **row}])
+    if msg:
+        return _err(msg, 409 if row.get("remove") else 400)
+    with transaction.atomic():
+        roles.apply(plan, actor=admin.username)
+    if plan["changes"]:
+        _log(request, admin, "Role changed", f"{before} ({key})",
+             "; ".join(plan["changes"]).capitalize() + ".", mirror=True)
+    return None
+
+
 @guard(["POST", "PATCH"])
 def admin_update_role(request, admin, body, key):
+    if key in BUYER_ROLES:
+        was = roles_map()[key]
+        row = {"label": body.get("label", was["label"]), "note": body.get("note", was["note"])}
+        if "perms" in body:
+            row["perms"] = body.get("perms") or []
+        refused = _starter_change(request, admin, key, row)
+        if refused:
+            return refused
+        n = Profile.objects.filter(persona__role=key).count()
+        return JsonResponse({"ok": True, "role": _role_view(roles_map()[key], {key: n})})
     r = AccessRole.objects.filter(pk=key).first()
     if not r:
-        return _err("No such role — the built-in four cannot be edited.", 404)
+        return _err("No such role.", 404)
     changes = []
     if "label" in body:
         label = str(body["label"]).strip()
@@ -358,12 +488,15 @@ def admin_update_role(request, admin, body, key):
 
 @guard(["POST", "DELETE"])
 def admin_delete_role(request, admin, body, key):
+    if key in BUYER_ROLES:
+        refused = _starter_change(request, admin, key, {"remove": True})
+        return refused or JsonResponse({"ok": True})
     r = AccessRole.objects.filter(pk=key).first()
     if not r:
         return _err("No such role.", 404)
     n = Profile.objects.filter(persona__role=key).count()
     if n:
-        return _err(f"{n} account(s) are on this role — move them to another role first.", 409)
+        return _err(f"{n} account(s) are on this role - move them to another role first.", 409)
     label = f"{r.label} ({r.key})"
     r.delete()
     _log(request, admin, "Role deleted", label, "No accounts were on it.", mirror=True)
@@ -389,7 +522,7 @@ def _assignable(custom):
 @guard(["POST"])
 def admin_create_user(request, admin, body):
     """Create a team member or another administrator directly, password and all.
-    Vendors are not created here — they register themselves and are prequalified
+    Vendors are not created here - they register themselves and are prequalified
     in the workspace, which is the trail that makes a vendor legitimate."""
     from .account_views import EMAIL_RE
     custom = custom_roles()
@@ -459,7 +592,7 @@ def admin_update_user(request, admin, body, uid):
     if "title" in body and prof and prof.persona_id:
         prof.persona.title = str(body["title"]).strip()[:80]
         prof.persona.save(update_fields=["title"])
-        changes.append(f"title set to {prof.persona.title or '—'}")
+        changes.append(f"title set to {prof.persona.title or '-'}")
     if "role" in body:
         role = str(body["role"]).strip()
         if role not in roles:
@@ -494,7 +627,7 @@ def admin_update_user(request, admin, body, uid):
         if not want and u.id == admin.id:
             return _err("You cannot remove your own administrator access.", 409)
         if not want and u.is_superuser and User.objects.filter(is_superuser=True, is_active=True).count() <= 1:
-            return _err("This is the last administrator — promote someone else first.", 409)
+            return _err("This is the last administrator - promote someone else first.", 409)
         if u.is_superuser != want:
             u.is_superuser = want
             changes.append("administrator access granted" if want else "administrator access removed")
@@ -520,7 +653,7 @@ def admin_set_perms(request, admin, body):
     before = _user_view(u, custom)
     role = before["role"]
     if role == SUPPLIER_ROLE:
-        return _err("Vendor accounts sit on the other side of the seal — they hold no buyer-side capabilities.", 409)
+        return _err("Vendor accounts sit on the other side of the seal - they hold no buyer-side capabilities.", 409)
     grantable = grantable_for(role)
     base = defaults_for(role, custom)
     extra = {str(k) for k in (body.get("extra") or [])} & grantable
@@ -584,7 +717,7 @@ def admin_reset_mfa(request, admin, body, uid):
     prof.totp_secret, prof.totp_confirmed = "", False
     prof.save(update_fields=["totp_secret", "totp_confirmed"])
     _log(request, admin, "Two-factor reset", _label(u),
-         "Authenticator enrolment cleared — they can re-enrol from their own security panel.")
+         "Authenticator enrolment cleared - they can re-enrol from their own security panel.")
     return JsonResponse({"ok": True})
 
 
@@ -596,7 +729,7 @@ def admin_delete_user(request, admin, body, uid):
     if u.id == admin.id:
         return _err("You cannot delete the account you are signed in with.", 409)
     if u.is_superuser and User.objects.filter(is_superuser=True, is_active=True).count() <= 1:
-        return _err("This is the last administrator — promote someone else first.", 409)
+        return _err("This is the last administrator - promote someone else first.", 409)
     prof = getattr(u, "profile", None)
     if prof and prof.supplier_id:
         # The vendor's register entry, bids and documents outlive their login:
@@ -620,7 +753,7 @@ def admin_demo(request, admin, body):
 
     Deliberately preview-then-confirm, and deliberately in the administration
     console rather than in the workspace. Clearing the demo is not a tendering
-    action — it is an act *on* the workspace, like creating a role — and it is
+    action - it is an act *on* the workspace, like creating a role - and it is
     unrecoverable, so it sits behind the console's own sign-in with the rest of
     the things you cannot undo.
     """
@@ -634,7 +767,7 @@ def admin_demo(request, admin, body):
 
     before = fixture_preview()
     if not before["hasManifest"]:
-        return _err("No demo manifest on file — there is nothing recorded to remove.", 409)
+        return _err("No demo manifest on file - there is nothing recorded to remove.", 409)
 
     keep_settings = bool(body.get("keepSettings"))
     try:

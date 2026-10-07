@@ -1,4 +1,4 @@
-# DOCKET — sealed-bid tendering, end to end
+# DOCKET - sealed-bid tendering, end to end
 
 Django API + React (Vite) frontend, deployed as a single Render web service.
 Demo tenant: Kestrel Hospitality Group, a 128-store multi-brand restaurant group.
@@ -6,124 +6,124 @@ Demo tenant: Kestrel Hospitality Group, a 128-store multi-brand restaurant group
 **Everything that matters is enforced server-side:** real authentication, sealed
 bids (including uploaded documents), blind evaluation, conflict-of-interest gates,
 role-guarded actions, a tamper-evident audit trail, notifications with email
-dispatch, and an idempotent background sweep — no worker dyno required.
+dispatch, and an idempotent background sweep - no worker dyno required.
 
 ## The full platform
 
-* **Vendor onboarding, four ways in** — self-service registration (email-verified;
+* **Vendor onboarding, four ways in** - self-service registration (email-verified;
   auto-verified in demo mode), an emailed invitation to register, a bulk register
   import, and a buyer typing the company straight in from the Vendors page. Whichever
   route a vendor arrives by, the register records which one it was, and a claim link
   attaches their login to the record the buyer already holds rather than creating a
   second one for the same company.
-* **Registration and verification are separate facts** — a vendor can be fully
+* **Registration and verification are separate facts** - a vendor can be fully
   registered and entirely unverified, and the register says both. Registration is
   *invitation sent → pending → registered*; verification is *unverified → verified*,
   plus *declined* (with a reason the vendor reads verbatim) and *suspended*.
-  **An unverified vendor can be invited and can bid** — verification gates
+  **An unverified vendor can be invited and can bid** - verification gates
   prequalification, not participation, and the event's vendor table says so out loud
   rather than quietly blocking the invitation. Suspension bars a vendor from new
   events without undoing their prequalification, so lifting it brings them back
   verified instead of making them start again.
-* **Team onboarding** — invite colleagues by email with a role (procurement,
+* **Team onboarding** - invite colleagues by email with a role (procurement,
   evaluator, approver, auditor); they set a password via a single-use link. In demo
   mode the invite link is surfaced in the UI so the flow is testable without SMTP.
-* **Password reset** — emailed single-use link; resetting revokes every active session.
-* **Cryptographic sealing at rest** — bid amounts, line prices and bid documents are
+* **Password reset** - emailed single-use link; resetting revokes every active session.
+* **Cryptographic sealing at rest** - bid amounts, line prices and bid documents are
   Fernet-encrypted in the database from submission until the recorded opening. A DB
   dump taken early contains only ciphertext. (Key derives from `SECRET_KEY`; an
-  attacker with both the DB *and* the server's env can still decrypt — dedicated key
+  attacker with both the DB *and* the server's env can still decrypt - dedicated key
   management is the next rung.)
-* **Tamper-evident audit trail** — every event is hash-chained to the one before it.
+* **Tamper-evident audit trail** - every event is hash-chained to the one before it.
   Auditors get a one-click integrity verification and a CSV export including the
   hashes; the smoke test proves that editing any historical row breaks the chain.
-* **Rename everything from the app** — the workspace name (Team page; flows into
+* **Rename everything from the app** - the workspace name (Team page; flows into
   invitations, letters, memos, and the reference prefix on new tenders), your own
   display name (Security panel), and a vendor's company details (their portal).
   Historical audit records always keep the name that was true at the time.
-* **Two-factor authentication (TOTP)** — provider-free MFA with any authenticator
+* **Two-factor authentication (TOTP)** - provider-free MFA with any authenticator
   app: QR enrollment from the Security panel, codes required at sign-in, disable
   needs a current code, enrollment recorded in the audit trail. Plus brute-force
   lockout (5 failures = 15-minute lock) and one-click sign-out of all devices.
-* **Search & filters** — free-text search on tenders, suppliers, and the audit
+* **Search & filters** - free-text search on tenders, suppliers, and the audit
   trail; status filters including hide-awarded and prequalified-only.
-* **Getting started, built in** — a role-aware guide auto-opens on every user's first
+* **Getting started, built in** - a role-aware guide auto-opens on every user's first
   sign-in (and lives behind the Guide button) walking each role through their journey.
-* **Delegation of authority, up your own reporting line** — define a ladder of
+* **Delegation of authority, up your own reporting line** - define a ladder of
   signing levels with a limit each (up to eight, the top one unlimited) and put
   your people on them. A submitted tender walks upward from whoever raised it,
   collecting a signature at every rung it passes, and stops at the first person
   whose limit covers the amount: four layers of management is four signatures
   where the number needs them. Nobody signs their own request, a rejection
   anywhere ends the chain, a gap in the org chart falls back to the ladder
-  rather than becoming a way out of it, and the chain is frozen when raised — a
+  rather than becoming a way out of it, and the chain is frozen when raised - a
   reorganisation next quarter cannot rewrite who was meant to sign last
   quarter. Workspaces that want the simple version keep the single publication
   threshold instead, unchanged.
-* **A front door, and a gate on the setup wizard** — `/` explains the product,
+* **A front door, and a gate on the setup wizard** - `/` explains the product,
   `/signin` is the form, `/demo` is the demo. Registering a company needs an
   access code issued out of band (`SETUP_CODE`), rate-limited like the sign-in
   page: an empty deployment on a public address would otherwise belong to
   whoever found the URL first.
-* **Setup in one sitting** — the wizard takes the code, you, the full company
+* **Setup in one sitting** - the wizard takes the code, you, the full company
   record (trading and registered name, RC number, TIN, address, contacts,
   currency, financial year, logo), the authority ladder, your team with their
   reporting lines and signing authority to any depth, and the vendor register
   you already have as a spreadsheet. The org chart is created before anybody
   accepts their invitation, so reporting lines work from the first minute; the
   vendors are emailed an invitation to register, in batches, once each.
-* **Supplier CSV import & tender templates** — load an existing vendor book in one
+* **Supplier CSV import & tender templates** - load an existing vendor book in one
   upload; duplicate any past tender into a fresh draft with dates cleared.
-* **Oversight tooling** — per-tender compliance report PDF, an anomaly scan (single-
+* **Oversight tooling** - per-tender compliance report PDF, an anomaly scan (single-
   bidder awards, winner concentration, near-ceiling awards), approver spend view,
   evaluator inline proposal access, and a vendor win/loss record.
-* **Exports** — bid comparison as Excel, award memo as PDF, audit trail as CSV, all
+* **Exports** - bid comparison as Excel, award memo as PDF, audit trail as CSV, all
   generated server-side and role-guarded.
-* **Two-stage envelope opening** — the strict public-sector procedure: technical
+* **Two-stage envelope opening** - the strict public-sector procedure: technical
   envelopes open first for blind scoring while prices stay ciphertext; commercial
   envelopes are then decrypted only for bidders meeting the technical threshold.
-  Disqualified bidders' pricing is *never* decrypted — the envelope is returned
+  Disqualified bidders' pricing is *never* decrypted - the envelope is returned
   unopened, and the API, the exports and the database all honour that.
-* **Multi-round bidding** — a second and third submission window against the same
+* **Multi-round bidding** - a second and third submission window against the same
   scope, the same panel and the same award: a best-and-final, or a shortlist re-bid.
   Round 1 is implicit until somebody opens a round 2, at which point it is
-  materialised and the bids already taken are adopted into it — so every event
+  materialised and the bids already taken are adopted into it - so every event
   raised before rounds existed is a valid single-round event and nothing had to be
   migrated. A later round can only be drawn from vendors who bid in an earlier one,
   each round seals and opens on its own record, and the **bid bucket** groups every
   submission by round with a movement column showing what the re-bid actually
   changed.
-* **The controls a live event needs** — extend the deadline (forward only, with the
+* **The controls a live event needs** - extend the deadline (forward only, with the
   old date, the new one, the reason and a notice to every bidder), pause and resume,
   cancel with a reason every vendor is told verbatim, add or withdraw vendors
   mid-competition, and send the field a message that is not an addendum. Every one
   is capability-gated, recorded on the hash chain, and refused where the event's
   state makes it dishonest: a deadline cannot be brought forward, an opened event
   cannot be reopened, an awarded or cancelled event is frozen.
-* **Three money columns, not one** — a budget is a ceiling somebody set, a projection
+* **Three money columns, not one** - a budget is a ceiling somebody set, a projection
   is what the category manager expects this to land at, and a baseline is what the
   organisation was actually paying. The evaluation screen shows all three and
-  measures the saving against the strongest one available, naming which — a saving
+  measures the saving against the strongest one available, naming which - a saving
   whose basis is unstated is a saving nobody can check.
-* **Reverse auctions** — a live, rank-visible price competition (tender type "AUC").
+* **Reverse auctions** - a live, rank-visible price competition (tender type "AUC").
   Suppliers see their position, never a competitor's price; the buyer watches a live
   leaderboard. Minimum decrements are enforced, bids in the final two minutes extend
   the close (anti-sniping), every price movement is kept, and closing feeds the final
   standings straight into the standard recommendation → CFO approval → letters flow.
   The demo seeds a live auction (KST-AUC-2026-030) closing a day and a half after
-  seeding — sign in as coldline/harmattan/bluechip to bid against each other. Its
+  seeding - sign in as coldline/harmattan/bluechip to bid against each other. Its
   reserve is ₦84m: close the room above that and there is, correctly, nothing to
   award. On Lightsail the demo is reseeded every night (see `deploy/lightsail/crontab`)
   so the auction and the open tenders never run out of time; anywhere else, use
   **Reset demo data** from the account menu.
 
-* **Finance — procurement's consequences, for the people who carry them.** A section
+* **Finance - procurement's consequences, for the people who carry them.** A section
   of its own, because "how is the buying going" and "what did it cost, what do we
   still owe, and what is about to go wrong" are different questions asked by
   different people. Seven views: savings, spend, contracts, payments, compliance,
   risk and exceptions.
   * **Savings, three ways, never added together.** *Negotiated* measures an award
-    against a recorded prior price — the figure that survives a review. *Against
+    against a recorded prior price - the figure that survives a review. *Against
     budget* measures it against the estimate set beforehand, which grades the
     estimate as much as the buying. *Cost avoidance* measures it against the median
     bid received, which is real money and also a counterfactual. Summing them
@@ -134,48 +134,48 @@ dispatch, and an idempotent background sweep — no worker dyno required.
     goods receipts, invoices and payments live in the finance system (Dynamics NAV
     today, Business Central expected). DOCKET holds a copy keyed to the source
     system's own identifiers, and a banner at the top of every view states how old
-    the *stalest* feed is — a stale ledger drawn without comment is worse than no
+    the *stalest* feed is - a stale ledger drawn without comment is worse than no
     ledger, because it gets believed.
   * **Two adapters, not two integrations.** The importer splits into a field mapping
     that knows one system's vocabulary and an apply step that knows none. Moving to
     Business Central means a second mapping beside the first; rows already imported
     stay attributable to NAV. `finance_sync.BusinessCentralAdapter` subclasses the
     NAV one, so the migration is a readable diff rather than a rewrite.
-  * **Contract monitoring** — value, invoiced, paid, remaining balance, utilisation,
+  * **Contract monitoring** - value, invoiced, paid, remaining balance, utilisation,
     expiry runway, change orders and cost escalation. Escalation is a subtraction
     from the value at signature, not an assertion, and the individual variations are
     listed: "value grew ₦35m" and "value grew ₦35m across nine variations nobody
     batched" are different findings and only the second names the problem.
-  * **Payment performance** — invoices received / approved / paid, average and median
+  * **Payment performance** - invoices received / approved / paid, average and median
     days from *receipt* (the clock a supplier actually experiences, not from
     approval), an ageing profile, timeliness by month, and early-payment discounts
-    split into earned and *missed* — an offered discount that lapsed is a real loss.
-  * **Eight automatic exception rules** — over budget, contract expiring or expired,
+    split into earned and *missed* - an offered discount that lapsed is a real loss.
+  * **Eight automatic exception rules** - over budget, contract expiring or expired,
     vendor over exposure limit, payment overdue, duplicate invoice (caught both by
     repeated reference and by same-amount-same-day re-keying), abnormally low bid,
     missing approvals, and a broken three-way match. They run in the existing sweep
     and raise a notification once per *finding*, not once per sweep. Only findings
     that need attention now notify; a mail for every contract ninety days from expiry
     would train everyone to ignore the channel that also carries duplicate invoices.
-  * **Spend, sliced six ways** — department, category, project, supplier, region,
+  * **Spend, sliced six ways** - department, category, project, supplier, region,
     funding source and cost centre. The dimensions are org configuration, not code,
     so opening a region does not need a release. Uncoded spend is reported as its own
     line, never folded into "Other": a gap hidden in a bucket is a gap that survives.
   * **Compliance, with the score deliberately demoted.** Six checks, each with its
     own failures attached and worst-first. The headline percentage is the least
-    useful thing on the page and the copy says so — checks with nothing to measure
+    useful thing on the page and the copy says so - checks with nothing to measure
     are excluded rather than scored as 100%.
   * **Risk without invented numbers.** Exchange-rate exposure is computed from the
     rate struck against the rate today, on open foreign-currency commitments only.
-    Vendor "financial distress" is a list of *observations* — concentration, expired
-    paperwork, delivery record, abnormal bidding — never a solvency score, because
+    Vendor "financial distress" is a list of *observations* - concentration, expired
+    paperwork, delivery record, abnormal bidding - never a solvency score, because
     DOCKET cannot see a balance sheet and a number there would be an accusation with
     arithmetic painted on it. There is no composite fraud score for the same reason.
-  * **Baselines recovered from history** — where an award has no prior price on file,
+  * **Baselines recovered from history** - where an award has no prior price on file,
     the imported ledger often knows what the same category cost last time. Proposals
     are annualised against each contract's own term, drawn only from contracts that
     predate the tender, and carry the contracts they came from. Preview then adopt,
-    and what gets written is what the operator was shown — a basis that moved between
+    and what gets written is what the operator was shown - a basis that moved between
     the screen and the database is a savings figure nobody signed off.
   * **Payables are a separate permission.** `finance.payables` gates invoice, payment
     and per-vendor exposure detail, enforced server-side rather than hidden in the
@@ -185,7 +185,7 @@ dispatch, and an idempotent background sweep — no worker dyno required.
 
 ## What "sealed" means here
 
-* Before the recorded opening, buyer roles receive only the fact that a bid exists —
+* Before the recorded opening, buyer roles receive only the fact that a bid exists -
   no amounts, no line prices, no documents, not even document names.
 * Evaluators are only ever sent their own scores, and cannot score at all until they
   sign a conflict-of-interest declaration (recorded in the audit trail).
@@ -202,7 +202,7 @@ dispatch, and an idempotent background sweep — no worker dyno required.
    migrates and seeds automatically. Health checks hit `/api/health/`.
 3. Set `DATABASE_URL` on the service to the **Internal Database URL** of your
    Postgres instance, with a database dedicated to DOCKET. If that instance
-   already hosts another Django app, give DOCKET its own database first —
+   already hosts another Django app, give DOCKET its own database first -
    sharing one is not safe, because both apps have an app labelled `core` and
    their migration histories collide on `core.0001_initial`:
 
@@ -214,13 +214,49 @@ dispatch, and an idempotent background sweep — no worker dyno required.
    region and account as the database; the external hostname requires
    `?sslmode=require`.
 4. Optional env vars on the service:
-   * `ANTHROPIC_API_KEY` — enables the six AI features (scope drafting, criteria
+   * `ANTHROPIC_API_KEY` - enables the six AI features (scope drafting, criteria
      suggestion, clarification answers, comparison brief, supplier bid review,
      portfolio insights). Without it those buttons return a friendly message.
-   * `EMAIL_HOST` / `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` / `DEFAULT_FROM_EMAIL`
-     — every in-app notification is also emailed. Without SMTP, emails print to
+   * `EMAIL_HOST` / `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` / `DEFAULT_FROM_EMAIL`:
+     every in-app notification is also emailed. Without SMTP, emails print to
      the server log so you can still see exactly what would have been sent.
-   * `DEMO_LOGIN=0` — removes one-click demo logins and requires passwords.
+     `EMAIL_REPLY_TO` (optional) is where a recipient's "Reply" goes - set it
+     when the From is a noreply@ address nobody reads.
+   * `MS365_TENANT_ID` / `MS365_CLIENT_ID` / `MS365_CLIENT_SECRET`: send as the
+     Microsoft 365 mailbox in `DEFAULT_FROM_EMAIL` instead of through SMTP. See
+     below.
+   * `DEMO_LOGIN=0` - removes one-click demo logins and requires passwords.
+
+### Sending as a Microsoft 365 mailbox
+
+With the three `MS365_*` settings, DOCKET sends every email as the mailbox in
+`DEFAULT_FROM_EMAIL` through Microsoft Graph (`core/graph_mail.py`): Exchange
+sends it, it passes the domain's own SPF and DKIM with no DNS changes, and it
+is kept in that mailbox's Sent Items. A Microsoft 365 admin (Exchange
+Administrator) sets it up once:
+
+1. **Entra admin centre → App registrations → New registration.** Name it
+   `DOCKET mail`, single tenant, no redirect URI. Note the **Directory (tenant)
+   ID** and **Application (client) ID**.
+2. **Certificates & secrets → New client secret.** Copy the *Value* (not the
+   Secret ID) - it is shown once. Note its expiry: email stops the day it lapses.
+3. **Do not add Mail.Send under API permissions.** Granted there it lets the app
+   send as *every* mailbox. Instead scope it to the one mailbox in Exchange
+   Online PowerShell (`Connect-ExchangeOnline`), with the IDs from **Enterprise
+   applications → DOCKET mail** (not App registrations, whose Object ID differs):
+
+   ```powershell
+   New-ServicePrincipal -AppId <Application ID> -ObjectId <Enterprise app Object ID> -DisplayName "DOCKET mail"
+   New-ManagementScope -Name "DOCKET mailbox" -RecipientRestrictionFilter "PrimarySmtpAddress -eq 'purchasing@eatngo-africa.com'"
+   New-ManagementRoleAssignment -App <Enterprise app Object ID> -Role "Application Mail.Send" -CustomResourceScope "DOCKET mailbox"
+   Test-ServicePrincipalAuthorization -Identity <Application ID> -Resource purchasing@eatngo-africa.com
+   ```
+
+   The test should show `Mail.Send` with `InScope True`. Exchange can take 30
+   minutes to two hours to apply it to the app.
+
+Exchange lets one mailbox send 30 messages a minute. DOCKET paces itself under
+that, and bulk invitations go 50 at a time instead of 500 while it is on.
 
 ## Accounts
 
@@ -228,17 +264,17 @@ Seeded accounts (password = the `DEMO_PASSWORD` env var; locally `docket-demo`):
 
 | username  | who                              | role        |
 |-----------|----------------------------------|-------------|
-| amara     | Amara Okafor — Head of Procurement | procurement |
-| deji      | Deji Balogun — Supply Quality      | evaluator   |
-| ngozi     | Ngozi Eze — Finance                | evaluator   |
-| mark      | Mark Iyer — CFO                    | approver    |
-| aisha     | Aisha Bello — Internal Audit       | auditor     |
+| amara     | Amara Okafor - Head of Procurement | procurement |
+| deji      | Deji Balogun - Supply Quality      | evaluator   |
+| ngozi     | Ngozi Eze - Finance                | evaluator   |
+| mark      | Mark Iyer - CFO                    | approver    |
+| aisha     | Aisha Bello - Internal Audit       | auditor     |
 | coldline  | Kennie O Cold Chain Logistics Ltd  | supplier    |
 | harmattan | Bigatton Trading Co. Ltd           | supplier    |
 | bluechip  | The Source Computers Limited       | supplier    |
 
 The three supplier logins point at real companies from the vendor register (see
-below). Their usernames are historical — they were seeded before the register
+below). Their usernames are historical - they were seeded before the register
 was imported, and renaming them would break anyone's bookmarks for no gain.
 
 While `DEMO_LOGIN=1`, the sign-in screen shows one-click buttons for these accounts
@@ -272,7 +308,7 @@ API smoke test (auth, sealing, blindness, uploads, COI, notifications, awards):
 
     cd backend && python smoke.py
 
-Test company + test user — a self-registered vendor ("Test Company Ltd",
+Test company + test user - a self-registered vendor ("Test Company Ltd",
 `testco@example.com`) and an invited teammate ("Test User", procurement,
 `test.user@example.com`), both created through the same endpoints the UI calls,
 plus an open sandbox tender so the vendor portal has a live bid room:
@@ -283,7 +319,7 @@ plus an open sandbox tender so the vendor portal has a live bid room:
 
 ## The vendor register
 
-The Suppliers page is the real Eat'n'Go vendor master — about 1,400 companies,
+The Suppliers page is the real Eat'n'Go vendor master - about 1,400 companies,
 not demo data. To update it, export the register to JSON and re-run one command:
 
     cd backend
@@ -309,10 +345,10 @@ Three things it deliberately will not do:
   A re-import refreshes the register's own columns and leaves the rest alone.
 * **It will not delete a vendor a tender invited.** If a company is dropped
   from the spreadsheet but a tender invited it, a bid came from it, or someone
-  logs in as it, the record stays — a tender that invited a company is a fact
+  logs in as it, the record stays - a tender that invited a company is a fact
   about what happened, and losing a spreadsheet row does not unhappen it. The
   dry run names every such case.
-* **It will not touch suppliers that never came from the register** — the
+* **It will not touch suppliers that never came from the register** - the
   self-registered test company, anything added through the UI.
 
 Read the dry run before committing. It reports, for that file:
@@ -337,7 +373,7 @@ deleted. The demo keeps working end to end; the names in it become real.
 
 Two deliberate omissions, both in `core/vendor_import.py`:
 
-* **Bank account numbers are not imported** — only the last four digits, as
+* **Bank account numbers are not imported** - only the last four digits, as
   `******0225`. DOCKET awards tenders, it does not pay invoices, so a register
   of 1,400 account numbers has no reason to be in this database or to reach a
   browser.
@@ -359,18 +395,18 @@ phone numbers, TINs and bank details for 1,400 companies, and git history is
 forever. So the register reaches a deployment without passing through the repo.
 `build.sh` looks for it two ways, and does nothing if it finds neither:
 
-* **`VENDORS_URL`** — set it in the Render dashboard to a private, time-limited
+* **`VENDORS_URL`** - set it in the Render dashboard to a private, time-limited
   link to the JSON export. Each deploy fetches it, imports it, and the file goes
   with the build container. The link lives in an env var, not in git. A broken
   link fails the build rather than quietly deploying stale data.
 * **a mounted disk** holding `backend/data/vendors.json`, uploaded out of band.
 
-With neither, the deployment keeps its seeded demo suppliers — the right default
+With neither, the deployment keeps its seeded demo suppliers - the right default
 for a build that was handed no register.
 
 ## Roles and what they may do
 
-Capabilities, not job titles — see `backend/core/permissions.py`. The lifecycle adds
+Capabilities, not job titles - see `backend/core/permissions.py`. The lifecycle adds
 six, all granted to `procurement` by default and all grantable to any custom role
 from the administration console:
 
@@ -389,8 +425,8 @@ The sweep (deadline sealing events, bid-deadline reminders, compliance-document
 expiry alerts, and the eight finance exception rules) is idempotent and runs two
 ways:
 
-* opportunistically — at most every 10 minutes, piggybacking on traffic; and
-* on a schedule — `python manage.py run_sweep` from any cron (Render cron job,
+* opportunistically - at most every 10 minutes, piggybacking on traffic; and
+* on a schedule - `python manage.py run_sweep` from any cron (Render cron job,
   GitHub Action, etc.) if you want it firing even with zero traffic.
 
 ## Reverse auctions (`/api/auctions/`)
@@ -413,7 +449,7 @@ What it does that a price-only tender could not:
 
 | | |
 |---|---|
-| **Anti-sniping** | Any bid inside the closing window pushes the close out. The auction ends when bidding stops, not when the clock runs out — otherwise the winner is whoever had the better connection and you never learn what the second bidder would have done. The published close is kept alongside the real one, so the award file shows it ran late *and why*. |
+| **Anti-sniping** | Any bid inside the closing window pushes the close out. The auction ends when bidding stops, not when the clock runs out - otherwise the winner is whoever had the better connection and you never learn what the second bidder would have done. The published close is kept alongside the real one, so the award file shows it ran late *and why*. |
 | **Lots** | Bid per line, settle per line. A single-lot auction is still a lot, so nothing downstream needs two shapes. |
 | **Standing limits (proxy bids)** | A vendor sets their floor once; the room bids on their behalf, always the *least* it takes to lead and never the floor itself. The floor is shown to nobody, including the buyer. |
 | **Undisclosed reserve** | A lot whose best price never reached the reserve closes with **no winner**. Awarding it anyway would make the reserve decorative. |
@@ -423,14 +459,14 @@ What it does that a price-only tender could not:
 
 Separation of duties matches tendering: procurement runs the room
 (`auction.create`, `auction.open`, `auction.lifecycle`), the approver commits
-the money (`auction.award`). Bids are append-only — a bad price is voided with a
+the money (`auction.award`). Bids are append-only - a bad price is voided with a
 reason, never deleted.
 
     python test_auction.py      # 75 assertions
 
 ## Inviting people in bulk
 
-Both sides of the workspace arrive as lists — the staff directory in one file,
+Both sides of the workspace arrive as lists - the staff directory in one file,
 the approved vendor list in another. Upload either as `.xlsx` or `.csv`:
 
     POST /api/invites/parse/     multipart: file, audience=people|vendors, role
@@ -440,7 +476,7 @@ the approved vendor list in another. Upload either as `.xlsx` or `.csv`:
 exactly who would be written to and why each rejected row was rejected. `send`
 takes back only what a person confirmed. You cannot unsend an invitation to four
 hundred strangers, so the preview is the confirmation step rather than a
-convenience — a one-call importer means a mis-mapped column emails everybody
+convenience - a one-call importer means a mis-mapped column emails everybody
 before anybody sees a screen.
 
 Headers may be in any order and any case, need not be on the first row, and a
@@ -455,9 +491,9 @@ intact from the first minute rather than from whenever the last person clicks.
 
 ## The data feed (`/api/v1/`)
 
-DOCKET is a source system. Rather than writing into a customer's warehouse — a
+DOCKET is a source system. Rather than writing into a customer's warehouse - a
 connector per warehouse, and a credential into their data estate that their own
-security review will refuse — it exposes an incremental, cursor-paged, read-only
+security review will refuse - it exposes an incremental, cursor-paged, read-only
 feed that they pull into whatever they already run: Redshift, Snowflake,
 BigQuery, Synapse, a SQL Server nobody has replaced since 2014.
 
@@ -467,7 +503,7 @@ BigQuery, Synapse, a SQL Server nobody has replaced since 2014.
     docket-manage app apikey revoke dk_live_ab12
 
 The key is printed once and only its SHA-256 is stored; a database dump is not
-also a working integration. Keys are their own table, not login tokens — a
+also a working integration. Keys are their own table, not login tokens - a
 pipeline must not break because an employee left, and an employee leaving must
 not silently change what a warehouse can see.
 
@@ -482,7 +518,7 @@ registry that serves the rows, so it cannot drift from them.
 
 1. **Cursor, not offset.** Send back `cursor` from the previous response.
    Offsets shift under concurrent writes; this does not.
-2. **At-least-once — upsert on `id`.** A row may arrive twice. It never
+2. **At-least-once - upsert on `id`.** A row may arrive twice. It never
    arrives out of order and is never silently skipped.
 3. **Read `/api/v1/deletions/`.** It is the tombstone feed. Skip it and your
    copy keeps deleted rows forever, diverging with no error on either side.
@@ -492,7 +528,7 @@ registry that serves the rows, so it cannot drift from them.
    claim; this one is evidence.
 
 Sealed bid amounts are not exported before their recorded opening, and the
-Fernet ciphertext is never exported in any state — sealing is enforced at
+Fernet ciphertext is never exported in any state - sealing is enforced at
 serialization, the same rule and the same place as the browser-facing API.
 
 Scopes are coarse on purpose (`feed.procurement`, `feed.commercial`,
@@ -508,7 +544,7 @@ from a general-purpose BI pipeline.
 Uploads (tender packs, technical/commercial proposals) are stored in Postgres so
 they survive deploys with no object-storage setup; 10 MB per file, safe-extension
 whitelist. A supplier's documents are locked while their bid is sealed and can be
-swapped only by withdrawing the bid first — all before the deadline.
+swapped only by withdrawing the bid first - all before the deadline.
 
 ## The event lifecycle, in one picture
 
@@ -541,23 +577,23 @@ sends them an in-app notification and an email.
 
 ## A good end-to-end run
 
-1. **amara** — open the sealed equipment tender: break the seals, download the
+1. **amara** - open the sealed equipment tender: break the seals, download the
    technical proposals, see the line-item comparison.
-2. **deji** — sign the conflict-of-interest declaration, score blind, add a written
+2. **deji** - sign the conflict-of-interest declaration, score blind, add a written
    justification.
-3. **amara** — recommend the dairy award; **mark** approves it; letters are issued
+3. **amara** - recommend the dairy award; **mark** approves it; letters are issued
    and every bidder is notified.
-4. **harmattan** — read your award letter. **coldline** — upload a technical
+4. **harmattan** - read your award letter. **coldline** - upload a technical
    proposal, price the cold-chain lines, seal the bid, watch the buyer get notified.
-5. **bluechip** — note you cannot seal a bid without acknowledging Addendum 01 and
+5. **bluechip** - note you cannot seal a bid without acknowledging Addendum 01 and
    uploading a technical proposal.
-6. **coldline vs harmattan** — open the diesel reverse auction and outbid each other;
+6. **coldline vs harmattan** - open the diesel reverse auction and outbid each other;
    watch your rank move, then sign in as **amara** to see the live leaderboard they can't.
-7. **amara** — on any live tender, open the **Vendors** tab to see registration,
+7. **amara** - on any live tender, open the **Vendors** tab to see registration,
    verification, invitation, bid and evaluation status per vendor; extend the
    deadline and watch the old date, the reason and your name land on the audit trail
    while every bidder gets an email.
-8. **amara** — after an opening, use the **Rounds** tab to run a best-and-final from
+8. **amara** - after an opening, use the **Rounds** tab to run a best-and-final from
    the vendors who bid, then read the **Bids** tab: the bid bucket groups both rounds
    and shows which bidders actually moved.
 
@@ -568,7 +604,7 @@ guard along the way (186 checks).
 
 ## Still on the list before real production
 
-SSO/SAML (needs an identity provider — TOTP MFA is already built in), virus scanning
+SSO/SAML (needs an identity provider - TOTP MFA is already built in), virus scanning
 on uploads (needs ClamAV or a scanning service), qualified e-signatures on letters
 (needs a signature provider), true multi-tenancy (today: one deployment per client,
 which is a fine way to start), server-side pagination for very large portfolios, and

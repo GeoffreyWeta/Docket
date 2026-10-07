@@ -3,7 +3,7 @@
    ONE PAGE, ON THE SPINE ENTERPRISE BUYERS ALREADY KNOW. The earlier versions
    were posters: a claim, a drawing, a lot of air. They read as design rather
    than as a vendor, and the people who sign a procurement contract are not
-   moved by a poster — they are moved by a page that answers, in order, the
+   moved by a poster - they are moved by a page that answers, in order, the
    questions they were going to ask anyway. So the section order below is the
    one SAP, Coupa, Ivalua and Jaggaer all use, because it is the order the
    evaluation happens in:
@@ -17,7 +17,7 @@
 
    THE MOTIF IS THE RECORD. Hairline rules, mono indices, tabular figures and
    almost no rounding: the page is laid out like the document it promises to
-   produce. The page now has PICTURES as well as panels — see the rule below —
+   produce. The page now has PICTURES as well as panels - see the rule below -
    but they are drawn in the product's own vocabulary and they never take the
    place of a real screen. There is one jump in scale, the headline and the
    dark band, and one warm ground, the hero; everything else stays quiet so
@@ -28,9 +28,9 @@
      THE PRODUCT IS THE IMAGERY, AND WHERE THE PRODUCT CANNOT BE SHOWN THE
      DRAWING IS OURS. No stock photography, no plates, no abstract art. Every
      panel on this page is a real screen or a real chart, drawn with the same
-     components the signed-in app uses — Columns, Meter and Spark come straight
-     out of charts.jsx. Where a section is an argument rather than a screen —
-     what the chain is, what blind scoring means, what a register holds — it
+     components the signed-in app uses - Columns, Meter and Spark come straight
+     out of charts.jsx. Where a section is an argument rather than a screen -
+     what the chain is, what blind scoring means, what a register holds - it
      carries a drawn scene from lpart.jsx instead: same tokens, same theme
      switch, no asset files and no CDN. A marketing page that invents its own
      visual language is a page that will not survive contact with the product,
@@ -56,8 +56,8 @@
      TWO TYPEFACES, AND THE SECOND ONE IS THE MONO. main.jsx dropped the serif
      on purpose, so the typographic contrast here is sans against mono rather
      than sans against a display face. That is the right accident: the mono
-     carries indices, references, timestamps and money — exactly what this
-     product is about — so the page's second voice is the voice of the record
+     carries indices, references, timestamps and money - exactly what this
+     product is about - so the page's second voice is the voice of the record
      itself. Nothing here loads or names a third family.
 
    Mobile first: every rule outside a media query describes a 360px screen. */
@@ -79,7 +79,7 @@ import { StudioLanding } from "./studio-landing";
    exact numbers rather than on something that resembles them. */
 
 /* `key` is what the axis prints and `label` is what the tooltip says, so the
-   keys are short words rather than slugs — an axis reading "eqpt" is a
+   keys are short words rather than slugs - an axis reading "eqpt" is a
    developer's variable name leaking onto the front page. */
 const SPEND = [
   { key: "Food", label: "Food & beverage", value: 482_000_000 },
@@ -107,7 +107,7 @@ const BUDGETS = [
    two decimals, and a counter that only ever holds integers would sit at 0.00
    the entire way up.
 
-   The nought is a real nought and is left alone — `to` and the mount value are
+   The nought is a real nought and is left alone - `to` and the mount value are
    both 0, so useCountUp returns it immediately. A zero that animates is a zero
    presenting itself as an achievement. */
 const TILES = [
@@ -146,7 +146,7 @@ const CHAIN = [
 /* Numbered on the page, so the order is part of the content: this is the list
    a buyer pastes into an evaluation matrix, and 01–06 is how it comes back to
    us. The previous version of this section was six outline icons above six
-   paragraphs — the single most template-looking arrangement a software page
+   paragraphs - the single most template-looking arrangement a software page
    can adopt, and one that said nothing an index does not say better. The icons
    are gone with it; a shield glyph beside the words "reduce dispute risk"
    carried no information the words did not already carry. */
@@ -186,12 +186,12 @@ const FEATURES = [
    "1,400 vendors on the register"],
 ];
 
-/* The route every tender takes, which is the same route every time — that is
+/* The route every tender takes, which is the same route every time - that is
    the product. Drawn as a numbered rail rather than eight cards, because the
    sequence IS the information and cards in a grid throw the sequence away.
    The marks are icons.jsx glyphs at 22px: at this size an outline glyph is
-   exactly right, and the argument against icons in BENEFITS below — that a
-   shield beside "reduce dispute risk" carries nothing the words do not — does
+   exactly right, and the argument against icons in BENEFITS below - that a
+   shield beside "reduce dispute risk" carries nothing the words do not - does
    not apply to a step whose name is a verb. */
 const STEPS = [
   ["tender", "Scope", "Requirement, lots, budget"],
@@ -204,7 +204,7 @@ const STEPS = [
   ["trophy", "Award", "Memo, contract, chain entry"],
 ];
 
-/* The sectors strip. It scrolls, so it is written twice in the markup — see
+/* The sectors strip. It scrolls, so it is written twice in the markup - see
    .lpticker. These are the kinds of organisation the product is built for,
    not a claim about who is already using it; the customer proof stays in the
    reserved frames further down where it cannot be mistaken for a logo wall. */
@@ -341,7 +341,7 @@ function LivePanel() {
       {/* Six columns do not fit a 360px screen, so the two that carry least on
           a first look drop out of the markup's flow below `sm` and the rest
           scrolls if it still needs to. Clipping was the old behaviour and it
-          hid the status column — the one thing this panel exists to show. */}
+          hid the status column - the one thing this panel exists to show. */}
       <div className="lptwrap">
         <table className="lptable">
           <thead>
@@ -389,7 +389,7 @@ function Section({ id, tint, dark, children, className = "" }) {
   );
 }
 
-/* Every section opens at the same rhythm — label, heading, standfirst — so it
+/* Every section opens at the same rhythm - label, heading, standfirst - so it
    is one component rather than three elements repeated nine times. Repeating
    them by hand is how the vertical spacing drifts as sections are edited one
    at a time. */
@@ -412,7 +412,7 @@ export function Landing({ cfg, onScreen }) {
   const [menu, setMenu] = useState(false);
   const { stuck, prog, here } = useChrome();
   /* The palette comes from the server with the rest of the config. There is no
-     override here — not a prop, not a query parameter, not a stored
+     override here - not a prop, not a query parameter, not a stored
      preference. A front page that different visitors see differently is not a
      front page, and the one place it changes is the administration console. */
   const design = designOf(cfg && cfg.landing);
@@ -555,7 +555,7 @@ export function Landing({ cfg, onScreen }) {
             skippable thing a front page can put under its fold; a strip that
             travels is read, and it travels slowly enough to be read. It stops
             on hover and stands still entirely for a reader who has asked for
-            less motion — see .lpticker. */}
+            less motion - see .lpticker. */}
         <div className="lptrust">
           <div className="lpwrap lptrustin">
             <b>Built for organisations that get audited</b>
@@ -592,8 +592,8 @@ export function Landing({ cfg, onScreen }) {
           </ol>
         </Section>
 
-        {/* THE ROUTE, as a rail. Eight stops on one rule — vertical on a
-            phone, horizontal from `tab` — because what is being claimed here
+        {/* THE ROUTE, as a rail. Eight stops on one rule - vertical on a
+            phone, horizontal from `tab` - because what is being claimed here
             is that the order never changes, and a rule with stops on it is
             the only arrangement that says "in this order" without writing it
             out. The rule itself is drawn on the list, not on the items, so it
@@ -660,7 +660,7 @@ export function Landing({ cfg, onScreen }) {
           </div>
         </Section>
 
-        {/* The four claims that have no screenshot — see FEATURES. Each card
+        {/* The four claims that have no screenshot - see FEATURES. Each card
             is a drawing over a tinted plate, a heading, a paragraph and one
             line of specification in the mono. The plate is what stops four
             scenes in a row reading as clip art: it gives every picture the

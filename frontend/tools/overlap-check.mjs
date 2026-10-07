@@ -7,12 +7,12 @@
       block, so the element escapes to the initial containing block and lands
       somewhere unrelated (this is how the in-flight bar ended up at the bottom
       of the first screen instead of under the app bar);
-   2. two overlay layers whose z-index contradicts how they are used — a scrim
+   2. two overlay layers whose z-index contradicts how they are used - a scrim
       under the thing it is meant to cover;
    3. a later block silently re-declaring `position` on a shared element. The
       CSS strings are concatenated, so a stray `.topbar{position:relative}` in
       MENU_CSS wins over `position:sticky` in CSS and unsticks the app bar on
-      phones — which also unmoors the notification sheet, since that is placed
+      phones - which also unmoors the notification sheet, since that is placed
       a fixed distance below a bar it assumes is pinned.
 
    It parses the exported CSS strings in the order the app concatenates them,
@@ -29,7 +29,7 @@ const read = (f) => readFileSync(`${SRC}/${f}`, "utf8");
 /* The concatenation order in App.jsx (ALL_CSS) and superadmin.jsx.
  *
  * Keep this list in step with ALL_CSS. A module missing from here is a module
- * this check silently vouches for without reading — which is worse than not
+ * this check silently vouches for without reading - which is worse than not
  * running the check, because the PASS lines imply coverage. The chart, campaign,
  * finance and baseline sheets were all absent while all four shipped absolutely
  * positioned marks. */
@@ -155,7 +155,7 @@ for (const r of rules) {
     || positionedNames.has(subject)            // .stg::before anchored by .stg
     || /::(before|after)$/.test(r.sel);        // pseudo of a rule positioned elsewhere
   if (anchored) pass(`${r.sel}  ←  ${parents.join(", ") || "own subject"}`);
-  else warn(`${r.sel} is absolute with no positioned ancestor — it escapes to the page`);
+  else warn(`${r.sel} is absolute with no positioned ancestor - it escapes to the page`);
 }
 
 /* ---- 2. the overlay ladder must be ordered the way it is used ---- */
@@ -179,8 +179,8 @@ const ORDER = [
 for (const [below, above, why] of ORDER) {
   const a = z[above], b = z[below];
   if (a == null || b == null) warn(`missing z-index for ${above} or ${below}`);
-  else if (a > b) pass(`${above} (${a}) over ${below} (${b}) — ${why}`);
-  else warn(`${above} (${a}) is NOT above ${below} (${b}) — ${why}`);
+  else if (a > b) pass(`${above} (${a}) over ${below} (${b}) - ${why}`);
+  else warn(`${above} (${a}) is NOT above ${below} (${b}) - ${why}`);
 }
 
 /* ---- 3. nothing may quietly re-declare position on a shared element ---- */

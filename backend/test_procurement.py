@@ -3,7 +3,7 @@
     python test_procurement.py
 
 Drives one requirement from nothing to an award and out the other side, through
-the same HTTP endpoints the interface calls — so a green run is evidence the
+the same HTTP endpoints the interface calls - so a green run is evidence the
 workflow works, not that the ORM does:
 
     vendor registration (self-service, buyer-side and by invitation)
@@ -83,12 +83,12 @@ def ok(label):
 
 
 def yes(label, cond, extra=""):
-    assert cond, f"{SECTION} — {label}: FAILED {extra}"
+    assert cond, f"{SECTION} - {label}: FAILED {extra}"
     ok(label)
 
 
 def eq(label, got, want):
-    assert got == want, f"{SECTION} — {label}: {got!r} != {want!r}"
+    assert got == want, f"{SECTION} - {label}: {got!r} != {want!r}"
     ok(label)
 
 
@@ -105,7 +105,7 @@ def call(method, path, who, body=None, expect=200, files=None, label=None):
     else:
         r = c.post(path, data=json.dumps(body or {}), content_type=J, **kw)
     assert r.status_code == expect, (
-        f"{SECTION} — {method} {path} as {who}: {r.status_code} != {expect} — {r.content[:400]}")
+        f"{SECTION} - {method} {path} as {who}: {r.status_code} != {expect} - {r.content[:400]}")
     if label:
         ok(label)
     ct = r.headers.get("Content-Type", "")
@@ -121,8 +121,8 @@ def refused(label, method, path, who, body=None, status=(400, 403, 404, 409)):
     else:
         r = fn(path, data=json.dumps(body or {}), content_type=J, **kw)
     assert r.status_code in status, (
-        f"{SECTION} — {label}: expected a refusal, got {r.status_code} — {r.content[:300]}")
-    ok(f"{label} — refused {r.status_code}")
+        f"{SECTION} - {label}: expected a refusal, got {r.status_code} - {r.content[:300]}")
+    ok(f"{label} - refused {r.status_code}")
     return r
 
 
@@ -131,7 +131,7 @@ def signin(username, password=None):
     r = c.post("/api/auth/login/", json.dumps({"username": username, "password": pw}), content_type=J)
     if r.status_code != 200 and password is None and settings.DEMO_LOGIN:
         r = c.post("/api/auth/demo/", json.dumps({"username": username}), content_type=J)
-    assert r.status_code == 200, f"sign-in {username}: {r.status_code} — {r.content[:200]}"
+    assert r.status_code == 200, f"sign-in {username}: {r.status_code} - {r.content[:200]}"
     TOK[username] = r.json()["token"]
     return r.json()
 
@@ -154,7 +154,7 @@ def rewind(tid, ms):
     """Pull a deadline into the past so closing can be tested without waiting.
 
     Written straight to the row rather than through the API on purpose: no
-    endpoint brings a deadline forward, and none should — that is the rule
+    endpoint brings a deadline forward, and none should - that is the rule
     `extend_deadline` enforces, and this is the test harness standing in for
     the passage of time, not for a user.
     """
@@ -180,7 +180,7 @@ def sec_vendors(ctx):
                                          used_at__isnull=True).first()
         call("POST", "/api/register/verify/", None, {"token": tok.token})
     a = Supplier.objects.get(contact_email=VENDOR_A["email"])
-    ok(f'vendor A self-registered — {a.name} ({a.id})')
+    ok(f'vendor A self-registered - {a.name} ({a.id})')
     yes("registration confirmation was emailed to the vendor",
         any("Registration received" in m.subject for m in mail_to(VENDOR_A["email"])))
     eq("registration status", a.registration_status(), "registered")
@@ -281,7 +281,7 @@ def sec_event(ctx):
     a, b = ctx["a"], ctx["b"]
 
     base = {
-        "title": "Test event — twelve-month packaging supply", "type": "RFP",
+        "title": "Test event - twelve-month packaging supply", "type": "RFP",
         "category": "Packaging", "budget": 40_000_000, "techWeight": 60,
         "criteria": [{"name": "Quality & compliance", "weight": 60},
                      {"name": "Lead time", "weight": 40}],
@@ -347,7 +347,7 @@ def sec_event_vendors(ctx):
     by = {r["supplierId"]: r for r in rows}
     eq("vendor A shows as verified", by[ctx["a"]]["verificationStatus"], "verified")
     eq("vendor B shows as unverified", by[ctx["b"]]["verificationStatus"], "unverified")
-    yes("an unverified vendor is on the event anyway — verification gates "
+    yes("an unverified vendor is on the event anyway - verification gates "
         "prequalification, not participation", by[ctx["b"]]["invitationStatus"] == "sent")
     eq("neither has bid yet", {r["bidStatus"] for r in rows}, {"none"})
 
@@ -411,7 +411,7 @@ def sec_event_vendors(ctx):
 # ---------------------------------------------------------------- 5. round one
 
 def sec_round_one(ctx):
-    section("5. round 1 — submission, extension, pause, resume")
+    section("5. round 1 - submission, extension, pause, resume")
     tid = ctx["tid"]
     a_mail, b_mail = VENDOR_A["email"], VENDOR_B["email"]
 
@@ -441,7 +441,7 @@ def sec_round_one(ctx):
 
     # --- one vendor cannot see another's bid -------------------------------
     a_bids = [b for b in boot(a_mail)["bids"] if b["tenderId"] == tid]
-    eq("a vendor sees exactly one bid on this event — their own", len(a_bids), 1)
+    eq("a vendor sees exactly one bid on this event - their own", len(a_bids), 1)
     eq("and it is theirs", a_bids[0]["supplierId"], ctx["a"])
     yes("their own sealed bid still echoes back the amount they submitted",
         a_bids[0].get("amount") == 17_000 * t["lines"][0]["qty"])
@@ -544,7 +544,7 @@ def sec_closing_opening(ctx):
 # ---------------------------------------------------------------- 7. round two
 
 def sec_round_two(ctx):
-    section("7. round 2 — a best and final drawn from round 1")
+    section("7. round 2 - a best and final drawn from round 1")
     tid = ctx["tid"]
     a_mail, b_mail = VENDOR_A["email"], VENDOR_B["email"]
     signin(BUYER)
@@ -720,7 +720,7 @@ def sec_cancellation(ctx):
     section("9. cancellation")
     signin(BUYER)
     tid = call("POST", "/api/tenders/", BUYER, {
-        "title": "Test event — to be cancelled", "type": "RFQ", "category": "Packaging",
+        "title": "Test event - to be cancelled", "type": "RFQ", "category": "Packaging",
         "budget": 12_000_000, "deadline": now_ms() + 10 * DAY, "techWeight": 60,
         "criteria": [{"name": "Quality", "weight": 100}],
         "scope": "A requirement that will be withdrawn.", "invited": [ctx["a"]], "submit": True,
@@ -745,7 +745,7 @@ def sec_cancellation(ctx):
 
     mail.outbox = []
     call("POST", f"/api/tenders/{tid}/cancel/", BUYER,
-         {"reason": "Requirement withdrawn — the budget line was reallocated."},
+         {"reason": "Requirement withdrawn - the budget line was reallocated."},
          label="event cancelled with a reason")
     t = tender_of(BUYER, tid)
     eq("status reads cancelled", t["status"], "cancelled")
@@ -766,7 +766,7 @@ def sec_cancellation(ctx):
     refused("extending a cancelled event", "POST", f"/api/tenders/{tid}/extend/", BUYER,
             {"deadline": now_ms() + DAY, "reason": "no"}, status=(409,))
 
-    # The vendor still sees it — that is the point of telling them.
+    # The vendor still sees it - that is the point of telling them.
     yes("the vendor can still read the cancelled event and why",
         (tender_of(a_mail, tid) or {}).get("cancelReason", "").startswith("Requirement withdrawn"))
     return ctx
@@ -775,7 +775,7 @@ def sec_cancellation(ctx):
 def sec_two_stage_and_rounds(ctx):
     """Per-round sealing must not disturb two-stage envelope opening.
 
-    These two features answer the same question — "may this be seen yet" — from
+    These two features answer the same question - "may this be seen yet" - from
     different directions, and they meet in `bid_view` and `doc_visible`. Rounds
     ask *which window* was opened; two-stage asks *which envelope*. An earlier
     version of the round work collapsed the two-stage intermediate state, where
@@ -790,7 +790,7 @@ def sec_two_stage_and_rounds(ctx):
     a_mail, b_mail = VENDOR_A["email"], VENDOR_B["email"]
 
     tid = call("POST", "/api/tenders/", BUYER, {
-        "title": "Test event — two-stage technical then commercial", "type": "RFP",
+        "title": "Test event - two-stage technical then commercial", "type": "RFP",
         "category": "Packaging", "budget": 20_000_000, "deadline": now_ms() + 10 * DAY,
         "techWeight": 70, "twoStage": True, "techThreshold": 50,
         "criteria": [{"name": "Quality & compliance", "weight": 100}],
@@ -853,7 +853,7 @@ def sec_two_stage_and_rounds(ctx):
     yes("stage 1's technical opening is still on the record", bool(t["techOpenedAt"]))
     yes("and so is stage 2's", bool(t["openedAt"]))
     docs = [d for d in boot(BUYER)["documents"] if d["tenderId"] == tid and d["kind"] == "bid"]
-    eq("round 1's documents stay readable — they were opened on the record", len(docs), 4)
+    eq("round 1's documents stay readable - they were opened on the record", len(docs), 4)
 
     call("POST", f"/api/tenders/{tid}/bid_docs/", a_mail,
          files={"file": pdf("alpha-round2-technical.pdf"), "envelope": "technical"})

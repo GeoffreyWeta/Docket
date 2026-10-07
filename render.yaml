@@ -1,4 +1,4 @@
-# Render Blueprint — deploy with "New +" → "Blueprint" and point at this repo.
+# Render Blueprint - deploy with "New +" → "Blueprint" and point at this repo.
 services:
   - type: web
     name: docket
@@ -10,7 +10,7 @@ services:
     envVars:
       # Sealed bid amounts, line prices and documents are encrypted with a key
       # derived from SECRET_KEY. Never rotate it on a deployment holding sealed
-      # bids — the ciphertext becomes unreadable.
+      # bids - the ciphertext becomes unreadable.
       - key: SECRET_KEY
         generateValue: true
       - key: PYTHON_VERSION
@@ -19,7 +19,7 @@ services:
         value: 2
       # Set this in the dashboard to the Internal Database URL of the existing
       # Postgres instance, pointing at the dedicated `docket_db` database (NOT
-      # the neighbouring app's database — DOCKET needs its own, since it has its
+      # the neighbouring app's database - DOCKET needs its own, since it has its
       # own `core` app and would collide on migration names).
       - key: DATABASE_URL
         sync: false
@@ -35,18 +35,18 @@ services:
       # gate, which is only reasonable on a laptop.
       - key: SETUP_CODE
         generateValue: true
-      # Optional — a private, time-limited link to the vendor register JSON
+      # Optional - a private, time-limited link to the vendor register JSON
       # export. Set it in the dashboard and every deploy refreshes the register
       # from it; leave it unset and the deployment keeps the seeded demo
       # suppliers. The register is never committed: it holds real bank details,
       # TINs, emails and phone numbers for about 1,400 companies.
       - key: VENDORS_URL
         sync: false
-      # Optional — powers the six AI features. Without it they degrade
+      # Optional - powers the six AI features. Without it they degrade
       # gracefully to a "not configured" message; everything else works.
       - key: ANTHROPIC_API_KEY
         sync: false
-      # Optional SMTP — when set, every in-app notification is also emailed.
+      # Optional SMTP - when set, every in-app notification is also emailed.
       # Without it, emails print to the server log (console backend).
       - key: EMAIL_HOST
         sync: false
@@ -56,7 +56,16 @@ services:
         sync: false
       - key: DEFAULT_FROM_EMAIL
         sync: false
+      - key: EMAIL_REPLY_TO
+        sync: false
+      # Or send as a real Microsoft 365 mailbox via Microsoft Graph (see README).
+      - key: MS365_TENANT_ID
+        sync: false
+      - key: MS365_CLIENT_ID
+        sync: false
+      - key: MS365_CLIENT_SECRET
+        sync: false
 
-# No `databases:` block — DOCKET reuses an existing Postgres instance via the
+# No `databases:` block - DOCKET reuses an existing Postgres instance via the
 # DATABASE_URL above. Add one back only if you want Render to provision a
 # dedicated instance for this app (free tier allows one Postgres per account).

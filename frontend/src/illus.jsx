@@ -35,8 +35,8 @@ import React from "react";
 const S = {
   /* THE HERO. Someone at a desk with a laptop, reaching toward a seal that
      hangs in the air: the one scene with a figure in it, and the one that
-     carries the whole look. Layered back to front — backdrop, plant, chair,
-     figure, desk, laptop, seal — because SVG has no z-index and paint order
+     carries the whole look. Layered back to front - backdrop, plant, chair,
+     figure, desk, laptop, seal - because SVG has no z-index and paint order
      is the only depth there is. */
   desk: (
     <>
@@ -77,7 +77,7 @@ const S = {
       <path d="M126 77h21M126 84h13" stroke="var(--il-line)" strokeWidth="2.4" strokeLinecap="round" />
       <rect x="113" y="93.5" width="51" height="5.5" rx="2.7" fill="var(--il-paper)" stroke="var(--il-line)" strokeWidth="2" />
 
-      {/* the seal in the air: the same three moves the real seal mark makes —
+      {/* the seal in the air: the same three moves the real seal mark makes -
           a disc, an inner ring, one off-centre specular */}
       <circle cx="178" cy="45" r="17" fill="var(--il-cool)" />
       <circle cx="178" cy="45" r="8.4" fill="none" stroke="var(--il-paper)" strokeWidth="2.2" opacity=".85" />
@@ -89,7 +89,7 @@ const S = {
 
   /* Nothing in the queue: a squared-up stack of paper with the work signed
      off. This was an in-tray with a seal hovering over it, which at 190px read
-     as a dish with a floating orb above it — two trapezoids are not enough to
+     as a dish with a floating orb above it - two trapezoids are not enough to
      say "tray". A stack of sheets plus a tick is unmistakable at any size.
 
      Calm rather than celebratory on purpose: a clear queue is the NORMAL state
@@ -148,7 +148,7 @@ const S = {
   ),
 
   /* Nothing to plot yet: an axis pair with the bars not grown in. The ghost
-     bars are the empty state — they show where data will land rather than
+     bars are the empty state - they show where data will land rather than
      leaving a blank rectangle that looks like a loading failure. */
   chart: (
     <>

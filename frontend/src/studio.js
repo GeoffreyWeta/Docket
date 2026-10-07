@@ -8,7 +8,7 @@ export function applyLayout(id) {
 }
 
 /* THE ACCENT, AND WHY IT IS A SECOND ATTRIBUTE RATHER THAN A SECOND LAYOUT.
-   Studio is a whole look — a typeface, a radius scale, a set of surfaces. The
+   Studio is a whole look - a typeface, a radius scale, a set of surfaces. The
    accent is ten tokens inside it. Making each colour its own layout would mean
    six copies of the other ninety tokens, and the day one of them is edited the
    six stop agreeing. So the accent layers on top and overrides only the brand
@@ -21,7 +21,7 @@ export function applyLayout(id) {
    entry below is a triple rather than a hex.
 
    The house green is absent on purpose. #00A651 measures 3.19:1 under white
-   text — it is a fine mark and an unreadable button, which is the same finding
+   text - it is a fine mark and an unreadable button, which is the same finding
    styles.js already records for the main theme. `forest` is that green taken
    down to a step that passes, and it is the closest thing here to the brand.
 
@@ -62,7 +62,7 @@ export function accentOf(key) {
 }
 
 /** Blue is the block already written on [data-layout="studio"], so it is
-    applied by REMOVING the attribute — the same trick theme.js uses for light,
+    applied by REMOVING the attribute - the same trick theme.js uses for light,
     and for the same reason: the default must not depend on a second block
     that could drift from the first. */
 export function applyAccent(id) {

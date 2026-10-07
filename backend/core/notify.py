@@ -7,7 +7,7 @@ import logging
 
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.core.mail import send_mail
+from django.core.mail import EmailMessage
 
 from .models import Notification
 from .util import base_url, now_ms, org_name, rid
@@ -51,7 +51,8 @@ def notify_users(users, subject, body, tender_id=None, destination=None):
         )
         if u.email:
             try:
-                send_mail(f"[DOCKET] {subject}", body, settings.DEFAULT_FROM_EMAIL, [u.email], fail_silently=False)
+                EmailMessage(f"[DOCKET] {subject}", body, settings.DEFAULT_FROM_EMAIL, [u.email],
+                             reply_to=settings.EMAIL_REPLY_TO).send(fail_silently=False)
                 n.emailed = True
                 n.save(update_fields=["emailed"])
             except Exception:
@@ -91,7 +92,7 @@ def notify_personas(persona_ids, subject, body, tender_id=None):
 def _mail_unclaimed(supplier_id, subject, body):
     """Reach a vendor who is on the register but holds no account yet.
 
-    A buyer can put a company on the register from inside a draft — they know
+    A buyer can put a company on the register from inside a draft - they know
     the company, and waiting for it to find the registration form is a week of
     nothing. Until somebody at that company sets a password there is no `User`
     row, so the per-user notification above reaches nobody, and an invitation to

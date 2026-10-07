@@ -41,7 +41,7 @@ function Delta({ value, peer }) {
    table into something you can read down at a glance without spending the
    identity channel: this is magnitude, so it is one hue getting darker, never a
    red-amber-green scale that would assert a pass mark the model doesn't define.
-   The digits stay in ink at full contrast — the wash is behind the value, never
+   The digits stay in ink at full contrast - the wash is behind the value, never
    instead of it. */
 function ScoreCell({ value, peerValue, label }) {
   if (value == null) {
@@ -335,7 +335,7 @@ function SupplierCard({ row, peer, state, total, tableView, onTableView }) {
           ) : (
             /* 420 rather than the 300 default: the chart now owns half the
                card, and the Radar reserves a fixed 42px gutter for its axis
-               labels — so a larger canvas spends the extra room on the plot
+               labels - so a larger canvas spends the extra room on the plot
                rather than on the labels, which is where the reading happens. */
             <Radar axes={DIMENSIONS} series={series} size={420} />
           )}

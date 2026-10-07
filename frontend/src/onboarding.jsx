@@ -6,6 +6,7 @@ import {
   acceptInvite, claimVendor, demoLogin, forgotPassword, inDemo, lookupClaim, registerVendor,
   resetPassword, verifyVendor,
 } from "./api";
+import { CategorySelect, LocationSelect } from "./fields";
 import { ICON_CSS } from "./icons";
 import { MOTION_CSS } from "./motion";
 import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
@@ -52,6 +53,7 @@ export function RegisterVendor({ onDone }) {
   const [state, setState] = useState("form"); // form | sent | verified
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const pick = (k) => (v) => setF({ ...f, [k]: v });
   const submit = async () => {
     setBusy(true); setMsg("");
     try {
@@ -81,8 +83,8 @@ export function RegisterVendor({ onDone }) {
       <Field label="Registered company name"><input className="in" value={f.company} onChange={set("company")} /></Field>
       <Field label="Work email (this becomes your username)"><input className="in" value={f.email} onChange={set("email")} /></Field>
       <Field label="Password (8+ characters)"><input className="in" type="password" value={f.password} onChange={set("password")} /></Field>
-      <Field label="What you supply"><input className="in" placeholder="e.g. Produce, Logistics, Equipment" value={f.category} onChange={set("category")} /></Field>
-      <Field label="Location"><input className="in" placeholder="City" value={f.location} onChange={set("location")} /></Field>
+      <Field label="What you supply"><CategorySelect value={f.category} onChange={pick("category")} required /></Field>
+      <Field label="Location"><LocationSelect value={f.location} onChange={pick("location")} required /></Field>
       {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 12 }}>{msg}</div>}
       <div style={{ display: "flex", gap: 8 }}>
         <button className="btn pri" style={{ flex: 1 }} disabled={busy} onClick={submit}>Register</button>
@@ -115,7 +117,7 @@ export function VerifyVendor({ token, onDone }) {
    A vendor arriving from the registration drive must not be shown the ordinary
    sign-up form: they would type their company name again and create a second
    record for a company the buyer already has on the register. At the scale a
-   drive runs at, that is not an edge case — it is over a thousand duplicates.
+   drive runs at, that is not an edge case - it is over a thousand duplicates.
 
    So this screen tells them who they are before it asks for anything. The only
    field is a password: the company, the email and the vendor code all come from

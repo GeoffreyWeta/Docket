@@ -5,8 +5,8 @@
 #     sudo bash provision.sh app     [PUBLIC_IP]
 #     sudo bash provision.sh demo    [PUBLIC_IP]
 #
-# Both can live on the same box. Everything expensive is shared — packages, swap,
-# Postgres, nginx, the checkout, the virtualenv — and everything that must not be
+# Both can live on the same box. Everything expensive is shared - packages, swap,
+# Postgres, nginx, the checkout, the virtualenv - and everything that must not be
 # shared is not: a database each, an env file each, a systemd unit each, a port
 # each. DOCKET is single-tenant (one org row, no tenant key on tenders), so a
 # company that ran setup against the demo's database would inherit the demo's
@@ -37,7 +37,7 @@ BRANCH="${BRANCH:-main}"
 # app on 8000, demo on 8001. nginx picks between them by server_name.
 if [ "$ROLE" = app ]; then PORT=8000; else PORT=8001; fi
 # The demo always sits here, and the app's nginx site needs to know it so it
-# can route /demo-api/ to it — the demo is a PATH on the app's domain, not a
+# can route /demo-api/ to it - the demo is a PATH on the app's domain, not a
 # subdomain. See nginx-site.template.
 DEMO_PORT=8001
 
@@ -48,7 +48,7 @@ DEMO_PORT=8001
 #   sudo DOMAIN=docket.eatngo-africa.com bash provision.sh app
 #
 # The real workspace is the front door, so it takes the bare name; the demo sits
-# on a subdomain of it. Both are just defaults — DOMAIN wins.
+# on a subdomain of it. Both are just defaults - DOMAIN wins.
 if [ "$ROLE" = app ]; then
   DOMAIN="${DOMAIN:-docket.eatngo-africa.com}"
   # Only the real workspace is the default_server, so the bare static IP reaches
@@ -88,7 +88,7 @@ fi
   echo "Could not detect the public IP. Pass it: sudo bash provision.sh $ROLE 12.34.56.78" >&2
   exit 1
 }
-say "Provisioning the $ROLE workspace — $DOMAIN at $PUBLIC_IP"
+say "Provisioning the $ROLE workspace - $DOMAIN at $PUBLIC_IP"
 
 # ---------------------------------------------------------------- packages
 say "Installing packages"
@@ -105,7 +105,7 @@ apt-get install -y -qq \
 
 # Node, for the React bundle. The sister project commits its built bundle and so
 # needs no toolchain on the box; DOCKET gitignores frontend/dist, and changing
-# that would mean remembering to rebuild and commit before every deploy — which
+# that would mean remembering to rebuild and commit before every deploy - which
 # when forgotten ships a stale interface and says nothing. One source of truth is
 # worth the 200MB, and the swap below is what makes the build safe on 2GB.
 if ! command -v node >/dev/null 2>&1; then
@@ -121,7 +121,7 @@ timedatectl set-timezone Africa/Lagos
 # ---------------------------------------------------------------- swap
 #
 # A Lightsail instance has no swap, and this box needs some. Postgres, two
-# gunicorn workers per workspace, and — for a minute at a time — a vite build
+# gunicorn workers per workspace, and - for a minute at a time - a vite build
 # holding the whole module graph. With no swap there is nothing between a peak
 # and the OOM killer, and what it takes is whichever process is largest. The
 # instance then stops answering ssh as well as http, which from outside is
@@ -199,7 +199,7 @@ fi
 # sits beside the app: one socket hop away, and inside the same snapshot.
 say "Creating the $ROLE database"
 # Both workspaces share one postgres role, so provisioning the SECOND one finds
-# the role already there and cannot read the password back out of postgres —
+# the role already there and cannot read the password back out of postgres -
 # nobody can. The first workspace's env file has it, so the caller can hand it
 # over rather than resetting it, which would silently break the workspace that
 # is already running:
@@ -231,7 +231,7 @@ fi
 # uploaded documents are encrypted at rest with a Fernet key derived from it (see
 # backend/core/util.py). Generate a second one on a workspace holding sealed bids
 # and every one of them becomes permanently unreadable. There is no recovery, by
-# design — it is the same property that makes a stolen database dump useless.
+# design - it is the same property that makes a stolen database dump useless.
 #
 # So the env file is written once and never rewritten, a fingerprint of the key is
 # recorded beside it, and deploy.sh refuses to start if the two stop agreeing.
@@ -269,12 +269,12 @@ else
   # QUOTING RULE, and it is not cosmetic. This file is read two ways: systemd
   # parses it directly for the service, and docket-manage sources it with a
   # shell for migrations and collectstatic. A value holding a space, an angle
-  # bracket or an ampersand is fine to systemd and a syntax error to the shell —
+  # bracket or an ampersand is fine to systemd and a syntax error to the shell -
   # so gunicorn comes up healthy while every management command dies. Anything
   # a person might paste arbitrary text into is therefore quoted; systemd strips
   # the quotes and so does the shell, so both read the same value.
   cat > "$ENV_FILE" <<ENVFILE
-# DOCKET — the $ROLE workspace. Written once by provision.sh.
+# DOCKET - the $ROLE workspace. Written once by provision.sh.
 #
 # Values that could contain spaces or shell metacharacters are quoted. Keep them
 # that way, and quote anything you add: systemd tolerates bare ones, the shell
@@ -288,7 +288,7 @@ PORT=$PORT
 DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@127.0.0.1:5432/$DB_NAME"
 
 # The public address. Decides the HTTPS redirect, the CSRF origin, and the links
-# in every email sent without a request — password resets, team invitations,
+# in every email sent without a request - password resets, team invitations,
 # vendor claim links. Set it to the real domain before handing the address out;
 # an http:// value keeps TLS enforcement off, which is right until certbot runs.
 # http until certbot runs; flip both to https then. The domain comes FIRST in
@@ -299,7 +299,7 @@ ALLOWED_HOSTS="$DOMAIN,$PUBLIC_IP,127.0.0.1,localhost"
 
 # Demo mode. On the demo workspace the one-click personas live at /demo, not on
 # the sign-in screen. SIGNUP_URL sends "set up your company" to the real
-# deployment instead of the wizard here — DOCKET is single-tenant, so running
+# deployment instead of the wizard here - DOCKET is single-tenant, so running
 # setup against this database would rename this org and hand over its tenders.
 DEMO_LOGIN=$DEMO_LOGIN
 DEMO_PASSWORD="$DEMO_PASSWORD"
@@ -317,7 +317,7 @@ SETUP_CODE="$SETUP_CODE"
 
 # Optional. Without ANTHROPIC_API_KEY the six AI features return "not
 # configured" and everything else works. Without EMAIL_HOST every notification
-# prints to the journal instead of being sent — which on the real workspace
+# prints to the journal instead of being sent - which on the real workspace
 # means invitations silently go nowhere.
 ANTHROPIC_API_KEY=""
 EMAIL_HOST=""
@@ -326,6 +326,14 @@ EMAIL_HOST_USER=""
 EMAIL_HOST_PASSWORD=""
 EMAIL_USE_TLS=1
 DEFAULT_FROM_EMAIL="DOCKET <no-reply@$PUBLIC_IP>"
+# Where replies land when the From above is a noreply@ nobody reads.
+EMAIL_REPLY_TO=""
+# Or send as a real Microsoft 365 mailbox - the one in DEFAULT_FROM_EMAIL -
+# through Microsoft Graph. All three set wins over SMTP. Admin steps: README,
+# "Sending as a Microsoft 365 mailbox".
+MS365_TENANT_ID=""
+MS365_CLIENT_ID=""
+MS365_CLIENT_SECRET=""
 
 # A private, time-limited link to the vendor register JSON. Never committed:
 # real bank details, TINs and contacts for about 1,400 companies.
@@ -360,7 +368,7 @@ install -m 644 "$APP_DIR/deploy/lightsail/crontab" /etc/cron.d/docket
 
 # Not overwritten once certbot has been here. certbot rewrites this file in place
 # to add the 443 block and the redirect, so installing the repo copy over it on a
-# re-run takes the site off https — quietly, since nginx reloads happily and only
+# re-run takes the site off https - quietly, since nginx reloads happily and only
 # the visitors notice. The marker is certbot's own.
 SITE="/etc/nginx/sites-available/docket-$ROLE"
 if grep -q "managed by Certbot" "$SITE" 2>/dev/null; then
@@ -422,7 +430,7 @@ if [ "$ROLE" = app ]; then cat <<'APPNOTE'
 
 APPNOTE
 else cat <<DEMONOTE
-  3. This is the demo. The one-click personas are at http://$PUBLIC_IP/demo —
+  3. This is the demo. The one-click personas are at http://$PUBLIC_IP/demo -
      not on the sign-in screen, so the address can be handed out without the
      first thing a stranger sees being a way in. The seeded password is in
      $ENV_FILE as DEMO_PASSWORD.
@@ -434,7 +442,7 @@ DEMONOTE
 fi
 
 cat <<'TLS'
-  When DNS points at this box, take it to https — the app follows the
+  When DNS points at this box, take it to https - the app follows the
   certificate with no code change, because nginx forwards the scheme:
 
       sudo apt-get install -y certbot python3-certbot-nginx

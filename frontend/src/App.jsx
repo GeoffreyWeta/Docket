@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 import {
   authConfig, clearAuth, demoLogin, fetchBootstrap, fetchFinance,
   adoptBaselines, baselineFor, fetchBaselines,
   fetchFinanceExceptions, financeFeeds, getToken, getUsername, importFinance,
-  inDemo, login as apiLogin, logout as apiLogout, raw, setDemo, storeAuth,
+  inDemo, login as apiLogin, logout as apiLogout, raw, setDemo, siteAppearance, storeAuth,
   uploadFile,
 } from "./api";
 import { BP } from "./breakpoints";
@@ -51,22 +51,26 @@ const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS
   + AUCTION_CSS + PORTAL_CSS;
 
 /* Where you land and where you may go are both read off the capabilities the
-   server sent with the bootstrap payload — see perms.js. Nothing here enumerates
+   server sent with the bootstrap payload - see perms.js. Nothing here enumerates
    roles, so a role invented in the administration console routes correctly. */
 
-/** `/` — the landing page, with the deployment's own configuration behind it.
+/** `/` - the landing page, with the deployment's own configuration behind it.
 
     A thin wrapper rather than a prop drilled down from App: the landing page
     needs to know whether there is a demo to point at and whether signing up
     happens here or on another deployment, and that is one fetch that belongs
-    next to the thing that uses it. It renders without waiting — every piece
+    next to the thing that uses it. It renders without waiting - every piece
     of the page that depends on the config degrades to "not offered" rather
     than to a spinner, and a front door that shows a loading state is a front
     door that looks shut. */
 function PublicLanding({ onScreen }) {
   const [cfg, setCfg] = useState(null);
   useEffect(() => {
-    authConfig().then(setCfg).catch(() => setCfg({ demoLogin: false, accounts: [] }));
+    /* The design is the site's, read from the main site even for a browser
+       still signed in to the demo - see siteAppearance. */
+    Promise.all([authConfig(), siteAppearance().catch(() => ({}))])
+      .then(([c, look]) => setCfg({ ...c, ...(look.landing ? look : {}) }))
+      .catch(() => setCfg({ demoLogin: false, accounts: [] }));
   }, []);
   return (
     <>
@@ -179,7 +183,7 @@ function Login({ onLoggedIn, onScreen }) {
   );
 }
 
-/** /demo — the way into the demo workspace, and the way out of it to a real one.
+/** /demo - the way into the demo workspace, and the way out of it to a real one.
 
     Kept off the sign-in screen deliberately. A password-free door is fine on a
     deployment seeded with invented tenders and wrong on one holding sealed bids,
@@ -288,7 +292,7 @@ function DemoDoor({ onBack, onScreen, onLoggedIn }) {
    the ones that get written down and read out: "the demo is at
    docket.example.com/demo", "sign in at /signin".
 
-     /         the landing page — what this is, for somebody who has not
+     /         the landing page - what this is, for somebody who has not
                decided yet. It is the front door whether or not the workspace
                has been set up: a sign-in form is furniture for people who
                already know, and it is one click away.
@@ -303,14 +307,14 @@ function publicScreenFromUrl() {
   /* Opening /demo points this browser at the demo backend, and it has to happen
      HERE rather than inside DemoDoor: this runs during useState's initialiser,
      before any component has mounted and therefore before the first fetch. Set
-     it a render later and the very first call — authConfig, on the way to
-     drawing the persona buttons — would ask the real workspace whether it has
+     it a render later and the very first call - authConfig, on the way to
+     drawing the persona buttons - would ask the real workspace whether it has
      a demo, be told no, and show "no demo here" on a deployment that has one. */
   if (PATHS[path] === "demo") setDemo(true);
   /* And the way back out, by the same rule goScreen follows: loading any
      other address leaves the demo unless somebody is signed in to it. The
      flag lives in sessionStorage, so without this a tab that had opened /demo
-     and then loaded /signin sent the real sign-in form — password and all —
+     and then loaded /signin sent the real sign-in form - password and all -
      to the demo's backend, and the password was refused there. */
   else if (!getToken()) setDemo(false);
   if (PATHS[path]) return { name: PATHS[path] };
@@ -332,10 +336,13 @@ function publicScreenFromUrl() {
 export default function App() {
   const [token, setToken] = useState(getToken());
   const [screen, setScreen] = useState(publicScreenFromUrl);
-  // Deployment appearance also applies to direct sign-in and workspace loads.
+  /* The site's look, chosen once in the administration console, applies to
+     every screen: the front page, sign-in, setup, the workspace and the demo.
+     Read from the main site even inside the demo, whose own backend never sees
+     the console's choice - see siteAppearance. */
   useEffect(() => {
     let active = true;
-    const loadAppearance = () => authConfig().then((cfg) => {
+    const loadAppearance = () => siteAppearance().then((cfg) => {
       if (!active) return;
       applyLayout(cfg.landing);
       applyAccent(cfg.accent);
@@ -345,7 +352,7 @@ export default function App() {
     window.addEventListener("focus", loadAppearance);
     /* The cleanup does NOT strip the attributes, and that is the fix for the
        flash rather than an oversight. They are stamped server-side on <html>
-       (see docket/urls.py SpaShell), and this effect re-runs on navigation —
+       (see docket/urls.py SpaShell), and this effect re-runs on navigation -
        so clearing them here repainted the page in the default accent for the
        moment between unmount and the next fetch resolving. The deployment's
        appearance does not change because somebody opened a different page. */
@@ -381,6 +388,11 @@ export default function App() {
   const [toast, toasts, dropToast] = useToasts();
   const desktop = useIsDesktop();
   const [nav, setNav] = useState(false);   // navigation drawer, phones only
+  /* Bootstrap fetches overlap: a navigation, an action and the background pull
+     can each start one. Only the newest one started may land, or an answer that
+     left before a change can arrive after it and put the old state back. */
+  const boot = useRef({ started: 0, landed: 0 });
+  const pullRef = useRef(null);
 
   const signOut = (serverSide) => {
     if (serverSide) apiLogout().catch(() => {});
@@ -390,17 +402,48 @@ export default function App() {
     setRoute(null);
   };
 
-  const refresh = async () => {
+  /* `quiet` is the background pull: a blip on a timer is not worth a toast,
+     and the next pull will try again anyway. Read loosely, because refresh is
+     handed around as a callback and may be called with an event or a value. */
+  const refresh = async (opts) => {
+    const quiet = !!(opts && opts.quiet === true);
+    const mine = ++boot.current.started;
     try {
       const d = await fetchBootstrap();
+      if (mine < boot.current.landed) return d;   // a newer answer is already on screen
+      boot.current.landed = mine;
       setData(d);
       return d;
     } catch (e) {
       if (e.status === 401) signOut(false);
-      else toast.warn("Could not reach the server", e.message || "Check your connection and try again.");
+      else if (!quiet) toast.warn("Could not reach the server", e.message || "Check your connection and try again.");
       return null;
     }
   };
+  pullRef.current = refresh;
+
+  /* Other people's work arrives without a reload. Every thirty seconds while
+     the tab is in front, and straight away when somebody comes back to it, so
+     an approval signed down the corridor or a bid sealed overnight is on
+     screen without anyone reaching for the browser's refresh button. A hidden
+     tab does not poll; it catches up the moment it is looked at. */
+  useEffect(() => {
+    if (!token) return undefined;
+    let last = Date.now();
+    const pull = () => {
+      if (document.visibilityState !== "visible" || Date.now() - last < 5000) return;
+      last = Date.now();
+      if (pullRef.current) pullRef.current({ quiet: true });
+    };
+    const timer = setInterval(pull, 30000);
+    window.addEventListener("focus", pull);
+    document.addEventListener("visibilitychange", pull);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", pull);
+      document.removeEventListener("visibilitychange", pull);
+    };
+  }, [token]);
 
   useEffect(() => {
     if (!token) return;
@@ -455,7 +498,7 @@ export default function App() {
   if (!token) {
     const signedIn = (res, username) => { storeAuth(res.token, username); setToken(res.token); };
     /* The form only when it was asked for. Everybody else gets the front door,
-       set up or not — see PATHS. */
+       set up or not - see PATHS. */
     if (screen && screen.name === "signin") {
       return <Login onScreen={goScreen} onLoggedIn={signedIn} />;
     }
@@ -484,6 +527,10 @@ export default function App() {
     } catch (e) {
       if (e.status === 401) { signOut(false); return false; }
       toast.warn("That didn't go through", e.message || "Something went wrong.");
+      /* A refusal usually means this screen was behind the server: an addendum
+         the vendor has not seen, a tender somebody else already moved on. Catch
+         up, so what the person tries next is against the current state. */
+      if (refreshAfter) refresh({ quiet: true });
       return false;
     } finally {
       setFlight((n) => Math.max(0, n - 1));
@@ -518,8 +565,8 @@ export default function App() {
     rename: wrap((b) => raw(`/me/`, { method: "POST", body: b })),
     saveScores: wrap((bidId, scores, note) =>
       raw(`/bids/${bidId}/scores/`, { method: "POST", body: note === undefined ? { scores } : { scores, note } }), false),
-    /* Not wrapped: the register upload is a two-step flow — preview, then
-       apply — so the caller needs the response body, not a true/false, and
+    /* Not wrapped: the register upload is a two-step flow - preview, then
+       apply - so the caller needs the response body, not a true/false, and
        shows the errors itself inside the dialog rather than as a toast. */
     importRegister: (file, extra) => uploadFile("/suppliers/import_register/", file, extra),
     /* Also unwrapped, and for the same reason: the registration drive is

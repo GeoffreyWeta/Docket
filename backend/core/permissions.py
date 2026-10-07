@@ -1,18 +1,25 @@
 """The capability catalogue.
 
-Roles remain the shorthand — "evaluator", "approver", or one you invent like
-"ceo" — but what a role *means* is this file plus the AccessRole table.
+Roles remain the shorthand - "evaluator", "approver", or one you invent like
+"ceo" - but what a role *means* is this file plus the AccessRole table plus the
+company's own wording for the starter four (OrgSetting "roles", see roles.py).
 Effective set for one person:
 
     role defaults  +  profile.perm_extra  -  profile.perm_revoked
 
-with a superuser holding everything. The built-in role defaults reproduce
+with a superuser holding everything. The starter roles' defaults reproduce
 exactly what the role checks in views.py enforced before this layer existed, so
 an untouched workspace behaves identically; the grants are the deviation, and
 every one of them is recorded (see admin_views.py).
 
+THE STARTER FOUR ARE SUGGESTIONS, NOT VOCABULARY. Every company names its own
+jobs, so a workspace may rename them, change what they can do, or retire one
+nobody holds. Their keys stay fixed underneath because the audit trail and
+every persona already refer to them; only what the key is called and what it
+carries is the company's.
+
 Two rules kept out of this file on purpose: a supplier is a supplier (that is
-structural — you cannot be granted vendorhood, and no custom role may reach the
+structural - you cannot be granted vendorhood, and no custom role may reach the
 vendor side), and sealing is time-based, not permission-based. No grant opens an
 envelope before its recorded opening.
 """
@@ -20,17 +27,36 @@ envelope before its recorded opening.
 ADMIN_ROLE = "superadmin"
 SUPPLIER_ROLE = "supplier"
 
-# The four that are code rather than configuration: separation of duties is the
-# product, so these cannot be edited or deleted from the console.
+# The starter roles every workspace begins with. Their keys are fixed (events
+# and personas refer to them); their names and capabilities are the company's
+# to change - see role_overrides().
 BUYER_ROLES = ("procurement", "evaluator", "approver", "auditor")
 
+# The kinds of work a role can start from, in plain words. A new role picks one
+# and is handed that starter's capabilities, which it can then adjust. Keyed by
+# the starter whose defaults it copies.
+ROLE_KINDS = {
+    "procurement": "Runs tenders and the vendor register",
+    "approver": "Signs off tenders and awards",
+    "evaluator": "Scores bids",
+    "auditor": "Sees everything, changes nothing",
+}
+
 BUILTIN_LABELS = {
-    "procurement": "Procurement — runs tenders",
-    "evaluator": "Evaluator — scores blind",
-    "approver": "Approver — signs publications & awards",
-    "auditor": "Auditor — read-only oversight",
-    SUPPLIER_ROLE: "Supplier — bids, sees only their own",
-    ADMIN_ROLE: "Administrator — this console only",
+    "procurement": "Procurement",
+    "evaluator": "Evaluator",
+    "approver": "Approver",
+    "auditor": "Auditor",
+    SUPPLIER_ROLE: "Supplier - bids, sees only their own",
+    ADMIN_ROLE: "Administrator - this console only",
+}
+
+# What a starter role is for, until the company says otherwise.
+BUILTIN_NOTES = {
+    "procurement": "Drafts tenders, invites vendors, opens the sealed bids. Cannot approve their own work.",
+    "evaluator": "Scores bids on their own and never sees anyone else's numbers.",
+    "approver": "Signs off publications and awards up to their authority limit.",
+    "auditor": "Reads everything, changes nothing.",
 }
 
 BUILTIN_TITLES = {
@@ -43,7 +69,7 @@ BUILTIN_TITLES = {
 # Reserved so a custom role can never shadow a built-in one or a structural role.
 RESERVED_ROLE_KEYS = frozenset(BUILTIN_LABELS) | {"system", "administrator", "admin", "root", "none"}
 
-# (id, title, blurb) — the console renders the catalogue in this order.
+# (id, title, blurb) - the console renders the catalogue in this order.
 GROUPS = [
     ("pages", "Navigation", "Which sections appear in their sidebar."),
     ("tenders", "Tenders", "Drafting, publication and the documents attached to a tender."),
@@ -84,7 +110,7 @@ PERMISSIONS = [
 
     ("bid.open", "bids", "Open sealed bids", "Break the seals in a recorded opening once the deadline has passed."),
     ("bid.score", "bids", "Score bids", "Enter technical scores and justifications as a panel member."),
-    ("bid.see_all_scores", "bids", "See the whole panel's scores", "Without this a scorer sees only their own marks — this is what keeps evaluation blind."),
+    ("bid.see_all_scores", "bids", "See the whole panel's scores", "Without this a scorer sees only their own marks - this is what keeps evaluation blind."),
     ("coi.declare", "bids", "Declare conflicts of interest", "Sign the conflict-of-interest declaration before scoring."),
     ("clarification.answer", "bids", "Answer clarifications", "Publish answers to vendor questions."),
 
@@ -98,7 +124,7 @@ PERMISSIONS = [
     ("auction.award", "auctions", "Award an auction", "Commit to the winning prices once the room has closed."),
     ("auction.retract", "auctions", "Void a bid", "Strike a price from the record with a reason. The row stays; auctions are not editable, only annotated."),
 
-    ("award.recommend", "award", "Recommend an award", "Put a bid forward to the approver, and withdraw that recommendation."),
+    ("award.recommend", "award", "Recommend an award", "Put a bid forward for sign-off, and withdraw that recommendation."),
     ("award.see_recommendation", "award", "See recommendations & letters", "The pending recommendation, the award memo and the issued letters."),
     ("award.decide", "award", "Approve awards", "Sign off or reject an award recommendation and issue the letters."),
 
@@ -112,8 +138,9 @@ PERMISSIONS = [
     ("team.invite", "workspace", "Invite team members", "Issue an invitation with a role attached."),
     ("desk.see_reports", "workspace", "See your reports' desks", "Whose workload rolls up to you. Follows the reporting line, not the role: this shows the work of everyone below you on the org chart and nobody else."),
     ("team.org", "workspace", "Set reporting lines", "Change who reports to whom. Separate from inviting people, because moving a reporting line changes what a manager can see."),
+    ("team.roles", "workspace", "Set up roles", "Name the roles in this workspace and choose what each one can do. Nobody may change what their own role can do."),
     ("settings.rename", "workspace", "Rename the workspace", "The organisation name and the tender reference prefix."),
-    ("settings.threshold", "workspace", "Set the approval matrix", "The value above which publication needs approver sign-off."),
+    ("settings.threshold", "workspace", "Set the approval matrix", "The value above which publication needs a sign-off."),
 
     ("finance.payables", "finance", "See payables and vendor exposure", "Invoice, payment and exposure detail down to the individual vendor. Separate from the Finance page itself, so a category manager can be shown savings and spend without being shown what every vendor is owed."),
     ("finance.sync", "finance", "Import the finance ledger", "Load a contract, order, receipt, invoice or payment export from NAV or Business Central."),
@@ -201,28 +228,54 @@ CUSTOM_GRANTABLE = frozenset(ALL_KEYS - {"page.portal"})
 
 # ---------------- the role registry ----------------
 
+def role_overrides():
+    """{starter key: {label, note, title, perms, hidden}} - what this company
+    calls each starter role and what it lets it do. Kept on the settings row
+    beside the approval ladder; an absent entry means "as shipped"."""
+    from .models import OrgSetting
+    row = OrgSetting.objects.filter(pk=1).first()
+    raw = ((row.data or {}).get("roles") if row else None) or {}
+    return {k: v for k, v in raw.items() if k in BUYER_ROLES and isinstance(v, dict)}
+
+
+def starter_role(key, override=None):
+    """One starter role as this company has shaped it."""
+    o = override or {}
+    named = str(o.get("label") or "").strip()
+    perms = (BUILTIN_DEFAULTS[key] if o.get("perms") is None
+             else frozenset(set(o["perms"]) & CUSTOM_GRANTABLE))
+    return {"key": key, "label": named or BUILTIN_LABELS[key],
+            "title": str(o.get("title") or "").strip() or named or BUILTIN_TITLES.get(key, ""),
+            "note": str(o["note"]).strip() if o.get("note") is not None else BUILTIN_NOTES[key],
+            "perms": perms, "builtin": True, "hidden": bool(o.get("hidden"))}
+
+
 def custom_roles():
-    """{key: {...}} for every role invented in the console. One query."""
+    """{key: {...}} for every role this company has shaped: the starters it
+    renamed, reshaped or retired, and every role it invented. Two queries.
+
+    The starters ride along in here, rather than in a second registry, because
+    this dict is what every caller already threads through `resolve` - so a
+    starter the company has re-scoped is re-scoped everywhere at once."""
     from .models import AccessRole
-    out = {}
+    out = {k: starter_role(k, o) for k, o in role_overrides().items()}
     for r in AccessRole.objects.all():
         out[r.key] = {
             "key": r.key, "label": r.label, "title": r.title, "note": r.note,
             "perms": frozenset(set(r.perms or []) & CUSTOM_GRANTABLE),
-            "builtin": False, "created": r.created, "createdBy": r.created_by,
+            "builtin": False, "hidden": False, "created": r.created, "createdBy": r.created_by,
         }
     return out
 
 
 def roles_map(custom=None):
-    """Every role the workspace knows: the built-ins, then the invented ones."""
-    out = {}
-    for key in BUYER_ROLES:
-        out[key] = {"key": key, "label": BUILTIN_LABELS[key], "title": BUILTIN_TITLES.get(key, ""),
-                    "note": "", "perms": BUILTIN_DEFAULTS[key], "builtin": True}
+    """Every role the workspace knows: the starters, then the invented ones.
+    Retired starters stay in here so old events and invitations still read."""
+    out = {key: starter_role(key) for key in BUYER_ROLES}
     for key in (SUPPLIER_ROLE, ADMIN_ROLE):
         out[key] = {"key": key, "label": BUILTIN_LABELS[key], "title": "", "note": "",
-                    "perms": BUILTIN_DEFAULTS[key], "builtin": True, "structural": True}
+                    "perms": BUILTIN_DEFAULTS[key], "builtin": True, "structural": True,
+                    "hidden": False}
     out.update(custom if custom is not None else custom_roles())
     return out
 
@@ -233,20 +286,20 @@ def role_label(role, custom=None):
 
 
 def assignable_roles(custom=None):
-    """Roles the console may put a person on: the four built-ins plus every
-    custom role. Not `supplier` (vendors arrive by registering) and not
+    """Roles a person may be put on: the starters the company still uses, then
+    every invented role. Not `supplier` (vendors arrive by registering) and not
     `superadmin` (that is the administrator flag, not a role)."""
     m = roles_map(custom)
-    return [m[k] for k in BUYER_ROLES] + sorted(
+    return [m[k] for k in BUYER_ROLES if not m[k].get("hidden")] + sorted(
         (v for v in m.values() if not v["builtin"]), key=lambda v: v["label"].lower())
 
 
 def defaults_for(role, custom=None):
     """What the role itself carries, before any per-person deviation."""
-    if role in BUILTIN_DEFAULTS:
-        return set(BUILTIN_DEFAULTS[role])
     r = (custom if custom is not None else custom_roles()).get(role)
-    return set(r["perms"]) if r else set()
+    if r:
+        return set(r["perms"])
+    return set(BUILTIN_DEFAULTS.get(role, ()))
 
 
 def resolve(role, extra=(), revoked=(), superadmin=False, custom=None):

@@ -298,7 +298,7 @@ def build(path):
 
 
 def build_book(book):
-    """Same, from an already-parsed export — an upload, with no temp file."""
+    """Same, from an already-parsed export - an upload, with no temp file."""
     return build_rows(rows_from_book(book))
 
 
@@ -356,7 +356,7 @@ def build_rows(rows):
             "name": name,
             "category": category,
             # Second taxonomy layer, from the same cell the category came from.
-            # Blank where the rules cannot place it — see taxonomy.py.
+            # Blank where the rules cannot place it - see taxonomy.py.
             "subcategory": subcategory_for(category, raw_class, name),
             "location": location,
             "prequalified": prequalified,

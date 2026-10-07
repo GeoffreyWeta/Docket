@@ -1,7 +1,7 @@
 """Delegation of authority: who has to sign a commitment, and in what order.
 
-A single threshold answers one question — "is this big enough to need a
-signature" — and organisations do not work that way. A buyer's small stationery
+A single threshold answers one question - "is this big enough to need a
+signature" - and organisations do not work that way. A buyer's small stationery
 order and a nine-figure fit-out both need a signature; they do not need the
 *same* signature, and the fit-out needs several. What decides it is a ladder of
 authority limits, and what decides who stands on each rung is the org chart.
@@ -11,7 +11,7 @@ So the chain is built from two facts that already exist in the workspace:
   THE LADDER (OrgSetting.data["approvalLevels"]) is an ordered list of levels,
   each with a name, an authority limit, the role that holds it, and optionally
   the specific people pinned to it. A limit of 0 means "no ceiling" and is what
-  the top of the ladder carries — somebody has to be able to sign for anything,
+  the top of the ladder carries - somebody has to be able to sign for anything,
   or a large enough number deadlocks the workspace.
 
   THE REPORTING LINE (Persona.manager) is the route up. A request walks from
@@ -28,8 +28,8 @@ Three rules that are structural rather than stylistic:
   same person is not a chain.
 
   A GAP IN THE CHART IS NOT A WAY OUT. If the walk runs out of managers before
-  the amount is covered — an orphan in the chart, a chain of people with no
-  authority — the chain does not end short. It ends on the lowest level in the
+  the amount is covered - an orphan in the chart, a chain of people with no
+  authority - the chain does not end short. It ends on the lowest level in the
   ladder that *does* cover the amount, open to whoever holds that level. A
   reporting line nobody has finished filling in must not become a route to an
   unsigned award.
@@ -101,7 +101,7 @@ def normalise(raw):
             return None, "Each approval level must be a set of fields."
         name = str(row.get("name", "")).strip()[:80]
         if len(name) < 2:
-            return None, f"Level {i + 1} needs a name — what is this rung called?"
+            return None, f"Level {i + 1} needs a name - what is this rung called?"
         if name.lower() in seen_names:
             return None, f'There are two levels called "{name}". Give each rung its own name.'
         seen_names.add(name.lower())
@@ -176,7 +176,7 @@ def plan(raiser, amount, levels=None):
             if covers(lvl, amount):
                 return chain
 
-    # The reporting line ran out below the amount — or there was none. Finish on
+    # The reporting line ran out below the amount - or there was none. Finish on
     # the lowest rung that can actually carry it, open to whoever holds it.
     fallback = level_for_amount(amount, levels) or top_level(levels)
     if fallback and fallback["id"] not in used:
@@ -237,8 +237,8 @@ def may_sign(step, identity):
       4. failing all of those, anybody holding the level's role.
 
     (4) is last, and it was not always. Checking the role before the rung looks
-    equivalent and is not: most workspaces give every rung the same role —
-    "approver" is the built-in one — and under a role-first rule that made all
+    equivalent and is not: most workspaces give every rung the same role -
+    "approver" is the built-in one - and under a role-first rule that made all
     four rungs interchangeable. A line manager with a five-million limit could
     sign a three-hundred-million request, because they and the finance director
     were both "approvers". The ladder existed and enforced nothing.

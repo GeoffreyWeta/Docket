@@ -3,7 +3,7 @@
    WHAT THIS IS FOR, AND WHAT IT IS NOT. /superadmin is the administration
    console: accounts, roles, capabilities, appearance. It is the supported way
    to run the deployment and it goes through the same rules everybody else
-   does. This is the other thing — raw table access, for the times when
+   does. This is the other thing - raw table access, for the times when
    something has to be looked at or repaired directly and there is no screen
    for it.
 
@@ -17,7 +17,7 @@
    either the tamper-evident chain or something the chain attests to, and the
    product's whole claim is that those cannot be quietly edited. Django's admin
    would edit them quietly and the next integrity check would fail with no
-   explanation of why — which is worse than the edit, because it destroys trust
+   explanation of why - which is worse than the edit, because it destroys trust
    in a verification that was working. They are visible, searchable, and not
    writable.
 
@@ -76,7 +76,7 @@ class DocketAdmin(AdminSite):
 site = DocketAdmin(name="docketadmin")
 
 # The tamper-evident record and the rows it attests to. Visible, never editable
-# from here — see the module docstring.
+# from here - see the module docstring.
 READ_ONLY = {"Event", "ChainHead", "AdminAudit", "Bid", "LotBid", "ProxyBid"}
 
 # Rows nobody should be reading out of a web page. Tokens are bearer
@@ -130,6 +130,6 @@ for model in apps.get_app_config("core").get_models():
         continue
     site.register(model, ReadOnly if name in READ_ONLY else Base)
 
-site.site_header = "Docket — direct table access"
+site.site_header = "Docket - direct table access"
 site.site_title = "Docket admin"
 site.index_title = "Tables. For the workspace itself, use /superadmin."

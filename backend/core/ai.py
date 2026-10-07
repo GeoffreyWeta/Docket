@@ -34,6 +34,6 @@ def ask(prompt, max_tokens=1000):
 
 
 def ask_json(prompt, max_tokens=1000):
-    out = ask(prompt + "\n\nRespond with ONLY the JSON — no preamble, no markdown fences, no commentary.", max_tokens)
+    out = ask(prompt + "\n\nRespond with ONLY the JSON - no preamble, no markdown fences, no commentary.", max_tokens)
     cleaned = out.replace("```json", "").replace("```", "").strip()
     return json.loads(cleaned)

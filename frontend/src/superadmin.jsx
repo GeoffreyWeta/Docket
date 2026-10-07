@@ -2,13 +2,13 @@
 
    Its own sign-in, its own token (a separate localStorage key, so signing out of
    the workspace does not sign you out of here and vice versa), and no link to it
-   from anywhere in the tendering UI. The URL is not the security — every request
+   from anywhere in the tendering UI. The URL is not the security - every request
    below is checked against is_superuser on the server, and a correct password on
    a non-administrator account is refused here exactly as a wrong one is.
 
    What it governs: accounts, roles, and each person's capabilities. What it
    deliberately cannot do: open a sealed bid, score, publish or award. An
-   administrator has no domain identity, and this console offers no route to one —
+   administrator has no domain identity, and this console offers no route to one -
    changing who may do a thing is a different act from doing it. */
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -18,6 +18,7 @@ import { ACCENTS, accentOf, applyAccent } from "./studio";
 import { applyLayout, STUDIO_CSS } from "./studio";
 import { ICON_CSS, Icon } from "./icons";
 import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
+import { fmtMoney } from "./helpers";
 import { Dialog, Toasts, useToasts } from "./ui";
 
 const TKEY = "docket_admin_token";
@@ -113,8 +114,8 @@ const IN_PLAIN_WORDS = [
   ["clarification.answer", "answers vendor questions"],
 ];
 
-/* Read-only access says almost nothing when someone also does real work — every
-   buyer-side role can see the audit trail — so these only speak when there is
+/* Read-only access says almost nothing when someone also does real work - every
+   buyer-side role can see the audit trail - so these only speak when there is
    nothing louder to say. */
 const IF_NOTHING_ELSE = [
   ["page.portal", "bids for work here"],
@@ -142,7 +143,7 @@ function Pills({ user: u }) {
   const consoleOnly = u.role === "superadmin";
   return (
     <>
-      {!consoleOnly && <span className="chip soft">{u.roleLabel.split(/\s[—-]\s/)[0].trim()}</span>}
+      {!consoleOnly && <span className="chip soft">{u.roleLabel.split(/\s-\s/)[0].trim()}</span>}
       {u.isAdmin && <span className="chip gold">administrator</span>}
       {consoleOnly && <span className="chip soft">no workspace access</span>}
     </>
@@ -222,7 +223,7 @@ export function AdminLogin({ onIn }) {
 /* ---------------- the permission grid ---------------- */
 
 /** One row per capability, grouped. In `user` mode each row also says where the
-    answer comes from — the role, or a decision somebody made about this person —
+    answer comes from - the role, or a decision somebody made about this person -
     because "why can they do that?" is the question this console exists to
     answer. */
 export function PermGrid({ catalogue, held, defaults = [], allowed, onToggle, readOnly }) {
@@ -282,6 +283,11 @@ export function UserPanel({ state, user, onClose, onSaved, toast }) {
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /* The list reloads after every action and hands this panel the fresh row.
+     Revoking sessions, resetting two-factor and setting a password answer with
+     no user, so without taking the fresh row the panel went on saying "2
+     devices" and "Two-factor on" after both had been cleared. */
+  useEffect(() => { setU(user); }, [user]);
 
   const isSelf = state.admin.userId === u.id;
   const isVendor = u.role === "supplier";
@@ -582,7 +588,7 @@ export function NewUserDialog({ state, onClose, onSaved, toast }) {
 /* ---------------- people ---------------- */
 
 /** One person, as a person: a face, their name, what they do here in a sentence,
-    and how their access stands. The precise capability list is one click away —
+    and how their access stands. The precise capability list is one click away -
     this is what you read when you are scanning for the right human. */
 function PersonRow({ user: u, onOpen }) {
   const adjusted = u.extra.length + u.revoked.length;
@@ -705,7 +711,11 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
   const [perms, setPerms] = useState(new Set(role?.perms || []));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
-  const readOnly = !!role?.builtin;
+  /* Starter roles are the company's to rename and reshape like any other;
+     only their id is fixed, and they have no separate default job title (the
+     name is used). */
+  const readOnly = false;
+  const starter = !!role?.builtin;
 
   const save = async () => {
     setBusy(true); setMsg("");
@@ -724,7 +734,7 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
   return (
     <Dialog title={creating ? "New role" : role.label} onClose={onClose} wide footer={
       <>
-        {readOnly && <span className="mono faint" style={{ marginRight: "auto", fontSize: 11 }}>built-in - separation of duties is enforced in code</span>}
+        {starter && <span className="mono faint" style={{ marginRight: "auto", fontSize: 11 }}>starter role - its id stays {role.key}</span>}
         <button className="btn" onClick={onClose} disabled={busy}>{readOnly ? "Close" : "Cancel"}</button>
         {!readOnly && (
           <button className="btn pri" onClick={save} disabled={busy || f.label.trim().length < 2}>
@@ -748,9 +758,11 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
               </div>
             </div>
           )}
-          <div className="frow"><label className="lbl">Default job title</label>
-            <input className="in" value={f.title} disabled={readOnly}
-                   onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="Chief Executive" /></div>
+          {!starter && (
+            <div className="frow"><label className="lbl">Default job title</label>
+              <input className="in" value={f.title} disabled={readOnly}
+                     onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="Chief Executive" /></div>
+          )}
           <div className="frow"><label className="lbl">Note (optional)</label>
             <input className="in" value={f.note} disabled={readOnly}
                    onChange={(e) => setF({ ...f, note: e.target.value })}
@@ -805,8 +817,9 @@ export function RolesTab({ state, reload, toast }) {
     <>
       <div className="toolrow">
         <div className="muted" style={{ fontSize: 12.5, flex: 1 }}>
-          The four built-in roles carry the separation of duties the system is built on and cannot be
-          edited. Anything else you need - a CEO, a legal reviewer, a board observer - you invent here.
+          Every company names its own roles. The four starters can be renamed, reshaped or removed
+          once nobody is on them, and anything else you need - a CEO, a legal reviewer, a board
+          observer - you add here. The workspace's Team page edits the same list.
         </div>
         <button className="btn pri sm" onClick={() => setCreating(true)}><Icon n="plus" s={14} /> New role</button>
       </div>
@@ -815,25 +828,23 @@ export function RolesTab({ state, reload, toast }) {
         {state.roles.map((r) => (
           <div className="card rolecard" key={r.key}>
             <div className="chead">
-              <h3>{r.label.split(/\s[—-]\s/)[0].trim()}</h3>
+              <h3>{r.label.split(/\s-\s/)[0].trim()}</h3>
               {r.builtin
-                ? <span className="chip" style={{ marginLeft: "auto" }}>built-in</span>
-                : <span className="chip gold" style={{ marginLeft: "auto" }}>custom</span>}
+                ? <span className="chip" style={{ marginLeft: "auto" }}>starter</span>
+                : <span className="chip gold" style={{ marginLeft: "auto" }}>added</span>}
             </div>
             <div className="cbody">
               <div className="muted" style={{ fontSize: 12.5, minHeight: 34 }}>
-                {r.note || (r.builtin ? r.label.split(/\s[—-]\s/)[1]?.trim() || "" : "No note.")}
+                {r.note || "No note."}
               </div>
               <div className="kv"><span>Can do</span><b>{r.perms.length} thing{r.perms.length === 1 ? "" : "s"}</b></div>
               <div className="kv"><span>People on it</span><b>{r.people === 0 ? "nobody yet" : r.people}</b></div>
               <div className="kv"><span>Id</span><b className="mono">{r.key}</b></div>
               <div className="btnrow" style={{ marginTop: 10 }}>
-                <button className="btn sm" onClick={() => setOpen(r)}>{r.builtin ? "View" : "Edit"}</button>
-                {!r.builtin && (
-                  <button className="btn sm" disabled={busy || r.people > 0}
-                          title={r.people ? "Move the people on it to another role first" : ""}
-                          onClick={() => remove(r)}>Delete</button>
-                )}
+                <button className="btn sm" onClick={() => setOpen(r)}>Edit</button>
+                <button className="btn sm" disabled={busy || r.people > 0}
+                        title={r.people ? "Move the people on it to another role first" : ""}
+                        onClick={() => remove(r)}>{r.builtin ? "Remove" : "Delete"}</button>
               </div>
             </div>
           </div>
@@ -896,7 +907,7 @@ function AppearanceTab({ current, accent, onChanged, toast }) {
   const [busy, setBusy] = useState("");
 
   /* Painted the moment it is clicked, before the save returns. The console is
-     itself rendered in the Studio layout, so the picker IS the preview — which
+     itself rendered in the Studio layout, so the picker IS the preview - which
      is the whole point of offering six rather than recommending one. A failed
      save puts it back. */
   const tryAccent = async (key) => {
@@ -1008,7 +1019,7 @@ function AppearanceTab({ current, accent, onChanged, toast }) {
 /* ---------------- the demo fixture ----------------
 
    Removing the demo is the only irreversible thing in this console that is not
-   about a person, and it is the one an administrator reaches for exactly once —
+   about a person, and it is the one an administrator reaches for exactly once -
    on the day the workspace stops being a demonstration and starts being the
    record. So it shows its work first: what goes, what stays, and specifically
    whether an imported vendor register survives, because that is the question
@@ -1157,6 +1168,257 @@ function DemoTab({ toast, onCleared }) {
   );
 }
 
+/* ---------------- approvals ----------------
+
+   Who reports to whom, and how much each person can approve. The setup wizard
+   asks for both once; this is where the administrator keeps them true as people
+   join, leave and get promoted. The rules are the workspace's own, checked again
+   by the server: exactly one level with no limit, at the top, and no loops in
+   the reporting line. */
+
+function LevelsCard({ org, onSaved, toast }) {
+  const saved = org.levels || [];
+  const cur = org.currency;
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const current = rows || saved;
+  const dirty = rows !== null;
+
+  const onLevel = (id) => (org.people || []).filter((p) => p.levelId === id).length;
+  const edit = (i, patch) => setRows(current.map((l, k) => (k === i ? { ...l, ...patch } : l)));
+  const add = () => setRows([...current, { id: "", _k: "n" + Date.now(), name: "", limit: "",
+                                           role: "", holders: [] }]);
+  const drop = (i) => setRows(current.filter((_, k) => k !== i));
+
+  const noLimit = current.filter((l) => !Number(l.limit)).length;
+  const problem = !current.length ? null
+    : current.some((l) => String(l.name || "").trim().length < 2) ? "Give every level a name."
+    : noLimit === 0 ? "One level needs no limit, so there is always someone who can approve a large amount."
+    : noLimit > 1 ? "Only one level can have no limit: the top one."
+    : null;
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await req("/approvals/levels/", { method: "POST", body: { levels: current.map((l) => ({
+        id: l.id || undefined, name: String(l.name).trim(), limit: Number(l.limit) || 0,
+        role: l.role || "", holders: l.holders || [],
+      })) } });
+      await onSaved();
+      setRows(null);
+      toast.ok("Approval limits saved", current.length
+        ? "New requests follow these limits. Requests already waiting keep the ones they started with."
+        : "There are no levels now, so the single sign-off amount applies again.");
+    } catch (e) {
+      toast.warn("Not saved", e.message || "");
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="card">
+      <div className="chead"><h3>Approval limits</h3>
+        <span className="faint" style={{ marginLeft: "auto", fontSize: 11.5 }}>smallest limit first</span></div>
+      <div className="cbody">
+        <div className="muted apintro">
+          Each level is the most someone on it can approve. A request goes to the requester's
+          manager first, then up the reporting line. Every manager with a level approves it in
+          turn, until it reaches someone whose limit covers the amount. Nobody approves their
+          own request.
+        </div>
+
+        {(org.gaps || []).length > 0 && !dirty && (
+          <div className="notice" style={{ borderLeft: "3px solid var(--brass)", marginBottom: 12 }}>
+            Nobody is on <b>{org.gaps.join(", ")}</b> yet. Pick someone for it under
+            <b> Who reports to whom</b> below.
+          </div>
+        )}
+
+        {current.map((l, i) => {
+          const n = l.id ? onLevel(l.id) : 0;
+          return (
+            <div className="aprow" key={l.id || l._k}>
+              <span className="apnum">{i + 1}</span>
+              <input className="in" placeholder="Level name, e.g. Head of Department" value={l.name}
+                     aria-label={`Level ${i + 1} name`}
+                     onChange={(e) => edit(i, { name: e.target.value })} />
+              <div className="aplimit">
+                <input className="in" type="number" min="0" step="1" inputMode="numeric"
+                       placeholder="No limit" aria-label={`Level ${i + 1} limit`} value={l.limit || ""}
+                       onChange={(e) => edit(i, { limit: e.target.value })} />
+                <span className="hint">
+                  {Number(l.limit) > 0 ? "up to " + fmtMoney(Number(l.limit), cur) : "no limit"}
+                  {l.id ? ` · ${n} ${n === 1 ? "person" : "people"}` : ""}
+                </span>
+              </div>
+              <button className="btn sm" aria-label={`Remove level ${i + 1}`} onClick={() => drop(i)}>
+                <Icon n="close" s={13} />
+              </button>
+            </div>
+          );
+        })}
+
+        {!current.length && (
+          <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6 }}>
+            No levels yet. Until you add some, a single sign-off amount applies and anyone allowed
+            to approve publications can sign.
+          </div>
+        )}
+
+        {problem && dirty && (
+          <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginTop: 10 }}>{problem}</div>
+        )}
+
+        <div className="toolrow" style={{ marginTop: 12, marginBottom: 0 }}>
+          <button className="btn sm" onClick={add} disabled={current.length >= 8}>
+            <Icon n="plus" s={13} /> Add a level
+          </button>
+          {dirty && (
+            <>
+              <button className="btn pri sm" onClick={save} disabled={busy || !!problem}>
+                {busy ? "Saving…" : "Save limits"}
+              </button>
+              <button className="btn sm" onClick={() => setRows(null)} disabled={busy}>Undo changes</button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LinesCard({ org, onSaved, toast }) {
+  const people = org.people || [];
+  const levels = org.levels || [];
+  const cur = org.currency;
+  const [busy, setBusy] = useState("");
+  const [q, setQ] = useState("");
+
+  const byId = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people]);
+  // Everyone below each person, so "Reports to" never offers a choice that makes a loop.
+  const below = useMemo(() => {
+    const kids = {};
+    people.forEach((p) => { (kids[p.managerId || ""] = kids[p.managerId || ""] || []).push(p.id); });
+    const out = {};
+    people.forEach((p) => {
+      const seen = new Set();
+      const stack = [...(kids[p.id] || [])];
+      while (stack.length) {
+        const id = stack.pop();
+        if (seen.has(id)) continue;
+        seen.add(id);
+        stack.push(...(kids[id] || []));
+      }
+      out[p.id] = seen;
+    });
+    return out;
+  }, [people]);
+
+  const save = async (p, patch, done) => {
+    setBusy(p.id);
+    try {
+      await req(`/approvals/people/${encodeURIComponent(p.id)}/`, { method: "POST", body: patch });
+      await onSaved();
+      toast.ok("Saved", done);
+    } catch (e) {
+      toast.warn("That didn't go through", e.message || "");
+    }
+    setBusy("");
+  };
+
+  const setManager = (p, mid) => {
+    const m = byId[mid];
+    save(p, { managerId: mid || null }, `${p.name} now reports to ${m ? m.name : "nobody"}.`);
+  };
+  const setLevel = (p, lid) => {
+    const l = levels.find((x) => x.id === lid);
+    save(p, { levelId: lid || null }, !l ? `${p.name} can no longer approve requests.`
+      : `${p.name} can now approve ${l.limit ? "up to " + fmtMoney(l.limit, cur) : "any amount"} as ${l.name}.`);
+  };
+
+  const needle = q.trim().toLowerCase();
+  const shown = needle
+    ? people.filter((p) => `${p.name} ${p.title}`.toLowerCase().includes(needle))
+    : people;
+
+  return (
+    <div className="card">
+      <div className="chead"><h3>Who reports to whom</h3>
+        <span className="faint" style={{ marginLeft: "auto", fontSize: 11.5 }}>changes save straight away</span></div>
+      <div className="cbody">
+        {!people.length ? (
+          <div className="muted" style={{ fontSize: 12.5 }}>
+            Nobody on the team yet. Add people in the People tab first.
+          </div>
+        ) : (
+          <>
+            {people.length > 8 && (
+              <div className="toolrow">
+                <input className="in" placeholder="Find someone by name or job title" value={q}
+                       aria-label="Find someone" onChange={(e) => setQ(e.target.value)} />
+              </div>
+            )}
+            {!levels.length && (
+              <div className="muted apintro">
+                Add approval limits above to give people an approval level.
+              </div>
+            )}
+            {shown.map((p) => (
+              <div className="apperson" key={p.id}>
+                <Avatar name={p.name} seed={p.id} size={34} dim={!p.active} />
+                <div className="apwho">
+                  <b>{p.name}</b>
+                  <span className="muted">
+                    {p.title || "No job title"}
+                    {!p.userId ? " · hasn't signed up yet" : !p.active ? " · switched off" : ""}
+                  </span>
+                </div>
+                <label className="apfield">
+                  <span className="lbl">Reports to</span>
+                  <select className="in" value={p.managerId || ""} disabled={busy === p.id}
+                          onChange={(e) => setManager(p, e.target.value)}>
+                    <option value="">Nobody (top of the chart)</option>
+                    {people.filter((m) => m.id !== p.id && !below[p.id].has(m.id)).map((m) => (
+                      <option key={m.id} value={m.id}>{m.name}{m.title ? " · " + m.title : ""}</option>
+                    ))}
+                  </select>
+                </label>
+                {levels.length > 0 && (
+                  <label className="apfield">
+                    <span className="lbl">Can approve</span>
+                    <select className="in" disabled={busy === p.id}
+                            value={levels.some((l) => l.id === p.levelId) ? p.levelId : ""}
+                            onChange={(e) => setLevel(p, e.target.value)}>
+                      <option value="">Nothing (no approval level)</option>
+                      {levels.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.name} · {l.limit ? "up to " + fmtMoney(l.limit, cur) : "no limit"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+            ))}
+            {needle && !shown.length && (
+              <div className="muted" style={{ fontSize: 12.5, paddingTop: 10 }}>Nobody matches “{q}”.</div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ApprovalsTab({ org, reload, toast }) {
+  return (
+    <div className="apstack">
+      <LevelsCard org={org} onSaved={reload} toast={toast} />
+      <LinesCard org={org} onSaved={reload} toast={toast} />
+    </div>
+  );
+}
+
 /* ---------------- shell ---------------- */
 
 /* A greeting is a small thing, but this console is where you arrive to deal
@@ -1168,8 +1430,8 @@ function greeting() {
   return "Good evening";
 }
 
-const TABS = [["people", "People"], ["roles", "Roles"], ["front", "Appearance"],
-              ["demo", "Demo data"], ["log", "What has changed"]];
+const TABS = [["people", "People"], ["roles", "Roles"], ["approvals", "Approvals"],
+              ["front", "Appearance"], ["demo", "Demo data"], ["log", "What has changed"]];
 
 export default function SuperAdmin() {
   const [signedIn, setSignedIn] = useState(!!token());
@@ -1201,7 +1463,7 @@ export default function SuperAdmin() {
     }).catch(() => {});
     /* The cleanup does NOT strip the attributes, and that is the fix for the
        flash rather than an oversight. They are stamped server-side on <html>
-       (see docket/urls.py SpaShell), and this effect re-runs on navigation —
+       (see docket/urls.py SpaShell), and this effect re-runs on navigation -
        so clearing them here repainted the page in the default accent for the
        moment between unmount and the next fetch resolving. The deployment's
        appearance does not change because somebody opened a different page. */
@@ -1275,6 +1537,7 @@ export default function SuperAdmin() {
 
           {tab === "people" && <PeopleTab state={state} reload={reload} toast={toast} />}
           {tab === "roles" && <RolesTab state={state} reload={reload} toast={toast} />}
+          {tab === "approvals" && <ApprovalsTab org={state.org} reload={reload} toast={toast} />}
           {tab === "front" && <AppearanceTab current={state.landing} accent={state.accent}
                                             onChanged={reload} toast={toast} />}
           {tab === "demo" && <DemoTab toast={toast} onCleared={reload} />}
@@ -1368,7 +1631,10 @@ export const ADMIN_CSS = `
 @media(max-width:720px){ .demogrid2{grid-template-columns:1fr} }
 
 .adminwrap .logincard{max-width:420px}
-.adminroot{display:block;background:var(--paper)}
+/* On desktop the workspace shell pins .dk to the screen height and hides its
+   overflow so the content pane can scroll on its own. The console has no such
+   pane, so undo that here and let the page itself scroll. */
+.adminroot{display:block;height:auto;overflow:visible;background:var(--paper)}
 .admintop{display:flex;align-items:center;gap:10px;padding:10px var(--gutter);
   background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
 .adminmark{font-family:var(--font-mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.14em;
@@ -1383,6 +1649,31 @@ export const ADMIN_CSS = `
 .admintab.on{color:var(--brand);border-bottom-color:var(--brand)}
 .toolrow{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px}
 .toolrow .in{flex:1 1 220px;min-width:180px}
+
+/* ---- approvals: limits, then the people on them ---- */
+.apstack{display:flex;flex-direction:column;gap:16px}
+.apintro{font-size:12.5px;line-height:1.6;margin-bottom:14px}
+.aprow{display:grid;grid-template-columns:24px minmax(0,1fr) 36px;gap:8px;align-items:start;
+  padding:10px 0;border-top:1px solid var(--line)}
+.aprow > .aplimit{grid-column:2}
+.aprow > .btn{grid-row:1;grid-column:3}
+.apnum{width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
+  font-size:11.5px;font-weight:600;background:var(--brand-tint);color:var(--brand);margin-top:9px}
+.aplimit .hint{display:block;margin-top:3px}
+.apperson{display:grid;grid-template-columns:34px minmax(0,1fr);gap:10px 12px;align-items:center;
+  padding:12px 0;border-top:1px solid var(--line)}
+.apperson > .apfield{grid-column:1 / -1}
+.apwho{display:flex;flex-direction:column;min-width:0}
+.apwho span{font-size:12px}
+.apfield{display:flex;flex-direction:column;gap:4px;min-width:0}
+@media(min-width:720px){
+  .aprow{grid-template-columns:24px minmax(0,1.4fr) minmax(0,1fr) 36px}
+  .aprow > .aplimit,.aprow > .btn{grid-row:auto;grid-column:auto}
+}
+@media(min-width:900px){
+  .apperson{grid-template-columns:34px minmax(0,1.1fr) minmax(0,1fr) minmax(0,1fr)}
+  .apperson > .apfield{grid-column:auto}
+}
 
 /* ---- people, as people ----
    A row per person rather than a grid of cells: a face, a name, one sentence of

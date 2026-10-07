@@ -1,4 +1,4 @@
-"""Idempotent background sweep — no worker dyno required.
+"""Idempotent background sweep - no worker dyno required.
 
 Runs opportunistically (throttled) from the bootstrap endpoint, and can also be
 run on a schedule via `python manage.py run_sweep` (Render cron, GitHub Action,
@@ -63,7 +63,7 @@ def run_sweep():
         if _once(_seal_key(t)):
             n = t.bids.count()
             record_event(actor="System", role="system", at=t.deadline,
-                         action="Deadline passed — bids sealed", tender_id=t.id,
+                         action="Deadline passed - bids sealed", tender_id=t.id,
                          detail=f"{n} sealed bid(s) held for formal opening.")
             notify_perm("bid.open", f"Bids sealed: {t.title}",
                         f"The deadline for {t.ref} has passed. {n} sealed bid(s) are ready for a recorded opening.",
@@ -162,7 +162,7 @@ def sweep_finance(now=None):
     """Raise a notification for each new finance exception, once.
 
     The idempotence key is the rule's own `key`, which is built from the records
-    involved rather than from the time — so the same overdue invoice does not
+    involved rather than from the time - so the same overdue invoice does not
     notify twice, but an invoice that crosses into a new thirty-day band does,
     because that is a new fact.
     """
@@ -171,7 +171,7 @@ def sweep_finance(now=None):
     try:
         found = finance.exceptions(now)
     except Exception:                                             # noqa: BLE001
-        # A malformed ledger row must not take the whole sweep down with it —
+        # A malformed ledger row must not take the whole sweep down with it -
         # the deadline sealing above it is time-critical and this is not.
         return 0
 

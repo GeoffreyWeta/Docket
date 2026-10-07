@@ -75,7 +75,7 @@ class Command(BaseCommand):
         w(f"    URL       /superadmin")
         w(f"    username  {username}")
         if created or o["password"]:
-            w(f"    password  {password}" + ("   (generated — store it now, it is not shown again)" if generated else ""))
+            w(f"    password  {password}" + ("   (generated - store it now, it is not shown again)" if generated else ""))
         else:
             w("    password  unchanged")
         w("")

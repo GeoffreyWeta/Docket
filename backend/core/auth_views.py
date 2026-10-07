@@ -1,7 +1,7 @@
 """Authentication: username/password login issuing opaque bearer tokens.
 
 DEMO_LOGIN=1 additionally exposes one-click logins for the seeded demo
-accounts (no password) so the persona-switching demo UX survives — flip the
+accounts (no password) so the persona-switching demo UX survives - flip the
 env var to 0 to require passwords everywhere.
 """
 import json
@@ -69,7 +69,7 @@ def _demo_accounts():
 
     from .permissions import custom_roles, role_label
     custom = custom_roles()
-    short = lambda role: role_label(role, custom).split("—")[0].strip()
+    short = lambda role: role_label(role, custom).split(" - ")[0].strip()
     out, seen = [], set()
     row = lambda u: {"username": u.username,
                      "label": f"{u.profile.persona.name} · {short(u.profile.persona.role)}",
@@ -88,7 +88,7 @@ def _demo_accounts():
             walk(pid)
 
     walk(None)
-    # anything the walk could not reach — an orphaned line, or one in a cycle —
+    # anything the walk could not reach - an orphaned line, or one in a cycle -
     # still gets a door, just at the end
     for u in sorted(users, key=lambda u: u.profile.persona_id):
         if u.profile.persona_id not in seen:
@@ -111,7 +111,7 @@ def auth_config(request):
         # an empty workspace sends the sign-in page to the setup wizard instead
         "needsSetup": needs_setup(),
         # Where a visitor goes to start a workspace of their own. DOCKET is
-        # single-tenant, so on the demo deployment that is NOT this server —
+        # single-tenant, so on the demo deployment that is NOT this server -
         # running setup here would rename the demo org and hand the newcomer the
         # demo's tenders. Set SIGNUP_URL on the demo to the real deployment's
         # address; leave it unset everywhere else and the local wizard is used.
@@ -140,7 +140,7 @@ def login(request):
     body = _body(request)
     username = str(body.get("username", "")).strip().lower()
     if _locked(username):
-        return _err("Too many failed attempts — this account is locked for 15 minutes.", 429)
+        return _err("Too many failed attempts - this account is locked for 15 minutes.", 429)
     user = authenticate(username=username, password=str(body.get("password", "")))
     if not user or not hasattr(user, "profile"):
         _fail(username)
@@ -157,7 +157,7 @@ def login(request):
             return JsonResponse({"mfaRequired": True, "error": "Enter the 6-digit code from your authenticator app."}, status=401)
         if not pyotp.TOTP(prof.totp_secret).verify(code, valid_window=1):
             _fail(username)
-            return _err("That code isn't right — check your authenticator app.", 401)
+            return _err("That code isn't right - check your authenticator app.", 401)
     FailedLogin.objects.filter(username=username).delete()
     return JsonResponse(_issue(user))
 
@@ -213,7 +213,7 @@ def mfa_setup(request):
     import qrcode
     prof = user.profile
     if prof.totp_confirmed:
-        return _err("Two-factor is already enabled — disable it first to re-enroll.", 409)
+        return _err("Two-factor is already enabled - disable it first to re-enroll.", 409)
     prof.totp_secret = pyotp.random_base32()
     prof.totp_confirmed = False
     prof.save(update_fields=["totp_secret", "totp_confirmed"])
@@ -237,7 +237,7 @@ def mfa_enable(request):
         return _err("Run setup first.", 409)
     code = str(_body(request).get("code", "")).strip()
     if not pyotp.TOTP(prof.totp_secret).verify(code, valid_window=1):
-        return _err("That code isn't right — scan the QR again and retry.")
+        return _err("That code isn't right - scan the QR again and retry.")
     prof.totp_confirmed = True
     prof.save(update_fields=["totp_confirmed"])
     record_event(actor=prof.identity["name"], role=prof.identity["role"],

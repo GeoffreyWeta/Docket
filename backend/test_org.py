@@ -1,12 +1,12 @@
 """Test company + test user, and an end-to-end exercise of the platform
 through their accounts.
 
-    python test_org.py            # set up only — idempotent, never wipes data
+    python test_org.py            # set up only - idempotent, never wipes data
     python test_org.py --full     # reseed the demo, set up, then test everything
 
 Setup creates a self-registered vendor ("Test Company Ltd") and a buyer-side
 teammate ("Test User", procurement) through the same HTTP endpoints the UI
-calls, so a green run is evidence the real flows work — not just the ORM.
+calls, so a green run is evidence the real flows work - not just the ORM.
 --full then drives both accounts through every feature: approval matrix,
 clarifications, addenda, sealed bidding with encrypted uploads, the recorded
 opening, COI-gated blind scoring, award + letters, exports, the audit chain,
@@ -61,8 +61,8 @@ TEAMMATE = {
     "role": "procurement",
     "title": "Test Procurement Lead",
 }
-SANDBOX_TENDER = "Test sandbox — branded consumables (test data)"
-SANDBOX_AUCTION = "Test sandbox — diesel reverse auction (test data)"
+SANDBOX_TENDER = "Test sandbox - branded consumables (test data)"
+SANDBOX_AUCTION = "Test sandbox - diesel reverse auction (test data)"
 COMPANY2 = {  # second vendor, used for the decline → fix → approve path
     "company": "Test Company Two",
     "email": "testco2@example.com",
@@ -94,12 +94,12 @@ def ok(label):
 
 
 def yes(label, cond, extra=""):
-    assert cond, f"{SECTION} — {label}: FAILED {extra}"
+    assert cond, f"{SECTION} - {label}: FAILED {extra}"
     ok(label)
 
 
 def eq(label, got, want):
-    assert got == want, f"{SECTION} — {label}: {got!r} != {want!r}"
+    assert got == want, f"{SECTION} - {label}: {got!r} != {want!r}"
     ok(label)
 
 
@@ -116,7 +116,7 @@ def call(method, path, who, body=None, expect=200, files=None, label=None):
     else:
         r = c.post(path, data=json.dumps(body or {}), content_type=J, **kw)
     assert r.status_code == expect, (
-        f"{SECTION} — {method} {path} as {who}: {r.status_code} != {expect} — {r.content[:300]}")
+        f"{SECTION} - {method} {path} as {who}: {r.status_code} != {expect} - {r.content[:300]}")
     if label:
         ok(label)
     ct = r.headers.get("Content-Type", "")
@@ -129,7 +129,7 @@ def signin(username, password=None, expect=200):
     r = c.post("/api/auth/login/", json.dumps({"username": username, "password": pw}), content_type=J)
     if r.status_code != 200 and password is None and settings.DEMO_LOGIN:
         r = c.post("/api/auth/demo/", json.dumps({"username": username}), content_type=J)
-    assert r.status_code == expect, f"sign-in {username}: {r.status_code} — {r.content[:200]}"
+    assert r.status_code == expect, f"sign-in {username}: {r.status_code} - {r.content[:200]}"
     if r.status_code == 200:
         TOK[username] = r.json()["token"]
         return r.json()
@@ -166,7 +166,7 @@ CO, TU = COMPANY["email"], TEAMMATE["email"]
 def _procurement_login():
     """Sign in as an existing procurement user so invites can be sent."""
     if not User.objects.filter(profile__persona__role="procurement").exists():
-        print("   no procurement account found — seeding the demo workspace first")
+        print("   no procurement account found - seeding the demo workspace first")
         seed_all()
     for name in ["amara"] + list(User.objects.filter(profile__persona__role="procurement")
                                  .values_list("username", flat=True)):
@@ -177,7 +177,7 @@ def _procurement_login():
             return name
         except AssertionError:
             continue
-    raise SystemExit("Could not sign in as any procurement user — reseed with "
+    raise SystemExit("Could not sign in as any procurement user - reseed with "
                      "`python manage.py seed_demo --force`.")
 
 
@@ -187,7 +187,7 @@ def register_company(spec):
     if r.status_code == 409:  # already registered on a previous run
         signin(spec["email"], spec["password"])
         return Supplier.objects.get(contact_email=spec["email"]).id, False
-    assert r.status_code == 200, f"vendor registration: {r.status_code} — {r.content[:200]}"
+    assert r.status_code == 200, f"vendor registration: {r.status_code} - {r.content[:200]}"
     if not r.json().get("verified"):  # DEMO_LOGIN=0: consume the emailed verification token
         tok = ActionToken.objects.filter(kind="vendor_verify", email=spec["email"],
                                          used_at__isnull=True).first()
@@ -214,9 +214,9 @@ def invite_teammate(inviter, spec):
 
 
 def setup():
-    section("SETUP — test company + test user")
+    section("SETUP - test company + test user")
     inviter = _procurement_login()
-    ok(f"signed in as existing procurement user — {inviter}")
+    ok(f"signed in as existing procurement user - {inviter}")
 
     sid, fresh = register_company(COMPANY)
     ok(f'{"registered" if fresh else "reusing"} vendor "{COMPANY["company"]}" ({sid})')
@@ -228,7 +228,7 @@ def setup():
             any(TEAMMATE["email"] in m.to and "itoken=" in m.body for m in mail.outbox))
     me = boot(TU)["me"]
     eq("test user has the invited role", me["role"], TEAMMATE["role"])
-    ok(f'{"invited" if made else "reusing"} teammate "{TEAMMATE["name"]}" — {me["title"]}')
+    ok(f'{"invited" if made else "reusing"} teammate "{TEAMMATE["name"]}" - {me["title"]}')
 
     # a compliance document with an expiry, uploaded by the company itself
     if not Document.objects.filter(kind="supplier", supplier_id=sid).exists():
@@ -284,7 +284,7 @@ def _sandbox_auction(sid):
     live = Auction.objects.filter(title=SANDBOX_AUCTION, status="live",
                                   ends_at__gt=now_ms() + 60_000).first()
     if live:
-        ok(f"reusing live sandbox auction ({live.ref}) — closes "
+        ok(f"reusing live sandbox auction ({live.ref}) - closes "
            f"{(live.ends_at - now_ms()) // 60000} min from now")
         return
 
@@ -300,7 +300,7 @@ def _sandbox_auction(sid):
                "price, and any bid in the final two minutes extends the close."),
     )
     lot = AuctionLot.objects.create(
-        id=rid("l"), auction=a, number=1, title="AGO (diesel) — 128 sites, 12 months",
+        id=rid("l"), auction=a, number=1, title="AGO (diesel) - 128 sites, 12 months",
         qty=1, uom="year", ceiling=90_000_000, min_decrement=500_000)
     for who in (sid, "s2", "s3"):
         AuctionParticipant.objects.create(id=rid("ap"), auction=a, supplier_id=who,
@@ -313,7 +313,7 @@ def _sandbox_auction(sid):
     for who, amount in (("s2", 89_500_000), ("s3", 88_000_000)):
         bid, bad = engine.place_bid(lot, who, amount)
         placed += 0 if bad else 1
-    ok(f"{placed} rival bid(s) already on the board — the test company enters at "
+    ok(f"{placed} rival bid(s) already on the board - the test company enters at "
        f"rank {placed + 1}")
 
 
@@ -394,7 +394,7 @@ def sec_tenders(ctx):
 
     a = new_tender(TU, {
         **base,
-        "title": "Test Company trial — packaging consumables",
+        "title": "Test Company trial - packaging consumables",
         "budget": 30_000_000, "deadline": now + 7 * DAY,
         "lines": [{"desc": "Branded cold cups (sleeve of 50)", "qty": 2000, "unit": "sleeve"},
                   {"desc": "Takeaway boxes (carton of 100)", "qty": 1200, "unit": "carton"}],
@@ -410,7 +410,7 @@ def sec_tenders(ctx):
         any("Invitation to tender" in s for s in subjects(CO)))
     yes("uninvited supplier cannot see it", tender_of("harmattan", a) is None)
 
-    b = new_tender(TU, {**base, "title": "Test Company trial — store fit-out", "category": "Facilities",
+    b = new_tender(TU, {**base, "title": "Test Company trial - store fit-out", "category": "Facilities",
                         "budget": 60_000_000, "deadline": now + int(1.2 * DAY)})["id"]
     eq("at/above-threshold tender routes for approval", tender_of(TU, b)["status"], "approval")
     yes("approver was notified", any("Publication approval needed" in s for s in subjects("mark")))
@@ -441,7 +441,7 @@ def sec_bidding(ctx):
     call("POST", f"/api/clarifications/{cid}/answer/", CO, {"a": "no"}, expect=403,
          label="a supplier cannot answer clarifications")
     call("POST", f"/api/clarifications/{cid}/answer/", TU,
-         {"a": "Yes — mixed pallets are acceptable if labelled per SKU."})
+         {"a": "Yes - mixed pallets are acceptable if labelled per SKU."})
     q = [x for x in boot(CO)["clarifications"] if x["id"] == cid][0]
     yes("company reads the published answer", q["a"].startswith("Yes"))
     q2 = [x for x in boot("coldline")["clarifications"] if x["id"] == cid][0]
@@ -632,7 +632,7 @@ def sec_exports_audit(ctx):
     ev.save(update_fields=["detail"])
     yes("restoring the row heals the chain", call("GET", "/api/audit/integrity/", "aisha")["ok"])
     actions = [e["action"] for e in boot(TU)["events"]]
-    for act in ("Sealed bid received", "Bid opening — seals broken",
+    for act in ("Sealed bid received", "Bid opening - seals broken",
                 "Conflict-of-interest declaration signed", "Award recommended", "Award approved"):
         yes(f'audit trail records "{act}"', act in actions)
 
@@ -643,7 +643,7 @@ def sec_two_stage(ctx):
     section("F. two-stage envelope opening")
     sid, now = ctx["sid"], now_ms()
     tid = new_tender(TU, {
-        "title": "Test Company trial — security services (two-stage)", "type": "RFP",
+        "title": "Test Company trial - security services (two-stage)", "type": "RFP",
         "category": "Facilities", "budget": 40_000_000, "deadline": now + 3 * DAY, "techWeight": 60,
         "twoStage": True, "techThreshold": 70, "scope": "Guarding for 12 flagship stores.",
         "criteria": [{"name": "Capability", "weight": 60}, {"name": "Coverage", "weight": 40}],
@@ -662,7 +662,7 @@ def sec_two_stage(ctx):
     ok("both bidders lodge technical and commercial envelopes")
     Tender.objects.filter(pk=tid).update(deadline=now_ms() - 1000)
 
-    call("POST", f"/api/tenders/{tid}/open/", TU, {}, label="stage 1 — technical envelopes opened")
+    call("POST", f"/api/tenders/{tid}/open/", TU, {}, label="stage 1 - technical envelopes opened")
     row = Tender.objects.get(pk=tid)
     yes("commercial stage is untouched", row.tech_opened_at and not row.opened_at)
     yes("prices stay ciphertext at rest in stage 1",
@@ -685,7 +685,7 @@ def sec_two_stage(ctx):
     ok("panel scores the technical envelopes blind (90/100 vs 40/100)")
 
     call("POST", f"/api/tenders/{tid}/open/", TU, {"threshold": 70},
-         label="stage 2 — commercial envelopes opened for compliant bidders only")
+         label="stage 2 - commercial envelopes opened for compliant bidders only")
     row = Tender.objects.get(pk=tid)
     passed, failed = row.bids.get(supplier_id=sid), row.bids.get(supplier_id="s3")
     yes("compliant bidder's price is decrypted",
@@ -986,7 +986,7 @@ def sec_org_admin(ctx):
     eq("approver raises the publication threshold", r["approvalThreshold"], 100_000_000)
     eq("the new threshold is served to everyone",
        boot(TU)["org"]["approvalThreshold"], 100_000_000)
-    tid = new_tender(TU, {"title": "Test Company trial — threshold check", "type": "RFQ",
+    tid = new_tender(TU, {"title": "Test Company trial - threshold check", "type": "RFQ",
                           "category": "Facilities", "budget": 80_000_000, "deadline": now + 6 * DAY,
                           "techWeight": 60, "scope": "x", "invited": [ctx["sid"]],
                           "criteria": [{"name": "Quality", "weight": 100}], "submit": True})["id"]
@@ -998,7 +998,7 @@ def sec_org_admin(ctx):
          label="a supplier cannot rename the workspace")
     call("POST", "/api/settings/", TU, {"name": "Test Workspace Group", "short": "Testworks"})
     eq("procurement renames the workspace", boot(TU)["org"]["name"], "Test Workspace Group")
-    r = new_tender(TU, {"title": "Test Company trial — renamed workspace", "type": "RFQ",
+    r = new_tender(TU, {"title": "Test Company trial - renamed workspace", "type": "RFQ",
                         "category": "Facilities", "budget": 4_000_000, "deadline": now + 6 * DAY,
                         "techWeight": 60, "scope": "x", "invited": [ctx["sid"]],
                         "criteria": [{"name": "Quality", "weight": 100}], "submit": True})
@@ -1283,7 +1283,7 @@ def sec_campaign(ctx):
                  {"action": "start", "confirm": pre["toSend"]})
         yes("confirming the exact count arms the drive", r["state"]["running"])
 
-        # Sending is bounded per sweep — a request that mails 1,300 vendors is a
+        # Sending is bounded per sweep - a request that mails 1,300 vendors is a
         # request that times out halfway with no record of who was reached.
         sent, failed = campaign.send_batch("https://example.test", "Test Org", limit=3)
         yes("a batch is bounded", sent + failed <= 3)
@@ -1439,13 +1439,13 @@ def sec_history(ctx):
 
 def print_credentials():
     print("\n" + "=" * 68)
-    print("TEST ACCOUNTS  (sign in at /  —  username is the email address)")
+    print("TEST ACCOUNTS  (sign in at /  -  username is the email address)")
     print("=" * 68)
     rows = [
         ("Test company (supplier)", COMPANY["email"], COMPANY["password"],
-         f'{COMPANY["company"]} — prequalified'),
+         f'{COMPANY["company"]} - prequalified'),
         ("Test user (buyer)", TEAMMATE["email"], TEAMMATE["password"],
-         f'{TEAMMATE["name"]} — {TEAMMATE["role"]}'),
+         f'{TEAMMATE["name"]} - {TEAMMATE["role"]}'),
     ]
     for what, user, pw, note in rows:
         print(f"  {what:24}  {user:24}  {pw:20}  {note}")
@@ -1477,7 +1477,7 @@ def main():
         print(f"\n{len(CHECKS)} checks passed in {time.time() - started:.1f}s "
               f"across {len({s for s, _ in CHECKS})} sections.")
     else:
-        print(f"\nSetup complete — {len(CHECKS)} checks passed. "
+        print(f"\nSetup complete - {len(CHECKS)} checks passed. "
               f"Run with --full to exercise the whole platform.")
     print_credentials()
     return 0

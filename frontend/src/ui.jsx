@@ -135,7 +135,7 @@ export function Dialog({ title, children, footer, onClose, wide }) {
 /** One-call confirmation. `hold` turns the confirm button into press-and-hold:
     use it for anything the server cannot undo. */
 /* `disabled` is for the confirmations that need something typed before they
-   mean anything — a cancellation reason a vendor is about to read verbatim, for
+   mean anything - a cancellation reason a vendor is about to read verbatim, for
    instance. Without it those dialogs had to be rebuilt from Dialog by hand and
    lost the hold gesture in the process. */
 export function ConfirmDialog({ title, children, confirmLabel = "Confirm", tone = "pri",
@@ -425,13 +425,13 @@ export function Radar({ axes, series, size = 300, max = 100 }) {
   const poly = (vals) => vals.map((v, i) => at(i, v).map((x) => x.toFixed(1)).join(",")).join(" ");
 
   /* The plot is square; the labels around it are not. An axis label is anchored
-     outside the outer ring and runs outward, so the longest one — "COMPLIANCE",
-     anchored end-wise on the left — extends past x=0 and used to be clipped to
+     outside the outer ring and runs outward, so the longest one - "COMPLIANCE",
+     anchored end-wise on the left - extends past x=0 and used to be clipped to
      "LIANCE". Worse, the clip grew with the chart: a bigger radar lost more of
      the word, which is the opposite of what enlarging it should do.
 
      So the box is measured rather than guessed. After layout, getBBox() returns
-     the union of everything actually drawn, labels included, in user units —
+     the union of everything actually drawn, labels included, in user units -
      which is the real answer to "how much room does this need", at whatever font
      the theme resolved and whatever words the caller passed. Callers no longer
      have to reserve a gutter, and none of them can get it wrong.
@@ -454,7 +454,7 @@ export function Radar({ axes, series, size = 300, max = 100 }) {
         if (!b.width || !b.height) return;      // not laid out yet, or hidden
         setBox({ x: b.x - RADAR_PAD, y: b.y - RADAR_PAD,
                  w: b.width + RADAR_PAD * 2, h: b.height + RADAR_PAD * 2 });
-      } catch (e) { /* detached or display:none — keep the square fallback */ }
+      } catch (e) { /* detached or display:none - keep the square fallback */ }
     };
     measure();
     /* Webfonts land after first paint and change every glyph advance, so a box

@@ -70,8 +70,8 @@ export const Stat = ({ k, v, d, tone, onClick, hint }) => {
                         that own a whole card or page, where there is room
                         for a picture and the blankness would otherwise read
                         as a load failure.
-     icon="envelope"    a 30px glyph from icons.jsx. For the small ones —
-                        inside a table cell, a half-card, a dialog — where a
+     icon="envelope"    a 30px glyph from icons.jsx. For the small ones -
+                        inside a table cell, a half-card, a dialog - where a
                         190px illustration would be louder than the record
                         list it is standing in for.
 
@@ -107,7 +107,7 @@ export function StageTracker({ t }) {
   const T = nowMs();
   /* A cancelled event did not reach the stages it never reached. Drawing the
      ordinary six with the first three ticked would read as a competition still
-     in flight, which is the one thing it is not — so the track ends where the
+     in flight, which is the one thing it is not - so the track ends where the
      event ended and says so. */
   if (t.cancelledAt) {
     const stages = [

@@ -6,7 +6,7 @@ Nothing here invents data. Each step has a source it can be checked against:
                rules the importer will use from now on
   category     the seven hardcoded tender words mapped onto the register's
                vocabulary, so both sides finally count the same buckets
-  owner        the audit chain — the first buyer-side actor on a tender is the
+  owner        the audit chain - the first buyer-side actor on a tender is the
                person who was running it, and the chain is tamper-evident
 
 Where the evidence is silent the field stays empty. An unowned tender is a
@@ -41,7 +41,7 @@ def forwards(apps, schema_editor):
             Tender.objects.filter(pk=t.pk).update(category=fixed)
 
     # 3) Tenders: owner from the audit chain. The earliest event by someone who
-    #    is not a supplier and not the system — whoever first moved this tender
+    #    is not a supplier and not the system - whoever first moved this tender
     #    is who was running it. Ties broken by sequence, which is total.
     by_name = {p.name: p for p in Persona.objects.all()}
     if by_name:

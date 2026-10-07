@@ -27,6 +27,14 @@ from .views import err, log, org_name, route
 # will happily show two thousand rows - but on how many messages one HTTP call
 # will sit and push through SMTP before something upstream gives up on it.
 SEND_CAP = 500
+# Through Microsoft 365 one mailbox sends 30 a minute and graph_mail paces under
+# that, so 500 would hold the request for twenty minutes. Fifty is about a minute
+# and a quarter, inside gunicorn's two.
+GRAPH_SEND_CAP = 50
+
+
+def send_cap():
+    return GRAPH_SEND_CAP if settings.EMAIL_BACKEND == "core.graph_mail.GraphEmailBackend" else SEND_CAP
 
 
 def _known_emails():
@@ -83,7 +91,8 @@ def invite_parse(request, p, body):
         return err("Pick a role that exists in this workspace.")
 
     ready, rejected = bulk_invite.classify(
-        candidates, known_emails=_known_emails(),
+        _role_keys(candidates) if audience == "people" else candidates,
+        known_emails=_known_emails(),
         valid_roles=valid, default_role=default_role)
 
     return JsonResponse({
@@ -94,10 +103,24 @@ def invite_parse(request, p, body):
         "rejected": rejected,
         "counts": {"found": notes.get("found", 0), "ready": len(ready),
                    "rejected": len(rejected)},
-        "sendCap": SEND_CAP,
+        "sendCap": send_cap(),
         "roles": [{"key": r["key"], "label": r["label"]} for r in assignable_roles()]
         if audience == "people" else [],
     })
+
+
+def _role_keys(rows):
+    """Let a row name its role as the company calls it ("Tender Board") as
+    well as by its key. The template shows names, because names are what the
+    person filling it in knows; a key is still accepted, and wins a tie."""
+    roles = assignable_roles()
+    keys = {r["key"] for r in roles}
+    by_label = {r["label"].strip().lower(): r["key"] for r in roles}
+    for r in rows:
+        given = str(r.get("role") or "").strip().lower()
+        if given and given not in keys and given in by_label:
+            r["role"] = by_label[given]
+    return rows
 
 
 def _may(p, cap):
@@ -125,15 +148,17 @@ def invite_send(request, p, body):
     rows = body.get("rows") or []
     if not isinstance(rows, list) or not rows:
         return err("Nothing to send.")
-    if len(rows) > SEND_CAP:
-        return err(f"That is {len(rows)} invitations. Send them {SEND_CAP} at a time - "
-                   f"one request pushing more than that through SMTP will time out "
+    cap = send_cap()
+    if len(rows) > cap:
+        return err(f"That is {len(rows)} invitations. Send them {cap} at a time - "
+                   f"one request pushing more than that through the mail server will time out "
                    f"before it finishes, and you will not know which ones went.")
 
     default_role = str(body.get("role", "")).strip().lower()
     valid = {r["key"] for r in assignable_roles()} if audience == "people" else None
     ready, rejected = bulk_invite.classify(
-        rows, known_emails=_known_emails(), valid_roles=valid, default_role=default_role)
+        _role_keys(rows) if audience == "people" else rows,
+        known_emails=_known_emails(), valid_roles=valid, default_role=default_role)
 
     sent, failed = [], list(rejected)
     for r in ready:

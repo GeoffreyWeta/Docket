@@ -3,7 +3,7 @@
    WHY THIS FILE EXISTS WHEN illus.jsx ALREADY DRAWS. illus.jsx serves the
    signed-in app: 220x150 scenes, sized to sit above one sentence in an empty
    table, coloured from the app's --il-* tokens. The front page wants
-   something else — larger scenes that own a card rather than apologise for an
+   something else - larger scenes that own a card rather than apologise for an
    empty one, coloured from the landing palette (--lp-*), and a few of them
    moving. Pointing illus.jsx at both jobs would mean one drawing set serving
    two palettes at two sizes, which is how a set stops being a set.
@@ -40,8 +40,8 @@ import React from "react";
 /* ------------------------------------------------------------- the scenes */
 
 const SCENES = {
-  /* SEALED BIDDING. A stack of envelopes with the top flap shut — the shut
-     flap is the entire product — and a clock rather than a key beside it,
+  /* SEALED BIDDING. A stack of envelopes with the top flap shut - the shut
+     flap is the entire product - and a clock rather than a key beside it,
      because sealing here is a property of time, not of a permission somebody
      is holding. The amount is drawn as ciphertext dashes, not as blur: blur
      says "we hid it from you", dashes say "there is nothing here to read
@@ -175,7 +175,7 @@ const SCENES = {
 
   /* THE VENDOR REGISTER. Three rows of a register rather than three portrait
      cards: what a buyer gets is a list they can search, not a gallery. Two
-     rows verified, the third still waiting on a document — a register in
+     rows verified, the third still waiting on a document - a register in
      which everything is already green is a register nobody needs. */
   register: (
     <>
@@ -248,7 +248,7 @@ const SCENES = {
     </>
   ),
 
-  /* A TEMPLATE. A matrix — levels down one side, categories across the top —
+  /* A TEMPLATE. A matrix - levels down one side, categories across the top -
      because the thing being offered is a grid somebody fills in, and drawing
      it as a grid is the shortest way to say so. */
   grid: (
@@ -276,7 +276,7 @@ const SCENES = {
      others are still lifes that need their whole frame: crop an envelope
      with a product panel and what is left over the edges is three grey pipes
      and nobody can tell what it was. A seal is radially symmetric, so any
-     crop of it is still a seal — which is why the thing hanging off the
+     crop of it is still a seal - which is why the thing hanging off the
      corner of the fold is this and not a picture of something.
 
      It draws to its own square box rather than the set's 240x160, because it

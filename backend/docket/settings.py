@@ -28,7 +28,7 @@ PUBLIC_BASE_URL = os.environ.get(
 
 # `*` is the default because managed load balancers (Render, Lightsail, an ALB)
 # health-check the container on an internal address whose Host header is not the
-# public domain — pinning the list without including that address returns 400 to
+# public domain - pinning the list without including that address returns 400 to
 # the health check and the deployment never goes live. Pin it only when you know
 # what the prober sends, and keep the public domain in the list.
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get("ALLOWED_HOSTS", "*").split(",") if h.strip()]
@@ -120,7 +120,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 USE_TZ = True
 LANGUAGE_CODE = "en-us"
 
-# AI (optional — endpoints return 503 without a key)
+# AI (optional - endpoints return 503 without a key)
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 AI_MODEL = os.environ.get("AI_MODEL", "claude-sonnet-4-6")
 
@@ -134,7 +134,7 @@ AI_MODEL = os.environ.get("AI_MODEL", "claude-sonnet-4-6")
 # default for a deployment nobody has connected yet.
 #
 # The secret is read from the environment and never written to the database or
-# returned by any endpoint — see finance_sync.bc_config().
+# returned by any endpoint - see finance_sync.bc_config().
 BC_TENANT_ID = os.environ.get("BC_TENANT_ID", "")
 BC_COMPANY_ID = os.environ.get("BC_COMPANY_ID", "")
 BC_CLIENT_ID = os.environ.get("BC_CLIENT_ID", "")
@@ -145,7 +145,7 @@ DEMO_LOGIN = os.environ.get("DEMO_LOGIN", "1") == "1"
 DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD", "docket-demo")
 
 # Where somebody who has seen the demo goes to start a workspace of their own.
-# DOCKET is single-tenant — one org row, no tenant key on tenders or suppliers —
+# DOCKET is single-tenant - one org row, no tenant key on tenders or suppliers -
 # so on the demo deployment this must point at the real one. Running the setup
 # wizard against the demo database renames the demo org and gives the newcomer
 # the demo's tenders and suppliers as their own. Unset means "the wizard on this
@@ -154,13 +154,13 @@ SIGNUP_URL = os.environ.get("SIGNUP_URL", "").rstrip("/")
 
 # The other direction: where the landing page sends somebody who wants to look
 # before they commit. Set on the real deployment to the demo's address, and left
-# empty on the demo itself — it is already the demo.
+# empty on the demo itself - it is already the demo.
 DEMO_URL = os.environ.get("DEMO_URL", "").rstrip("/")
 
 # The code that has to be typed before a company can be registered on this
 # deployment. An empty workspace on a public address is a company waiting to be
 # claimed by whoever finds the URL first, and "nobody had set it up yet" is not
-# consent — the setup wizard is the one unauthenticated endpoint that can create
+# consent - the setup wizard is the one unauthenticated endpoint that can create
 # an administrator, so it gets a shared secret issued out of band.
 #
 # Checked case-insensitively and rate-limited (see setup_views.check_code).
@@ -174,8 +174,18 @@ ALLOWED_UPLOAD_EXTENSIONS = {
 }
 DATA_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_BYTES + 1024 * 1024
 
-# ---- email (console backend unless SMTP env is provided) ----
-if os.environ.get("EMAIL_HOST"):
+# ---- email ----
+# Three ways out, first match wins:
+#   Microsoft 365 (all three MS365_*): the From mailbox sends it itself, through
+#     Microsoft Graph - core/graph_mail.py, and the README for the admin steps.
+#   SMTP (EMAIL_HOST): any relay.
+#   neither: printed to the log.
+MS365_TENANT_ID = os.environ.get("MS365_TENANT_ID", "")
+MS365_CLIENT_ID = os.environ.get("MS365_CLIENT_ID", "")
+MS365_CLIENT_SECRET = os.environ.get("MS365_CLIENT_SECRET", "")
+if MS365_TENANT_ID and MS365_CLIENT_ID and MS365_CLIENT_SECRET:
+    EMAIL_BACKEND = "core.graph_mail.GraphEmailBackend"
+elif os.environ.get("EMAIL_HOST"):
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
     EMAIL_HOST = os.environ["EMAIL_HOST"]
     EMAIL_PORT = int(os.environ.get("EMAIL_PORT", 587))
@@ -185,6 +195,10 @@ if os.environ.get("EMAIL_HOST"):
 else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "DOCKET <no-reply@docket.local>")
+# Where a "Reply" goes, for when the From is a noreply@ nobody reads - a relay
+# that only lets us send from some other domain. Comma-separated; empty means
+# replies go to the From address.
+EMAIL_REPLY_TO = [a.strip() for a in os.environ.get("EMAIL_REPLY_TO", "").split(",") if a.strip()]
 
 # ---- proxy / TLS ---------------------------------------------------------
 #
@@ -204,7 +218,7 @@ if SECURE_SSL:
     # The health check is the exception, and it has to be. A container prober
     # hits the container directly over HTTP with no X-Forwarded-Proto, so with
     # the redirect on it gets a 301, reads it as unhealthy, and the deployment
-    # is rolled back — with the application working perfectly. Patterns match
+    # is rolled back - with the application working perfectly. Patterns match
     # request.path with the leading slash stripped.
     SECURE_REDIRECT_EXEMPT = [r"^api/health/?$"]
 

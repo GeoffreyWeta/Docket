@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node tools/no-em-dash.mjs",
     "build": "vite build"
   },
   "dependencies": {

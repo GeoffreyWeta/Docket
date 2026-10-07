@@ -24,7 +24,7 @@ from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 
 from . import auction as engine
-from . import bulk_invite
+from . import bulk_invite, vocab
 from .models import (ActionToken, Auction, AuctionLot, AuctionParticipant, Document,
                      LotBid, Profile, Supplier)
 from .permissions import has
@@ -215,7 +215,7 @@ def lot_create(request, p, body, aid):
         id=rid("l"), auction=a,
         number=(a.lots.count() + 1),
         title=title, description=str(body.get("description", "")).strip(),
-        qty=int(body.get("qty", 1) or 1), uom=str(body.get("uom", "")).strip()[:24],
+        qty=int(body.get("qty", 1) or 1), uom=vocab.unit(body.get("uom"), blank="")[:24],
         ceiling=ceiling, reserve=reserve,
         min_decrement=int(body.get("minDecrement", 0) or 0),
         decrement_is_pct=bool(body.get("decrementIsPct")),
@@ -617,7 +617,7 @@ def invite_list(request, p, body, aid):
             if not sid:
                 s = Supplier.objects.create(
                     id=rid("s"), name=label, contact_email=r["email"],
-                    contact_person=r["name"], category=canonical(""), location="—",
+                    contact_person=r["name"], category=canonical(""), location="-",
                     prequalified=False, docs=[], perf={}, registry={},
                     source="buyer", registered_at=None)
                 sid = made[key] = s.id

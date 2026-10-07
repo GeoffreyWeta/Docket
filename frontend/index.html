@@ -53,7 +53,7 @@
       /* Stamp the remembered theme on <html> before first paint. Kept inline and
          dependency-free on purpose: any later application would flash.
 
-         This is the ONLY place a remembered theme is restored on load — the
+         This is the ONLY place a remembered theme is restored on load - the
          bundle's applyTheme runs when somebody clicks the switcher, not at boot.
 
          It DOES carry the list of ids it will accept, and that is a deliberate
@@ -69,7 +69,7 @@
          forgot to add here simply does not restore, which you notice the first
          time you reload. A dead id you forgot to remove is invisible.
 
-         So: ADDING OR RENAMING A THEME MEANS THREE PLACES — the token block in
+         So: ADDING OR RENAMING A THEME MEANS THREE PLACES - the token block in
          styles.js, one line in the <style> above (its pre-paint background and
          colour-scheme), and the id check below. THEMES in theme.js is the
          canonical list; this is the pre-paint copy of it.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Render build script — installs deps, builds the React app, prepares Django.
+# Render build script - installs deps, builds the React app, prepares Django.
 set -o errexit
 
 pip install -r requirements.txt
@@ -19,7 +19,7 @@ python manage.py seed_demo
 # history is forever (see .gitignore). Two ways to get it onto a deployment,
 # both keeping it out of the repository:
 #
-#   VENDORS_URL — a private, time-limited link to the JSON export, set in the
+#   VENDORS_URL - a private, time-limited link to the JSON export, set in the
 #                 Render dashboard. Fetched here, imported, and gone with the
 #                 build container. The link lives in an env var, not in git.
 #   a mounted disk holding backend/data/vendors.json, uploaded out of band.
@@ -33,6 +33,6 @@ fi
 if [ -f data/vendors.json ]; then
   python manage.py import_vendors --commit
 else
-  echo "No vendor register present — keeping the seeded demo suppliers."
+  echo "No vendor register present - keeping the seeded demo suppliers."
 fi
 cd ..

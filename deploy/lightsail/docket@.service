@@ -39,7 +39,7 @@ Environment=HOME=/var/lib/docket/%i
 # load Django, and with a single worker that window is a 502 mid-upload.
 #
 # 2 workers x 4 threads. On the $12 plan's two burstable cores that is the number
-# that leaves room for Postgres and, on a deploy, a vite build — three workers
+# that leaves room for Postgres and, on a deploy, a vite build - three workers
 # per workspace across two workspaces is what takes the box off the network
 # entirely, ssh included.
 #

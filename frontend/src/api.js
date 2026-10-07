@@ -6,7 +6,7 @@
    with a second database, reached through /demo-api/ instead of /api/.
 
    That separation is the whole point and it is worth being blunt about why.
-   DOCKET is single-tenant — OrgSetting is one row, and no tender, bid or
+   DOCKET is single-tenant - OrgSetting is one row, and no tender, bid or
    supplier carries a tenant key. Serving the demo from the real workspace's
    database would mean seeded tenders sitting beside real ones, and turning on
    the one-click personas would put a password-free door onto the workspace
@@ -16,7 +16,7 @@
    WHICH BACKEND a request goes to is remembered, not recomputed. Landing on
    /demo sets the flag; from then on every call in that browser goes to the
    demo until the visitor signs out. Deriving it from window.location instead
-   would break the moment the app routes internally — you would click into a
+   would break the moment the app routes internally - you would click into a
    tender and start talking to the real backend with a demo token. */
 
 const TKEY = "docket_token";
@@ -57,7 +57,7 @@ async function handle(r) {
     const e = new Error((data && data.error) || `Request failed (${r.status})`);
     e.status = r.status;
     /* The whole body, not just the sentence. A refusal sometimes carries the
-       way out of it — a duplicate vendor comes back with the record it clashed
+       way out of it - a duplicate vendor comes back with the record it clashed
        with, so the caller can offer that one instead of a dead end. */
     e.data = data;
     throw e;
@@ -133,6 +133,25 @@ export const fetchBaselines = () => raw("/finance/baselines/");
 export const adoptBaselines = (picks) => raw("/finance/baselines/", { method: "POST", body: { picks } });
 export const importFinance = (file, extra) => uploadFile("/finance/import/", file, extra);
 export const authConfig = () => raw("/auth/config/");
+
+/* The site's look - layout and accent - always comes from the main site,
+   never from the demo backend. The administration console that sets it
+   writes to the main site's database; the demo has a database of its own that
+   nobody's console reaches and that is wiped back to seed every night, so
+   asking it painted the demo in the default blue whatever had been chosen.
+   One site, one look. Falls back to whichever backend this browser is on, for
+   a deployment where the two are the same process anyway. */
+export async function siteAppearance() {
+  try {
+    const r = await fetch("/api/auth/config/");
+    if (r.ok) {
+      const c = await r.json();
+      return { landing: c.landing, accent: c.accent };
+    }
+  } catch (e) { /* fall through */ }
+  const c = await authConfig();
+  return { landing: c.landing, accent: c.accent };
+}
 export const login = (username, password) => raw("/auth/login/", { method: "POST", body: { username, password } });
 export const demoLogin = (username) => raw("/auth/demo/", { method: "POST", body: { username } });
 export const logout = () => raw("/auth/logout/", { method: "POST", body: {} });

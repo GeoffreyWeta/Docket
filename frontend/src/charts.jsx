@@ -5,7 +5,7 @@
    two of them dark, and a library's default palette knows about none of them.
    Colours here are CSS custom properties (--s1..--s8, defined per theme in
    styles.js), so a chart restyles with the theme instead of carrying baked-in
-   hex through the JSX — the same rule the status stamps already follow.
+   hex through the JSX - the same rule the status stamps already follow.
 
    Rules these components share, and do not let a caller break:
 
@@ -15,7 +15,7 @@
    * Text never wears the series colour. The mark beside a label carries the
      identity; a yellow number on a white card is simply unreadable.
    * Two or more series always get a legend. Direct labels supplement it and are
-     applied sparingly — a value on every point is noise.
+     applied sparingly - a value on every point is noise.
    * Every chart that can be a table has a table behind it. Three of the light
      palette's slots sit under 3:1 against a white card, which is legal only
      where the values are also readable some other way. That is not a detail to
@@ -28,7 +28,7 @@ import { fmtCompact } from "./helpers";
 import { Icon } from "./icons";
 
 /* The eight categorical slots, in fixed order. Anything past the eighth folds
-   into "Other" — a ninth generated hue is indistinguishable from one of these
+   into "Other" - a ninth generated hue is indistinguishable from one of these
    under colour-blindness and breaks the whole set. */
 export const SLOTS = 8;
 export const slot = (i) => `var(--s${(i % SLOTS) + 1})`;
@@ -49,7 +49,7 @@ const NUM = (n) => (Number.isFinite(n) ? n : 0);
 
 /* A titled chart with the table view built in.
 
-   The table is not an afterthought or an accessibility checkbox — it is the
+   The table is not an afterthought or an accessibility checkbox - it is the
    relief channel that makes the lighter palette slots legal on a white card,
    and it is genuinely the better view when someone wants to read the numbers
    rather than the shape. */
@@ -120,12 +120,12 @@ function Tip({ tip }) {
 /* ---------------- bars ---------------- */
 
 /* Horizontal bars: the default for magnitude across named things, and the only
-   honest form when the names are long — "Works, property & facilities" cannot
+   honest form when the names are long - "Works, property & facilities" cannot
    be a column label at any font size that is also readable.
 
    `data`: [{key, label, value, color?, limit?}]. Sorted by the caller.
 
-   `limit` draws a threshold tick on the track — an exposure ceiling, a budget.
+   `limit` draws a threshold tick on the track - an exposure ceiling, a budget.
    It is a mark rather than a second bar because the question it answers is
    "past it or not", and two bars make the reader subtract. */
 export function Bars({ data, format = fmtCompact, max, onPick, unit, limitLabel = "limit" }) {
@@ -163,7 +163,7 @@ export function Bars({ data, format = fmtCompact, max, onPick, unit, limitLabel 
   );
 }
 
-/* Vertical columns over a time axis — months, quarters.
+/* Vertical columns over a time axis - months, quarters.
 
    Deliberately not the same component as `Bars`. Horizontal bars compare named
    things and are sorted by size; columns compare periods and are locked in
@@ -183,7 +183,7 @@ export function Columns({ data, format = fmtCompact, unit, height = 190, onPick,
   const every = tickEvery || Math.max(1, Math.ceil(data.length / 8));
   /* Across more than one calendar year every label carries its year. Without
      this a two-year axis prints "Aug" twice with nothing to separate them,
-     which is worse than no label at all — it reads as a repeated month. */
+     which is worse than no label at all - it reads as a repeated month. */
   const spansYears = new Set(data.map((d) => String(d.key).slice(0, 4))).size > 1;
 
   return (
@@ -268,7 +268,7 @@ export function StackedBars({ rows, format = fmtCompact, onPick }) {
 
 /* ---------------- dumbbell: before → after ---------------- */
 
-/* The right form for "what it was, what it became" — a saving, a price movement,
+/* The right form for "what it was, what it became" - a saving, a price movement,
    a baseline against an award. Two dots joined by a rule reads as one fact about
    one item; two bars side by side reads as two facts you have to subtract in
    your head.
@@ -316,7 +316,7 @@ export function Dumbbell({ rows, format = fmtCompact, fromLabel = "Before", toLa
 
 /* Part-to-whole for a handful of slices, with the total in the middle where the
    reader is already looking. Anything past six slices folds into "Other" before
-   it gets here — see `foldTail`. */
+   it gets here - see `foldTail`. */
 export function Donut({ data, total, format = fmtCompact, centre, centreLabel, size = 190 }) {
   const [tip, show, hide] = useTip();
   const sum = total ?? data.reduce((s, d) => s + NUM(d.value), 0);
@@ -376,7 +376,7 @@ export function TimeChart({ series, height = 210, format = fmtCompact, area, yLa
   const xs = all.map((p) => p.x), ys = all.map((p) => p.y);
   const x0 = Math.min(...xs), x1 = Math.max(...xs) || x0 + 1;
   const yTop = Math.max(...ys, 1) * 1.12;
-  const W = 100, H = height, PAD = 26;   // W in %, H in px — the svg scales on x
+  const W = 100, H = height, PAD = 26;   // W in %, H in px - the svg scales on x
   const px = (x) => (x1 === x0 ? 50 : ((x - x0) / (x1 - x0)) * (W - 2) + 1);
   const py = (y) => H - PAD - (NUM(y) / yTop) * (H - PAD - 12);
 
@@ -452,7 +452,7 @@ export function TimeChart({ series, height = 210, format = fmtCompact, area, yLa
 
 /* ---------------- heatmap ---------------- */
 
-/* Magnitude across a grid — category × month, person × status. One hue,
+/* Magnitude across a grid - category × month, person × status. One hue,
    more-is-darker: a rainbow here would claim the cells differ in kind when they
    differ only in amount. */
 export function Heatmap({ rows, cols, value, format = fmtCompact, label }) {
@@ -499,7 +499,7 @@ export function Heatmap({ rows, cols, value, format = fmtCompact, label }) {
    `meter2`, not `meter`, for the same reason the bars above are `bars2`:
    styles.js already owns `.meter` as a bare 6px progress rail (supplier.jsx
    uses it), and sharing the name let that rule's fixed height collapse this
-   component wherever it appeared — label, track and all. Two different marks
+   component wherever it appeared - label, track and all. Two different marks
    cannot share one class name just because they mean roughly the same thing. */
 export function Meter({ value, max, label, tone, format = fmtCompact }) {
   const pct = max ? Math.min(100, (NUM(value) / max) * 100) : 0;

@@ -13,7 +13,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opts):
         if Tender.objects.exists() and not opts["force"]:
-            self.stdout.write("Data already present — skipping seed (use --force to reseed).")
+            self.stdout.write("Data already present - skipping seed (use --force to reseed).")
             return
         # --force deletes everything first. On the demo that is the nightly
         # reset; on a real workspace it is the company's whole record replaced

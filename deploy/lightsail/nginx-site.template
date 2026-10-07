@@ -33,7 +33,7 @@ server {
     }
 
     # Served straight off disk rather than through WhiteNoise. WhiteNoise stays
-    # in the middleware and still works — this just means the bundle never
+    # in the middleware and still works - this just means the bundle never
     # occupies a gunicorn worker. Path is collectstatic's STATIC_ROOT.
     location /static/ {
         alias /srv/docket/backend/staticfiles/;
@@ -44,14 +44,14 @@ server {
     # The demo, as a PATH on this domain rather than a subdomain of it.
     #
     # /demo is an ordinary client-side route in the same bundle, so it needs no
-    # rule here — `location /` serves the app shell and the router takes over.
+    # rule here - `location /` serves the app shell and the router takes over.
     # What does need a rule is the demo's API: the bundle switches its base to
     # /demo-api/ the moment /demo is opened (see frontend/src/api.js), and that
     # prefix has to reach the OTHER gunicorn.
     #
     # Why not simply DEMO_LOGIN=1 on this workspace: DOCKET is single-tenant.
     # One OrgSetting row, no tenant key on a tender, a bid or a supplier. The
-    # demo therefore needs its own database, which means its own process — and
+    # demo therefore needs its own database, which means its own process - and
     # switching the one-click personas on here would put a password-free door
     # onto the workspace holding real sealed bids.
     #

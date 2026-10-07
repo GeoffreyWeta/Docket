@@ -1,4 +1,4 @@
-# DOCKET — single image: the React bundle baked in, served by Django/WhiteNoise.
+# DOCKET - single image: the React bundle baked in, served by Django/WhiteNoise.
 #
 # Two stages, because the node toolchain is ~400 MB and none of it is needed at
 # runtime: stage one builds frontend/dist, stage two copies the built files into
@@ -15,6 +15,10 @@ COPY frontend/package.json frontend/package-lock.json* ./
 # you tested is not a build you can roll back to.
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
+# The forms' dropdown lists. They live with the server that enforces them and
+# the bundle imports them from there (frontend/src/vocab.js), so the one file
+# is copied to the same relative place.
+COPY backend/core/vocab.json /build/backend/core/vocab.json
 COPY frontend/ ./
 RUN npm run build
 
@@ -43,13 +47,13 @@ COPY backend/ ./backend/
 COPY deploy/entrypoint.sh ./deploy/entrypoint.sh
 RUN chmod +x ./deploy/entrypoint.sh
 
-# settings.py looks for the bundle at ROOT_DIR/frontend/dist — the repo layout,
+# settings.py looks for the bundle at ROOT_DIR/frontend/dist - the repo layout,
 # preserved here so nothing in Django needs a Docker-specific path.
 COPY --from=web /build/frontend/dist ./frontend/dist
 
 # collectstatic at build time, not start time: it is deterministic, it is slow,
 # and doing it here means a container that starts is a container that can serve.
-# SECRET_KEY is a throwaway for this step alone — it never reaches the image,
+# SECRET_KEY is a throwaway for this step alone - it never reaches the image,
 # and the real one arrives as an environment variable at run time.
 RUN cd backend && SECRET_KEY=build-only-not-used python manage.py collectstatic --noinput
 

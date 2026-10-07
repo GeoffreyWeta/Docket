@@ -1,7 +1,7 @@
 /* Backfilling savings baselines from the finance ledger.
 
    The migration screen. An organisation arriving with years of NAV behind it
-   has already told DOCKET what it used to pay — the contracts are imported —
+   has already told DOCKET what it used to pay - the contracts are imported -
    but none of that reaches the savings figure until somebody decides which
    prior contract a given award should be measured against. This is where that
    decision is made, in bulk, once.
@@ -14,8 +14,8 @@
    * It shows the consequence before the action. Each row states what the
      saving is reported as today, what it would become, and the difference.
    * It leads with the awkward cases rather than burying them. A proposal that
-     turns a reported saving into a reported loss is real information — the
-     price went up — and it sorts to the top with a warning, not out of sight.
+     turns a reported saving into a reported loss is real information - the
+     price went up - and it sorts to the top with a warning, not out of sight.
 */
 import React, { useEffect, useMemo, useState } from "react";
 
@@ -31,7 +31,7 @@ const CONFIDENCE = {
   stale: { label: "Stale", hint: "Every contract behind this is over two and a half years old. In a high-inflation currency that is a weak guide to today's price." },
 };
 
-export function BaselineBackfill({ api, onClose }) {
+export function BaselineBackfill({ api, onClose, onAdopted }) {
   const { toast, refresh } = api;
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
@@ -48,7 +48,7 @@ export function BaselineBackfill({ api, onClose }) {
   /* This panel fetches its own candidates, so its rows land after whichever
      page mounted it has already armed and spent its reveal observer. Arming one
      here on the same data is what keeps `[data-reveal]` from leaving the whole
-     card at opacity 0 — which is not a missed animation, it is a blank card. */
+     card at opacity 0 - which is not a missed animation, it is a blank card. */
   useReveal([data]);
 
   const rows = useMemo(() => {
@@ -82,6 +82,7 @@ export function BaselineBackfill({ api, onClose }) {
       setPicked(new Set());
       await load();
       refresh();
+      if (n && onAdopted) onAdopted();   // the savings figures around this list move too
       if (out.skipped.length) setErr(out.skipped.map((s) => `${s.ref || s.id}: ${s.why}`).join("\n"));
     } catch (e) {
       setErr(e.message || "Could not apply.");
@@ -249,7 +250,7 @@ function BackfillRow({ r, picked, onToggle, open, onOpen }) {
 }
 
 /* The drafting-time half: what this category used to cost, offered on the
-   tender form. Small on purpose — a suggestion, next to the field, that fills
+   tender form. Small on purpose - a suggestion, next to the field, that fills
    it in and says where the number came from. */
 export function BaselineHint({ api, category, onAdopt, current }) {
   const [s, setS] = useState(null);

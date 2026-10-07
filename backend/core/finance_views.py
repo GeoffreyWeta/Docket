@@ -144,7 +144,7 @@ def finance_pull(request, p, body):
     entity = (body.get("entity") or "").strip().lower()
     cfg = finance_sync.bc_config()
     if not cfg["configured"]:
-        return err("Business Central is not connected — missing "
+        return err("Business Central is not connected - missing "
                    + ", ".join(cfg["missing"])
                    + ". Set them in the server environment, or upload an export instead.", 409)
 
@@ -208,7 +208,7 @@ def baseline_suggestion(request, p, body):
 
     Guarded by `tender.create` rather than a finance capability: this is a
     drafting aid, and the person drafting is the person who needs it. It returns
-    prior *contract* values only — never an invoice, never a payment — so it
+    prior *contract* values only - never an invoice, never a payment - so it
     cannot become a side channel onto payables for somebody without
     `finance.payables`.
     """

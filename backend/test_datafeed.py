@@ -4,13 +4,13 @@
 
 Drives the real HTTP endpoints against a throwaway SQLite database. What is
 under test is not the ORM but the three promises the feed makes to somebody
-else's warehouse, each of which fails silently if it is wrong — the sync keeps
+else's warehouse, each of which fails silently if it is wrong - the sync keeps
 returning 200 and quietly stops being complete:
 
   NOTHING IS SKIPPED. A full walk at a page size smaller than the data returns
   every row exactly once. The cursor is the pair (updated_at, id), so rows
-  written in the same millisecond — which a bulk vendor invite produces by the
-  hundred — cannot collide into a row being dropped or repeated forever.
+  written in the same millisecond - which a bulk vendor invite produces by the
+  hundred - cannot collide into a row being dropped or repeated forever.
 
   EVERY CHANGE MOVES THE CURSOR, including the two that bypass save(). This
   codebase writes with `save(update_fields=[...])` in forty places and with
@@ -65,7 +65,7 @@ PASSED, FAILED = [], []
 def ok(label, cond, extra=""):
     (PASSED if cond else FAILED).append(label)
     print(("  PASS  " if cond else "  FAIL  ") + label
-          + (f"  — {extra}" if extra and not cond else ""))
+          + (f"  - {extra}" if extra and not cond else ""))
 
 
 def get(path, key=None, expect=200):

@@ -11,7 +11,7 @@ this application forces.
 | `docket.eatngo-africa.com` | `app` | 8000 | the landing page, then the real workspace |
 | `demo.docket.eatngo-africa.com` | `demo` | 8001 | the demo, personas at `/demo` |
 
-Both names are just defaults — pass `DOMAIN=` to override either. They share the
+Both names are just defaults - pass `DOMAIN=` to override either. They share the
 packages, the swap, the Postgres server, the checkout and the virtualenv, and
 share nothing else: a database each, an env file each, a systemd unit each, a
 port each.
@@ -23,14 +23,14 @@ docket.eatngo-africa.com.        A   <static IP>
 demo.docket.eatngo-africa.com.   A   <static IP>
 ```
 
-The bare IP also reaches the real workspace on its own — only `app` is nginx's
-`default_server` — so you can provision and test before DNS propagates.
+The bare IP also reaches the real workspace on its own - only `app` is nginx's
+`default_server` - so you can provision and test before DNS propagates.
 
 ## The public addresses
 
 | path | what it serves |
 | --- | --- |
-| `/` | the **landing page** — what DOCKET is, for somebody who has not decided |
+| `/` | the **landing page** - what DOCKET is, for somebody who has not decided |
 | `/signin` | the sign-in form |
 | `/setup` | the setup wizard, behind the access code |
 | `/demo` | the one-click personas, when `DEMO_LOGIN=1` |
@@ -38,7 +38,7 @@ The bare IP also reaches the real workspace on its own — only `app` is nginx's
 `/` is the landing page permanently, not only while the workspace is empty. A
 sign-in form is furniture for people who already know what this is; it is one
 click away in the header and in the footer. *Set up your company* runs the
-wizard, and *See it working first* leaves for the demo — that button appears
+wizard, and *See it working first* leaves for the demo - that button appears
 only when `DEMO_URL` is set, so a deployment with no demo beside it does not
 mention one.
 
@@ -46,7 +46,7 @@ mention one.
 
 Registering a company needs `SETUP_CODE`, written into `/etc/docket/env.<role>`
 by `provision.sh` and defaulting to **`ENGDOCKET1234`** on `app` and
-`DEMOSETUP` on `demo`. Change it in the env file and restart the service — it
+`DEMOSETUP` on `demo`. Change it in the env file and restart the service - it
 needs no redeploy:
 
 ```sh
@@ -61,8 +61,8 @@ laptop: "nobody had set it up yet" is not consent.
 The two deployments point at each other through two settings, and both are
 written by `provision.sh`:
 
-* `DEMO_URL` on **app** — where "See it working first" goes.
-* `SIGNUP_URL` on **demo** — where "Set up your company" goes, which must leave
+* `DEMO_URL` on **app** - where "See it working first" goes.
+* `SIGNUP_URL` on **demo** - where "Set up your company" goes, which must leave
   for the real deployment. DOCKET is single-tenant, so running the wizard
   against the demo database would rename the demo organisation and hand the
   newcomer its seeded tenders.
@@ -74,12 +74,12 @@ written by `provision.sh`:
 | plan | RAM | builds on the box? | workspaces |
 | --- | --- | --- | --- |
 | **$12** | 2 GB | yes | app + demo |
-| **$7** | 1 GB | **no — use `--no-build`** | app only, `WEB_CONCURRENCY=1` |
+| **$7** | 1 GB | **no - use `--no-build`** | app only, `WEB_CONCURRENCY=1` |
 
 **A vite build of this app peaks at about 1.4 GB resident.** That is measured,
 not estimated, and it is more than the whole $7 instance. On 1 GB node either
 dies with "JavaScript heap out of memory" or swaps for ten minutes while the OOM
-killer looks at Postgres — which is the worst outcome available, because the
+killer looks at Postgres - which is the worst outcome available, because the
 database is the largest process and losing it is not a failed deploy, it is a
 restore.
 
@@ -89,7 +89,7 @@ So on the $7 plan the bundle is built somewhere with memory and copied up. It is
 
 The other 1 GB adjustments, both in `/etc/docket/env.<role>`:
 
-* `WEB_CONCURRENCY=1` — the default of 2 is sized for the $12 plan's two cores,
+* `WEB_CONCURRENCY=1` - the default of 2 is sized for the $12 plan's two cores,
   and four gunicorn workers across two workspaces will not fit in 1 GB beside
   Postgres.
 * Run **`app` only.** Two workspaces means two gunicorn services and two
@@ -160,7 +160,7 @@ ssh ubuntu@<static-ip> 'sudo rsync -av --delete --chown=docket:docket     /tmp/d
 
 `--no-build` skips npm entirely and uses whatever is in `frontend/dist`. It
 refuses to run if `dist/index.html` is not there, because the failure it makes
-possible is serving yesterday's interface against today's API — quieter than a
+possible is serving yesterday's interface against today's API - quieter than a
 crash and harder to notice. It prints the bundle's build time on every deploy so
 a stale one is visible.
 
@@ -227,8 +227,8 @@ The application follows the certificate with no code change: nginx forwards
 `X-Forwarded-Proto`, and `settings.py` turns on the HTTPS redirect and secure
 cookies as soon as `PUBLIC_BASE_URL` is https.
 
-Until you do this, every emailed link — password resets, team invitations,
-vendor claim links — points at the bare IP. Those links are the whole vendor
+Until you do this, every emailed link - password resets, team invitations,
+vendor claim links - points at the bare IP. Those links are the whole vendor
 onboarding path, so this is not cosmetic.
 
 ---
@@ -236,21 +236,21 @@ onboarding path, so this is not cosmetic.
 ## Things that will bite you
 
 **Two firewalls.** `ufw` on the box, and the Lightsail console's IPv4 firewall in
-front of it. Open 443 from the start — certbot issues over port 80 and says
+front of it. Open 443 from the start - certbot issues over port 80 and says
 Congratulations, so a shut 443 reads as a broken certificate rather than a shut
 port.
 
 **Do not overwrite the nginx site after certbot.** certbot rewrites
 `/etc/nginx/sites-available/docket-<role>` in place to add the 443 block. There
 is a file per workspace precisely so this guard can be per-site: `provision.sh`
-greps for certbot's own marker and leaves that file alone if it is there —
+greps for certbot's own marker and leaves that file alone if it is there -
 reinstalling the repo copy would take the site off https quietly, since nginx
 reloads happily and only visitors notice.
 
 **Quote env values that could contain anything.** The env file is read twice: by
 systemd for the service, and by a shell for `docket-manage`. A value with a
 space, an angle bracket or an ampersand is fine to systemd and a syntax error to
-the shell — so gunicorn stays healthy while every migration fails. The generated
+the shell - so gunicorn stays healthy while every migration fails. The generated
 file quotes everything a person might paste into. Keep it that way.
 
 **The health check sends a real `Host` header.** After certbot, nginx answers 404
@@ -262,7 +262,7 @@ first `ALLOWED_HOSTS` entry and asks as that. It accepts 200 **or** 301, because
 `swappiness=10`, and the `npm run build` on deploy is what needs it: the build
 peaks around 1.4 GB, so on a 2 GB box competing with Postgres, no swap is a
 plausible way to have the OOM killer take the database instead. On 1 GB, swap is
-not enough either — build elsewhere and use `--no-build`.
+not enough either - build elsewhere and use `--no-build`.
 
 **The vendor register never travels in the repo or on disk.** Real bank details,
 TINs and contacts for ~1,400 companies. `VENDORS_URL` is fetched at bootstrap,

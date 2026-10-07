@@ -9,11 +9,11 @@
    Six steps, but one form: nothing is saved until the end, so going back costs
    nothing and there is no half-made workspace to clean up if somebody closes
    the tab. The one exception is the access code, which is checked on its own
-   the moment it is entered — asking somebody to fill in five screens before
+   the moment it is entered - asking somebody to fill in five screens before
    telling them the code on the first one was wrong is the kind of form people
    abandon.
 
-   When it does save, the person lands signed in on their own dashboard — not
+   When it does save, the person lands signed in on their own dashboard - not
    on a sign-in page asking for the password they just typed.
 
    THE ORG CHART IS THE HARD PART, and it is worth saying why it is shaped
@@ -28,6 +28,11 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { setupStatus, setupWorkspace, verifySetupCode } from "./api";
 import { DRAFT_CSS } from "./buyer";
+import { CsvGuide, VENDOR_CSV, csvText } from "./csvguide";
+import {
+  CountrySelect, CurrencySelect, FiscalStartSelect, IndustrySelect, PhoneInput, RcNumberInput,
+  StateField, TimezoneSelect, YearSelect,
+} from "./fields";
 import { fmtMoney, uid } from "./helpers";
 import { ICON_CSS, Icon } from "./icons";
 import { ILLUS_CSS, Illus } from "./illus";
@@ -40,13 +45,29 @@ import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const OWNER = "owner";
 
-const ROLES = [
-  ["procurement", "Procurement", "Drafts tenders, invites vendors, opens the sealed bids. Cannot approve their own work."],
-  ["approver",    "Approver",    "Signs publications and awards up to their authority limit."],
-  ["evaluator",   "Evaluator",   "Scores bids on their own. Never sees another member's numbers."],
-  ["auditor",     "Auditor",     "Reads everything, changes nothing."],
+/* The roles are the company's own. Every company calls its jobs something
+   different - a "Tender Board", a "Head of Finance" who signs - so nothing
+   here is named for them. Each row starts from a kind of work (which decides
+   what it can do, and can be fine-tuned on the Team page later) and an empty
+   name with an example underneath.
+
+   `key` ties a row to one of the server's four starter ids, so the first four
+   rows reuse them; a row added here has only a local `ref` until the
+   workspace is saved, and the team list points at roles by `ref`. The first
+   row is the owner's own role: it runs the workspace, so it stays. */
+const KINDS = [
+  ["procurement", "Runs tenders and the vendor register"],
+  ["approver",    "Signs off tenders and awards"],
+  ["evaluator",   "Scores bids"],
+  ["auditor",     "Sees everything, changes nothing"],
 ];
-const ROLE_LABEL = Object.fromEntries(ROLES.map(([k, l]) => [k, l]));
+const OWNER_ROLE = "procurement";
+const SUGGESTED_ROLES = [
+  { ref: "procurement", key: "procurement", kind: "procurement", hint: "e.g. Procurement Officer" },
+  { ref: "approver",    key: "approver",    kind: "approver",    hint: "e.g. Finance Director" },
+  { ref: "evaluator",   key: "evaluator",   kind: "evaluator",   hint: "e.g. Technical Panel" },
+  { ref: "auditor",     key: "auditor",     kind: "auditor",     hint: "e.g. Internal Audit" },
+];
 
 /* A ladder most organisations recognise, offered as a starting point rather
    than imposed. Every row is editable and the whole thing can be deleted.
@@ -62,16 +83,6 @@ const SUGGESTED_LADDER = [
   { name: "Director",            limit: 500_000_000, role: "" },
   { name: "Chief Executive",     limit: 0,           role: "" },
 ];
-
-const INDUSTRIES = ["Hospitality", "Manufacturing", "Food & Beverage", "Retail",
-  "Construction", "Oil & Gas", "Financial Services", "Healthcare", "Education",
-  "Logistics & Transport", "Technology", "Agriculture", "Public Sector", "Other"];
-
-const CURRENCIES = [["NGN", "Naira (₦)"], ["USD", "US dollar ($)"],
-  ["GBP", "Pound sterling (£)"], ["EUR", "Euro (€)"], ["GHS", "Cedi (₵)"],
-  ["KES", "Kenyan shilling (KSh)"], ["ZAR", "Rand (R)"]];
-
-const VENDOR_SAMPLE = "name,category,email\nColdline Logistics Ltd,Logistics,tenders@coldline.example\nPackRight Industries,Packaging,bids@packright.example";
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -190,7 +201,43 @@ function treeRows(team, ownerName) {
 
 /* -------------------------------------------------------------- the wizard */
 
-const STEPS = ["Access", "You", "Your company", "Authority", "Your team", "Your vendors"];
+const STEPS = ["Access", "You", "Your company", "Roles", "Authority", "Your team", "Your vendors"];
+
+const blankForm = () => ({
+  name: "", email: "", password: "", title: "Head of Procurement",
+  company: "", short: "", threshold: "50000000",
+  profile: {
+    legalName: "", rcNumber: "", tin: "", industry: "", sector: "",
+    addressLine1: "", addressLine2: "", city: "", state: "", country: "Nigeria",
+    postcode: "", phone: "", email: "", website: "", currency: "NGN",
+    timezone: "Africa/Lagos", fiscalYearStart: "01-01", sizeBand: "",
+    registeredYear: "", description: "",
+  },
+  logo: "",
+  logoName: "",
+  roles: SUGGESTED_ROLES.map((r) => ({ ...r, label: "", removed: false })),
+  levels: SUGGESTED_LADDER.map((l) => ({ ...l, id: uid(), holders: [] })),
+  useLadder: true,
+  ownerLevel: "",
+  team: [],
+  vendors: [],
+});
+
+/* Setup can take more than one sitting: the vendor list today, the rest
+   tomorrow. What has been typed is kept in this browser as it is typed and
+   filled back in on the next visit. Never the password, never the access code:
+   both are typed again. Browser storage can be blocked or cleared, so every
+   touch is guarded and the wizard works the same without it, it just forgets. */
+const DRAFT_KEY = "docket_setup_draft";
+const readDraft = () => {
+  try {
+    const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
+    return d && d.f ? d : null;
+  } catch { return null; }
+};
+const forgetDraft = () => {
+  try { localStorage.removeItem(DRAFT_KEY); } catch { /* storage blocked: nothing to forget */ }
+};
 
 export function SetupWorkspace({ onDone, onLoggedIn }) {
   const [status, setStatus] = useState(null);
@@ -204,31 +251,37 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
   const [codeMsg, setCodeMsg] = useState("");
   const [codeBusy, setCodeBusy] = useState(false);
 
-  const [f, setF] = useState({
-    name: "", email: "", password: "", title: "Head of Procurement",
-    company: "", short: "", threshold: "50000000",
-    profile: {
-      legalName: "", rcNumber: "", tin: "", industry: "", sector: "",
-      addressLine1: "", addressLine2: "", city: "", state: "", country: "Nigeria",
-      postcode: "", phone: "", email: "", website: "", currency: "NGN",
-      timezone: "Africa/Lagos", fiscalYearStart: "01-01", sizeBand: "",
-      registeredYear: "", description: "",
-    },
-    logo: "",
-    logoName: "",
-    levels: SUGGESTED_LADDER.map((l) => ({ ...l, id: uid(), holders: [] })),
-    useLadder: true,
-    ownerLevel: "",
-    team: [],
-    vendors: [],
-    inviteVendors: true,
-  });
+  const [draft, setDraft] = useState(readDraft);   // what was typed on an earlier visit
+  const [f, setF] = useState(() => (draft ? { ...blankForm(), ...draft.f, password: "" } : blankForm()));
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const setProfile = (k, v) => setF((x) => ({ ...x, profile: { ...x.profile, [k]: v } }));
   const logoInput = useRef(null);
   const vendorInput = useRef(null);
   const [vendorWarn, setVendorWarn] = useState([]);
-  const [vendorText, setVendorText] = useState("");
+  const [vendorText, setVendorText] = useState(() => (draft && draft.vendorText) || "");
+
+  /* Keep what has been typed, a moment after the typing stops. Nothing is
+     written until there is something worth coming back to. */
+  useEffect(() => {
+    if (done) return undefined;
+    if (!(f.name || f.email || f.company || f.team.length || f.vendors.length || f.logo)) return undefined;
+    const id = setTimeout(() => {
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({
+          at: Date.now(), step, vendorText, f: { ...f, password: "" } }));
+      } catch { /* full or blocked: the wizard still works, it just will not remember */ }
+    }, 400);
+    return () => clearTimeout(id);
+  }, [f, step, vendorText, done]);
+
+  const startOver = () => {
+    forgetDraft();
+    setDraft(null);
+    setF(blankForm());
+    setVendorText("");
+    setVendorWarn([]);
+    setStep(codeOk ? 1 : 0);
+  };
 
   useEffect(() => {
     setupStatus()
@@ -250,9 +303,28 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
     team: x.team.map((t) => (t.level === id ? { ...t, level: "" } : t)),
   }));
 
+  /* ---- the roles ---- */
+  const liveRoles = f.roles.filter((r) => !r.removed);
+  const namedRoles = liveRoles.filter((r) => r.label.trim());
+  const roleName = (ref) => (f.roles.find((r) => r.ref === ref && !r.removed) || {}).label?.trim() || "";
+  const addRole = () => set("roles", [...f.roles, { ref: "new" + uid(), key: "", kind: "", label: "", hint: "e.g. Tender Board", removed: false }]);
+  const editRole = (ref, patch) => set("roles", f.roles.map((r) => (r.ref === ref ? { ...r, ...patch } : r)));
+  /* A starter is marked removed rather than dropped, so the server is told to
+     retire it; a row added here simply goes. Anyone on it, and any ladder rung
+     falling back to it, is cleared rather than left pointing at nothing. */
+  const dropRole = (ref) => setF((x) => ({
+    ...x,
+    roles: x.roles.flatMap((r) => (r.ref !== ref ? [r] : r.key ? [{ ...r, removed: true }] : [])),
+    team: x.team.map((t) => (t.role === ref ? { ...t, role: "" } : t)),
+    levels: x.levels.map((l) => (l.role === ref ? { ...l, role: "" } : l)),
+  }));
+
   /* ---- the team ---- */
+  /* A new person starts on the first role that is not yours: most people
+     invited during setup are not running the workspace. */
+  const defaultRole = () => (namedRoles.find((r) => r.ref !== OWNER_ROLE) || namedRoles[0] || {}).ref || "";
   const addPerson = () => set("team", [...f.team, {
-    key: uid(), name: "", email: "", role: "evaluator", title: "", reportsTo: OWNER, level: "",
+    key: uid(), name: "", email: "", role: defaultRole(), title: "", reportsTo: OWNER, level: "",
   }]);
   const editPerson = (key, patch) => set("team", f.team.map((t) => (t.key === key ? { ...t, ...patch } : t)));
   const dropPerson = (key) => setF((x) => ({
@@ -281,6 +353,19 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
   const namelessLevel = f.useLadder && f.levels.find((l) => l.name.trim().length < 2);
   const unlimitedCount = f.levels.filter((l) => !Number(l.limit)).length;
 
+  const namelessRole = liveRoles.find((r) => r.label.trim().length < 2);
+  const kindlessRole = liveRoles.find((r) => !r.kind);
+  const dupRole = (() => {
+    const seen = new Set();
+    for (const r of liveRoles) {
+      const n = r.label.trim().toLowerCase();
+      if (n && seen.has(n)) return r;
+      seen.add(n);
+    }
+    return null;
+  })();
+  const roleless = filledTeam.find((t) => !roleName(t.role));
+
   /* Rungs with nobody standing on them and no role to fall back to. Mirrors
      approvals.unreachable on the server, which reports the same gap on the
      Team page once the workspace is live. */
@@ -302,7 +387,13 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
     { key: "company", step: 2, ok: f.company.trim().length >= 2, to: "su-company",
       todo: "Name your company", done: f.company.trim(),
       note: "It goes on every letter and reference." },
-    { key: "ladder", step: 3,
+    { key: "roles", step: 3, ok: !namelessRole && !kindlessRole && !dupRole, to: "su-roles",
+      todo: namelessRole ? (namelessRole.ref === OWNER_ROLE ? "Name your own role" : "Name every role, or remove the ones you do not need")
+        : kindlessRole ? `Say what ${kindlessRole.label.trim()} does`
+        : `Two roles are called ${dupRole.label.trim()}`,
+      done: `${liveRoles.length} role${liveRoles.length === 1 ? "" : "s"}: ` + namedRoles.map((r) => r.label.trim()).join(", "),
+      note: "In your company's own words. Fine-tune each one later on the Team page." },
+    { key: "ladder", step: 4,
       ok: !f.useLadder || (f.levels.length > 0 && !namelessLevel && unlimitedCount === 1),
       to: "su-ladder",
       todo: !f.levels.length ? "Add at least one approval level"
@@ -316,9 +407,10 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
       note: f.useLadder
         ? "Requests walk your reporting line until somebody's limit covers the amount."
         : undefined },
-    { key: "team", step: 4, ok: !badEmail && !dupEmail, to: "su-team",
+    { key: "team", step: 5, ok: !badEmail && !dupEmail && !roleless, to: "su-team",
       todo: badEmail ? `Fix ${badEmail.email.trim() || "an empty email"} in your team list`
         : dupEmail ? `${dupEmail.email.trim()} is on the list twice`
+        : roleless ? `Pick a role for ${roleless.name.trim() || roleless.email.trim()}`
         : "Team list looks fine",
       done: filledTeam.length
         ? `${filledTeam.length} ${filledTeam.length === 1 ? "person" : "people"} on the chart`
@@ -327,17 +419,16 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
          re-read four rows; "nobody holds Director or Chief Executive" sends
          them to the two that are wrong. It stays a warning rather than a
          blocker because a workspace is allowed to be set up before the people
-         exist — but it is the warning that stops a tender from being raised
+         exist - but it is the warning that stops a tender from being raised
          into a chain with nobody at the end of it. */
       note: emptyRungs.length
         ? `Nobody holds ${emptyRungs.join(" or ")}. A request that reaches ${emptyRungs.length === 1 ? "that rung" : "those rungs"} will wait with no named signatory.`
         : undefined },
-    { key: "vendors", step: 5, ok: true, to: "su-vendors",
+    { key: "vendors", step: 6, ok: true, to: "su-vendors",
       todo: "", done: f.vendors.length
         ? `${f.vendors.length} vendor${f.vendors.length === 1 ? "" : "s"} ready to load`
         : "No vendors yet, you can import later",
-      note: f.vendors.length && f.inviteVendors
-        ? `${f.vendors.filter((v) => v.email).length} will be emailed an invitation.` : undefined },
+      note: f.vendors.length ? "Nobody is emailed until you choose to invite them." : undefined },
   ];
   const outstanding = checks.filter((c) => !c.ok);
   const ready = outstanding.length === 0;
@@ -361,7 +452,8 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
     try {
       await verifySetupCode(code.trim());
       setCodeOk(true);
-      setStep(1);
+      // Back where they stopped last time, or on to the first step.
+      setStep(draft && draft.step > 0 && draft.step < STEPS.length ? draft.step : 1);
     } catch (e) {
       setCodeOk(false);
       setCodeMsg(e.message || "That code was not accepted.");
@@ -396,6 +488,9 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
         title: f.title.trim(),
         company: f.company.trim(), short: f.short.trim(),
         profile: f.profile, logo: f.logo || "",
+        roles: f.roles.map((r) => (r.removed
+          ? { key: r.key, remove: true }
+          : { ref: r.ref, key: r.key || undefined, label: r.label.trim(), kind: r.kind })),
         approvalThreshold: f.useLadder ? 0 : (Number(f.threshold) || 0),
         approvalLevels: f.useLadder
           ? f.levels.map((l) => ({ id: l.id, name: l.name.trim(), limit: Number(l.limit) || 0,
@@ -412,8 +507,8 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
           name: v.name, email: v.email, category: v.category,
           contact: v.contact, phone: v.phone, location: v.location,
         })),
-        inviteVendors: !!f.inviteVendors && f.vendors.some((v) => v.email),
       });
+      forgetDraft();
       setDone(r);
     } catch (e) { setMsg(e.message || "Something went wrong."); }
     setBusy(false);
@@ -448,7 +543,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
 
   /* --------------------------------------------------------------- done */
   if (done) {
-    const withLinks = (done.invited || []).filter((i) => i.link);
+    const held = done.held || [];
     const v = done.vendors || {};
     return (
       <div className="setupwrap"><style>{css}</style><div className="setupin" style={{ maxWidth: 600 }}>
@@ -460,12 +555,14 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
             <div className="guidewhy">You are signed in as {f.name.trim()}.</div>
           </div>
           <div className="cbody donesum">
-            <div className="donerow">
-              <span className="doneicon"><Icon n="team" s={15} /></span>
-              <div><b>{(done.invited || []).length} invitation{(done.invited || []).length === 1 ? "" : "s"} sent</b>
-                <i>Everyone is already on the org chart with their reporting line and signing
-                  authority. Each link is valid for three days.</i></div>
-            </div>
+            {held.length > 0 && (
+              <div className="donerow">
+                <span className="doneicon"><Icon n="team" s={15} /></span>
+                <div><b>{held.length} {held.length === 1 ? "person" : "people"} on the org chart, not emailed yet</b>
+                  <i>Send their invitations from the Team page whenever you are ready. Each link is
+                    valid for three days from when it is sent.</i></div>
+              </div>
+            )}
             {(done.levels || []).length > 0 && (
               <div className="donerow">
                 <span className="doneicon"><Icon n="stamp" s={15} /></span>
@@ -479,30 +576,11 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                 <div><b>{v.created} vendor{v.created === 1 ? "" : "s"} on the register</b>
                   <i>
                     {v.skipped ? `${v.skipped} blank or duplicate row(s) skipped. ` : ""}
-                    {v.invited
-                      ? `${v.willEmail} invitation${v.willEmail === 1 ? "" : "s"} to register go out in the background, a batch at a time, once each.`
-                      : "Invite them from the Vendors page when you are ready."}
-                    {v.invited && !v.mailLive
-                      ? " Email is not configured on this deployment, so they will print to the server log instead."
-                      : ""}
+                    Not emailed yet. Invite them to register from the Vendors page when you are ready.
                   </i></div>
               </div>
             )}
           </div>
-          {withLinks.length > 0 && (
-            <div className="cbody donelinks">
-              <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>
-                Demo mode: email prints to the server log, so here are the links to try the flow yourself.
-              </div>
-              {withLinks.map((i) => (
-                <div className="lrow" key={i.email}>
-                  <div className="lrmain"><div className="lrtitle">{i.name || i.email}</div>
-                    <div className="lrmeta"><span>{i.roleLabel}</span><span>reports to {i.reportsTo}</span>
-                      <span className="mono" style={{ wordBreak: "break-all" }}>{i.link}</span></div></div>
-                </div>
-              ))}
-            </div>
-          )}
           <div className="guidefoot">
             <button className="btn pri" onClick={enter}>Go to your workspace</button>
           </div>
@@ -521,7 +599,8 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
             : outstanding.length === 1 ? "One thing left" : outstanding.length + " things left"}
         </div>
         <div className="readywhy">
-          {ready ? "Nothing is saved until you press the button." : "Pick any line to jump straight to it."}
+          {ready ? "Nothing is created, and nobody is emailed, until you press the button."
+                 : "Pick any line to jump straight to it."}
         </div>
         <div className="readybar">
           <i style={{ width: Math.round((checks.length - outstanding.length) / checks.length * 100) + "%" }} />
@@ -566,9 +645,21 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
       <div className="pagehead">
         <h1>Set up your workspace</h1>
         <span className="sub">
-          Six short steps. Nothing is saved until the end, so you can go back freely.
+          Seven short steps. What you type is kept in this browser as you go, so you can stop and
+          finish another day. Nothing is created, and nobody is emailed, until you finish.
         </span>
       </div>
+      {draft && (
+        <div className="notice" style={{ marginBottom: 14, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ flex: "1 1 260px" }}>
+            <b>Welcome back.</b> What you typed on{" "}
+            {new Date(draft.at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}{" "}
+            is filled in.{status?.codeRequired && !codeOk ? " Enter the access code to carry on." : ""} Your
+            password is not kept, so type it again on the You step.
+          </span>
+          <button className="btn sm" onClick={startOver}>Start over</button>
+        </div>
+      )}
       {status?.demo && !status.needsSetup && (
         <div className="notice" style={{ marginBottom: 14 }}>
           This is a demo workspace, so setting it up creates your account alongside the demo ones
@@ -643,9 +734,9 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
               <div className="chead"><h3>About you</h3></div>
               <div className="cbody">
                 <p className="setupintro">
-                  You become the workspace's procurement lead: you draft tenders, run the vendor
-                  register and configure everything here. You do not sign off your own work -
-                  that is what the authority ladder two steps from now is for.
+                  You run the workspace: you draft tenders, keep the vendor register and set
+                  everything up here. You do not sign off your own work - that is what the
+                  authority ladder, three steps from now, is for.
                 </p>
                 <div className="frow"><label className="lbl" htmlFor="su-name">What is your name?</label>
                   <input id="su-name" className="in" autoFocus value={f.name}
@@ -736,21 +827,17 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                   </p>
                   <div className="f2">
                     <div className="frow"><label className="lbl" htmlFor="su-rc">RC number</label>
-                      <input id="su-rc" className="in mono" placeholder="RC 1234567" value={f.profile.rcNumber}
-                             onChange={(e) => setProfile("rcNumber", e.target.value)} /></div>
+                      <RcNumberInput id="su-rc" value={f.profile.rcNumber}
+                                     onChange={(v) => setProfile("rcNumber", v)} /></div>
                     <div className="frow"><label className="lbl" htmlFor="su-tin">Tax identification number</label>
                       <input id="su-tin" className="in mono" placeholder="01234567-0001" value={f.profile.tin}
                              onChange={(e) => setProfile("tin", e.target.value)} /></div>
                     <div className="frow"><label className="lbl" htmlFor="su-ind">Industry</label>
-                      <select id="su-ind" className="in" value={f.profile.industry}
-                              onChange={(e) => setProfile("industry", e.target.value)}>
-                        <option value="">Not stated</option>
-                        {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
-                      </select></div>
+                      <IndustrySelect id="su-ind" value={f.profile.industry}
+                                      onChange={(v) => setProfile("industry", v)} /></div>
                     <div className="frow"><label className="lbl" htmlFor="su-year">Year incorporated</label>
-                      <input id="su-year" className="in mono" inputMode="numeric" placeholder="2014"
-                             value={f.profile.registeredYear}
-                             onChange={(e) => setProfile("registeredYear", e.target.value.replace(/\D/g, "").slice(0, 4))} /></div>
+                      <YearSelect id="su-year" value={f.profile.registeredYear}
+                                  onChange={(v) => setProfile("registeredYear", v)} /></div>
                   </div>
 
                   <div className="frow"><label className="lbl" htmlFor="su-a1">Registered address</label>
@@ -765,17 +852,17 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                       <input id="su-city" className="in" value={f.profile.city}
                              onChange={(e) => setProfile("city", e.target.value)} /></div>
                     <div className="frow"><label className="lbl" htmlFor="su-state">State</label>
-                      <input id="su-state" className="in" value={f.profile.state}
-                             onChange={(e) => setProfile("state", e.target.value)} /></div>
+                      <StateField id="su-state" country={f.profile.country} value={f.profile.state}
+                                  onChange={(v) => setProfile("state", v)} /></div>
                     <div className="frow"><label className="lbl" htmlFor="su-country">Country</label>
-                      <input id="su-country" className="in" value={f.profile.country}
-                             onChange={(e) => setProfile("country", e.target.value)} /></div>
+                      <CountrySelect id="su-country" value={f.profile.country}
+                                     onChange={(v) => setProfile("country", v)} /></div>
                   </div>
 
                   <div className="f3">
                     <div className="frow"><label className="lbl" htmlFor="su-phone">Switchboard</label>
-                      <input id="su-phone" className="in" type="tel" placeholder="+234 ..." value={f.profile.phone}
-                             onChange={(e) => setProfile("phone", e.target.value)} /></div>
+                      <PhoneInput id="su-phone" value={f.profile.phone}
+                                  onChange={(v) => setProfile("phone", v)} /></div>
                     <div className="frow"><label className="lbl" htmlFor="su-cmail">Procurement email</label>
                       <input id="su-cmail" className="in" type="email" placeholder="tenders@company.com"
                              value={f.profile.email}
@@ -787,17 +874,14 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
 
                   <div className="f3">
                     <div className="frow"><label className="lbl" htmlFor="su-cur">Reporting currency</label>
-                      <select id="su-cur" className="in" value={f.profile.currency}
-                              onChange={(e) => setProfile("currency", e.target.value)}>
-                        {CURRENCIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                      </select></div>
+                      <CurrencySelect id="su-cur" required value={f.profile.currency}
+                                      onChange={(v) => setProfile("currency", v)} /></div>
                     <div className="frow"><label className="lbl" htmlFor="su-fy">Financial year starts</label>
-                      <input id="su-fy" className="in mono" placeholder="01-01" value={f.profile.fiscalYearStart}
-                             onChange={(e) => setProfile("fiscalYearStart", e.target.value)} />
-                      <div className="hint">Day and month, like 01-04 for April.</div></div>
+                      <FiscalStartSelect id="su-fy" required value={f.profile.fiscalYearStart}
+                                         onChange={(v) => setProfile("fiscalYearStart", v)} /></div>
                     <div className="frow"><label className="lbl" htmlFor="su-tz">Time zone</label>
-                      <input id="su-tz" className="in" value={f.profile.timezone}
-                             onChange={(e) => setProfile("timezone", e.target.value)} />
+                      <TimezoneSelect id="su-tz" required value={f.profile.timezone}
+                                      onChange={(v) => setProfile("timezone", v)} />
                       <div className="hint">Deadlines are shown in it.</div></div>
                   </div>
 
@@ -809,13 +893,68 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                               onChange={(e) => setProfile("description", e.target.value)} />
                   </div>
                 </div>
-                {navRow(1, 3, "Next: signing authority")}
+                {navRow(1, 3, "Next: your roles")}
               </div>
             </>
           )}
 
-          {/* --------------------------------------------- 3 · authority */}
+          {/* ------------------------------------------------- 3 · roles */}
           {step === 3 && (
+            <div className="card" id="su-roles">
+              <div className="chead"><h3>The roles in your company</h3></div>
+              <div className="cbody">
+                <p className="setupintro">
+                  Use the names your company already uses. Each role starts from one kind of work,
+                  which decides what people on it can do - you can fine-tune that, rename a role
+                  or add another at any time from the Team page.
+                </p>
+
+                <div className="ladhead rolehead">
+                  <span /><span>What your company calls it</span><span>What they do</span><span />
+                </div>
+                {liveRoles.map((r, i) => {
+                  const mine = r.ref === OWNER_ROLE;
+                  return (
+                    <div className="rolerow" key={r.ref}>
+                      <div className="ladrank" aria-hidden="true">{i + 1}</div>
+                      <div className="rolename">
+                        <input className="in" placeholder={r.hint} value={r.label}
+                               aria-label={`Role ${i + 1} name`} maxLength={80}
+                               onChange={(e) => editRole(r.ref, { label: e.target.value })} />
+                        {mine && <i>Your own role</i>}
+                      </div>
+                      <select className="in" value={r.kind} disabled={mine}
+                              aria-label={`What role ${i + 1} does`}
+                              onChange={(e) => editRole(r.ref, { kind: e.target.value })}>
+                        <option value="">Choose…</option>
+                        {KINDS.map(([k, lb]) => <option key={k} value={k}>{lb}</option>)}
+                      </select>
+                      <button className="btn sm" disabled={mine}
+                              aria-label={mine ? "Your own role cannot be removed" : `Remove role ${i + 1}`}
+                              title={mine ? "You run the workspace, so your own role stays" : ""}
+                              onClick={() => dropRole(r.ref)}>
+                        <Icon n="close" s={13} />
+                      </button>
+                    </div>
+                  );
+                })}
+                <div className="ladacts">
+                  <button className="btn sm" onClick={addRole} disabled={liveRoles.length >= 20}>
+                    <Icon n="plus" s={13} /> Add a role
+                  </button>
+                  <span className="hint" style={{ marginTop: 0 }}>
+                    Remove any you do not need. Your own role is first: it runs the workspace, so it
+                    stays and always runs tenders. Nobody can sign off their own work, whatever their
+                    role is called.
+                  </span>
+                </div>
+              </div>
+              {navRow(2, 4, "Next: signing authority")}
+            </div>
+          )}
+
+          {/* --------------------------------------------- 4 · authority */}
+          {step === 4 && (
             <div className="card" id="su-ladder">
               <div className="chead"><h3>Who signs what</h3></div>
               <div className="cbody">
@@ -825,6 +964,10 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                   collecting a signature at every rung it passes, and stops at the first
                   person whose limit covers the amount. Four layers of management means four
                   signatures where the number needs them. Nobody signs their own request.
+                </p>
+                <p className="setupintro">
+                  Use your own names and amounts. A first version is fine: the levels, their limits
+                  and who stands on each one can all be changed later from Settings and the Team page.
                 </p>
 
                 <div className="ladtoggle">
@@ -838,21 +981,21 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                     <input type="radio" name="ladmode" checked={!f.useLadder}
                            onChange={() => set("useLadder", false)} />
                     <b>A single threshold</b>
-                    <i>One amount, above which any approver signs. Simplest; you can add a ladder later.</i>
+                    <i>One amount, above which a tender needs a sign-off. Simplest; you can add a ladder later.</i>
                   </label>
                 </div>
 
                 {!f.useLadder && (
                   <div className="frow" style={{ marginTop: 14, marginBottom: 0 }}>
                     <label className="lbl" htmlFor="su-thr-in">
-                      When does a tender need an approver's signature?
+                      When does a tender need a sign-off?
                     </label>
                     <input id="su-thr-in" className="in" type="number" min="0" step="1000000"
                            value={f.threshold} onChange={(e) => set("threshold", e.target.value)} />
                     <div className="hint">
-                      A tender at or above this amount goes to an approver before it publishes;
-                      below it, procurement publishes directly. Awards always need an approver.
-                      Set 0 to send nothing for sign-off.
+                      A tender at or above this amount needs a sign-off before it publishes;
+                      below it, it publishes directly. Awards always need a sign-off. Set 0 to
+                      send nothing for sign-off.
                     </div>
                   </div>
                 )}
@@ -880,7 +1023,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                                 aria-label={`Who signs level ${i + 1} if nobody is placed on it`}
                                 onChange={(e) => editLevel(l.id, { role: e.target.value })}>
                           <option value="">Nobody - it waits</option>
-                          {ROLES.map(([k, lb]) => <option key={k} value={k}>Any {lb}</option>)}
+                          {namedRoles.map((r) => <option key={r.ref} value={r.ref}>Anyone who is {r.label.trim()}</option>)}
                         </select>
                         <button className="btn sm" aria-label={`Remove level ${i + 1}`}
                                 disabled={f.levels.length < 2} onClick={() => dropLevel(l.id)}>
@@ -934,23 +1077,22 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                   </>
                 )}
               </div>
-              {navRow(2, 4, "Next: your team")}
+              {navRow(3, 5, "Next: your team")}
             </div>
           )}
 
-          {/* -------------------------------------------------- 4 · team */}
-          {step === 4 && (
+          {/* -------------------------------------------------- 5 · team */}
+          {step === 5 && (
             <div className="card" id="su-team">
               <div className="chead"><h3>Who works with you?</h3>
                 <span className="hint" style={{ marginLeft: "auto", marginTop: 0 }}>
                   optional, you can do this later</span></div>
               <div className="cbody">
                 <p className="setupintro">
-                  Each person gets an email with a link to set their own password, and each one
-                  is placed on the org chart now - so reporting lines and signing authority work
-                  from the first minute rather than from whenever the last invitation is clicked.
-                  Separation of duties is enforced by the server: an evaluator cannot publish or
-                  award, an approver cannot score, an auditor cannot change anything.
+                  Everyone you add is placed on the org chart, so reporting lines and signing
+                  authority are ready from the start. <b>Nobody is emailed yet.</b> When you are
+                  ready, send their invitations from the Team page, all at once or one by one. What
+                  each person can do comes from their role, and the server enforces it.
                 </p>
 
                 {f.team.length === 0 && (
@@ -987,10 +1129,14 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                                  onChange={(e) => editPerson(t.key, { title: e.target.value })} />
                         </div>
                         <div className="frow"><label className="lbl">Role in DOCKET</label>
-                          <select className="in" value={t.role}
+                          <select className="in" value={roleName(t.role) ? t.role : ""}
                                   onChange={(e) => editPerson(t.key, { role: e.target.value })}>
-                            {ROLES.map(([k, lb]) => <option key={k} value={k}>{lb}</option>)}
+                            {!roleName(t.role) && <option value="">Choose a role…</option>}
+                            {namedRoles.map((r) => <option key={r.ref} value={r.ref}>{r.label.trim()}</option>)}
                           </select>
+                          {!namedRoles.length && (
+                            <div className="hint">Name your roles two steps back first.</div>
+                          )}
                         </div>
                       </div>
                       <div className="f2" style={{ marginBottom: 0 }}>
@@ -1044,7 +1190,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                            key={r.key} style={{ "--d": r.depth }}>
                         <span className="chartline" aria-hidden="true" />
                         <span className="chartname">{r.name?.trim() || r.email?.trim() || "(unnamed)"}</span>
-                        <span className="charttag">{r.owner ? "you" : ROLE_LABEL[r.role] || r.role}</span>
+                        <span className="charttag">{r.owner ? "you" : roleName(r.role) || "no role yet"}</span>
                         {r.level && (
                           <span className="chartlvl">
                             <Icon n="stamp" s={11} />
@@ -1056,16 +1202,13 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                   </div>
                 )}
 
-                <div className="roleopt">
-                  {ROLES.map(([k, l, d]) => <div className="rolecard" key={k}><b>{l}</b>{d}</div>)}
-                </div>
               </div>
-              {navRow(3, 5, "Next: your vendors")}
+              {navRow(4, 6, "Next: your vendors")}
             </div>
           )}
 
-          {/* ----------------------------------------------- 5 · vendors */}
-          {step === 5 && (
+          {/* ----------------------------------------------- 6 · vendors */}
+          {step === 6 && (
             <div className="card" id="su-vendors">
               <div className="chead"><h3>Your vendors</h3>
                 <span className="hint" style={{ marginLeft: "auto", marginTop: 0 }}>
@@ -1076,6 +1219,8 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                   spreadsheet - column names are matched for you, and a name is the only thing
                   actually required. Duplicates are reported rather than silently merged.
                 </p>
+
+                <CsvGuide spec={VENDOR_CSV} />
 
                 <div className="vendsrc">
                   <input ref={vendorInput} type="file" hidden accept=".csv,.tsv,.txt,text/csv,text/plain"
@@ -1095,13 +1240,9 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                 <div className="frow">
                   <label className="lbl visually-hidden" htmlFor="su-vpaste">Paste your vendor list</label>
                   <textarea id="su-vpaste" className="in mono vendpaste" rows={6}
-                            placeholder={VENDOR_SAMPLE}
+                            placeholder={csvText(VENDOR_CSV)}
                             value={vendorText}
                             onChange={(e) => { setVendorText(e.target.value); loadVendorText(e.target.value); }} />
-                  <div className="hint">
-                    Recognised columns: name, category, email, contact, phone, location. Extra
-                    columns are ignored; a header row is optional.
-                  </div>
                 </div>
 
                 {vendorWarn.length > 0 && (
@@ -1137,23 +1278,16 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                       )}
                     </div>
 
-                    <label className="vendinvite">
-                      <input type="checkbox" checked={f.inviteVendors}
-                             onChange={(e) => set("inviteVendors", e.target.checked)} />
-                      <span>
-                        <b>Email them an invitation to register</b>
-                        <i>
-                          {f.vendors.filter((v) => v.email).length} vendors will be asked to set a
-                          password, upload their compliance documents and start receiving
-                          invitations to bid. Sent in the background, a batch at a time, once each
-                          - nobody is emailed twice, and failures are recorded as failures.
-                        </i>
-                      </span>
-                    </label>
+                    <div className="notice" style={{ marginBottom: 0 }}>
+                      <b>Nobody is emailed yet.</b> The list is loaded onto your vendor register.
+                      When you are ready, invite the {f.vendors.filter((v) => v.email).length} with an
+                      email address to register from the Vendors page. They go out in the
+                      background, a batch at a time, and nobody is emailed twice.
+                    </div>
                   </>
                 )}
               </div>
-              {navRow(4, null, null)}
+              {navRow(5, null, null)}
             </div>
           )}
         </div>
@@ -1272,10 +1406,13 @@ const SETUP_CSS = `
   flex-shrink:0}
 .chartrow.orphan{opacity:.6}
 
-.roleopt{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin-top:14px}
-.rolecard{border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12.5px;
-  color:var(--muted);background:var(--card);line-height:1.45}
-.rolecard b{display:block;color:var(--ink);font-size:13px;margin-bottom:2px}
+/* ---- the roles ---- */
+.rolerow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:start;
+  padding:10px 0;border-top:1px solid var(--line)}
+.rolerow > .rolename, .rolerow > select.in{grid-column:2}
+.rolerow > .btn{grid-row:1;grid-column:3}
+.rolename{display:flex;flex-direction:column;gap:3px;min-width:0}
+.rolename i{font-style:normal;font-size:11.5px;color:var(--brand)}
 
 /* ---- the vendors ---- */
 .vendsrc{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
@@ -1322,8 +1459,10 @@ const SETUP_CSS = `
 @media(min-width:700px){
   .f2{grid-template-columns:repeat(2,minmax(0,1fr))}
   .f3{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .roleopt{grid-template-columns:repeat(2,minmax(0,1fr))}
   .ladtoggle{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ladhead.rolehead{grid-template-columns:22px minmax(0,1.2fr) minmax(0,1.3fr) 36px}
+  .rolerow{grid-template-columns:22px minmax(0,1.2fr) minmax(0,1.3fr) 36px;align-items:center}
+  .rolerow > .rolename, .rolerow > select.in, .rolerow > .btn{grid-column:auto}
   .ladhead{display:grid;grid-template-columns:22px minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr) 36px;
     gap:8px}
   .ladrow{grid-template-columns:22px minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr) 36px;

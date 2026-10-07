@@ -1,4 +1,4 @@
-/* The registration drive — asking an imported register to come and sign up.
+/* The registration drive - asking an imported register to come and sign up.
 
    This is the only screen in the workspace whose button reaches ~1,300
    companies outside it, and cannot be recalled. So it is built as a preview
@@ -34,6 +34,15 @@ export function CampaignDialog({ api, onClose }) {
     catch (e) { setErr(e.message || "Could not read the register."); }
   };
   useEffect(() => { load(); }, []);
+  /* While the drive runs, the batches go out on the server's clock, not on
+     anything done here, so the counts are re-read on a timer of their own.
+     Without it "N sent" stood still until the dialog was closed and opened. */
+  const running = !!(pre && pre.state && pre.state.running);
+  useEffect(() => {
+    if (!running) return undefined;
+    const h = setInterval(load, 10000);
+    return () => clearInterval(h);
+  }, [running]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const start = async () => {
     setBusy(true);
@@ -52,8 +61,11 @@ export function CampaignDialog({ api, onClose }) {
 
   const stop = async () => {
     setBusy(true);
-    try { setPre(await act.campaignStop()); toast.ok("Drive paused", "No further invitations will be sent."); }
-    catch (e) { setErr(e.message || "Could not pause the drive."); }
+    try {
+      setPre(await act.campaignStop());
+      toast.ok("Drive paused", "No further invitations will be sent.");
+      refresh();
+    } catch (e) { setErr(e.message || "Could not pause the drive."); }
     setBusy(false);
   };
 
@@ -65,7 +77,6 @@ export function CampaignDialog({ api, onClose }) {
     );
   }
 
-  const running = pre.state.running;
   const armed = Number(confirm) === pre.toSend && pre.toSend > 0;
   const skipped = pre.skipped;
   const totalSkipped = pre.total - pre.toSend;

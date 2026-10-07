@@ -7,7 +7,7 @@
    Two specs run through all of it, and they are the reason the charts read as
    one system rather than eight widgets:
 
-   * 2px of *surface* separates touching marks — stacked segments, adjacent
+   * 2px of *surface* separates touching marks - stacked segments, adjacent
      bars, the ring around a dot that crosses a line. Never a border: a stroke
      adds ink that isn't data.
    * Grid and axis furniture is one step off the surface and hairline. The data

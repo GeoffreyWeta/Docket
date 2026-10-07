@@ -1,4 +1,4 @@
-"""What the organisation was paying before — derived from the ledger it has.
+"""What the organisation was paying before - derived from the ledger it has.
 
 The savings figure on the Finance page splits into "negotiated" and "against
 budget", and the split is decided by one field: `Tender.baseline`. Where nobody
@@ -16,7 +16,7 @@ an invention:
      aid into a side channel onto payables for someone without that permission.
 
   2. **Only what came before.** A contract signed after the tender published is
-     not what we "were paying before" — frequently it *is* the tender's own
+     not what we "were paying before" - frequently it *is* the tender's own
      result, and using it would make every saving zero.
 
   3. **Annualised against its own term, or not offered.** A two-year contract
@@ -29,7 +29,7 @@ an invention:
      a baseline nobody can defend in the review the savings figure exists for.
 
 Nothing here writes anything on its own. `apply_baselines` adopts exactly what
-an operator was shown and approved — see the note on preview-then-adopt below.
+an operator was shown and approved - see the note on preview-then-adopt below.
 """
 from collections import defaultdict
 
@@ -56,7 +56,7 @@ def _annualised(c):
             if abs(years - 1.0) > 0.08:
                 return int(round(c.amount / years)), f"annualised from a {round(term)}-day term"
             return c.amount, "a one-year term"
-    return c.amount, "term not recorded — taken as annual"
+    return c.amount, "term not recorded - taken as annual"
 
 
 def _median(xs):
@@ -114,7 +114,7 @@ def suggest(category, *, before=None, supplier_id=None, prefer_supplier=None,
 
     **The incumbent's own prior contract.** Where the award went to a supplier
     the organisation already had a contract with in this category, that contract
-    is the price being replaced — not an estimate of it. It is used on its own.
+    is the price being replaced - not an estimate of it. It is used on its own.
 
     **Otherwise, the category median.** The median of the annualised prior
     contracts, not the mean and not the latest: one renegotiated outlier should
@@ -129,12 +129,12 @@ def suggest(category, *, before=None, supplier_id=None, prefer_supplier=None,
     happened, so the caller can show it.
 
     `supplier_id` restricts the search to one vendor. `prefer_supplier` does
-    not restrict anything — it names the incumbent so their contract wins the
+    not restrict anything - it names the incumbent so their contract wins the
     tie, while the rest of the category stays visible as context. The backfill
     uses the second: narrowing the query would hide the comparison that shows
     why the incumbent figure was chosen.
 
-    Returns None where there is nothing to go on — an empty answer, never a
+    Returns None where there is nothing to go on - an empty answer, never a
     guessed one.
     """
     now = now or now_ms()
@@ -153,14 +153,14 @@ def suggest(category, *, before=None, supplier_id=None, prefer_supplier=None,
         best = incumbent[0]
         used, basis = [best], "incumbent"
         amount = best["annual"]
-        words = (f"{best['ref']}, the prior contract with {best['supplier']} — "
+        words = (f"{best['ref']}, the prior contract with {best['supplier']} - "
                  f"{fmt_money(best['raw'])}, {best['how']}")
     else:
         used, basis = priced, "category"
         amount = _median([p["annual"] for p in priced])
         if len(priced) == 1:
             p = priced[0]
-            words = f"{p['ref']} with {p['supplier']} — {fmt_money(p['raw'])}, {p['how']}"
+            words = f"{p['ref']} with {p['supplier']} - {fmt_money(p['raw'])}, {p['how']}"
         else:
             words = (f"median of {len(priced)} prior {category.lower()} contracts "
                      f"({', '.join(p['ref'] for p in priced[:3])}"
@@ -169,8 +169,8 @@ def suggest(category, *, before=None, supplier_id=None, prefer_supplier=None,
     fresh = [p for p in used if not p["stale"]]
     newest = max(p["signedAt"] for p in used)
 
-    # An incumbent contract is strong evidence even on its own — it is the thing
-    # being replaced — so it is not downgraded for being a single row the way a
+    # An incumbent contract is strong evidence even on its own - it is the thing
+    # being replaced - so it is not downgraded for being a single row the way a
     # lone category contract is.
     if basis == "incumbent":
         confidence = "good" if fresh else "stale"
@@ -200,7 +200,7 @@ def item_prices(code, now=None):
     This is the thing free-text tender lines made impossible. A line carrying an
     item code can be compared with the same code on a tender from two years ago;
     a line reading "Combi oven line (2 per store)" can be compared with nothing,
-    because the next buyer wrote "Ovens — 10 grid, incl. install" and meant the
+    because the next buyer wrote "Ovens - 10 grid, incl. install" and meant the
     same oven.
 
     Only awarded tenders, and only the winning bid's price: a losing quote is
@@ -253,7 +253,7 @@ def item_prices(code, now=None):
         "median": _median(prices) if prices else None,
         "latest": last,
         # Movement across the whole record, which is only meaningful with two
-        # points — one award is a price, not a trend.
+        # points - one award is a price, not a trend.
         "change": (last - first) if len(prices) > 1 else None,
         "changePct": ((last - first) / first * 100) if len(prices) > 1 and first else None,
     }
@@ -309,7 +309,7 @@ def backfill_candidates(now=None):
             continue
         before = t.published_at or t.awarded_at or now
         # The supplier who won is passed in so a prior contract with that same
-        # supplier — the price actually being replaced — beats a median across
+        # supplier - the price actually being replaced - beats a median across
         # everything else in the category. Without this the strongest evidence
         # available gets averaged away.
         s = suggest(t.category, before=before, prefer_supplier=t.awarded_to,
@@ -328,13 +328,13 @@ def backfill_candidates(now=None):
 
             # Two different things, and conflating them makes the screen useless.
             #
-            # `smaller` — the honest figure is lower than the budget figure. This
+            # `smaller` - the honest figure is lower than the budget figure. This
             # is the *expected* outcome, not a problem: budgets carry padding, so
             # replacing one with a real prior price usually shrinks the number
             # while making it defensible. Flagging it as a warning would mean
             # excluding the exact cases this tool exists for.
             #
-            # `worsens` — the award cost *more* than the thing it replaced. That
+            # `worsens` - the award cost *more* than the thing it replaced. That
             # is a genuine finding worth a human decision, and it is the only one
             # held back from bulk adoption.
             row["smaller"] = 0 <= row["proposedSaving"] < row["currentSaving"]
@@ -350,7 +350,7 @@ def apply_baselines(picks, actor, now=None):
 
     **Adopt what you saw.** The amount written is the one that came back from
     the preview, not one recomputed here. Between the operator reading the
-    screen and pressing the button, an import can land and move the median — and
+    screen and pressing the button, an import can land and move the median - and
     a savings figure whose basis changed after it was approved is a figure
     nobody actually signed off. Recomputing would also make the audit entry a
     lie, since it names the evidence the operator was shown.
@@ -377,7 +377,7 @@ def apply_baselines(picks, actor, now=None):
             continue
         if t.baseline:
             skipped.append({"id": tid, "ref": t.ref,
-                            "why": "already has a baseline — left alone"})
+                            "why": "already has a baseline - left alone"})
             continue
         try:
             amount = int(pick.get("amount") or 0)
@@ -389,7 +389,7 @@ def apply_baselines(picks, actor, now=None):
         if amount <= t.awarded_amount:
             skipped.append({"id": tid, "ref": t.ref,
                             "why": f"{fmt_money(amount)} is at or below the award "
-                                   f"({fmt_money(t.awarded_amount)}) — that is a loss, not a saving, "
+                                   f"({fmt_money(t.awarded_amount)}) - that is a loss, not a saving, "
                                    f"and wants recording deliberately rather than in a bulk backfill"})
             continue
 

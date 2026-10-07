@@ -2,7 +2,7 @@
 
    Procurement's consequences, for the people who carry them. Analytics answers
    "how is the buying going"; this answers "what did it cost, what do we still
-   owe, and what is about to go wrong" — different questions, different
+   owe, and what is about to go wrong" - different questions, different
    audience, and the reason this is a page rather than a sixth tab over there.
 
    Three rules the whole page is built on, each one a way procurement
@@ -12,7 +12,7 @@
      a fact; against an internal estimate it is a comment on the estimate;
      against the median bid it is a counterfactual. All three are here and none
      of them are added together. The definitions are shared with the Analytics
-     page — see analytics-model.js and backend/core/finance.py — because two
+     page - see analytics-model.js and backend/core/finance.py - because two
      pages disagreeing about how much was saved is worse than one of them not
      existing.
 
@@ -63,6 +63,11 @@ export function FinancePage({ api }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(true);
+  /* Bumped by anything on the page that changes the figures (adopting a
+     baseline moves every savings number), so the page re-reads the ledger
+     instead of showing the totals from before. */
+  const [nonce, setNonce] = useState(0);
+  const reload = () => setNonce((n) => n + 1);
 
   useEffect(() => {
     let live = true;
@@ -72,11 +77,11 @@ export function FinancePage({ api }) {
       .catch((e) => { if (live) setErr(e.message || "The finance service is unreachable."); })
       .finally(() => { if (live) setBusy(false); });
     return () => { live = false; };
-  }, [year]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [year, nonce]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   /* This page arms its own reveal observer. App.jsx arms one per route change
      against the bootstrap payload, which is already in hand when every other
-     page mounts — here the cards are drawn from a payload that arrives after
+     page mounts - here the cards are drawn from a payload that arrives after
      that observer has run and disconnected, and switching tabs mounts a fresh
      set without changing the route. Both cases leave `[data-reveal]` sitting at
      opacity 0, which is a blank page rather than a subtle animation bug.
@@ -135,7 +140,7 @@ export function FinancePage({ api }) {
         <YearPicker value={year} onChange={setYear} savings={data.savings} />
       </div>
 
-      {shown === "savings" && <SavingsTab d={data} api={api} />}
+      {shown === "savings" && <SavingsTab d={data} api={api} onChanged={reload} />}
       {shown === "spend" && <SpendTab d={data} api={api} />}
       {shown === "contracts" && <ContractsTab d={data} api={api} />}
       {shown === "payments" && <PaymentsTab d={data} api={api} />}
@@ -208,7 +213,7 @@ function LedgerBanner({ ledger, restricted }) {
 
 /* ================================================================ savings */
 
-function SavingsTab({ d, api }) {
+function SavingsTab({ d, api, onChanged }) {
   const s = d.savings;
   const av = d.avoidance;
   const neg = s.negotiated;
@@ -260,7 +265,7 @@ function SavingsTab({ d, api }) {
           measured properly, because the ledger already holds what they replaced.
           Only shown to someone who may actually adopt one. */}
       {can(api.user, "finance.baseline") && (
-        <div style={{ marginBottom: 14 }}><BaselineBackfill api={api} /></div>
+        <div style={{ marginBottom: 14 }}><BaselineBackfill api={api} onAdopted={onChanged} /></div>
       )}
 
       <div className="grid g2">
@@ -583,7 +588,7 @@ function ContractsTab({ d, api }) {
                          { key: "paid", label: "Paid", num: true, render: (r) => fmtMoney(r.paid) },
                          { key: "value", label: "Drawn", num: true, render: (r) => pct(r.value, 0) }]}
                   rows={d.trends.drawdown} />}>
-          {/* Both series are naira on one scale — never a second y-axis. */}
+          {/* Both series are naira on one scale - never a second y-axis. */}
           {d.trends.drawdown.length > 1 ? (
             <TimeChart series={[
               { key: "c", label: "Committed", color: TONE.committed,
@@ -1016,7 +1021,7 @@ function RiskTab({ d, api }) {
 
    Every level comes from a stated threshold in finance-model.js and carries the
    observation that produced it. A severity nobody can reproduce is an opinion
-   in a table, and the first question anyone asks a red row is "says who" — so
+   in a table, and the first question anyone asks a red row is "says who" - so
    the answer is in the row. */
 function RiskRegister({ d }) {
   const rows = riskLevels(d);
@@ -1064,7 +1069,7 @@ function RiskRegister({ d }) {
 
    They are individually listed under Exceptions too, and that is deliberate:
    there they are work to clear, here they are a pattern to read. What is not
-   here is a composite score — a single "fraud risk: 62" is an accusation with
+   here is a composite score - a single "fraud risk: 62" is an accusation with
    arithmetic painted on it, and nobody can act on it or contest it. */
 function FraudPanel({ d, api }) {
   const ex = (d.exceptions || []).filter((e) => FRAUD_KINDS.includes(e.kind));

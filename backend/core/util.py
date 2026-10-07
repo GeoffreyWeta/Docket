@@ -81,6 +81,29 @@ def savings_against(t, amount):
 
 # ---------------- evaluation math (mirrors the frontend) ----------------
 
+def line_maxima(tender):
+    """The tender's lines, when every one carries the most the buyer will pay
+    per unit (`price`). None for a lump-sum tender or one drafted before lines
+    had a maximum, which are graded on the total the way they always were."""
+    lines = tender.lines or []
+    if lines and all((l.get("price") or 0) > 0 for l in lines):
+        return lines
+    return None
+
+
+def lines_ceiling(lines):
+    """Quantity times maximum, summed: the most the whole tender can cost."""
+    return sum(int(l.get("qty") or 0) * int(l.get("price") or 0) for l in lines or [])
+
+
+def lines_over_max(tender, bid):
+    """The lines on which this bid's rate is above the buyer's maximum."""
+    lines = line_maxima(tender)
+    if not lines or not bid.lines:
+        return []
+    return [l for l in lines if (bid.lines.get(l["id"]) or 0) > l["price"]]
+
+
 def tech_score(tender, bid):
     per = []
     for scores in (bid.scores or {}).values():
@@ -95,9 +118,28 @@ def tech_score(tender, bid):
     return sum(per) / len(per) if per else None
 
 
-def comm_score(bid, bids):
+def comm_score(bid, bids, tender=None):
+    """Price score out of 100.
+
+    With a maximum on every line it is graded line by line. Each line counts
+    for its quantity times its maximum, so the big lines decide the score. A
+    rate above the maximum earns nothing on that line; at or under it, the
+    lowest rate on the line gets full marks and the rest score in proportion.
+    Without maximums, the lowest total gets full marks."""
     if bid.amount is None:
         return None
+    lines = line_maxima(tender) if tender is not None else None
+    if lines and bid.lines:
+        weight = lines_ceiling(lines)
+        got = 0.0
+        for l in lines:
+            mine = bid.lines.get(l["id"]) or 0
+            if mine <= 0 or mine > l["price"]:
+                continue
+            rates = ((b.lines or {}).get(l["id"]) or 0 for b in bids if b.amount is not None)
+            best = min([mine] + [r for r in rates if 0 < r <= l["price"]])
+            got += l["qty"] * l["price"] * best / mine
+        return got / weight * 100
     priced = [b.amount for b in bids if b.amount is not None]
     lo = min(priced)
     return (lo / bid.amount) * 100
@@ -105,7 +147,7 @@ def comm_score(bid, bids):
 
 def total_score(tender, bid, bids):
     ts = tech_score(tender, bid)
-    cs = comm_score(bid, bids)
+    cs = comm_score(bid, bids, tender)
     if ts is None or cs is None:
         return None
     return ts * tender.tech_weight / 100 + cs * tender.comm_weight / 100
@@ -168,7 +210,7 @@ def _fernet():
     """Fernet key derived from SECRET_KEY. Protects bid contents at rest:
     a database dump taken before the opening contains only ciphertext.
     (An attacker holding BOTH the DB and the app's SECRET_KEY can still
-    decrypt — key-management hardware is the next rung on this ladder.)"""
+    decrypt - key-management hardware is the next rung on this ladder.)"""
     import base64
     import hashlib
 
@@ -249,7 +291,7 @@ def base_url():
 
 
 def org_name():
-    """The organisation's name. Duplicated from views.org_name deliberately —
+    """The organisation's name. Duplicated from views.org_name deliberately -
     tasks.py cannot import views.py, which imports tasks.py."""
     from .models import OrgSetting
     from .seed import ORG

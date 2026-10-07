@@ -11,8 +11,8 @@ from .models import (AccessRole, ActionToken, Auction, AuctionLot, AuctionPartic
                      Notification, OrgSetting, Payment, Persona, ProcurementRound,
                      Profile, PurchaseOrder, ProxyBid, SourceSync, Supplier,
                      TaskMark, Tender)
-from .util import (DAY_MS, award_letter, now_ms, record_event, regret_letter,
-                   rid, seal_bytes, seal_json)
+from .util import (DAY_MS, award_letter, lines_ceiling, now_ms, record_event,
+                   regret_letter, rid, seal_bytes, seal_json)
 
 # A minimal valid PDF used for seeded demo documents.
 TINY_PDF = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
@@ -43,8 +43,8 @@ DEMO_USERS = [
 # Amara, Chidi and Funke all hold `procurement`, because they do the same job:
 # they run competitions. What separates them is how far their authority reaches,
 # and that is a subtraction from the role rather than a role of its own. Model it
-# the other way — "buyer", "procurement_manager", "hod_procurement" as distinct
-# roles — and you need a new role every time somebody is promoted, plus a second
+# the other way - "buyer", "procurement_manager", "hod_procurement" as distinct
+# roles - and you need a new role every time somebody is promoted, plus a second
 # one per department, and the capability catalogue stops being the single answer
 # to "what may this person do".
 #
@@ -64,15 +64,15 @@ DEMO_USERS = [
 # that vendors have already bid into is not a junior act, and it is irreversible
 # from the interface.
 SENIORITY_REVOKED = {
-    # Procurement Manager — the department's configuration is not his
+    # Procurement Manager - the department's configuration is not his
     "u6": ["team.invite", "team.org", "settings.rename",
            "supplier.import", "finance.sync", "finance.dimensions"],
-    # Procurement Officer — the above, plus the irreversible and the supervisory
+    # Procurement Officer - the above, plus the irreversible and the supervisory
     "u7": ["team.invite", "team.org", "settings.rename",
            "supplier.import", "finance.sync", "finance.dimensions",
            "tender.lifecycle", "supplier.suspend", "supplier.prequalify",
            "desk.see_reports"],
-    # Head of Kitchen Operations — signs for his own unit's spend, and that is
+    # Head of Kitchen Operations - signs for his own unit's spend, and that is
     # the whole of it. The approver role carries two org-wide settings by
     # default, and neither belongs to a unit head: the approval matrix is the
     # CFO's to set, and renaming the organisation is nobody's business at unit
@@ -103,13 +103,27 @@ EXEC_PERMS = {
 ORG = {"name": "Kestrel Hospitality Group", "short": "Kestrel", "note": "Demo workspace"}
 
 
+# The site's look - layout and accent - is chosen in the administration
+# console for the whole deployment. It is configuration, not demo content, so
+# every reset keeps it, the same way it keeps administrator accounts and the
+# roles a company made. Without this the nightly demo reset put the demo back
+# to the default blue whatever the console said.
+APPEARANCE_KEYS = ("accent", "landing")
+
+
+def site_appearance():
+    row = OrgSetting.objects.filter(pk=1).first()
+    data = (row.data if row else None) or {}
+    return {k: data[k] for k in APPEARANCE_KEYS if k in data}
+
+
 def wipe():
     """Reset the workspace to the seed.
 
     Administrator accounts survive it, and so do their sessions: a demo reset is
     a statement about tendering data, not a way to lock the operator out of the
     console that governs it. Custom roles (AccessRole) survive for the same
-    reason — they are configuration, not demo content.
+    reason - they are configuration, not demo content.
     """
     User.objects.filter(is_superuser=False).delete()  # cascades profiles, tokens, notifications
     AuthToken.objects.exclude(user__is_superuser=True).delete()
@@ -134,22 +148,23 @@ def wipe():
 
 
 # One transaction, because a reset starts by deleting everything. Run it bare
-# and a request that dies part way — a worker timeout, a deploy, a crash —
+# and a request that dies part way - a worker timeout, a deploy, a crash -
 # leaves the shared demo wiped and half rebuilt for every visitor after it.
 # Atomic, it either lands whole or not at all. It is also most of the speed:
 # on SQLite each of a thousand-odd inserts was otherwise its own commit.
 @transaction.atomic
 def seed_all():
+    look = site_appearance()
     wipe()
     T = now_ms()
     d = lambda n: int(n * DAY_MS)
 
-    # The executive role is configuration rather than code — it is created here
+    # The executive role is configuration rather than code - it is created here
     # the same way an administrator would create it in the console, so the demo
     # shows a real custom role rather than a sixth hardcoded one.
     AccessRole.objects.update_or_create(
         key=EXEC_ROLE,
-        defaults={"label": "Executive — sees everything, signs nothing",
+        defaults={"label": "Executive - sees everything, signs nothing",
                   "title": "Chief Executive",
                   "note": "Oversight across the whole organisation. Deliberately holds no "
                           "power to publish, score or award: an executive who can sign a "
@@ -178,7 +193,7 @@ def seed_all():
     # This is the OTHER axis: the roles above say what each person does, the
     # tree says who they answer to. desk.see_reports follows this, not the role.
     #
-    #                          Tunde Adeyemi — Chief Executive
+    #                          Tunde Adeyemi - Chief Executive
     #           ┌───────────────────┬─────────────────────┬──────────────┐
     #      Mark Iyer          Bisi Ogunleye          Aisha Bello
     #      Chief Financial    Head of Kitchen        Internal Audit
@@ -188,11 +203,11 @@ def seed_all():
     #        │   Finance         Supply Quality
     #        │   Evaluator       Evaluator
     #        │
-    #      Amara Okafor — Head of Procurement
+    #      Amara Okafor - Head of Procurement
     #        │
-    #      Chidi Nwosu — Procurement Manager
+    #      Chidi Nwosu - Procurement Manager
     #        │
-    #      Funke Adebayo — Procurement Officer
+    #      Funke Adebayo - Procurement Officer
     #
     # Two independence rules are drawn here rather than written down anywhere:
     #
@@ -201,8 +216,8 @@ def seed_all():
     # is not an independent auditor, and the reporting line is where that
     # independence is either real or decorative.
     #
-    # The evaluators report into the business they were seconded from — finance
-    # to the CFO, supply quality to the unit that eats the outcome — and NOT to
+    # The evaluators report into the business they were seconded from - finance
+    # to the CFO, supply quality to the unit that eats the outcome - and NOT to
     # the Head of Procurement. Same argument one rung down: scoring is meant to
     # be blind, and it is not blind in any way that matters if the person
     # running the tender also writes the scorer's appraisal.
@@ -241,7 +256,7 @@ def seed_all():
             docs=[{"name": "Food-contact compliance", "expiry": T + d(210)}], perf={"onTime": 90, "quality": 89}),
     ])
     # Registration is its own fact since it was split from verification, and a
-    # vendor with no registered_at reads "Pending registration" — on the
+    # vendor with no registered_at reads "Pending registration" - on the
     # buyer's register and on its own portal, beside "Verified", to a supplier
     # who is signed in and has a year of bids behind it. The verified ones
     # registered long ago; FrostLine stays as it was, unregistered and
@@ -252,8 +267,13 @@ def seed_all():
         id="t1", ref="KST-RFP-2026-014", title="Annual supply of mozzarella & dairy inputs", ttype="RFP",
         category="Food & ingredients", owner_id="u1",
         baseline=505_000_000, baseline_source="2025 contract with Harmattan Foods, annualised",
-        budget=480_000_000, status="evaluation", published_at=T - d(21), deadline=T - d(6), opened_at=T - d(5),
-        invited=["s3", "s8", "s1"], tech_weight=70, comm_weight=30, lines=[], addenda=[],
+        status="evaluation", published_at=T - d(21), deadline=T - d(6), opened_at=T - d(5),
+        invited=["s3", "s8", "s1"], tech_weight=70, comm_weight=30, addenda=[],
+        lines=[
+            {"id": "l1", "desc": "Mozzarella, shredded", "qty": 72000, "unit": "kg", "price": 5_000},
+            {"id": "l2", "desc": "Cheddar, sliced", "qty": 12000, "unit": "kg", "price": 6_500},
+            {"id": "l3", "desc": "Butter & cooking cream for the central kitchens", "qty": 7000, "unit": "kg", "price": 6_000},
+        ],
         criteria=[
             {"id": "c1", "name": "Product quality & certifications", "weight": 35},
             {"id": "c2", "name": "Supply reliability & capacity", "weight": 30},
@@ -268,12 +288,12 @@ def seed_all():
         id="t2", ref="KST-RFQ-2026-021", title="Nationwide cold-chain distribution partner", ttype="RFQ",
         category="Logistics & freight", owner_id="u1",
         baseline=655_000_000, baseline_source="Incumbent renewal quote, Jan 2026",
-        budget=620_000_000, status="published", published_at=T - d(9), deadline=T + d(5),
+        status="published", published_at=T - d(9), deadline=T + d(5),
         invited=["s2", "s10", "s1"], tech_weight=65, comm_weight=35, addenda=[],
         lines=[
-            {"id": "l1", "desc": "Chilled store delivery (twice-weekly, all stores)", "qty": 13312, "unit": "drop"},
-            {"id": "l2", "desc": "Frozen line-haul between central kitchens", "qty": 208, "unit": "trip"},
-            {"id": "l3", "desc": "Cold-chain telemetry & exception reporting", "qty": 24, "unit": "site-month"},
+            {"id": "l1", "desc": "Chilled store delivery (twice-weekly, all stores)", "qty": 13312, "unit": "drop", "price": 32_500},
+            {"id": "l2", "desc": "Frozen line-haul between central kitchens", "qty": 208, "unit": "trip", "price": 850_000},
+            {"id": "l3", "desc": "Cold-chain telemetry & exception reporting", "qty": 24, "unit": "site-month", "price": 440_000},
         ],
         criteria=[
             {"id": "c1", "name": "Network coverage", "weight": 30},
@@ -289,13 +309,13 @@ def seed_all():
         id="t3", ref="KST-RFQ-2026-019", title="Kitchen equipment for 12 new stores", ttype="RFQ",
         category="Equipment & assets", owner_id="u6",
         baseline=372_000_000, baseline_source="2025 store fit-out actuals, per-store × 12",
-        budget=350_000_000, status="published", published_at=T - d(18), deadline=T - d(1),
+        status="published", published_at=T - d(18), deadline=T - d(1),
         invited=["s4", "s9", "s10"], tech_weight=60, comm_weight=40, addenda=[],
         lines=[
-            {"id": "l1", "desc": "Combi oven line (2 per store)", "qty": 24, "unit": "unit"},
-            {"id": "l2", "desc": "Refrigeration set (walk-in + under-counter)", "qty": 12, "unit": "store set"},
-            {"id": "l3", "desc": "Prep & assembly stations", "qty": 12, "unit": "store set"},
-            {"id": "l4", "desc": "Extraction, install & commissioning", "qty": 12, "unit": "store"},
+            {"id": "l1", "desc": "Combi oven line (2 per store)", "qty": 24, "unit": "unit", "price": 5_000_000},
+            {"id": "l2", "desc": "Refrigeration set (walk-in + under-counter)", "qty": 12, "unit": "store set", "price": 8_000_000},
+            {"id": "l3", "desc": "Prep & assembly stations", "qty": 12, "unit": "store set", "price": 5_500_000},
+            {"id": "l4", "desc": "Extraction, install & commissioning", "qty": 12, "unit": "store", "price": 5_500_000},
         ],
         criteria=[
             {"id": "c1", "name": "Build quality & certifications", "weight": 40},
@@ -307,15 +327,20 @@ def seed_all():
                "Unit rates fixed for the programme."),
     )
     t4 = Tender(
-        id="t4", ref="KST-RFQ-2026-008", title="Pizza boxes, cups & consumables — annual supply", ttype="RFQ",
+        id="t4", ref="KST-RFQ-2026-008", title="Pizza boxes, cups & consumables - annual supply", ttype="RFQ",
         category="Printing & packaging", owner_id="u6",
         baseline=228_000_000, baseline_source="2025 annual spend with Crestpack",
-        budget=210_000_000, status="awarded", published_at=T - d(60), deadline=T - d(40), opened_at=T - d(39),
+        status="awarded", published_at=T - d(60), deadline=T - d(40), opened_at=T - d(39),
         awarded_at=T - d(31), awarded_to="s5", awarded_amount=183_000_000,
-        award_memo=("Panel recommends PackRight Industries at \u20a6183m — 12.9% under the \u20a6210m ceiling. Highest technical "
+        award_memo=("Panel recommends PackRight Industries at \u20a6183m - 12.9% under the \u20a6210m ceiling. Highest technical "
                     "score (81/100) and lowest price of two compliant bids. No variance or pricing flags. Food-contact "
                     "compliance verified and current."),
-        invited=["s5", "s11"], tech_weight=60, comm_weight=40, lines=[], addenda=[],
+        invited=["s5", "s11"], tech_weight=60, comm_weight=40, addenda=[],
+        lines=[
+            {"id": "l1", "desc": "Branded pizza boxes, three sizes", "qty": 600000, "unit": "box", "price": 250},
+            {"id": "l2", "desc": "Cold cups with lids", "qty": 400000, "unit": "unit", "price": 120},
+            {"id": "l3", "desc": "Napkins, pack of 100", "qty": 8000, "unit": "pack", "price": 1_500},
+        ],
         criteria=[
             {"id": "c1", "name": "Print & material quality", "weight": 40},
             {"id": "c2", "name": "Capacity & lead times", "weight": 35},
@@ -329,10 +354,15 @@ def seed_all():
         "s11": {"type": "regret", "text": regret_letter(ORG["name"], t4, "Crestpack Nigeria")},
     }
     t5 = Tender(
-        id="t5", ref="KST-RFP-2026-027", title="Integrated pest management — 128 stores", ttype="RFP",
+        id="t5", ref="KST-RFP-2026-027", title="Integrated pest management - 128 stores", ttype="RFP",
         category="Cleaning, pest & waste", owner_id="u7",
-        budget=96_000_000, status="approval", published_at=None, deadline=T + d(20),
-        invited=["s6"], tech_weight=70, comm_weight=30, lines=[], addenda=[], two_stage=True, tech_threshold=70,
+        status="approval", published_at=None, deadline=T + d(20),
+        invited=["s6"], tech_weight=70, comm_weight=30, addenda=[], two_stage=True, tech_threshold=70,
+        lines=[
+            {"id": "l1", "desc": "Scheduled monthly service, 128 stores and 2 kitchens", "qty": 1560, "unit": "visit", "price": 50_000},
+            {"id": "l2", "desc": "Emergency call-out, 24-hour response", "qty": 300, "unit": "job", "price": 40_000},
+            {"id": "l3", "desc": "Digital service reports & audit pack", "qty": 12, "unit": "month", "price": 500_000},
+        ],
         criteria=[
             {"id": "c1", "name": "Methodology & food-safe chemicals", "weight": 45},
             {"id": "c2", "name": "Coverage & response times", "weight": 35},
@@ -346,15 +376,15 @@ def seed_all():
         id="t6", ref="KST-RFP-2026-025", title="POS hardware refresh across 3 brands", ttype="RFP",
         category="IT & telecoms", owner_id="u6",
         baseline=268_000_000, baseline_source="OEM list price at 2025 volumes",
-        budget=240_000_000, status="published", published_at=T - d(6), deadline=T + d(9),
+        status="published", published_at=T - d(6), deadline=T + d(9),
         invited=["s7"], tech_weight=65, comm_weight=35,
-        addenda=[{"id": "a1", "at": T - d(2), "title": "Addendum 01 — store list revised to 132 stores",
+        addenda=[{"id": "a1", "at": T - d(2), "title": "Addendum 01 - store list revised to 132 stores",
                   "note": ("Four additional stores confirmed for the deployment window. Price the deployment & training "
                            "line assuming 132 stores; terminal and screen quantities are unchanged. All other terms stand.")}],
         lines=[
-            {"id": "l1", "desc": "POS terminal (dual-SIM failover capable)", "qty": 410, "unit": "unit"},
-            {"id": "l2", "desc": "Kitchen display screen", "qty": 120, "unit": "unit"},
-            {"id": "l3", "desc": "Deployment, staging & staff training", "qty": 128, "unit": "store"},
+            {"id": "l1", "desc": "POS terminal (dual-SIM failover capable)", "qty": 410, "unit": "unit", "price": 436_000},
+            {"id": "l2", "desc": "Kitchen display screen", "qty": 120, "unit": "unit", "price": 297_000},
+            {"id": "l3", "desc": "Deployment, staging & staff training", "qty": 128, "unit": "store", "price": 200_000},
         ],
         criteria=[
             {"id": "c1", "name": "Hardware reliability & spec", "weight": 35},
@@ -365,10 +395,14 @@ def seed_all():
         scope=("Replacement of 410 POS terminals and 120 kitchen display screens across three brands. Includes staging, "
                "store-by-store deployment out of trading hours, staff orientation, and a 3-year advance-replacement warranty."),
     )
+    # Every demo tender is priced line by line, and its ceiling is what those
+    # maximums come to, exactly as on a tender drafted in the app.
+    for t in (t1, t2, t3, t4, t5, t6):
+        t.budget = lines_ceiling(t.lines)
     Tender.objects.bulk_create([t1, t2, t3, t4, t5, t6])
 
     # The reverse auction. Its own event now, not a tender wearing a type flag
-    # — see the comment above Auction in models.py. Seeded live so the demo has
+    # - see the comment above Auction in models.py. Seeded live so the demo has
     # a room somebody can actually walk into and bid in.
     #
     # Open for a day and a half. It used to close two hours after the seed ran,
@@ -393,7 +427,7 @@ def seed_all():
     )
     diesel = AuctionLot.objects.create(
         id="l1", auction=auc, number=1,
-        title="AGO (diesel) — 128 sites, 12 months",
+        title="AGO (diesel) - 128 sites, 12 months",
         description="Annual lump sum, delivered to site weekly.",
         qty=1, uom="year", ceiling=90_000_000, reserve=84_000_000,
         min_decrement=500_000,
@@ -418,11 +452,14 @@ def seed_all():
                                 uploaded_by="Amara Okafor", uploaded_at=T - d(1.1) + i)
 
     Bid.objects.bulk_create([
-        Bid(id="b1", tender=t1, supplier_id="s3", submitted_at=T - d(8), amount=452_000_000, lines={},
+        Bid(id="b1", tender=t1, supplier_id="s3", submitted_at=T - d(8), amount=452_000_000,
+            lines={"l1": 4_700, "l2": 6_200, "l3": 5_600},
             scores={"u2": {"c1": 8, "c2": 8, "c3": 9, "c4": 6}, "u3": {"c1": 7, "c2": 8, "c3": 8, "c4": 7}}),
-        Bid(id="b2", tender=t1, supplier_id="s8", submitted_at=T - d(7), amount=431_000_000, lines={},
+        Bid(id="b2", tender=t1, supplier_id="s8", submitted_at=T - d(7), amount=431_000_000,
+            lines={"l1": 4_500, "l2": 6_700, "l3": 3_800},     # cheddar above the maximum
             scores={"u2": {"c1": 7, "c2": 7, "c3": 8, "c4": 7}, "u3": {"c1": 8, "c2": 6, "c3": 7, "c4": 8}}),
-        Bid(id="b3", tender=t1, supplier_id="s1", submitted_at=T - d(6.3), amount=265_000_000, lines={},
+        Bid(id="b3", tender=t1, supplier_id="s1", submitted_at=T - d(6.3), amount=265_000_000,
+            lines={"l1": 2_600, "l2": 4_150, "l3": 4_000},
             scores={"u2": {"c1": 6, "c2": 4, "c3": 5, "c4": 9}, "u3": {"c1": 5, "c2": 9, "c3": 6, "c4": 9}}),
         # t3 is sealed and unopened: amounts exist ONLY as ciphertext at rest
         Bid(id="b4", tender=t3, supplier_id="s4", submitted_at=T - d(2), amount=None, lines={},
@@ -431,9 +468,11 @@ def seed_all():
             sealed_blob=seal_json({"amount": 298_200_000, "lines": {"l1": 3_900_000, "l2": 7_200_000, "l3": 4_900_000, "l4": 4_950_000}}), scores={}),
         Bid(id="b6", tender=t3, supplier_id="s10", submitted_at=T - d(1.2), amount=None, lines={},
             sealed_blob=seal_json({"amount": 342_000_000, "lines": {"l1": 4_600_000, "l2": 8_300_000, "l3": 5_400_000, "l4": 5_600_000}}), scores={}),
-        Bid(id="b7", tender=t4, supplier_id="s5", submitted_at=T - d(42), amount=183_000_000, lines={},
+        Bid(id="b7", tender=t4, supplier_id="s5", submitted_at=T - d(42), amount=183_000_000,
+            lines={"l1": 218, "l2": 105, "l3": 1_275},
             scores={"u2": {"c1": 8, "c2": 9, "c3": 7}, "u3": {"c1": 8, "c2": 8, "c3": 7}}),
-        Bid(id="b8", tender=t4, supplier_id="s11", submitted_at=T - d(41), amount=201_000_000, lines={},
+        Bid(id="b8", tender=t4, supplier_id="s11", submitted_at=T - d(41), amount=201_000_000,
+            lines={"l1": 235, "l2": 125, "l3": 1_250},          # cups above the maximum
             scores={"u2": {"c1": 7, "c2": 7, "c3": 8}, "u3": {"c1": 7, "c2": 6, "c3": 8}}),
     ])
 
@@ -453,24 +492,24 @@ def seed_all():
         id=rid("e"), at=at, actor=actor, role=role, action=action, tender_id=tid, detail=detail)
     _seed_events = [
 
-        ev(T - d(1), "System", "system", "Deadline passed — bids sealed", "t3", "3 sealed bids held for formal opening."),
+        ev(T - d(1), "System", "system", "Deadline passed - bids sealed", "t3", "3 sealed bids held for formal opening."),
         ev(T - d(1.2), "FrostLine Refrigeration", "supplier", "Sealed bid received", "t3", "Contents sealed until the opening is logged."),
-        ev(T - d(2), "Amara Okafor", "procurement", "Addendum issued", "t6", "Addendum 01 — store list revised to 132 stores. New submissions must acknowledge it."),
+        ev(T - d(2), "Amara Okafor", "procurement", "Addendum issued", "t6", "Addendum 01 - store list revised to 132 stores. New submissions must acknowledge it."),
         ev(T - d(2), "Coldline Logistics", "supplier", "Clarification asked", "t2", "Question on hub-and-spoke distribution model."),
         ev(T - d(2), "Zenith Kitchen Systems", "supplier", "Sealed bid received", "t3", "Contents sealed until the opening is logged."),
         ev(T - d(3), "Amara Okafor", "procurement", "Clarification answered", "t6", "Published to all invited suppliers."),
-        ev(T - d(3), "Amara Okafor", "procurement", "Submitted for approval", "t5", "Routed to the approver under the approval matrix (>\u20a650m)."),
+        ev(T - d(3), "Amara Okafor", "procurement", "Submitted for approval", "t5", "Routed for sign-off under the approval matrix (>\u20a650m)."),
         ev(T - d(3), "Okoye Catering Equipment", "supplier", "Sealed bid received", "t3", "Contents sealed until the opening is logged."),
         ev(T - d(4), "BlueChip POS Africa", "supplier", "Clarification asked", "t6", "Question on terminal connectivity spec."),
-        ev(T - d(5), "Amara Okafor", "procurement", "Bid opening — seals broken", "t1", "3 bids opened before the evaluation panel; amounts recorded."),
-        ev(T - d(6), "System", "system", "Deadline passed — bids sealed", "t1", "3 sealed bids held for formal opening."),
+        ev(T - d(5), "Amara Okafor", "procurement", "Bid opening - seals broken", "t1", "3 bids opened before the evaluation panel; amounts recorded."),
+        ev(T - d(6), "System", "system", "Deadline passed - bids sealed", "t1", "3 sealed bids held for formal opening."),
         ev(T - d(6.3), "Lagos Fresh Produce Co.", "supplier", "Sealed bid received", "t1", "Contents sealed until the opening is logged."),
         ev(T - d(6), "Mark Iyer", "approver", "Approved & published", "t6", "POS hardware refresh released to invited suppliers."),
         ev(T - d(7), "Savanna Dairy Imports", "supplier", "Sealed bid received", "t1", "Contents sealed until the opening is logged."),
         ev(T - d(8), "Harmattan Foods Ltd", "supplier", "Sealed bid received", "t1", "Contents sealed until the opening is logged."),
         ev(T - d(9), "Mark Iyer", "approver", "Approved & published", "t2", "Cold-chain distribution RFQ released to invited suppliers."),
-        ev(T - d(31), "Mark Iyer", "approver", "Award approved", "t4", "Awarded to PackRight Industries at \u20a6183m — 12.9% under budget. Award and regret letters issued."),
-        ev(T - d(31.1), "Amara Okafor", "procurement", "Award recommended", "t4", "Panel recommendation routed to the approver."),
+        ev(T - d(31), "Mark Iyer", "approver", "Award approved", "t4", "Awarded to PackRight Industries at \u20a6183m - 12.9% under budget. Award and regret letters issued."),
+        ev(T - d(31.1), "Amara Okafor", "procurement", "Award recommended", "t4", "Panel recommendation routed for sign-off."),
         ]
     for _e in sorted(_seed_events, key=lambda x: x.at):
         record_event(actor=_e.actor, role=_e.role, action=_e.action,
@@ -494,12 +533,12 @@ def seed_all():
 
     doc(t2, "tender", None, "", "Store list & route map.pdf", "Amara Okafor", T - d(9))
     doc(t6, "tender", None, "", "Terminal & KDS specification.pdf", "Amara Okafor", T - d(6))
-    doc(t1, "bid", "s3", "technical", "Harmattan — technical proposal.pdf", "Harmattan Foods Ltd", T - d(8))
-    doc(t1, "bid", "s8", "technical", "Savanna — technical proposal.pdf", "Savanna Dairy Imports", T - d(7))
-    doc(t1, "bid", "s1", "technical", "Lagos Fresh — technical proposal.pdf", "Lagos Fresh Produce Co.", T - d(6.3))
-    doc(t3, "bid", "s4", "technical", "Zenith — equipment schedule & method.pdf", "Zenith Kitchen Systems", T - d(2), sealed=True)
-    doc(t3, "bid", "s9", "technical", "Okoye — equipment schedule & method.pdf", "Okoye Catering Equipment", T - d(3), sealed=True)
-    doc(t3, "bid", "s10", "technical", "FrostLine — equipment schedule & method.pdf", "FrostLine Refrigeration", T - d(1.2), sealed=True)
+    doc(t1, "bid", "s3", "technical", "Harmattan - technical proposal.pdf", "Harmattan Foods Ltd", T - d(8))
+    doc(t1, "bid", "s8", "technical", "Savanna - technical proposal.pdf", "Savanna Dairy Imports", T - d(7))
+    doc(t1, "bid", "s1", "technical", "Lagos Fresh - technical proposal.pdf", "Lagos Fresh Produce Co.", T - d(6.3))
+    doc(t3, "bid", "s4", "technical", "Zenith - equipment schedule & method.pdf", "Zenith Kitchen Systems", T - d(2), sealed=True)
+    doc(t3, "bid", "s9", "technical", "Okoye - equipment schedule & method.pdf", "Okoye Catering Equipment", T - d(3), sealed=True)
+    doc(t3, "bid", "s10", "technical", "FrostLine - equipment schedule & method.pdf", "FrostLine Refrigeration", T - d(1.2), sealed=True)
 
     # real login accounts mapped to the demo identities
     for sid, em in (("s2", "coldline@example.com"), ("s3", "harmattan@example.com"), ("s7", "bluechip@example.com")):
@@ -513,14 +552,17 @@ def seed_all():
                                supplier=Supplier.objects.get(pk=sid) if sid else None,
                                # the seniority ladder, as a subtraction from the
                                # role rather than a role of its own
-                               perm_revoked=SENIORITY_REVOKED.get(pid, []))
+                               perm_revoked=SENIORITY_REVOKED.get(pid, []),
+                               # whoever set the workspace up keeps the role list
+                               # right afterwards, as setup_views grants it
+                               perm_extra=["team.roles"] if pid == "u1" else [])
 
     # The spend dimensions this workspace codes to, and two years of ledger
     # behind the awards. Last, because the ledger references the tenders and
     # vendors above it. See seed_finance.py.
     from .seed_finance import DIMENSIONS, seed_finance
     OrgSetting.objects.update_or_create(
-        pk=1, defaults={"data": {"dimensions": DIMENSIONS}})
+        pk=1, defaults={"data": {"dimensions": DIMENSIONS, **look}})
     seed_finance(T)
 
     # Write down what was just made, so an administrator can take it away again
@@ -562,7 +604,7 @@ FIXTURE_LABELS = {
 }
 
 # Plumbing. Real rows, genuinely removed, but naming them individually turns a
-# decision into a database tour — they are counted together instead.
+# decision into a database tour - they are counted together instead.
 FIXTURE_INTERNAL = {"core.ChainHead", "core.TaskMark", "core.SourceSync", "core.ActionToken"}
 
 
@@ -593,7 +635,7 @@ def record_fixture(at=None):
         ids = list(m.objects.values_list("pk", flat=True))
         if ids:
             manifest[_label(m)] = [str(i) for i in ids]
-    # The demo logins, by username. Administrators are never in here — they are
+    # The demo logins, by username. Administrators are never in here - they are
     # not part of the fixture and survive both the reset and the clear.
     manifest["auth.User"] = [u for u, _, _ in DEMO_USERS]
     DemoFixture.objects.update_or_create(
@@ -649,7 +691,7 @@ def clear_demo(reset_settings=True):
     """Remove the demo fixture and leave a workspace ready for real data.
 
     Deletes only what the manifest names. An imported vendor register, contracts
-    synced from NAV, accounts an administrator created — none of them are in the
+    synced from NAV, accounts an administrator created - none of them are in the
     manifest, so none of them are touched. Without a manifest this refuses
     rather than falling back to a guess: there is no safe heuristic for "which
     of these 1,400 vendors were fake", and being wrong here is unrecoverable.
@@ -672,7 +714,7 @@ def clear_demo(reset_settings=True):
 
     # Demo sign-ins go with their personas. `is_superuser=False` is the guard
     # that stops a console operator deleting their own account by clearing the
-    # demo — an administrator who happened to be given a demo username keeps it.
+    # demo - an administrator who happened to be given a demo username keeps it.
     n, _ = User.objects.filter(username__in=manifest.get("auth.User", []),
                                is_superuser=False).delete()
     if n:
@@ -688,6 +730,7 @@ def clear_demo(reset_settings=True):
         # neutral so nobody inherits Kestrel's org chart; the threshold keeps its
         # default. Custom roles are configuration somebody made and are left.
         OrgSetting.objects.update_or_create(pk=1, defaults={"data": {
+            **site_appearance(),
             "name": "Untitled workspace", "short": "ORG",
             "dimensions": {k: [] for k in
                            ("department", "cost_centre", "project", "region", "funding_source")},

@@ -22,11 +22,13 @@ admin_urlpatterns = [
     path("admin/users/<int:uid>/delete/", admin_views.admin_delete_user),
     path("admin/demo/", admin_views.admin_demo),
     path("admin/appearance/", admin_views.admin_appearance),
+    path("admin/approvals/levels/", admin_views.admin_set_levels),
+    path("admin/approvals/people/<str:pid>/", admin_views.admin_set_line),
 ]
 
 # The outbound data feed. Versioned in the path and authenticated by its own
 # service keys rather than by anybody's login, because the caller is a
-# scheduler loading somebody else's warehouse — see datafeed.py for the whole
+# scheduler loading somebody else's warehouse - see datafeed.py for the whole
 # argument. Read-only, and last in the file because nothing else routes to it.
 feed_urlpatterns = [
     path("v1/", feed_views.index),
@@ -139,6 +141,8 @@ urlpatterns = admin_urlpatterns + feed_urlpatterns + auction_urlpatterns + [
     path("me/docs/<str:doc_id>/", views.delete_supplier_doc),
     path("team/", views.team),
     path("team/invite/", views.invite_team),
+    path("team/send_invites/", views.team_send_invites),
+    path("team/roles/", views.team_roles),
     # Bulk invitations from a spreadsheet, for your own people and for vendors.
     # Two calls, because sending a few hundred emails cannot be undone: parse
     # shows who would be contacted, send takes back what was confirmed.

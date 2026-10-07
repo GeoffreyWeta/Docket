@@ -5,7 +5,7 @@
 
    **Savings.** A saving is a comparison, and the number is only as good as what
    it is compared against. `budget` is a ceiling somebody estimated before going
-   to market — beating it measures the estimate at least as much as the buying.
+   to market - beating it measures the estimate at least as much as the buying.
    `baseline` is what the organisation was actually paying before. Where a
    baseline exists we use it and say so; where it does not we fall back to the
    budget and label the figure differently. The two are never silently added
@@ -14,7 +14,7 @@
 
    **Attribution.** Work belongs to the person who owns the tender, and rolls up
    to whoever they report to. Tenders with no owner are counted in the totals and
-   named separately, never quietly dropped into somebody's column — an unowned
+   named separately, never quietly dropped into somebody's column - an unowned
    tender is a gap to fix, and hiding it in an average is how it stays unfixed.
 */
 import { DAY, effStatus, mean, median, nowMs } from "./helpers";
@@ -136,7 +136,7 @@ export function byOwner(tenders, users, ids = null) {
 
 /* What a person has, split the way somebody actually thinks about their own
    work: what is live, what is mid-flight and waiting on a step, and what is
-   finished. `closed` deliberately means "concluded", not "past deadline" —
+   finished. `closed` deliberately means "concluded", not "past deadline" -
    past-deadline-but-unopened is the opposite of finished, and putting it in the
    done pile is how a sealed tender sits unopened for a fortnight. */
 export const DESK_BUCKETS = [
@@ -258,7 +258,7 @@ export function cycleTimes(tenders) {
            med: rows.length ? median(rows.map((r) => r.value)) : null };
 }
 
-/** Cumulative committed spend over time — the shape of the year so far. */
+/** Cumulative committed spend over time - the shape of the year so far. */
 export function spendOverTime(tenders) {
   const pts = tenders
     .filter((t) => t.status === "awarded" && t.awardedAt && t.awardedAmount != null)
@@ -267,7 +267,7 @@ export function spendOverTime(tenders) {
   return pts.map((t) => ({ x: t.awardedAt, y: (run += t.awardedAmount) }));
 }
 
-/** Savings accumulating over time, hard only — the defensible line. */
+/** Savings accumulating over time, hard only - the defensible line. */
 export function savingsOverTime(tenders) {
   const pts = tenders.map(savingOf).filter((s) => s && s.basis === BASIS.BASELINE && s.tender.awardedAt)
     .sort((a, b) => a.tender.awardedAt - b.tender.awardedAt);

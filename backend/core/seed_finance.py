@@ -1,6 +1,6 @@
 """Demo ledger for the Kestrel workspace: contracts through to payments.
 
-Separate from seed.py because it models a different half of the business — the
+Separate from seed.py because it models a different half of the business - the
 tender seed is a handful of hand-written competitions with real scope text, and
 this is two years of routine purchase-to-pay traffic, which is only useful in
 volume. Hand-writing 300 invoices would be unreadable and hand-writing 12 would
@@ -54,7 +54,7 @@ VENDOR_CODING = {
 }
 
 # What the organisation is willing to be owed by each vendor at one time. Left
-# at zero for two of them on purpose — "no limit on file" is a real state and
+# at zero for two of them on purpose - "no limit on file" is a real state and
 # the exposure table has to be able to say so without implying a breach.
 EXPOSURE_LIMITS = {
     "s1": 180_000_000, "s2": 700_000_000, "s3": 600_000_000, "s4": 400_000_000,
@@ -66,13 +66,13 @@ EXPOSURE_LIMITS = {
 # annual value, months, currency). These become contracts with call-off orders.
 RECURRING = [
     ("s3", "Dairy & mozzarella supply 2025", "Food & ingredients", 505_000_000, 12, "NGN"),
-    ("s1", "Fresh produce — Lagos kitchens", "Food & ingredients", 288_000_000, 12, "NGN"),
-    ("s8", "Dairy imports — northern kitchens", "Food & ingredients", 141_000_000, 12, "NGN"),
+    ("s1", "Fresh produce - Lagos kitchens", "Food & ingredients", 288_000_000, 12, "NGN"),
+    ("s8", "Dairy imports - northern kitchens", "Food & ingredients", 141_000_000, 12, "NGN"),
     ("s2", "Cold-chain distribution 2025", "Logistics & freight", 655_000_000, 12, "NGN"),
     ("s6", "Integrated pest management 2025", "Cleaning, pest & waste", 84_000_000, 12, "NGN"),
     ("s11", "Packaging & consumables 2025", "Printing & packaging", 228_000_000, 12, "NGN"),
     ("s5", "Branded packaging 2026", "Printing & packaging", 183_000_000, 12, "NGN"),
-    ("s6", "Waste management — 128 stores", "Cleaning, pest & waste", 62_400_000, 12, "NGN"),
+    ("s6", "Waste management - 128 stores", "Cleaning, pest & waste", 62_400_000, 12, "NGN"),
     ("s1", "Fresh produce 2026", "Food & ingredients", 312_000_000, 12, "NGN"),
     ("s2", "Line-haul between central kitchens", "Logistics & freight", 96_000_000, 12, "NGN"),
 ]
@@ -84,16 +84,16 @@ RECURRING = [
 # exposure left to carry, so a demo whose only foreign-currency commitments had
 # already ended would draw an empty FX panel and look like a bug.
 CAPITAL = [
-    ("s4", "Kitchen equipment — 8 stores, phase 1", "Equipment & assets", 231_000_000, "NGN", 180),
-    ("s9", "Prep stations & cold rooms — phase 2", "Equipment & assets", 118_500_000, "NGN", 150),
-    ("s7", "POS terminals — pilot 40 stores", "IT & telecoms", 68_400_000, "USD", 420),
-    ("s10", "Refrigeration retrofit — 22 stores", "Equipment & assets", 154_000_000, "USD", 500),
+    ("s4", "Kitchen equipment - 8 stores, phase 1", "Equipment & assets", 231_000_000, "NGN", 180),
+    ("s9", "Prep stations & cold rooms - phase 2", "Equipment & assets", 118_500_000, "NGN", 150),
+    ("s7", "POS terminals - pilot 40 stores", "IT & telecoms", 68_400_000, "USD", 420),
+    ("s10", "Refrigeration retrofit - 22 stores", "Equipment & assets", 154_000_000, "USD", 500),
     ("s4", "Combi oven line replacement", "Equipment & assets", 87_200_000, "NGN", 240),
     ("s7", "Store connectivity upgrade", "IT & telecoms", 44_600_000, "NGN", 300),
     ("s11", "Brand relaunch print run", "Printing & packaging", 39_800_000, "NGN", 120),
 ]
 
-# Contract headers from before this system existed — what a NAV migration
+# Contract headers from before this system existed - what a NAV migration
 # actually delivers. Header only: no orders, no invoices, no payments, because
 # a migration brings the agreements and leaves the transactions in the old
 # ledger. They are what gives `pricehistory` something to derive a baseline
@@ -104,7 +104,7 @@ LEGACY = [
     ("s11", "Packaging & consumables 2024", 214_000_000, 1_080, 365),
     ("s5", "Packaging & consumables 2023", 186_000_000, 1_440, 365),
     ("s7", "POS estate support 2024", 79_500_000, 1_010, 365),
-    ("s7", "POS terminals — first rollout", 74_800_000, 1_320, 300),
+    ("s7", "POS terminals - first rollout", 74_800_000, 1_320, 300),
     ("s3", "Dairy supply 2024", 468_000_000, 1_070, 365),
     ("s2", "Distribution 2024", 601_000_000, 1_050, 365),
     ("s6", "Pest control 2024", 78_200_000, 1_095, 365),
@@ -168,7 +168,7 @@ def seed_finance(now=None):
     # ---- the one contract that came out of a tender in this system -----------
     t4 = Tender.objects.filter(pk="t4").first()
     if t4:
-        c = _contract("SC-2026-0100", "s5", "Pizza boxes, cups & consumables — annual supply",
+        c = _contract("SC-2026-0100", "s5", "Pizza boxes, cups & consumables - annual supply",
                       183_000_000, t4.awarded_at or (T - d(31)),
                       (t4.awarded_at or T) + d(365), "active", "NGN", rate_now, T)
         c.tender = t4
@@ -196,7 +196,7 @@ def _contract(ref, sid, title, value_ngn, signed, ends, status, ccy, rate_now, T
     """One contract, with its coding and its currency resolved."""
     dept, cc, proj, region, fund = VENDOR_CODING.get(sid, ("", "", "", "", ""))
     if ccy == "USD":
-        # Struck at the rate in force on the day it was signed, not today's —
+        # Struck at the rate in force on the day it was signed, not today's -
         # that gap is the whole of the exchange-rate exposure figure. The last
         # observation on or before the signature date, so a contract signed
         # after a devaluation carries the post-devaluation rate.
@@ -219,7 +219,7 @@ def _contract(ref, sid, title, value_ngn, signed, ends, status, ccy, rate_now, T
 
 def _flow(c, rng, T, nxt):
     """Call-off orders against a contract, each with a receipt, invoice and
-    payment — with realistic drop-off at every stage, because a ledger where
+    payment - with realistic drop-off at every stage, because a ledger where
     every order is fully received and every invoice paid on time is a ledger
     nobody needs a dashboard for."""
     span = max(1, int(((c.ends_at or T) - c.signed_at) / DAY_MS))
@@ -241,7 +241,7 @@ def _flow(c, rng, T, nxt):
         po_ref = nxt("PO-")
         po = PurchaseOrder.objects.create(
             id=f"po-{po_ref}"[:24], source="seed", external_id=po_ref, synced_at=T,
-            ref=po_ref, description=f"{c.title} — call-off {i + 1}",
+            ref=po_ref, description=f"{c.title} - call-off {i + 1}",
             contract=c, tender=c.tender, supplier_id=c.supplier_id,
             amount=amount, amount_src=int(amount / c.fx_rate), currency=c.currency, fx_rate=c.fx_rate,
             raised_at=raised, raised_by="Amara Okafor", status="received",
@@ -264,7 +264,7 @@ def _flow(c, rng, T, nxt):
             continue
         terms = 30 if c.currency == "NGN" else 45
         approved = received + int(rng.uniform(1, 9) * DAY_MS)
-        # A tenth of recent invoices are still sitting unapproved — the approval
+        # A tenth of recent invoices are still sitting unapproved - the approval
         # queue is where payment performance actually goes wrong. Anything older
         # than a quarter has been dealt with one way or the other; a permanent
         # backlog of two-year-old unapproved invoices is a data-generation
@@ -289,7 +289,7 @@ def _flow(c, rng, T, nxt):
             continue
         # Settlement: mostly on time, a long tail that is not, and a small
         # number still open. Whether one stays open is gated on age rather than
-        # on a flat probability — a flat one leaves two-year-old invoices
+        # on a flat probability - a flat one leaves two-year-old invoices
         # permanently unpaid and piles the whole ageing profile into the 90+
         # bucket, which is not what a going concern's payables look like.
         age_days = (T - inv.due_at) / DAY_MS
@@ -343,10 +343,10 @@ HISTORY = [
      655_000_000, "s2", ["s10", "s1"], 505, "u1"),
     ("SC-2025-0006", "KST-RFQ-2025-018", "Packaging & consumables 2025", "Printing & packaging",
      240_000_000, 0, "", 228_000_000, "s11", ["s5"], 380, "u1"),
-    ("CP-2026-0011", "KST-RFQ-2026-002", "Kitchen equipment — 8 stores, phase 1", "Equipment & assets",
+    ("CP-2026-0011", "KST-RFQ-2026-002", "Kitchen equipment - 8 stores, phase 1", "Equipment & assets",
      245_000_000, 259_000_000, "2025 fit-out actuals, per-store × 8",
      231_000_000, "s4", ["s9", "s10"], 420, "u1"),
-    ("CP-2026-0013", "KST-RFP-2026-006", "POS terminals — pilot 40 stores", "IT & telecoms",
+    ("CP-2026-0013", "KST-RFP-2026-006", "POS terminals - pilot 40 stores", "IT & telecoms",
      74_000_000, 0, "", 68_400_000, "s7", ["s4", "s9"], 300, "u4"),
 ]
 
@@ -373,11 +373,14 @@ def _seed_history(contracts, rng, T):
             invited=[winner] + others, tech_weight=65, comm_weight=35,
             criteria=[{"id": "c1", "name": "Technical capability", "weight": 60},
                       {"id": "c2", "name": "Commercial terms", "weight": 40}],
-            lines=[], addenda=[],
+            # One line for the whole scope, its maximum the ceiling, so the
+            # history is priced and graded the way a tender is drafted today.
+            lines=[{"id": "l1", "desc": title, "qty": 1, "unit": "lot", "price": budget}],
+            addenda=[],
             award_memo=f"Awarded to the highest-scoring compliant bid at {award:,}.",
             department=dept, cost_centre=cc, project=proj, region=region, funding_source=fund,
         )
-        # The winning price plus losing bids above it — enough priced bids for
+        # The winning price plus losing bids above it - enough priced bids for
         # the cost-avoidance median to mean something.
         prices = [(winner, award)] + [
             (sid, int(award * rng.uniform(1.06, 1.34))) for sid in others]
@@ -388,11 +391,11 @@ def _seed_history(contracts, rng, T):
             Bid.objects.create(
                 id=f"bh{h}{j}", tender=t, supplier_id=sid,
                 submitted_at=deadline - d(rng.uniform(0.5, 4)), amount=amount,
-                lines={}, scores={}, notes={})
+                lines={"l1": amount}, scores={}, notes={})
         # The approval that let each award through, on the audit chain where the
         # compliance check looks for it. Without these the historical tenders
         # read as five unapproved awards, which is a defect in the seed being
-        # reported as a governance failure — the worst kind of false positive,
+        # reported as a governance failure - the worst kind of false positive,
         # because it is indistinguishable from the real thing.
         #
         # The last one is left unapproved on purpose. RULE: missing_approval.
@@ -417,18 +420,18 @@ def _plant_exceptions(contracts, rng, T, nxt, rate_now):
     if not active:
         return
 
-    # RULE: contract_expiring — inside the 90-day notice window.
+    # RULE: contract_expiring - inside the 90-day notice window.
     soon = active[0]
     soon.ends_at = T + d(38)
     soon.save(update_fields=["ends_at"])
 
-    # RULE: contract_expired — ended, still marked active. The one that costs
+    # RULE: contract_expired - ended, still marked active. The one that costs
     # money, because supply continues on lapsed terms nobody renegotiated.
     lapsed = active[1] if len(active) > 1 else active[0]
     lapsed.ends_at = T - d(23)
     lapsed.save(update_fields=["ends_at"])
 
-    # RULE: over_budget — change orders push a contract past the tender budget
+    # RULE: over_budget - change orders push a contract past the tender budget
     # it was let against.
     tendered = next((c for c in contracts if c.tender_id), None)
     if tendered:
@@ -447,17 +450,17 @@ def _plant_exceptions(contracts, rng, T, nxt, rate_now):
         tendered.amount = tendered.original_value + uplift
         tendered.save(update_fields=["change_orders", "amount"])
 
-    # RULE: exposure — one vendor carried well past the limit set for them.
+    # RULE: exposure - one vendor carried well past the limit set for them.
     over = next((c for c in active if c.supplier_id == "s10"), None)
     if over:
         over.amount = 240_000_000                     # limit is 90m
         over.original_value = 240_000_000
         over.save(update_fields=["amount", "original_value"])
 
-    # RULE: payment_overdue — three claims well past due, one of them on hold
+    # RULE: payment_overdue - three claims well past due, one of them on hold
     # with a reason, because "overdue" and "disputed" need telling apart.
     overdue_specs = [(64, "s3", 41_200_000, ""), (38, "s2", 27_850_000, ""),
-                     (96, "s9", 18_400_000, "Quantity dispute — 2 cold rooms short on delivery")]
+                     (96, "s9", 18_400_000, "Quantity dispute - 2 cold rooms short on delivery")]
     for i, (late, sid, amount, hold) in enumerate(overdue_specs):
         c = next((x for x in contracts if x.supplier_id == sid), active[0])
         Invoice.objects.create(
@@ -470,7 +473,7 @@ def _plant_exceptions(contracts, rng, T, nxt, rate_now):
             status="approved", hold_reason=hold,
         )
 
-    # RULE: duplicate_invoice — the same reference twice (a resend), and the
+    # RULE: duplicate_invoice - the same reference twice (a resend), and the
     # same amount on the same day under two references (a re-key).
     dup_c = next((c for c in contracts if c.supplier_id == "s1"), active[0])
     for i in range(2):
@@ -490,7 +493,7 @@ def _plant_exceptions(contracts, rng, T, nxt, rate_now):
             approved_at=T - d(11), approved_by="Mark Iyer", status="approved",
         )
 
-    # RULE: missing_approval (invoice) — money left with nobody's name on it.
+    # RULE: missing_approval (invoice) - money left with nobody's name on it.
     unapproved = Invoice.objects.create(
         id="iv-noapp", source="seed", external_id="PINV-NOAPP", synced_at=T,
         supplier_ref="S6/8890", contract=next((c for c in contracts if c.supplier_id == "s6"), active[0]),
@@ -505,12 +508,12 @@ def _plant_exceptions(contracts, rng, T, nxt, rate_now):
         paid_at=T - d(30), method="Bank transfer",
     )
 
-    # RULE: po_unmatched (both directions) — an order that never received
+    # RULE: po_unmatched (both directions) - an order that never received
     # anything, and an invoice settled against no order at all.
     stale_c = next((c for c in active if c.supplier_id == "s4"), active[0])
     PurchaseOrder.objects.create(
         id="po-nogrn", source="seed", external_id="PO-NOGRN", synced_at=T,
-        ref="PO-NOGRN", description="Combi ovens — 4 units, phase 2 stores",
+        ref="PO-NOGRN", description="Combi ovens - 4 units, phase 2 stores",
         contract=stale_c, supplier_id="s4", amount=31_800_000, amount_src=31_800_000,
         currency="NGN", fx_rate=1.0, raised_at=T - d(71), raised_by="Amara Okafor",
         status="open", approved_at=T - d(69), approved_by="Mark Iyer",
@@ -529,10 +532,10 @@ def _plant_exceptions(contracts, rng, T, nxt, rate_now):
         paid_at=T - d(12), method="Bank transfer",
     )
 
-    # RULE: missing_approval (purchase order) — above the matrix, no approver.
+    # RULE: missing_approval (purchase order) - above the matrix, no approver.
     PurchaseOrder.objects.create(
         id="po-noapp", source="seed", external_id="PO-NOAPP", synced_at=T,
-        ref="PO-NOAPP", description="Emergency generator hire — 9 stores, harmattan outage",
+        ref="PO-NOAPP", description="Emergency generator hire - 9 stores, harmattan outage",
         contract=None, supplier_id="s10", amount=58_400_000, amount_src=58_400_000,
         currency="NGN", fx_rate=1.0, raised_at=T - d(16), raised_by="Facilities",
         status="open", approved_at=None, approved_by="",
@@ -541,7 +544,7 @@ def _plant_exceptions(contracts, rng, T, nxt, rate_now):
 
 def _seed_dimensions_on_tenders():
     """Code the hand-written tenders, so Analytics and Finance agree about which
-    department a competition belongs to. t5 is deliberately left uncoded — an
+    department a competition belongs to. t5 is deliberately left uncoded - an
     unrecorded tender is a state the spend charts have to be able to show."""
     coding = {
         "t1": ("Supply Chain", "CC-1001 Central Kitchen Lagos", "Business as usual", "South West", "Opex 2026"),

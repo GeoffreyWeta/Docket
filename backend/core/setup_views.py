@@ -4,7 +4,7 @@ in a single sitting, without a console or a command line.
 Five facts about the shape of this:
 
   IT IS GATED TWICE. On emptiness, and on a code. Emptiness is the structural
-  gate — the endpoint is open while the workspace has no active buyer accounts,
+  gate - the endpoint is open while the workspace has no active buyer accounts,
   because there is nobody yet who could authorise anything, and it closes the
   moment it has one. The code is the human gate: an empty workspace reachable
   on a public address is a company waiting to be registered by whoever finds
@@ -12,11 +12,18 @@ Five facts about the shape of this:
   issued out of band, checked with the same lockout the sign-in page uses, and
   is the only thing standing between a fresh deployment and a stranger.
 
-  THE FIRST PERSON IS PROCUREMENT, AND THEY DO NOT SIGN THEIR OWN WORK.
-  Separation of duties is the product, so the owner is not made an approver:
-  they draft, invite and configure, and they get `settings.threshold` as a
-  per-person grant so the wizard can set the authority ladder. Everything they
-  raise goes up the ladder to somebody else.
+  THE FIRST PERSON RUNS TENDERS, AND THEY DO NOT SIGN THEIR OWN WORK.
+  Separation of duties is the product, so the owner is not given sign-off:
+  they draft, invite and configure, and they get `settings.threshold` and
+  `team.roles` as per-person grants so they can keep the authority ladder and
+  the role list right after setup. Everything they raise goes up the ladder to
+  somebody else.
+
+  THE ROLES ARE THE COMPANY'S. The wizard sends the roles it wants - the
+  starter four renamed, reshaped or dropped, plus any it invents - and they
+  are validated with the team (roles.plan) and written with it, in the same
+  transaction. A team member's role arrives as the row's `ref`, because a
+  role invented on the previous screen has no key until it is saved.
 
   THE ORG CHART IS BUILT BEFORE ANYBODY ACCEPTS. Personas are created for the
   whole team in this one transaction, so reporting lines and signing authority
@@ -26,8 +33,12 @@ Five facts about the shape of this:
 
   THE VENDOR REGISTER IS PART OF SETUP. A procurement workspace with no vendors
   cannot run a tender, and the register is the one thing the buyer already has,
-  usually as a spreadsheet. Rows arrive parsed, are deduplicated on name, and
-  the registration drive is armed so each one is asked to come and register.
+  usually as a spreadsheet. Rows arrive parsed and are deduplicated on name.
+
+  SETUP EMAILS NOBODY. Not the team, not the vendors. A company finishes
+  setting up first and chooses afterwards when everybody hears about it: the
+  team's invitations are held (HELD_INVITE) and sent from the Team page, and
+  the vendor registration drive is started from the Vendors page.
 
   IT ENDS SIGNED IN. The response carries a bearer token, so the person lands
   on their own dashboard rather than on a sign-in page asking for the password
@@ -39,13 +50,18 @@ from django.db import transaction
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-from . import approvals
+from . import approvals, vocab
 from .models import FailedLogin, OrgSetting, Persona, Profile, Supplier
-from .permissions import BUYER_ROLES, role_label
+from . import roles as roles_mod
+from .permissions import role_label
 from .util import now_ms, record_event, rid
 
 MAX_TEAM = 60
 MAX_VENDORS = 2000
+# An invitation prepared during setup and not yet sent. Its own kind, so it can
+# never be accepted: views.team_send_invites mints the real team_invite when
+# somebody sends it, and the three-day clock starts then, not at setup.
+HELD_INVITE = "team_invite_held"
 CODE_ATTEMPTS = 8
 CODE_WINDOW_MS = 15 * 60 * 1000
 CODE_BUCKET = "__setup_code__"
@@ -86,7 +102,7 @@ def check_code(given):
     if not wanted:
         return True, None
     if _code_locked():
-        return False, ("Too many incorrect codes. Setup is locked for 15 minutes — "
+        return False, ("Too many incorrect codes. Setup is locked for 15 minutes - "
                        "ask whoever gave you the code to confirm it.")
     if str(given or "").strip().upper() != wanted.upper():
         FailedLogin.objects.create(username=CODE_BUCKET, at=now_ms())
@@ -116,10 +132,13 @@ def setup_verify_code(request):
 
 # ------------------------------------------------------------------ the wizard
 
-def _clean_team(rows, owner_email):
+def _clean_team(rows, owner_email, role_plan=None):
     """Validate the team, resolve the reporting lines, and return them in an
     order that can actually be created: a manager before anyone who reports to
-    them. Returns (people, error)."""
+    them. Returns (people, error).
+
+    `role_plan` is the role list about to be saved (roles.plan); a person's
+    role may name one of its rows by `ref`."""
     if not isinstance(rows, list):
         return None, "The team must be a list of people."
     if len(rows) > MAX_TEAM:
@@ -127,7 +146,8 @@ def _clean_team(rows, owner_email):
 
     from .account_views import EMAIL_RE
     from .permissions import assignable_roles
-    roles = {r["key"] for r in assignable_roles()} | set(BUYER_ROLES)
+    refs = (role_plan or {}).get("refs") or {}
+    roles = set((role_plan or {}).get("keys") or ()) or {r["key"] for r in assignable_roles()}
     levels = {lvl["id"] for lvl in approvals.ladder()}
 
     people, by_key, seen_email = [], {}, {owner_email}
@@ -146,6 +166,7 @@ def _clean_team(rows, owner_email):
         if User.objects.filter(username=email).exists():
             return None, f"{email} already has an account."
         role = str(row.get("role", "")).strip()
+        role = refs.get(role, role)
         if role not in roles:
             return None, f"Pick a role for {email}."
         level = str(row.get("level", "") or "")
@@ -195,6 +216,54 @@ def _clean_team(rows, owner_email):
     return ordered, None
 
 
+def vendor_fields(row):
+    """Supplier fields for one row of a vendor spreadsheet, keyed as the model
+    names them. The columns are the template's (frontend/src/csvguide.jsx):
+    email, category, location, contact, phone; `name` and duplicates are the
+    caller's business. Used by setup and by the Vendors page import, so one
+    file means the same thing in both places."""
+    from .account_views import EMAIL_RE
+
+    def placed(clean, raw, fallback):
+        # A spreadsheet is not a dropdown: wording the rules cannot place
+        # falls back rather than failing the whole file, and the typed cell is
+        # kept on the record (below) so nothing is silently rewritten.
+        try:
+            return clean(raw) or fallback
+        except vocab.Refused:
+            return fallback
+
+    email = str(row.get("email", "")).strip().lower()[:200]
+    if email and not EMAIL_RE.match(email):
+        # A bad address is not a reason to lose the company: the vendor lands
+        # on the register unreachable, which is visible and fixable, rather
+        # than silently dropped.
+        email = ""
+    typed_loc = str(row.get("location", "")).strip()
+    typed_phone = str(row.get("phone", "")).strip()
+    loc = placed(vocab.location, typed_loc, "-")
+    tel = placed(vocab.phone, typed_phone, "")
+    registry = {}
+    if typed_loc and typed_loc != loc:
+        registry["locationTyped"] = typed_loc[:120]
+    if typed_phone and typed_phone != tel:
+        registry["phoneTyped"] = typed_phone[:120]
+    contact = (row.get("contact") or row.get("contactPerson") or row.get("contact person")
+               or row.get("contactperson") or "")
+    return {
+        "contact_email": email,
+        # An unrecognised word lands in "Uncategorised", which is a real bucket
+        # on the register rather than an invented default nobody can filter
+        # on. `classification` keeps what was typed.
+        "category": placed(vocab.category, row.get("category"), "Uncategorised"),
+        "classification": str(row.get("category", "")).strip()[:140],
+        "location": loc,
+        "contact_person": str(contact).strip()[:140],
+        "phone": tel,
+        "registry": registry,
+    }
+
+
 def _clean_vendors(rows):
     """(vendors, skipped, error). Deduplicated on name within the upload as
     well as against the register, because the same spreadsheet usually holds a
@@ -204,8 +273,6 @@ def _clean_vendors(rows):
     if len(rows) > MAX_VENDORS:
         return None, 0, (f"That is {len(rows):,} vendors, and setup takes at most {MAX_VENDORS:,}. "
                          f"Finish setting up and use the Vendors page, which imports the full register.")
-    from .account_views import EMAIL_RE
-    from .taxonomy import canonical
 
     seen = {s.name.strip().lower() for s in Supplier.objects.all()}
     out, skipped = [], 0
@@ -217,30 +284,14 @@ def _clean_vendors(rows):
         if not name or name.lower() in seen:
             skipped += 1
             continue
-        email = str(row.get("email", "")).strip().lower()[:200]
-        if email and not EMAIL_RE.match(email):
-            # A bad address is not a reason to lose the company: the vendor
-            # lands on the register unreachable, which is visible and fixable,
-            # rather than silently dropped.
-            email = ""
         seen.add(name.lower())
-        out.append({
-            "name": name, "email": email,
-            # canonical() never returns blank — an unrecognised word comes back
-            # as "Uncategorised", which is a real bucket on the register rather
-            # than an invented default nobody can filter on.
-            "category": canonical(str(row.get("category", "")).strip())[:60],
-            "classification": str(row.get("category", "")).strip()[:140],
-            "location": str(row.get("location", "")).strip()[:60] or "—",
-            "contact_person": str(row.get("contact", "") or row.get("contactPerson", "")).strip()[:140],
-            "phone": str(row.get("phone", "")).strip()[:120],
-        })
+        out.append({"name": name, **vendor_fields(row)})
     return out, skipped, None
 
 
 @csrf_exempt
 def setup_workspace(request):
-    from .account_views import EMAIL_RE, _body, _link, _mail, _mint
+    from .account_views import EMAIL_RE, _body, _mint
     from .auth_views import _issue
     from .views import DEFAULT_PROFILE, clean_profile, org_settings
 
@@ -251,7 +302,7 @@ def setup_workspace(request):
             # Whether a code is wanted, never the code itself.
             "codeRequired": bool(setup_code()),
             "codeLocked": bool(setup_code()) and _code_locked(),
-            "roles": [{"value": k, "label": role_label(k)} for k in BUYER_ROLES],
+            "roles": roles_mod.listing(), "kinds": roles_mod.kinds(),
             "maxTeam": MAX_TEAM, "maxVendors": MAX_VENDORS,
         })
     if request.method != "POST":
@@ -293,15 +344,33 @@ def setup_workspace(request):
     if msg:
         return _err(msg)
 
-    profile = clean_profile(b.get("profile") or {}, DEFAULT_PROFILE)
-    if profile.get("email") and not EMAIL_RE.match(profile["email"]):
-        return _err("Enter a valid company email address, or leave it blank.")
+    try:
+        profile = clean_profile(b.get("profile") or {}, DEFAULT_PROFILE)
+    except vocab.Refused as e:
+        return _err(str(e))
 
     logo = str(b.get("logo", "") or "")
     if logo and not logo.startswith("data:image/"):
         return _err("The logo must be an image.")
     if len(logo) > 360_000:          # ~256 KB once base64 is unwound
         return _err("That logo is too large. Use an image under 256 KB, or an SVG.")
+
+    # The company's roles. Planned now, so the ladder and the team can be
+    # checked against them; written below with everything else. The ladder
+    # being replaced does not hold a role in place - the one arriving does.
+    role_plan = None
+    if b.get("roles") is not None:
+        role_plan, msg = roles_mod.plan(b.get("roles"), ladder=levels)
+        if msg:
+            return _err(msg)
+        if (role_plan["starters"].get("procurement") or {}).get("hidden"):
+            return _err("Your own role cannot be removed - you need it to run the workspace.")
+        for lvl in levels:
+            if lvl.get("role"):
+                lvl["role"] = role_plan["refs"].get(lvl["role"], lvl["role"])
+                if lvl["role"] not in role_plan["keys"]:
+                    return _err(f"The {lvl['name']} level falls back to a role that is not on your "
+                                f"list. Pick another, or let it wait for somebody to be placed on it.")
 
     # The ladder has to be on the settings row before the team is validated
     # against it, and before a persona can be placed on a rung.
@@ -311,7 +380,7 @@ def setup_workspace(request):
     row.data = data
     row.save()
 
-    team, msg = _clean_team(b.get("team") or [], email)
+    team, msg = _clean_team(b.get("team") or [], email, role_plan)
     if msg:
         return _err(msg)
     vendors, vendor_skipped, msg = _clean_vendors(b.get("vendors") or [])
@@ -323,6 +392,11 @@ def setup_workspace(request):
         return _err("Your own approval level is not in the ladder.")
 
     with transaction.atomic():
+        if role_plan:
+            roles_mod.apply(role_plan, actor=name)
+            # The role names live on the same settings row this view saves
+            # again below; re-read it, or that save puts the old copy back.
+            row.refresh_from_db()
         owner = Persona.objects.create(id=rid("u"), name=name[:120], role="procurement",
                                        title=title, approval_level=owner_level)
         user = User.objects.create_user(username=email, email=email, password=None)
@@ -331,9 +405,10 @@ def setup_workspace(request):
         user.first_name = parts[0][:150]
         user.last_name = parts[1][:150] if len(parts) > 1 else ""
         user.save()
-        Profile.objects.create(user=user, persona=owner, perm_extra=["settings.threshold"])
+        Profile.objects.create(user=user, persona=owner,
+                               perm_extra=["settings.threshold", "team.roles"])
 
-        # The chart, in dependency order — see _clean_team.
+        # The chart, in dependency order - see _clean_team.
         persona_for = {"owner": owner}
         for person in team:
             manager = persona_for.get(person["reportsTo"]) if person["reportsTo"] else None
@@ -341,7 +416,7 @@ def setup_workspace(request):
                 id=rid("u"),
                 name=person["name"] or person["email"].split("@")[0].replace(".", " ").title()[:120],
                 role=person["role"],
-                title=person["title"] or role_label(person["role"]).split("—")[0].strip(),
+                title=person["title"] or role_label(person["role"]).split(" - ")[0].strip(),
                 manager=manager, approval_level=person["level"])
 
         data = dict(row.data or {})
@@ -356,11 +431,7 @@ def setup_workspace(request):
         row.save()
 
         created_vendors = [
-            Supplier(id=rid("s"), name=v["name"], category=v["category"],
-                     classification=v["classification"], location=v["location"],
-                     contact_email=v["email"], contact_person=v["contact_person"],
-                     phone=v["phone"], prequalified=False, docs=[], perf={},
-                     source="import")
+            Supplier(id=rid("s"), prequalified=False, docs=[], perf={}, source="import", **v)
             for v in vendors
         ]
         Supplier.objects.bulk_create(created_vendors)
@@ -373,7 +444,7 @@ def setup_workspace(request):
         rule = (f"Delegation of authority, {len(levels)} level(s): {rungs}. Requests follow the "
                 f"raiser's reporting line upward until a manager whose limit covers the amount.")
     elif threshold:
-        rule = f"Publication at or above {threshold:,} needs approver sign-off."
+        rule = f"Publication at or above {threshold:,} needs sign-off."
     else:
         rule = "The default sign-off threshold applies."
     record_event(actor=name, role="procurement", action="Workspace set up",
@@ -387,44 +458,35 @@ def setup_workspace(request):
                      detail=f"{len(created_vendors)} vendor(s) added during setup"
                             + (f"; {vendor_skipped} blank or duplicate row(s) skipped." if vendor_skipped else "."))
 
-    # --- invitations -------------------------------------------------------
-    links = []
+    # --- invitations, held --------------------------------------------------
+    # Setup emails nobody. A company finishes setting up first and decides
+    # afterwards when its people and its vendors hear about it: the list can be
+    # loaded today and the invitations sent next week, once the roles and the
+    # ladder have been looked over. Each person is already on the chart; what
+    # is kept here is only the address the invitation will go to, and the Team
+    # page sends it (views.team_send_invites) when somebody presses the button.
+    held = []
     for person in team:
         persona = persona_for[person["key"]]
-        tok = _mint("team_invite", person["email"],
-                    {"role": person["role"], "title": persona.title,
-                     "name": persona.name, "personaId": persona.id})
-        link = _link(request, "itoken", tok.token)
-        manager = persona.manager.name if persona.manager_id else name
-        _mail(person["email"], f"You're invited to {company}'s DOCKET workspace",
-              f"{name} invited you to {company} as {role_label(person['role'])}, reporting to "
-              f"{manager}.\n\nSet your password here:\n\n{link}\n\nThe link is valid for 3 days.")
-        record_event(actor=name, role="procurement", action="Team member invited",
-                     detail=f"{person['email']} invited as {role_label(person['role'])}, "
-                            f"reporting to {manager}.")
-        links.append({"email": person["email"], "name": persona.name, "role": person["role"],
-                      "roleLabel": role_label(person["role"]), "reportsTo": manager,
-                      "link": link if settings.DEMO_LOGIN else None})
+        _mint(HELD_INVITE, person["email"],
+              {"role": person["role"], "title": persona.title,
+               "name": persona.name, "personaId": persona.id})
+        held.append({"email": person["email"], "name": persona.name, "role": person["role"],
+                     "roleLabel": role_label(person["role"]),
+                     "reportsTo": persona.manager.name if persona.manager_id else name})
+    if held:
+        record_event(actor=name, role="procurement", action="Team invitations held",
+                     detail=f"{len(held)} invitation(s) prepared and not sent. They go out "
+                            f"from the Team page when somebody chooses to send them.")
 
-    # --- the vendor registration drive -------------------------------------
-    vendor_drive = None
-    if created_vendors and b.get("inviteVendors"):
-        from . import campaign
-        from .models import TaskMark
-        vendor_drive = campaign.start(name)
-        # Sending happens in the background sweep, a bounded batch at a time —
-        # 1,400 SMTP round trips is not a thing a web request may do. Clearing
-        # the throttle means the bootstrap that loads the dashboard sixty
-        # seconds from now carries the first batch out with it, rather than the
-        # operator watching nothing happen for ten minutes.
-        TaskMark.objects.filter(pk="last_sweep").delete()
+    # The vendor registration drive is not started here either. The register
+    # is loaded; the drive is started from the Vendors page when the company
+    # is ready (campaign.start, behind its own preview and confirmation).
 
     out = _issue(user)
     out["company"] = company
-    out["invited"] = links
+    out["held"] = held
     out["vendors"] = {"created": len(created_vendors), "skipped": vendor_skipped,
-                      "invited": bool(vendor_drive),
-                      "willEmail": (vendor_drive or {}).get("toSend", 0),
-                      "mailLive": (vendor_drive or {}).get("live", False)}
+                      "withEmail": sum(1 for v in created_vendors if v.contact_email)}
     out["levels"] = levels
     return JsonResponse(out)

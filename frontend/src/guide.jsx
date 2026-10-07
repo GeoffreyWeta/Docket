@@ -8,10 +8,10 @@ const G = {
     steps: [
       ["Load your supplier book", "Suppliers → Import CSV (columns: name, category, location, email, prequalified), or invite vendors to register themselves."],
       ["Create a tender", "New tender → let the AI draft the scope and criteria, add line items, invite prequalified suppliers. Duplicate any past tender to reuse it as a template."],
-      ["Publish", "Below the approval threshold it publishes instantly; at or above, it routes to the approver. Invitations email automatically."],
+      ["Publish", "Below the approval threshold it publishes instantly; at or above, it goes for sign-off. Invitations email automatically."],
       ["Run the middle game", "Answer clarifications (published to everyone), issue addenda, and watch sealed bids arrive: you can count them but never see inside."],
       ["Open the bids", "After the deadline, break the seals in a recorded ceremony. Two-stage tenders open technical envelopes first; auctions just need results recorded."],
-      ["Award", "Once the panel has scored, recommend a winner, and the memo writes itself and goes to the approver. Letters issue automatically on sign-off."],
+      ["Award", "Once the panel has scored, recommend a winner, and the memo writes itself and goes for sign-off. Letters issue automatically once it is signed."],
       ["Keep the register healthy", "The bell warns you about expiring vendor documents and registrations waiting for review."],
     ],
   },
@@ -22,7 +22,7 @@ const G = {
       ["Sign the declaration", "Scoring is locked until you sign the conflict-of-interest declaration, which is recorded in the audit trail."],
       ["Read, then score", "Download each technical proposal from the scoring card, score 0–10 per criterion, and write a short justification: auditors will ask why."],
       ["Stay blind", "You only ever see your own scores. The consensus matrix goes to the chair, never to you, so nobody anchors on a colleague."],
-      ["Don't stall", "The award is blocked until every evaluator finishes. You'll be nudged after three days."],
+      ["Don't stall", "The award is blocked until every scorer finishes. You'll be nudged after three days."],
     ],
   },
   approver: {
@@ -40,7 +40,7 @@ const G = {
       ["Read the trail", "Every action in the workspace, named and timestamped. Filter by tender."],
       ["Verify integrity", "One click recomputes the hash chain. If any historical entry was altered, it tells you exactly which one."],
       ["Pull the evidence", "Export the full trail as CSV (hashes included) or a per-tender compliance report as PDF: invitation list, sealing, COI signatures, scores, award, all in one document."],
-      ["Check the humans", "Scores come with written justifications, and every evaluator's conflict-of-interest declaration is on record."],
+      ["Check the humans", "Scores come with written justifications, and every scorer's conflict-of-interest declaration is on record."],
     ],
   },
   supplier: {
@@ -92,8 +92,17 @@ export function seenKey(username) {
   return `docket_guide_seen_${username || "anon"}`;
 }
 
+/* A company can reshape a starter role - turn its "approver" into a scoring
+   panel - so a written guide is only used while the person can still do the
+   one thing it is about. Otherwise they get the one built from what they hold. */
+const NEEDS = {
+  procurement: "tender.create", evaluator: "bid.score", approver: "award.decide",
+  auditor: "audit.integrity", supplier: "page.portal",
+};
+
 export function GuidePanel({ role, user, onClose }) {
-  const g = G[role] || fromCapabilities(user);
+  const written = G[role] && (user?.perms || []).includes(NEEDS[role]) ? G[role] : null;
+  const g = written || fromCapabilities(user);
   return (
     <div className="panelwrap" onClick={onClose} role="dialog" aria-label="Getting started guide">
       {/* .panel is a bottom sheet on a phone and a centred card above that,

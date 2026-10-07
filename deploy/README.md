@@ -1,8 +1,8 @@
-# Deploying DOCKET to AWS Lightsail — container services
+# Deploying DOCKET to AWS Lightsail - container services
 
 > **There are two paths in this repo, and `lightsail/` is the recommended one.**
-> `deploy/lightsail/` deploys to a Lightsail *instance* — nginx, gunicorn and
-> Postgres on one Ubuntu box — modelled on the ENG-Analytics host. It is cheaper
+> `deploy/lightsail/` deploys to a Lightsail *instance* - nginx, gunicorn and
+> Postgres on one Ubuntu box - modelled on the ENG-Analytics host. It is cheaper
 > (~$12/mo all in), needs nothing installed locally but ssh, and carries both
 > the demo and the real workspace on the same instance.
 >
@@ -19,7 +19,7 @@ section before deciding you only need one.
 ## Why two deployments and not one
 
 DOCKET is single-tenant. `OrgSetting` is a single row (`id=1`), and no tender,
-bid or supplier carries a tenant key — see `backend/core/models.py`, and the
+bid or supplier carries a tenant key - see `backend/core/models.py`, and the
 "still on the list" section of the root README, which says so outright.
 
 So a company that ran the setup wizard against the demo's database would:
@@ -29,7 +29,7 @@ So a company that ran the setup wizard against the demo's database would:
 * and put their real sealed bids in the database you reset whenever a demo
   goes sideways.
 
-That is not something the wizard can guard against — it is the data model. Until
+That is not something the wizard can guard against - it is the data model. Until
 real multi-tenancy exists, one deployment serves one workspace.
 
 The two are joined at the front end instead: the demo's `SIGNUP_URL` points at
@@ -45,7 +45,7 @@ than writing to the demo database.
   shells out to and which does not ship with the CLI. Without it the push fails
   with an unhelpful message about an unrecognised command. Install:
   <https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-install-software.html>
-* A Postgres database per deployment — Lightsail managed database or RDS.
+* A Postgres database per deployment - Lightsail managed database or RDS.
   **Not SQLite.** A container has no durable disk: uploads and sealed bids both
   live in Postgres, so SQLite-in-a-container destroys every tender on redeploy.
 
@@ -68,7 +68,7 @@ Same for the demo with `deploy/demo.env`.
 ### The chicken and egg on the very first deploy
 
 `PUBLIC_BASE_URL` decides the HTTPS redirect, the CSRF origins and the links in
-every email sent without a request — password resets, team invitations, vendor
+every email sent without a request - password resets, team invitations, vendor
 claim links. On the first deploy you do not yet know the Lightsail URL. So:
 deploy once, read the URL off the output, put it in the env file, deploy again.
 Or point your own domain at the service and use that from the start.
@@ -89,7 +89,7 @@ python -c "import secrets; print(secrets.token_urlsafe(64))"
 
 Then keep it where you cannot lose it. Change it on a deployment holding sealed
 bids and every one of them becomes permanently unreadable. There is no recovery
-path, and that is deliberate — it is the same property that makes a database
+path, and that is deliberate - it is the same property that makes a database
 dump taken by someone else useless.
 
 ---
@@ -106,11 +106,11 @@ dump taken by someone else useless.
 | `SETUP_CODE`      | a throwaway     | **generate one**          |
 | database          | its own         | its own                   |
 
-The public front page is **`/`** — what the product is, for somebody who has not
+The public front page is **`/`** - what the product is, for somebody who has not
 decided yet. Sign-in is **`/signin`**, the wizard is **`/setup`**, and with
 `DEMO_LOGIN=1` the one-click personas are at **`/demo`**. A password-free door
 is fine on a workspace of invented tenders and wrong on one holding real bids,
-and the difference is one environment variable — so the real deployment's
+and the difference is one environment variable - so the real deployment's
 sign-in screen has nothing on it that would have to be hidden.
 
 With `SEED_DEMO=0` the app deployment starts empty, and the first person through
@@ -122,7 +122,7 @@ arrives by invitation.
 An empty deployment on a public address belongs to whoever finds the URL first.
 The setup wizard is the one unauthenticated endpoint that can create an
 administrator, name the company and load the vendor register, so it is gated on
-`SETUP_CODE` — a short secret you hand over out of band, checked
+`SETUP_CODE` - a short secret you hand over out of band, checked
 case-insensitively and locked for fifteen minutes after eight wrong guesses.
 
     SETUP_CODE=ENGDOCKET1234        # the shipped default. Change it.
@@ -137,7 +137,7 @@ here yet" is not consent.
 
 **The health check must not be redirected.** Lightsail probes the container
 directly over HTTP with no `X-Forwarded-Proto`. With `SECURE_SSL_REDIRECT` on,
-that probe gets a 301, reads it as unhealthy, and rolls the deployment back —
+that probe gets a 301, reads it as unhealthy, and rolls the deployment back -
 while the application works perfectly. `settings.py` exempts `/api/health/` for
 exactly this reason. Do not remove it.
 
@@ -154,7 +154,7 @@ one-off task first.
 
 **The vendor register never goes in the image.** It holds real bank details,
 TINs, emails and phone numbers for about 1,400 companies. An image layer is as
-permanent as a git commit. Use `VENDORS_URL` — a private, time-limited link
+permanent as a git commit. Use `VENDORS_URL` - a private, time-limited link
 fetched at container start, imported, and gone when the container dies. A failed
 fetch logs a warning and leaves the existing register alone rather than taking
 the service down.

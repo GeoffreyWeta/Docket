@@ -6,7 +6,7 @@
 
 Re-runnable: export the spreadsheet to JSON again, drop it at
 backend/data/vendors.json, and run it. Vendor ids are slugs of the company name,
-so the same company lands on the same row every time — new companies are added,
+so the same company lands on the same row every time - new companies are added,
 existing ones refreshed in place, and ones deleted from the spreadsheet deleted
 here too. Running it twice leaves one copy of everything.
 

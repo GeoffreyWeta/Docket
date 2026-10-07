@@ -1,8 +1,8 @@
 """The procurement event lifecycle: rounds, live vendor management, and the
 controls a competition needs between publication and award.
 
-What was already here handled the straight line — draft, approve, publish,
-seal, open, score, recommend, award — and handled it well. What it had no words
+What was already here handled the straight line - draft, approve, publish,
+seal, open, score, recommend, award - and handled it well. What it had no words
 for is everything that happens when a live competition does not run straight:
 
   * a deadline that has to move, with the old date, the new one, the reason and
@@ -13,7 +13,7 @@ for is everything that happens when a live competition does not run straight:
     different act from editing a draft because it changes who is racing
     (`event_vendors`);
   * a second and third submission window against the same scope, the same
-    invitation list and the same award — a best-and-final, or a shortlist
+    invitation list and the same award - a best-and-final, or a shortlist
     re-bid (`ProcurementRound` and the round endpoints below).
 
 Rounds are lazy on purpose. An event with no round rows is a single-round
@@ -27,10 +27,10 @@ working without knowing rounds exist at all.
 from django.db import transaction
 from django.http import JsonResponse
 
+from . import vocab
 from .models import Bid, ProcurementRound, Supplier, Tender
 from .notify import notify_perm, notify_supplier, notify_suppliers
 from .permissions import has
-from .taxonomy import canonical
 from .util import (closing_soon, eff_status, fmt_date_ms, now_ms, rid,
                    savings_against)
 from .views import err, log, org_name, route
@@ -146,7 +146,7 @@ def bucket_view(t, p):
     """The bid bucket: submissions grouped by round.
 
     Sealing is not relaxed here. The bucket answers "who bid, in which round,
-    and when" — which is safe before an opening and is precisely what a manager
+    and when" - which is safe before an opening and is precisely what a manager
     needs to know that a round is complete. Amounts come from `bid_view` in
     views.py, which is the one place that decides whether a price may be seen.
     """
@@ -196,8 +196,8 @@ def extend_deadline(request, p, body, tid):
 
     Only forward: a deadline brought in is a deadline a bidder who was working
     to the published one cannot meet, and there is no version of that which is
-    fair. Sealed events can be extended — that is a reopening, and it is the
-    normal remedy when a deadline lapses on a competition with too few bids —
+    fair. Sealed events can be extended - that is a reopening, and it is the
+    normal remedy when a deadline lapses on a competition with too few bids -
     but an opened one cannot, because bids whose prices have been seen cannot
     compete against bids submitted afterwards.
     """
@@ -205,7 +205,7 @@ def extend_deadline(request, p, body, tid):
     if not t:
         return err("Tender not found.", 404)
     if t.status in FROZEN:
-        return err(f"This event is {t.status} — its deadline is final.", 409)
+        return err(f"This event is {t.status} - its deadline is final.", 409)
     if t.status in ("draft", "approval"):
         return err("Set the deadline on the draft itself; extensions are for live events.", 409)
     if t.opened_at or t.tech_opened_at:
@@ -222,7 +222,7 @@ def extend_deadline(request, p, body, tid):
                    "date cannot be asked to meet an earlier one.")
     reason = str(body.get("reason") or "").strip()[:300]
     if not reason:
-        return err("Give a reason — it is recorded and sent to every invited vendor.")
+        return err("Give a reason - it is recorded and sent to every invited vendor.")
 
     old = t.deadline
     reopened = eff_status(t) == "closed"
@@ -243,7 +243,7 @@ def extend_deadline(request, p, body, tid):
             r.closed_at = None
             r.save(update_fields=["deadline", "status", "closed_at"])
 
-    log(p, "Deadline extended" + (" — event reopened" if reopened else ""),
+    log(p, "Deadline extended" + (" - event reopened" if reopened else ""),
         f"{fmt_date_ms(old)} → {fmt_date_ms(new_deadline)}. {reason}", t.id)
     notify_suppliers(t.invited, f"Deadline extended: {t.title}",
                      f"The submission deadline for {t.ref} has moved from {fmt_date_ms(old)} to "
@@ -266,7 +266,7 @@ def pause_event(request, p, body, tid):
         return err("Only a live event can be paused.", 409)
     reason = str(body.get("reason") or "").strip()[:300]
     if not reason:
-        return err("Give a reason — vendors are told why their competition stopped.")
+        return err("Give a reason - vendors are told why their competition stopped.")
     t.status = "paused"
     t.paused_at = now_ms()
     t.paused_reason = reason
@@ -350,11 +350,11 @@ def cancel_event(request, p, body, tid):
     if t.status == "cancelled":
         return err("This event is already cancelled.", 409)
     if t.status == "awarded":
-        return err("An awarded event cannot be cancelled — the award is a commitment already "
+        return err("An awarded event cannot be cancelled - the award is a commitment already "
                    "made in writing. Terminate the contract instead.", 409)
     reason = str(body.get("reason") or "").strip()[:300]
     if not reason:
-        return err("Give a reason — every invited vendor is told it verbatim.")
+        return err("Give a reason - every invited vendor is told it verbatim.")
     n = t.bids.count()
     with transaction.atomic():
         t.status = "cancelled"
@@ -390,7 +390,7 @@ def event_vendors(request, p, body, tid):
     the writes ask for `tender.vendors`.
 
     Unverified vendors are added without objection. That is the standing rule
-    here — verification gates prequalification, not participation — and the
+    here - verification gates prequalification, not participation - and the
     response says so, so the buyer knows what they just invited.
     """
     t = Tender.objects.filter(pk=tid).first()
@@ -408,7 +408,7 @@ def event_vendors(request, p, body, tid):
     if not has(p, "tender.vendors"):
         return err("You don't have permission to change this event's vendors.", 403)
     if t.status in FROZEN:
-        return err(f"This event is {t.status} — its invitation list is final.", 409)
+        return err(f"This event is {t.status} - its invitation list is final.", 409)
 
     if request.method == "DELETE":
         sid = str(body.get("supplierId") or "")
@@ -416,7 +416,7 @@ def event_vendors(request, p, body, tid):
             return err("That vendor is not on this event's invitation list.", 404)
         if Bid.objects.filter(tender=t, supplier_id=sid).exists():
             return err("This vendor has already submitted. Withdrawing them now would erase a "
-                       "record of participation — disqualify them at evaluation instead.", 409)
+                       "record of participation - disqualify them at evaluation instead.", 409)
         s = Supplier.objects.filter(pk=sid).first()
         t.invited = [x for x in t.invited if x != sid]
         t.save(update_fields=["invited"])
@@ -469,7 +469,7 @@ def event_vendors(request, p, body, tid):
     if live and body.get("notify", True):
         for sid in fresh:
             notify_supplier(sid, f"Invitation to tender: {t.title}",
-                            f"{org_name()} invites your sealed bid for {t.ref} — {t.title}. "
+                            f"{org_name()} invites your sealed bid for {t.ref} - {t.title}. "
                             + (f"Submissions close {fmt_date_ms(t.deadline)}. " if t.deadline else "")
                             + "Full terms are in your bid room.", t.id)
     return JsonResponse({"ok": True, "added": fresh, "alreadyInvited": already,
@@ -478,7 +478,7 @@ def event_vendors(request, p, body, tid):
 
 @route(["POST"], perm="tender.vendors")
 def notify_event_vendors(request, p, body, tid):
-    """A deliberate message to the event's vendors — a nudge before a deadline,
+    """A deliberate message to the event's vendors - a nudge before a deadline,
     a note that documents changed. Distinct from an addendum, which amends the
     tender itself and which bidders must acknowledge before submitting."""
     t = Tender.objects.filter(pk=tid).first()
@@ -515,7 +515,7 @@ def round_collection(request, p, body, tid):
     bidder is entitled to know which round is running and an auditor is entitled
     to know how many there were, and neither of those is permission to start
     one. Vendors get the round-level view `round_view` allows them, which is the
-    window and their own standing in it — never the shortlist.
+    window and their own standing in it - never the shortlist.
     """
     t = Tender.objects.filter(pk=tid).first()
     if not t:
@@ -528,7 +528,7 @@ def round_collection(request, p, body, tid):
     if not has(p, "tender.rounds"):
         return err("You don't have permission to run bidding rounds.", 403)
     if t.status in FROZEN:
-        return err(f"This event is {t.status} — no further rounds can be opened.", 409)
+        return err(f"This event is {t.status} - no further rounds can be opened.", 409)
     if t.status in ("draft", "approval"):
         return err("Publish the event first. Round 1 is the event's own submission window.", 409)
     try:
@@ -551,7 +551,7 @@ def round_collection(request, p, body, tid):
             return err(f"{prev.label} is still open. Close it before opening another.", 409)
         # Who bids in this round. Empty means everyone invited to the event; a
         # best-and-final normally carries a shortlist, and the shortlist has to
-        # be drawn from people who actually bid — inviting a new vendor into a
+        # be drawn from people who actually bid - inviting a new vendor into a
         # later round would let them price against a published field.
         shortlist = body.get("invited")
         if isinstance(shortlist, list) and shortlist:
@@ -635,9 +635,9 @@ def round_open(request, p, body, rid_):
     """Open a round for submissions.
 
     The tender's own `deadline` and `status` are pointed at this round while it
-    runs. That is what lets everything written before rounds existed — the
+    runs. That is what lets everything written before rounds existed - the
     sealing sweep, `eff_status`, the bid room's countdown, the submission
-    guard — keep working with no knowledge of them.
+    guard - keep working with no knowledge of them.
     """
     r = _round(rid_)
     if not r:
@@ -666,7 +666,7 @@ def round_open(request, p, body, rid_):
         t.deadline = r.deadline
         # The earlier round's opening is left exactly where it is. A later round
         # is a fresh sealing, but that is expressed by this round having no
-        # `opened_at` of its own — not by erasing the record that round 1 was
+        # `opened_at` of its own - not by erasing the record that round 1 was
         # opened, which happened, was witnessed and is what the documents
         # already released are released under. See views._round_opened.
         t.save(update_fields=["status", "deadline"])
@@ -682,7 +682,7 @@ def round_open(request, p, body, rid_):
 
 @route(["POST"], perm="tender.rounds")
 def round_close(request, p, body, rid_):
-    """Close a round early. Reaching its deadline closes it too — this is the
+    """Close a round early. Reaching its deadline closes it too - this is the
     manual case, for a round every invited vendor has already answered."""
     r = _round(rid_)
     if not r:
@@ -714,7 +714,7 @@ def round_cancel(request, p, body, rid_):
         return err(f"This round is already {r.status}.", 409)
     reason = str(body.get("reason") or "").strip()[:300]
     if not reason:
-        return err("Give a reason — the round's bidders are told it.")
+        return err("Give a reason - the round's bidders are told it.")
     t = r.tender
     was_open = r.status == "open"
     with transaction.atomic():
@@ -795,13 +795,13 @@ def register_supplier(request, p, body):
         id=rid("s"),
         name=name,
         contact_email=email,
-        category=canonical(str(body.get("category") or "")),
+        category=vocab.category(body.get("category"), blank="Uncategorised"),
         subcategory=str(body.get("subcategory") or "").strip()[:60],
-        location=str(body.get("location") or "").strip()[:60] or "—",
+        location=vocab.location(body.get("location"), blank="-"),
         contact_person=str(body.get("contactPerson") or "").strip()[:140],
-        phone=str(body.get("phone") or "").strip()[:120],
+        phone=vocab.phone(body.get("phone")),
         address=str(body.get("address") or "").strip()[:300],
-        payment_terms=str(body.get("paymentTerms") or "").strip()[:80],
+        payment_terms=vocab.payment_terms(body.get("paymentTerms")),
         code=str(body.get("code") or "").strip()[:24],
         classification=str(body.get("classification") or "").strip()[:140],
         prequalified=False, docs=[], perf={}, registry={},
@@ -831,7 +831,7 @@ def suspend_supplier(request, p, body, sid):
 
     Suspension does not undo verification. A vendor whose insurance lapsed for
     six weeks and then renewed it should come back verified, not start their
-    prequalification over — and the register should be able to say what the six
+    prequalification over - and the register should be able to say what the six
     weeks were about.
     """
     s = Supplier.objects.filter(pk=sid).first()
@@ -855,7 +855,7 @@ def suspend_supplier(request, p, body, sid):
 
     reason = str(body.get("reason") or "").strip()[:300]
     if not reason:
-        return err("Give a reason — it is recorded and sent to the vendor.")
+        return err("Give a reason - it is recorded and sent to the vendor.")
     if s.suspended:
         return err("This vendor is already suspended.", 409)
     # `invited` is a JSON array and SQLite has no containment lookup for one.

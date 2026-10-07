@@ -4,7 +4,7 @@
    a kind of tender when it got its own models, its own endpoints and its own
    capabilities. The screens were the last part of the product still pretending
    otherwise: AuctionPage lived in buyer.jsx, was reached only from a tender
-   flagged as an auction, and polled /tenders/<id>/auction/ — a route that was
+   flagged as an auction, and polled /tenders/<id>/auction/ - a route that was
    deleted in the same change that created /api/auctions/. So the whole feature
    was unreachable. Not hidden by a permission, not missing from the demo:
    there was no screen attached to the API at all, for anybody.
@@ -21,7 +21,7 @@
 
    A buyer with auction.monitor gets names and amounts; a buyer without gets
    the shape of the competition and none of its content. So this file renders
-   whatever arrived and never decides what may be shown — if `leaderboard` is
+   whatever arrived and never decides what may be shown - if `leaderboard` is
    absent the reader was not entitled to it, and the correct response is to
    draw the room without it rather than to ask again.
 
@@ -32,6 +32,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { blobUrl, raw, uploadFile } from "./api";
 import { BP } from "./breakpoints";
 import { Empty } from "./atoms";
+import { UnitSelect } from "./fields";
 import { Figures, Guide, Page, Quiet } from "./page";
 import { Icon } from "./icons";
 import { can } from "./perms";
@@ -42,7 +43,7 @@ import { fmtCompact, fmtDateTime, fmtMoney } from "./helpers";
 /* An auction's statuses are not a tender's, so they do not borrow a tender's
    words: `closed` here means the clock ran out, not that envelopes are sealed,
    and STATUS in helpers.js would have printed exactly that. The stamp CLASSES
-   are reused on purpose — those nine colours are the ones palette-check
+   are reused on purpose - those nine colours are the ones palette-check
    measures for contrast and colour-blind separation, and inventing a tenth
    would ship an unmeasured pair. */
 const AUC_STATUS = {
@@ -256,8 +257,10 @@ export function AuctionsPage({ api }) {
       .then((d) => { if (active) { setRows(d.auctions || []); setErr(""); } })
       .catch((e) => { if (active) setErr(e.message || "Could not load auctions."); });
     load();
-    const timer = bidder ? setInterval(load, 15000) : null;
-    return () => { active = false; if (timer) clearInterval(timer); };
+    /* Buyers too: a live room's countdown ends, or a colleague opens one, and
+       the list should say so without a reload. */
+    const timer = setInterval(load, 15000);
+    return () => { active = false; clearInterval(timer); };
   }, [bidder]);
 
 
@@ -944,8 +947,7 @@ function DraftAuction({ api, a, refresh }) {
                   <div className="formrow">
                     <input id="ac-lq" className="in" type="number" min="1" style={{ maxWidth: 90 }} value={lot.qty}
                            onChange={(e) => setLot({ ...lot, qty: e.target.value })} />
-                    <input className="in" value={lot.uom} aria-label="Unit"
-                           onChange={(e) => setLot({ ...lot, uom: e.target.value })} placeholder="year, tonne, each" />
+                    <UnitSelect ariaLabel="Unit" value={lot.uom} onChange={(v) => setLot({ ...lot, uom: v })} />
                   </div></div>
               </div>
               <div className="gaterow" style={{ marginTop: 12 }}>
@@ -1101,6 +1103,10 @@ export function AuctionPage({ api, id }) {
     try {
       await raw(`/auctions/${a.id}/${path}/`, { method: "POST", body: body || {} });
       toast.ok(done);
+      /* Straight away rather than at the next poll, which is ten seconds off
+         when the room is not live: until then the screen said "Paused" after a
+         resume, and offered "Award" again after an award. */
+      refresh();
     } catch (e) {
       toast.warn("That did not go through", e.message || "");
     }

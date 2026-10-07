@@ -1,10 +1,10 @@
 """DOCKET API.
 
 Access model: the caller presents a bearer token, which resolves to a domain
-identity carrying a set of capabilities — the role's defaults plus or minus
+identity carrying a set of capabilities - the role's defaults plus or minus
 whatever an administrator has changed for that person (see permissions.py).
 Endpoints declare the capability they need; sealing and blind scoring are
-enforced HERE, at serialization time — not in the client:
+enforced HERE, at serialization time - not in the client:
 
   * before the recorded opening, buyer roles see only that a bid exists;
   * evaluators only ever receive their own scores;
@@ -22,7 +22,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 from django.http import HttpResponse
 
-from . import ai
+from . import ai, vocab
 from .models import (ActionToken as ActionTokenModel, AuthToken, Bid,
                      Clarification, Document, Event,
                      Notification, Persona, ProcurementRound, Supplier, Tender)
@@ -30,13 +30,14 @@ from .notify import notify_perm, notify_supplier, notify_suppliers
 from .permissions import has
 from .seed import ORG, seed_all
 from .tasks import maybe_sweep
-from .taxonomy import ALL_CATEGORIES, canonical, family_for
+from .taxonomy import ALL_CATEGORIES, family_for
 from .taxonomy import tree as taxonomy_tree
 from .util import (record_event, seal_bytes, seal_json, unseal_bytes,
                    unseal_json, verify_chain)
 from .util import (abnormally_low, award_letter, comm_score, eff_status,
-                   fmt_compact, fmt_date_ms, fmt_money, now_ms, regret_letter,
-                   rid, savings_against, tech_score, total_score, variance_flags)
+                   fmt_compact, fmt_date_ms, fmt_money, lines_ceiling, lines_over_max,
+                   now_ms, regret_letter, rid, savings_against, tech_score, total_score,
+                   variance_flags)
 
 PERSONA_SUPPLIERS = ["s2", "s3", "s7"]                 # supplier personas exposed in the demo switcher
 
@@ -79,7 +80,7 @@ def route(methods, roles=None, perm=None):
     normal case: it respects both the role's defaults and anything an
     administrator has granted or withdrawn for this person. `roles` remains for
     the handful of endpoints where the distinction is structural rather than a
-    capability — a vendor's own bid room is not something a buyer can be granted.
+    capability - a vendor's own bid room is not something a buyer can be granted.
     """
     def deco(fn):
         @csrf_exempt
@@ -101,7 +102,13 @@ def route(methods, roles=None, perm=None):
                     body = json.loads(request.body)
                 except (ValueError, TypeError):
                     return err("Invalid JSON body.")
-            return fn(request, persona, body, *args, **kwargs)
+            # A value off one of the form's fixed lists (see vocab.py). The
+            # cleaners run before anything is saved, so this is a plain 400
+            # carrying the sentence the cleaner wrote for the person.
+            try:
+                return fn(request, persona, body, *args, **kwargs)
+            except vocab.Refused as e:
+                return err(str(e))
         return wrap
     return deco
 
@@ -172,6 +179,14 @@ def tender_view(t, p):
     # here rather than at module scope because procurement.py imports `route`
     # and `err` from this module; the cycle is real and this is where it breaks.
     from .procurement import lifecycle_fields, rounds_for
+    if p["role"] == "supplier":
+        # The most the buyer will pay per unit stays with the buyer. A vendor
+        # told the maximum prices to it, and the competition becomes a race
+        # to sit just under a number instead of a price for the work. The
+        # ceiling goes with them: it is those maximums added up, and on a
+        # one-line tender it is the maximum itself.
+        d["lines"] = [{k: v for k, v in l.items() if k != "price"} for l in (t.lines or [])]
+        d["budget"] = None
     d.update(lifecycle_fields(t, p))
     d["rounds"] = rounds_for(t, p)
     cur = t.active_round() or t.latest_round()
@@ -214,8 +229,8 @@ def _round_opened(b, t):
     A bid belonging to an explicit round answers from that round; one with no
     round is the event's own single window and answers from the tender, which
     is every bid taken before rounds existed. Keeping the question per-round is
-    what lets round 1 stay open on the record — its documents readable, its
-    prices scored — while round 2 is still sealed underneath it."""
+    what lets round 1 stay open on the record - its documents readable, its
+    prices scored - while round 2 is still sealed underneath it."""
     if b.round_id:
         return bool(b.round.opened_at)
     return bool(t.opened_at)
@@ -225,7 +240,7 @@ def _first_round(obj):
     """Does this bid or document belong to the event's own first window?
 
     Two-stage is configured on the event, and its stage-1 opening released the
-    technical envelopes of the window that was running at the time — round 1.
+    technical envelopes of the window that was running at the time - round 1.
     It does not reach forward: a later round re-seals, and its technical
     envelopes wait for its own recorded opening. A row with no round at all is
     a single-round event, which is the first window by definition.
@@ -256,7 +271,7 @@ def bid_view(b, t, p):
         notes = {p["id"]: (b.notes or {}).get(p["id"], "")}
     if not opened:  # two-stage, technical phase: scores flow, prices stay sealed
         return {**base, "sealed": False, "commercialSealed": True, "scores": scores, "notes": notes}
-    if b.disqualified:  # commercial envelope was returned unopened — there is no amount, ever
+    if b.disqualified:  # commercial envelope was returned unopened - there is no amount, ever
         return {**base, "sealed": False, "commercialSealed": True, "scores": scores, "notes": notes}
     return {**base, "amount": b.amount, "lines": b.lines, "sealed": False,
             "commercialSealed": False, "scores": scores, "notes": notes}
@@ -278,7 +293,7 @@ def doc_visible(d, t, p):
     if not opened_at:
         return False
     if Bid.objects.filter(tender=t, supplier_id=d.supplier_id, disqualified=True).exists():
-        return False  # returned unopened — stays that way
+        return False  # returned unopened - stays that way
     return True
 
 
@@ -385,20 +400,20 @@ def bootstrap(request, p, body):
 
 
 # The capabilities the dashboard's work queue can be blocked on. Only these are
-# resolved into people — the point is to answer "who am I waiting on", not to
+# resolved into people - the point is to answer "who am I waiting on", not to
 # publish the whole permission matrix to every browser.
 WORK_CAPS = ("bid.open", "tender.publish_decision", "award.decide",
-             "clarification.answer", "supplier.prequalify")
+             "clarification.answer", "supplier.prequalify", "bid.score")
 
 
 def cap_holders(caps=WORK_CAPS):
-    """{capability: [persona id, ...]} — who can actually clear each step.
+    """{capability: [persona id, ...]} - who can actually clear each step.
 
     Resolved on the server because only the server knows. `perms.js` refuses to
     enumerate roles on purpose: a workspace can invent "Legal" on Monday and an
     administrator can move one person off their role on Tuesday, so a client-side
     guess at who can approve an award would be wrong in exactly the cases that
-    matter. One pass over the personas, inverted — the org is tens of people.
+    matter. One pass over the personas, inverted - the org is tens of people.
     """
     from django.contrib.auth.models import User
 
@@ -418,7 +433,7 @@ def cap_holders(caps=WORK_CAPS):
 
 
 def vendor_leaf_counts():
-    """{(category, subcategory): n} across the register — one grouped query, so
+    """{(category, subcategory): n} across the register - one grouped query, so
     the taxonomy can show how many vendors sit under each leaf without the
     client counting 1,400 records it was never sent."""
     from django.db.models import Count
@@ -442,7 +457,7 @@ DEFAULT_DIMENSIONS = {
 # organisation properly, and nothing that belongs to a person. Each is optional
 # and each is stored as typed: blank means "not recorded", which prints as
 # nothing rather than as an empty label. `legalName` is separate from `name`
-# on purpose — the trading name goes in the interface and the registered name
+# on purpose - the trading name goes in the interface and the registered name
 # goes on the award letter, and in Nigeria those differ more often than not.
 PROFILE_FIELDS = {
     "legalName": 160, "rcNumber": 40, "tin": 40, "industry": 80, "sector": 80,
@@ -457,8 +472,8 @@ DEFAULT_PROFILE.update({"country": "Nigeria", "currency": "NGN",
                         "timezone": "Africa/Lagos", "fiscalYearStart": "01-01"})
 
 # Deployment appearance supports front-page palettes and the Studio layout. The keys live here because two
-# surfaces have to agree on them — auth/config/ serves the chosen one to every
-# visitor, and the administration console is the only place it can be changed —
+# surfaces have to agree on them - auth/config/ serves the chosen one to every
+# visitor, and the administration console is the only place it can be changed -
 # and a list that lived in the frontend could be edited by whoever is asking.
 # Adding an option means a key here AND an entry in frontend/src/designs.js;
 # anything the console sends that is not in this tuple is refused.
@@ -487,7 +502,7 @@ DEFAULT_ACCENT = "blue"
 DEFAULT_SETTINGS = {
     "approvalThreshold": 50_000_000,
     # The delegation-of-authority ladder. Empty means the single threshold
-    # above is still the whole matrix — see approvals.py.
+    # above is still the whole matrix - see approvals.py.
     "approvalLevels": [],
     "dimensions": DEFAULT_DIMENSIONS,
     "profile": DEFAULT_PROFILE,
@@ -497,7 +512,7 @@ DEFAULT_SETTINGS = {
     "accent": DEFAULT_ACCENT,
     # Which of LANDING_DESIGNS the front door wears. One setting for the whole
     # deployment: a visitor is not asked to pick a skin, and neither is anyone
-    # on the team — see admin_views.admin_appearance for who may change it.
+    # on the team - see admin_views.admin_appearance for who may change it.
     "landing": DEFAULT_LANDING,
 }
 
@@ -515,11 +530,15 @@ def org_settings():
 
 def clean_profile(given, current=None):
     """Trim an incoming company profile to the fields we store. Unknown keys are
-    dropped silently: this is a form, not an extension point."""
+    dropped silently: this is a form, not an extension point. Fields with a
+    fixed set of answers (country, currency, phone...) are held to it by
+    vocab.profile_field, which raises vocab.Refused for the caller to report."""
     out = dict(current or {})
+    country = str(given.get("country", out.get("country", "")) or "").strip()
     for key, cap in PROFILE_FIELDS.items():
         if key in given:
-            out[key] = str(given.get(key) or "").strip()[:cap]
+            out[key] = vocab.profile_field(key, given.get(key), keep=out.get(key, ""),
+                                           country=country)[:cap]
     return out
 
 
@@ -556,7 +575,7 @@ def settings_view(request, p, body):
     changes = {}
     if "approvalThreshold" in body:
         if not has(p, "settings.threshold"):
-            return err("Only the approver can change the approval matrix.", 403)
+            return err("You don't have permission to change the approval matrix.", 403)
         try:
             threshold = int(body.get("approvalThreshold"))
             if threshold < 0:
@@ -566,7 +585,7 @@ def settings_view(request, p, body):
         changes["approvalThreshold"] = threshold
     if "approvalLevels" in body:
         if not has(p, "settings.threshold"):
-            return err("Only the approver can change the approval matrix.", 403)
+            return err("You don't have permission to change the approval matrix.", 403)
         from . import approvals
         levels, msg = approvals.normalise(body.get("approvalLevels"))
         if msg:
@@ -575,17 +594,13 @@ def settings_view(request, p, body):
     if "profile" in body:
         if not has(p, "settings.rename"):
             return err("You don't have permission to change the company profile.", 403)
-        from .account_views import EMAIL_RE
         given = body.get("profile")
         if not isinstance(given, dict):
             return err("The company profile must be a set of fields.")
-        email = str(given.get("email", "")).strip()
-        if email and not EMAIL_RE.match(email):
-            return err("Enter a valid company email address, or leave it blank.")
         changes["profile"] = clean_profile(given, org_settings().get("profile"))
     if "name" in body or "short" in body:
         if not has(p, "settings.rename"):
-            return err("Only procurement or the approver can rename the workspace.", 403)
+            return err("You don't have permission to rename the workspace.", 403)
         name = str(body.get("name", "")).strip()[:120]
         if "name" in body and len(name) < 2:
             return err("Enter the organisation's name.")
@@ -607,7 +622,7 @@ def settings_view(request, p, body):
             vals = given.get(key, (org_settings().get("dimensions") or {}).get(key) or [])
             if not isinstance(vals, list):
                 return err(f"The {key} list must be a list of values.")
-            # Deduplicated, trimmed, order preserved — the order is the order
+            # Deduplicated, trimmed, order preserved - the order is the order
             # they appear in the tender form, and somebody chose it.
             seen, out = set(), []
             for v in vals:
@@ -642,14 +657,14 @@ def settings_view(request, p, body):
             "The registered details on letters, memos and compliance reports were changed.")
     if "approvalThreshold" in changes:
         log(p, "Approval matrix changed",
-            f"Publication above {fmt_compact(changes['approvalThreshold'])} now requires approver sign-off; below publishes directly.")
+            f"Publication above {fmt_compact(changes['approvalThreshold'])} now requires sign-off; below publishes directly.")
     if "name" in changes or "short" in changes:
         log(p, "Workspace renamed",
             f"The organisation is now \"{org_name()}\". New tender references use the {ref_prefix()}- prefix; existing references are unchanged.")
     if "dimensions" in changes:
         log(p, "Spend dimensions changed",
             ", ".join(f"{k}: {len(v)} value(s)" for k, v in changes["dimensions"].items())
-            + ". Tenders already coded to a removed value keep it — the code is what was true when it was raised.")
+            + ". Tenders already coded to a removed value keep it - the code is what was true when it was raised.")
     return JsonResponse(org_settings())
 
 
@@ -658,7 +673,7 @@ def settings_view(request, p, body):
 # thing this deployment deliberately does not have (see Document, which keeps
 # uploads in the database for exactly the same reason). A quarter of a megabyte
 # is a generous ceiling for a logo and a mean one for anything else, which is
-# the point — it is the size check that keeps somebody's 8 MB hero photograph
+# the point - it is the size check that keeps somebody's 8 MB hero photograph
 # out of every bootstrap payload the workspace ever sends.
 LOGO_MAX_BYTES = 256 * 1024
 LOGO_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/svg+xml": ".svg",
@@ -688,7 +703,7 @@ def org_logo(request, p, body):
     if ctype not in LOGO_TYPES:
         return err("Use a PNG, JPEG, SVG, WebP or GIF image.")
     if f.size > LOGO_MAX_BYTES:
-        return err(f"Logos are capped at {LOGO_MAX_BYTES // 1024} KB — this one is "
+        return err(f"Logos are capped at {LOGO_MAX_BYTES // 1024} KB - this one is "
                    f"{f.size // 1024} KB. Export it smaller, or use an SVG.")
     raw = f.read()
     if ctype == "image/svg+xml":
@@ -711,7 +726,7 @@ def _publish(t, p):
     t.save()
     log(p, "Published", f"{t.title} released to {len(t.invited)} invited supplier(s).", t.id)
     notify_suppliers(t.invited, f"Invitation to tender: {t.title}",
-                     f"{org_name()} invites your sealed bid for {t.ref} — {t.title}. "
+                     f"{org_name()} invites your sealed bid for {t.ref} - {t.title}. "
                      f"Deadline: see the bid room for full terms.", t.id)
 
 
@@ -758,7 +773,7 @@ def _route_submission_legacy(t, p):
         t.status = "approval"
         t.save()
         log(p, "Submitted for approval",
-            f"Routed to the approver under the approval matrix (\u2265{fmt_compact(threshold)}).", t.id)
+            f"Routed for sign-off under the approval matrix (\u2265{fmt_compact(threshold)}).", t.id)
         notify_perm("tender.publish_decision", f"Publication approval needed: {t.title}",
                     f"{t.ref} at {fmt_compact(t.budget)} needs your sign-off before invitations go out.", t.id)
     else:
@@ -766,6 +781,14 @@ def _route_submission_legacy(t, p):
 
 
 # ---------------- tenders ----------------
+
+def _whole(v):
+    """A naira amount from a form field: a whole number, never below zero."""
+    try:
+        return max(0, int(float(v or 0)))
+    except (TypeError, ValueError):
+        return 0
+
 
 def _apply_tender_payload(t, body):
     t.title = str(body.get("title", "")).strip()
@@ -778,11 +801,11 @@ def _apply_tender_payload(t, body):
     except (TypeError, ValueError):
         t.tech_threshold = 70
 
-    # `canonical` accepts the seven words the old dropdown offered, so a draft
-    # saved in a browser tab before this shipped still lands in a real category
-    # instead of creating a twenty-fourth one nothing else counts.
-    t.category = canonical(body.get("category", ""))
-    t.budget = int(body.get("budget", 0) or 0)
+    # vocab.category accepts the seven words the old dropdown offered (via
+    # taxonomy.canonical), so a draft saved in a browser tab before this shipped
+    # still lands in a real category instead of creating a twenty-fourth one
+    # nothing else counts. Wording it cannot place is refused.
+    t.category = vocab.category(body.get("category"), keep=t.category or "", blank="Uncategorised")
     # What this was costing before. Optional, and left null rather than defaulted
     # to the budget: a baseline that quietly equals the ceiling would make every
     # saving read as zero and look like a calculation bug.
@@ -810,10 +833,23 @@ def _apply_tender_payload(t, body):
     # what makes the same purchase comparable across tenders. Free text still
     # works: plenty of what an organisation buys has no item number, and
     # requiring one would just get "MISC" typed into every line.
+    # Units come from the dropdown; a unit already on this draft's lines is
+    # kept as it was, so editing an older draft does not fail on a line nobody
+    # touched.
+    had = {str(l.get("unit", "")) for l in (t.lines or [])}
     t.lines = [{"id": l.get("id") or rid("l"), "desc": str(l["desc"]).strip(),
-                "qty": int(l.get("qty", 0) or 0), "unit": str(l.get("unit", "unit")).strip() or "unit",
-                "itemCode": str(l.get("itemCode", "") or "").strip()[:40]}
+                "qty": int(l.get("qty", 0) or 0), "unit": vocab.unit(l.get("unit"), keep=had),
+                "itemCode": str(l.get("itemCode", "") or "").strip()[:40],
+                "price": _whole(l.get("price"))}
                for l in body.get("lines", []) if str(l.get("desc", "")).strip()]
+    # The ceiling is no longer typed in. It is each line's maximum per unit
+    # times its quantity, so it cannot disagree with the prices bids are
+    # graded against. A caller that sends no line maximums at all (an older
+    # client, a lump-sum integration) still names the ceiling outright.
+    if any(l["price"] for l in t.lines):
+        t.budget = lines_ceiling(t.lines)
+    else:
+        t.budget = _whole(body.get("budget"))
     # Suspended vendors are dropped rather than rejected: a draft's list is
     # edited over days, and a vendor suspended on Tuesday should not make
     # Wednesday's save fail with an error about a field nobody touched. The
@@ -824,7 +860,7 @@ def _apply_tender_payload(t, body):
     # Finance coding. Free text against a configured list rather than a foreign
     # key: the value recorded is what the department was called when the tender
     # was raised, and reorganising the list next year must not silently re-badge
-    # last year's spend. Values outside the list are kept, not rejected — the
+    # last year's spend. Values outside the list are kept, not rejected - the
     # list is guidance for the form, and a tender blocked at submission because
     # somebody opened a new region on Monday helps nobody.
     dims = body.get("dimensions") or {}
@@ -836,10 +872,14 @@ def _validate_tender(t, submitting):
     if not t.title:
         return "A title is required."
     if t.projected_cost and t.budget and t.projected_cost > t.budget:
-        return "The projected cost is above the budget ceiling. Raise the ceiling or revise the projection."
+        return ("The projected cost is above what the line maximums add up to. "
+                "Raise a maximum or revise the projection.")
     if submitting:
+        # .get: a draft saved before lines carried a maximum is submitted as stored.
+        if any(l.get("price") for l in t.lines) and not all(l.get("price") for l in t.lines):
+            return "Every line needs the most you will pay per unit."
         if t.budget <= 0:
-            return "Budget must be above zero."
+            return "Add at least one line with a quantity and the most you will pay per unit."
         if t.deadline <= now_ms():
             return "The deadline must be in the future."
         # Was an `elif` hanging off a reverse-auction branch, which had no
@@ -860,7 +900,7 @@ def tender_create(request, p, body):
     t = Tender(id=rid("t"), status="draft", published_at=None, addenda=[])
     # Whoever drafts it owns it. Recorded at creation rather than inferred from
     # the audit chain later, because the person who first touches a tender and
-    # the person carrying it are the same person exactly once — here.
+    # the person carrying it are the same person exactly once - here.
     t.owner_id = p["id"] if p["role"] != "supplier" else None
     _apply_tender_payload(t, body)
     msg = _validate_tender(t, submitting)
@@ -882,7 +922,7 @@ def tender_update(request, p, body, tid):
     if not t:
         return err("Tender not found.", 404)
     if t.status != "draft":
-        return err("Only drafts can be edited. A live event is steered from its own page — "
+        return err("Only drafts can be edited. A live event is steered from its own page - "
                    "extend the deadline, manage its vendors, pause or cancel it.", 409)
     submitting = bool(body.get("submit"))
     _apply_tender_payload(t, body)
@@ -919,7 +959,7 @@ def publish_decision(request, p, body, tid):
 
     Authority comes from the chain where there is one and from the capability
     where there is not. That order matters: with a ladder configured, holding
-    `tender.publish_decision` is not enough — a director may hold it and still
+    `tender.publish_decision` is not enough - a director may hold it and still
     not be the signature this tender is waiting on, and letting them sign
     anyway would turn an ordered chain into a race.
     """
@@ -947,7 +987,7 @@ def publish_decision(request, p, body, tid):
         log(p, "Returned to draft",
             (f"Declined at step {step.seq} ({step.level_name}); the chain is cancelled and the "
              f"tender goes back to the drafter." if step
-             else "Approver requested changes before publication."), t.id)
+             else "Changes were requested before publication."), t.id)
         return JsonResponse({"ok": True})
 
     if step:
@@ -978,12 +1018,12 @@ def add_addendum(request, p, body, tid):
         return err("An addendum needs a title.")
     seq = f"{len(t.addenda) + 1:02d}"
     t.addenda = t.addenda + [{"id": rid("a"), "at": now_ms(),
-                              "title": f"Addendum {seq} — {title}",
+                              "title": f"Addendum {seq} - {title}",
                               "note": str(body.get("note", "")).strip()}]
     t.save()
-    log(p, "Addendum issued", f"Addendum {seq} — {title}. New submissions must acknowledge it.", t.id)
+    log(p, "Addendum issued", f"Addendum {seq} - {title}. New submissions must acknowledge it.", t.id)
     notify_suppliers(t.invited, f"Addendum issued: {t.title}",
-                     f"Addendum {seq} — {title}. Review it in the bid room; new submissions must acknowledge it.",
+                     f"Addendum {seq} - {title}. Review it in the bid room; new submissions must acknowledge it.",
                      t.id)
     return JsonResponse({"ok": True})
 
@@ -991,7 +1031,7 @@ def add_addendum(request, p, body, tid):
 def _stamp_round_opening(t):
     """Record the opening against the round it opened, where there is one.
 
-    `open_bids` deliberately knows nothing about rounds — it opens whatever is
+    `open_bids` deliberately knows nothing about rounds - it opens whatever is
     sealed on the tender, which is right in both the single-round and the
     multi-round case. This is the bookkeeping that follows: the round that was
     just unsealed moves to evaluation and remembers when."""
@@ -1016,7 +1056,7 @@ def open_bids(request, p, body, tid):
     if not t:
         return err("Tender not found.", 404)
     if t.status == "cancelled":
-        return err("This event was cancelled — its bids stay sealed and unopened.", 409)
+        return err("This event was cancelled - its bids stay sealed and unopened.", 409)
     if t.status == "paused":
         return err("This event is paused. Resume it, or cancel it, before opening anything.", 409)
     from django.db import transaction as _tx
@@ -1043,7 +1083,7 @@ def open_bids(request, p, body, tid):
             f"until technical evaluation concludes (threshold {t.tech_threshold}/100).", t.id)
         notify_perm("bid.score", f"Technical scoring open: {t.title}",
                     "Technical envelopes are open. Sign your conflict-of-interest declaration and score "
-                    "the technical proposals — prices stay sealed until you're done.", t.id)
+                    "the technical proposals - prices stay sealed until you're done.", t.id)
         return JsonResponse({"ok": True})
 
     if t.two_stage and t.tech_opened_at and not t.opened_at:
@@ -1055,7 +1095,7 @@ def open_bids(request, p, body, tid):
         bids = list(Bid.objects.select_for_update().filter(tender=t))
         unscored = [b for b in bids if tech_score(t, b) is None]
         if unscored:
-            return err(f"{len(unscored)} bid(s) have no technical scores yet — the commercial "
+            return err(f"{len(unscored)} bid(s) have no technical scores yet - the commercial "
                        f"envelopes stay sealed until scoring is complete.", 409)
         passed, failed = [], []
         with _tx.atomic():
@@ -1085,7 +1125,7 @@ def open_bids(request, p, body, tid):
         for b in failed:
             notify_supplier(b.supplier_id, f"Technical evaluation outcome: {t.title}",
                             f"Your technical proposal did not meet the qualification threshold on {t.ref}. "
-                            "Your commercial envelope was returned unopened — your pricing was never seen.", t.id)
+                            "Your commercial envelope was returned unopened - your pricing was never seen.", t.id)
         return JsonResponse({"ok": True})
 
     # ---- single-stage: unseal everything ----
@@ -1102,7 +1142,7 @@ def open_bids(request, p, body, tid):
         t.status = "evaluation"
         t.save()
     _stamp_round_opening(t)
-    log(p, "Bid opening — seals broken", f"{n} bids opened before the evaluation panel; amounts recorded.", t.id)
+    log(p, "Bid opening - seals broken", f"{n} bids opened before the evaluation panel; amounts recorded.", t.id)
     notify_perm("bid.score", f"Scoring open: {t.title}",
                 f"The seals on {t.ref} were broken in a recorded opening. Sign your conflict-of-interest "
                 f"declaration and score independently.", t.id)
@@ -1117,29 +1157,33 @@ def recommend_award(request, p, body, tid):
     if t.status != "evaluation":
         return err("Awards can only be recommended during evaluation.", 409)
     if t.award_rec:
-        return err("A recommendation is already with the approver.", 409)
+        return err("A recommendation is already waiting for sign-off.", 409)
     bids = list(t.bids.all())
     bid = next((b for b in bids if b.id == body.get("bidId")), None)
     if not bid:
         return err("Bid not found on this tender.", 404)
     if bid.disqualified:
-        return err("That bidder was disqualified at technical evaluation — their commercial envelope was never opened.", 409)
+        return err("That bidder was disqualified at technical evaluation - their commercial envelope was never opened.", 409)
     if bid.amount is None:
         return err("That bid's commercial envelope is still sealed.", 409)
     s = Supplier.objects.get(pk=bid.supplier_id)
     ts = tech_score(t, bid)
-    cs = comm_score(bid, bids)
+    cs = comm_score(bid, bids, t)
     tot = total_score(t, bid, bids)
     under = (t.budget - bid.amount) / t.budget * 100
     flags = []
     if abnormally_low(bid, bids):
-        flags.append("pricing flagged as abnormally low — viability to be verified before contract")
+        flags.append("pricing flagged as abnormally low - viability to be verified before contract")
+    over = lines_over_max(t, bid)
+    if over:
+        flags.append(f"rate above the maximum on {len(over)} line(s): "
+                     + ", ".join(f'"{l["desc"]}"' for l in over))
     for c in variance_flags(t, bid):
         flags.append(f'panel split on "{c["name"]}"')
     memo = (
-        f"Panel recommends {s.name} at {fmt_compact(bid.amount)} — {under:.1f}% under the "
-        f"{fmt_compact(t.budget)} ceiling. Technical {f'{ts:.0f}' if ts is not None else '—'}/100, "
-        f"commercial {cs:.0f}/100, weighted total {f'{tot:.1f}' if tot is not None else '—'}. "
+        f"Panel recommends {s.name} at {fmt_compact(bid.amount)} - {under:.1f}% under the "
+        f"{fmt_compact(t.budget)} ceiling. Technical {f'{ts:.0f}' if ts is not None else '-'}/100, "
+        f"commercial {cs:.0f}/100, weighted total {f'{tot:.1f}' if tot is not None else '-'}. "
         + (("Flags: " + "; ".join(flags) + ".") if flags else "No variance or pricing flags.")
     )
     t.award_rec = {"bidId": bid.id, "supplierId": bid.supplier_id, "amount": bid.amount,
@@ -1163,7 +1207,7 @@ def recommend_award(request, p, body, tid):
                             f"approvals queue.")
         return JsonResponse({"ok": True})
 
-    log(p, "Award recommended", f"Panel recommendation for {s.name} routed to the approver.", t.id)
+    log(p, "Award recommended", f"Panel recommendation for {s.name} routed for sign-off.", t.id)
     notify_perm("award.decide", f"Award approval needed: {t.title}",
                 f"The panel recommends {s.name} at {fmt_compact(bid.amount)} for {t.ref}. "
                 f"The memo is waiting in your approvals queue.", t.id)
@@ -1185,7 +1229,7 @@ def withdraw_recommendation(request, p, body, tid):
 
 @route(["POST"])
 def award_decision(request, p, body, tid):
-    """Sign, or return, one award. Chain first, capability second — see
+    """Sign, or return, one award. Chain first, capability second - see
     publish_decision for why that order is not interchangeable."""
     from . import approvals
     t = Tender.objects.filter(pk=tid).first()
@@ -1238,7 +1282,7 @@ def award_decision(request, p, body, tid):
         t.rounds.exclude(status="cancelled").update(status="completed")
         under = (t.budget - t.awarded_amount) / t.budget * 100
         log(p, "Award approved",
-            f"Awarded to {winner.name} at {fmt_compact(t.awarded_amount)} — {under:.1f}% under budget. "
+            f"Awarded to {winner.name} at {fmt_compact(t.awarded_amount)} - {under:.1f}% under budget. "
             f"Award and regret letters issued.", t.id)
         notify_perm("award.recommend", f"Award approved: {t.title}",
                     f"The award to {winner.name} was approved. Letters have been issued to all bidders.", t.id)
@@ -1249,9 +1293,9 @@ def award_decision(request, p, body, tid):
     else:
         t.award_rec = None
         t.save()
-        log(p, "Award recommendation returned", "Approver returned the recommendation to the panel with questions.", t.id)
+        log(p, "Award recommendation returned", "The recommendation was returned to the panel with questions.", t.id)
         notify_perm("award.recommend", f"Recommendation returned: {t.title}",
-                    "The approver returned the award recommendation to the panel with questions.", t.id)
+                    "The award recommendation was returned to the panel with questions.", t.id)
     return JsonResponse({"ok": True})
 
 
@@ -1269,9 +1313,9 @@ def bid_collection(request, p, body, tid):
     if st == "paused":
         return err("This event is paused. You will be notified when it resumes.", 409)
     if st == "cancelled":
-        return err("This event was cancelled — no submissions are being taken.", 409)
+        return err("This event was cancelled - no submissions are being taken.", 409)
     if st != "published":
-        return err("The deadline has passed — the tender is sealed.", 409)
+        return err("The deadline has passed - the tender is sealed.", 409)
 
     # Which submission window this bid lands in. None is the ordinary
     # single-round event, where the tender's own deadline is the window.
@@ -1288,7 +1332,7 @@ def bid_collection(request, p, body, tid):
         return JsonResponse({"ok": True})
 
     if mine.exists():
-        return err("You already have a sealed bid — withdraw it first to replace it.", 409)
+        return err("You already have a sealed bid - withdraw it first to replace it.", 409)
     acks = set(body.get("acks", []))
     missing = [a["title"] for a in t.addenda if a["id"] not in acks]
     if missing:
@@ -1453,7 +1497,7 @@ def prequalify(request, p, body, sid):
     else:
         reason = str(body.get("reason") or "").strip()[:300]
         if not reason:
-            return err("Give the vendor a reason — it's recorded and sent to them.")
+            return err("Give the vendor a reason - it's recorded and sent to them.")
         s.prequalified = False
         s.rejected_reason = reason
         s.save(update_fields=["prequalified", "rejected_reason"])
@@ -1529,9 +1573,9 @@ def ai_criteria(request, p, body):
         f'Criteria must be specific to this purchase, not generic.'
     )
     if not (isinstance(arr, list) and arr and all(c.get("name") and int(c.get("weight", 0)) > 0 for c in arr)):
-        return err("The AI returned an unusable criteria set — try again.", 502)
+        return err("The AI returned an unusable criteria set - try again.", 502)
     if sum(int(c["weight"]) for c in arr) != 100:
-        return err("The AI's weights didn't sum to 100 — try again.", 502)
+        return err("The AI's weights didn't sum to 100 - try again.", 502)
     return JsonResponse({"criteria": [{"name": str(c["name"]), "weight": int(c["weight"])} for c in arr]})
 
 
@@ -1547,7 +1591,7 @@ def ai_clar_answer(request, p, body, cid):
         f'Supplier question: "{c.q}"\n\n'
         f"Draft a clear, decision-making answer in 2\u20134 sentences that the buyer can publish to all invited suppliers. "
         f"Where the scope doesn't settle the question, make one sensible, clearly stated ruling rather than hedging. "
-        f"Formal but plain tone. Answer only — no preamble."
+        f"Formal but plain tone. Answer only - no preamble."
     )
     return JsonResponse({"text": text})
 
@@ -1609,11 +1653,11 @@ def ai_bid_review(request, p, body, tid):
         pricing = f"Lump sum: {fmt_money(amt) if amt > 0 else 'NOT ENTERED'}"
     missing = [str(x) for x in body.get("missing", [])] or ["none"]
     text = ai.ask(
-        f'You advise a supplier finalising a sealed tender bid. You work for the supplier only — be practical and candid.\n'
+        f'You advise a supplier finalising a sealed tender bid. You work for the supplier only - be practical and candid.\n'
         f'Tender: "{t.title}". Scope: {t.scope}\n'
         f"Published criteria: {', '.join(c['name'] + ' ' + str(c['weight']) + '%' for c in t.criteria)} "
         f"({t.tech_weight}% technical / {t.comm_weight}% commercial).\n"
-        f"Addenda in force: {' | '.join(a['title'] + ' — ' + a.get('note', '') for a in t.addenda) or 'none'}.\n"
+        f"Addenda in force: {' | '.join(a['title'] + ' - ' + a.get('note', '') for a in t.addenda) or 'none'}.\n"
         f"Their draft pricing:\n{pricing}\nOutstanding checklist items: {'; '.join(missing)}.\n\n"
         f"In max 120 words: flag anything incomplete, anything an addendum changes about their pricing, and one or two "
         f"things worth double-checking against the criteria before sealing. Plain prose, no headings, no markdown."
@@ -1707,7 +1751,7 @@ def upload_tender_doc(request, p, body, tid):
     if t.status == "awarded":
         return err("This tender is closed.", 409)
     if t.status == "cancelled":
-        return err("This event was cancelled — its document pack is final.", 409)
+        return err("This event was cancelled - its document pack is final.", 409)
     up, msg = _read_upload(request)
     if msg:
         return err(msg)
@@ -1824,13 +1868,16 @@ def upload_supplier_doc(request, p, body):
         expiry = int(request.POST.get("expiry", 0)) or None
     except (TypeError, ValueError):
         expiry = None
-    label = (request.POST.get("label") or up["name"]).strip()[:120]
+    kind = vocab.doc_type(request.POST.get("type"))
+    # The type is the label unless it is "Other", when the vendor says what it is.
+    label = (request.POST.get("label") if kind in ("", "Other") else kind) or up["name"]
+    label = label.strip()[:120]
     sup = Supplier.objects.get(pk=p["supplierId"])
     d = Document.objects.create(id=rid("d"), kind="supplier", tender=None, supplier_id=sup.id,
                                 envelope="", expiry=expiry, uploaded_by=p["name"],
                                 uploaded_at=now_ms(), **up)
     docs = list(sup.docs or [])
-    docs.append({"name": label, "expiry": expiry or 0, "docId": d.id})
+    docs.append({"name": label, "type": kind, "expiry": expiry or 0, "docId": d.id})
     sup.docs = docs
     sup.save(update_fields=["docs"])
     record_event(actor=p["name"], role="supplier", action="Compliance document submitted",
@@ -1867,7 +1914,7 @@ def team(request, p, body):
         members.append({"username": u.username, "email": u.email, "name": per.name,
                         "id": per.id, "managerId": per.manager_id,
                         "approvalLevel": per.approval_level or None,
-                        "role": per.role, "roleLabel": role_label(per.role, custom).split("—")[0].strip(),
+                        "role": per.role, "roleLabel": role_label(per.role, custom).split(" - ")[0].strip(),
                         "title": per.title, "active": u.is_active, "claimed": True,
                         # so the Team page tells the truth when someone has been
                         # moved off their role in the administration console
@@ -1876,38 +1923,128 @@ def team(request, p, body):
     # People who exist on the chart but have not set a password yet. The setup
     # wizard draws the whole hierarchy before anybody has accepted anything, so
     # leaving these out would show a manager with no reports and an approval
-    # ladder with nobody on it — an org chart that is wrong for three days.
+    # ladder with nobody on it - an org chart that is wrong for three days.
+    from .setup_views import HELD_INVITE
+    held_rows = list(ActionTokenModel.objects.filter(kind=HELD_INVITE, used_at__isnull=True))
+    held_email = {t.payload.get("personaId"): t.email for t in held_rows}
     for per in Persona.objects.filter(profile__isnull=True):
         if per.id in claimed:
             continue
-        members.append({"username": "", "email": "", "name": per.name, "id": per.id,
+        members.append({"username": "", "email": held_email.get(per.id, ""), "name": per.name, "id": per.id,
                         "managerId": per.manager_id, "approvalLevel": per.approval_level or None,
-                        "role": per.role, "roleLabel": role_label(per.role, custom).split("—")[0].strip(),
+                        "role": per.role, "roleLabel": role_label(per.role, custom).split(" - ")[0].strip(),
                         "title": per.title, "active": False, "claimed": False, "custom": False})
 
     pending = [{"email": t.email, "role": t.payload.get("role", ""),
                 "personaId": t.payload.get("personaId") or None,
-                "roleLabel": role_label(t.payload.get("role", ""), custom).split("—")[0].strip(),
+                "roleLabel": role_label(t.payload.get("role", ""), custom).split(" - ")[0].strip(),
                 "at": t.created}
                for t in ActionTokenModel.objects.filter(kind="team_invite", used_at__isnull=True)]
+    # Invitations setup prepared and nobody has sent yet.
+    held = [{"email": t.email, "personaId": t.payload.get("personaId") or None,
+             "name": t.payload.get("name", ""), "role": t.payload.get("role", ""),
+             "roleLabel": role_label(t.payload.get("role", ""), custom).split(" - ")[0].strip(),
+             "at": t.created}
+            for t in held_rows]
     from .permissions import assignable_roles
     roles = [{"value": r["key"], "label": r["label"]} for r in assignable_roles(custom)]
     levels = approvals.ladder()
-    return JsonResponse({"members": members, "invites": pending, "roles": roles,
+    return JsonResponse({"members": members, "invites": pending, "held": held, "roles": roles,
                          "levels": levels, "levelGaps": approvals.unreachable(levels)})
 
 
-@route(["POST"], perm="team.org")
-def set_reporting_line(request, p, body):
-    """Move one person under another, or to the top of the chart.
+@route(["POST"], perm="team.invite")
+def team_send_invites(request, p, body):
+    """Send the invitations setup prepared and held, all of them or the ones
+    named. Each gets a fresh single-use link, so the three days run from now
+    rather than from whenever setup was finished."""
+    from django.contrib.auth.models import User
+
+    from .account_views import _link, _mail, _mint
+    from .permissions import role_label
+    from .setup_views import HELD_INVITE
+    rows = ActionTokenModel.objects.filter(kind=HELD_INVITE, used_at__isnull=True)
+    only = body.get("personaIds")
+    if isinstance(only, list) and only:
+        rows = rows.filter(payload__personaId__in=[str(x) for x in only])
+    rows = list(rows)
+    if not rows:
+        return err("There are no held invitations to send.", 409)
+    sent, links = 0, []
+    for h in rows:
+        h.used_at = now_ms()
+        h.save(update_fields=["used_at"])
+        if User.objects.filter(username=h.email).exists():
+            continue        # they found their own way in; nothing to send
+        persona = Persona.objects.filter(pk=h.payload.get("personaId")).first()
+        tok = _mint("team_invite", h.email, dict(h.payload))
+        link = _link(request, "itoken", tok.token)
+        role = role_label(h.payload.get("role", ""))
+        line = (f", reporting to {persona.manager.name}"
+                if persona and persona.manager_id else "")
+        _mail(h.email, f"You're invited to {org_name()}'s DOCKET workspace",
+              f"{p['name']} invited you to {org_name()} as {role}{line}.\n\n"
+              f"Set your password here:\n\n{link}\n\nThe link is valid for 3 days.")
+        sent += 1
+        if settings.DEMO_LOGIN:
+            links.append({"email": h.email, "link": link})
+    log(p, "Team invitations sent", f"{sent} held invitation(s) sent.")
+    out = {"ok": True, "sent": sent}
+    if settings.DEMO_LOGIN:
+        out["links"] = links
+    return JsonResponse(out)
+
+
+@route(["GET", "POST"], perm="team.view")
+def team_roles(request, p, body):
+    """The company's own roles, read by anyone who can see the team and
+    rewritten by whoever may set them up. The whole list travels each way, the
+    same as the authority ladder: renaming one role and retiring another is
+    usually one decision. See roles.py for what is refused and why."""
+    from django.db import transaction
+
+    from . import roles
+    from .permissions import CATALOGUE, GROUPS
+    if request.method == "POST":
+        if not has(p, "team.roles"):
+            return err("You don't have permission to set up roles.", 403)
+        plan, msg = roles.plan(body.get("roles"), editor_role=p["role"])
+        if msg:
+            return err(msg)
+        with transaction.atomic():
+            roles.apply(plan, actor=p["name"])
+        if plan["changes"]:
+            log(p, "Roles changed", "; ".join(plan["changes"]).capitalize() + ".")
+    return JsonResponse({
+        "roles": roles.listing(), "kinds": roles.kinds(),
+        "editable": has(p, "team.roles"), "ownRole": p["role"],
+        "catalogue": {"groups": [{"id": g, "title": t, "blurb": b} for g, t, b in GROUPS],
+                      "permissions": CATALOGUE},
+    })
+
+
+def line_problem(person, manager):
+    """Why `person` cannot report to `manager`, or None if they can.
 
     Two refusals, both structural rather than stylistic. You cannot be your own
-    manager, and you cannot be placed under one of your own reports — either
+    manager, and you cannot be placed under one of your own reports - either
     would create a cycle, and a cycle in a reporting line is not a strange org
     chart, it is a rollup that never terminates and a manager who can see their
     own manager's desk. `Persona.chain()` is cycle-safe as a second line of
     defence, but the place to refuse a loop is where it would be created.
+    Shared with the administration console, which edits the same chart.
     """
+    if manager.id == person.id:
+        return "Somebody cannot report to themselves."
+    if any(x.id == manager.id for x in person.descendants()):
+        return (f"{manager.name} already reports to {person.name}, directly or "
+                f"through someone else. That would make a loop.")
+    return None
+
+
+@route(["POST"], perm="team.org")
+def set_reporting_line(request, p, body):
+    """Move one person under another, or to the top of the chart."""
     pid = str(body.get("personId", ""))
     mid = body.get("managerId") or None
     person = Persona.objects.filter(pk=pid).first()
@@ -1917,11 +2054,9 @@ def set_reporting_line(request, p, body):
         manager = Persona.objects.filter(pk=str(mid)).first()
         if not manager:
             return err("No such manager.", 404)
-        if manager.id == person.id:
-            return err("Somebody cannot report to themselves.")
-        if any(x.id == manager.id for x in person.descendants()):
-            return err(f"{manager.name} already reports to {person.name}, directly or "
-                       f"through someone else. That would make a loop.")
+        problem = line_problem(person, manager)
+        if problem:
+            return err(problem)
     was = person.manager.name if person.manager else "nobody"
     person.manager_id = str(mid) if mid else None
     person.save(update_fields=["manager"])
@@ -2012,9 +2147,13 @@ def chain_integrity(request, p, body):
 @route(["POST"], perm="supplier.import")
 def import_suppliers(request, p, body):
     """CSV columns (header required, order free): name, category, location, email,
-    prequalified (yes/no). Duplicate names are skipped, not overwritten."""
+    contact, phone, prequalified (yes/no) - the template the Vendors page offers
+    (frontend/src/csvguide.jsx). Duplicate names are skipped, not overwritten,
+    and each row is cleaned exactly as setup cleans it (setup_views.vendor_fields)."""
     import csv
     import io as _io
+
+    from .setup_views import vendor_fields
     f = request.FILES.get("file")
     if not f:
         return err("Attach a CSV file.")
@@ -2023,12 +2162,13 @@ def import_suppliers(request, p, body):
     try:
         rows = list(csv.DictReader(_io.StringIO(f.read().decode("utf-8-sig"))))
     except Exception:
-        return err("Could not read that file — export it as UTF-8 CSV and try again.")
+        return err("Could not read that file - export it as UTF-8 CSV and try again.")
     if not rows:
         return err("The file has a header but no rows.")
     cols = {c.strip().lower() for c in (rows[0].keys() or [])}
     if "name" not in cols:
-        return err('The CSV needs at least a "name" column (plus optional category, location, email, prequalified).')
+        return err('The CSV needs at least a "name" column (plus optional category, location, email, '
+                   'contact, phone, prequalified). Download the template to see the layout.')
     existing = {s.name.strip().lower() for s in Supplier.objects.all()}
     created, skipped = [], 0
     for r in rows:
@@ -2039,11 +2179,9 @@ def import_suppliers(request, p, body):
             continue
         existing.add(name.lower())
         Supplier.objects.create(
-            id=rid("s"), name=name, category=r.get("category", "General")[:60] or "General",
-            location=r.get("location", "—")[:60] or "—",
+            id=rid("s"), name=name, **vendor_fields(r),
             prequalified=r.get("prequalified", "").lower() in ("yes", "y", "true", "1"),
-            contact_email=r.get("email", "")[:200], docs=[], perf={},
-            source="import",
+            docs=[], perf={}, source="import",
         )
         created.append(name)
     log(p, "Suppliers imported", f"{len(created)} supplier(s) imported from CSV; {skipped} duplicate/blank row(s) skipped.")
@@ -2054,7 +2192,7 @@ def import_suppliers(request, p, body):
 def vendor_campaign(request, p, body):
     """The registration drive: ask the imported register to come and sign up.
 
-    GET previews — exactly who would be contacted and who would be skipped, with
+    GET previews - exactly who would be contacted and who would be skipped, with
     the reason for each skip. POST with {action:"start"} arms it; the sending
     itself happens in the background sweep, a bounded batch at a time.
 
@@ -2102,7 +2240,7 @@ def import_register(request, p, body):
     """Replace the vendor register from an uploaded register export.
 
     Two calls, deliberately. The first uploads the file and gets back what it
-    would do — how many vendors, how many new, what would be deleted. Nothing is
+    would do - how many vendors, how many new, what would be deleted. Nothing is
     written. The second sends the same file with confirm=1 and applies it.
 
     Replacing 1,400 vendors is not an action anyone should be able to take by
@@ -2204,7 +2342,7 @@ def duplicate_tender(request, p, body, tid):
     seq = Tender.objects.count() + 28
     t.ref = f"{ref_prefix()}-{t.ttype}-2026-{seq:03d}"
     t.save()
-    log(p, "Tender duplicated", f"Draft created from {src.ref} — dates cleared, everything else carried over.", t.id)
+    log(p, "Tender duplicated", f"Draft created from {src.ref} - dates cleared, everything else carried over.", t.id)
     return JsonResponse({"id": t.id})
 
 
@@ -2242,18 +2380,18 @@ def export_compliance(request, p, body, tid):
 
     flow.append(Paragraph("1. Competition", sec))
     para(f"Type: {t.ttype}{' · two-stage envelope opening' if t.two_stage else ''}. Budget ceiling {fmt_compact(t.budget)}. "
-         f"{len(t.invited)} supplier(s) invited: {', '.join(names.get(x, x) for x in t.invited) or '—'}. "
-         f"{len(bids)} bid(s) received. Published {fmt_date_ms(t.published_at) if t.published_at else '—'}; "
-         f"deadline {fmt_date_ms(t.deadline) if t.deadline else '—'}.")
+         f"{len(t.invited)} supplier(s) invited: {', '.join(names.get(x, x) for x in t.invited) or '-'}. "
+         f"{len(bids)} bid(s) received. Published {fmt_date_ms(t.published_at) if t.published_at else '-'}; "
+         f"deadline {fmt_date_ms(t.deadline) if t.deadline else '-'}.")
 
     flow.append(Paragraph("2. Sealing & opening", sec))
     if t.two_stage:
-        para(f"Technical envelopes opened {fmt_date_ms(t.tech_opened_at) if t.tech_opened_at else '—'}; "
+        para(f"Technical envelopes opened {fmt_date_ms(t.tech_opened_at) if t.tech_opened_at else '-'}; "
              f"commercial envelopes {fmt_date_ms(t.opened_at) if t.opened_at else 'still sealed'} "
              f"(technical threshold {t.tech_threshold}/100). "
              f"Disqualified bidders' commercial envelopes were never decrypted.")
     else:
-        para(f"Bids sealed at the deadline and opened {fmt_date_ms(t.opened_at) if t.opened_at else '—'} in a recorded ceremony. "
+        para(f"Bids sealed at the deadline and opened {fmt_date_ms(t.opened_at) if t.opened_at else '-'} in a recorded ceremony. "
              "Contents were ciphertext at rest until that moment.")
 
     flow.append(Paragraph("3. Conflict-of-interest declarations", sec))
@@ -2265,7 +2403,7 @@ def export_compliance(request, p, body, tid):
     for b in bids:
         s_name = names.get(b.supplier_id, b.supplier_id)
         if b.disqualified:
-            para(f"{s_name}: disqualified at technical stage — commercial envelope returned unopened.")
+            para(f"{s_name}: disqualified at technical stage - commercial envelope returned unopened.")
             continue
         ts = tech_score(t, b)
         amount = fmt_compact(b.amount) if b.amount is not None else "sealed"
@@ -2278,7 +2416,7 @@ def export_compliance(request, p, body, tid):
         para(f"Awarded to {names.get(t.awarded_to, t.awarded_to)} at {fmt_compact(t.awarded_amount)} on "
              f"{fmt_date_ms(t.awarded_at)}. Award and regret letters issued to all bidders.")
     elif t.award_rec:
-        para(f"Recommendation for {names.get(t.award_rec['supplierId'])} with the approver since {fmt_date_ms(t.award_rec['at'])}.")
+        para(f"Recommendation for {names.get(t.award_rec['supplierId'])} waiting for sign-off since {fmt_date_ms(t.award_rec['at'])}.")
     else:
         para("No award recommendation yet.")
 
@@ -2286,7 +2424,7 @@ def export_compliance(request, p, body, tid):
     para(f"{len(events)} recorded event(s) for this tender within a workspace chain of {count} events. "
          f"Chain integrity at generation time: {'VERIFIED' if ok else f'FAILED at #{broken}'}.")
     for e in events:
-        para(f"{fmt_date_ms(e.at)} — {e.actor} ({e.role}): {e.action}. {e.detail}")
+        para(f"{fmt_date_ms(e.at)} - {e.actor} ({e.role}): {e.action}. {e.detail}")
 
     buf = _io.BytesIO()
     SimpleDocTemplate(buf, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm,
@@ -2309,9 +2447,9 @@ def me_update(request, p, body):
         old = sup.name
         sup.name = name
         if body.get("category"):
-            sup.category = str(body["category"]).strip()[:60]
+            sup.category = vocab.category(body["category"], keep=sup.category)
         if body.get("location"):
-            sup.location = str(body["location"]).strip()[:60]
+            sup.location = vocab.location(body["location"], keep=sup.location)
         sup.save()
         if old != name:
             record_event(actor=name, role="supplier", action="Company renamed",

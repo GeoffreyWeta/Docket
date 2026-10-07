@@ -2,14 +2,14 @@
 
    Everything here is about a competition that is already running: the vendors
    on it, the rounds it is being run in, the submissions grouped by round, and
-   the four controls a live event needs and did not have — extend, pause,
+   the four controls a live event needs and did not have - extend, pause,
    resume, cancel.
 
    Two rules shape all of it:
 
    * What is offered follows what the event's state permits AND what this person
      holds. A control that would be refused by the server is not drawn, so the
-     page never invites a click it cannot honour. The server refuses anyway —
+     page never invites a click it cannot honour. The server refuses anyway -
      this module decides what to show, not what is allowed.
 
    * Nothing here relaxes sealing. The bid bucket says who submitted and when,
@@ -21,6 +21,7 @@ import React, { useEffect, useState } from "react";
 
 import { raw } from "./api";
 import { Empty, Money } from "./atoms";
+import { CategorySelect, LocationSelect, PaymentTermsSelect, PhoneInput } from "./fields";
 import {
   DAY, ROUND_STATUS, REG_STATUS, VERIFY_STATUS, effStatus, fmtCompact, fmtDate,
   fmtDateTime, nowMs, roundsOf,
@@ -28,11 +29,12 @@ import {
 import { Icon } from "./icons";
 import { can } from "./perms";
 import { ConfirmDialog, Dialog } from "./ui";
+import { phoneProblem } from "./vocab";
 
 /* ---------------- small shared pieces ---------------- */
 
 /* A date input that speaks epoch milliseconds, which is what the whole API
-   does. Times default to 17:00 local — a deadline of midnight is a deadline
+   does. Times default to 17:00 local - a deadline of midnight is a deadline
    nobody meant, and every deadline this app has ever set was an end-of-day. */
 const toInput = (ms) => (ms ? new Date(ms - new Date(ms).getTimezoneOffset() * 60000)
   .toISOString().slice(0, 16) : "");
@@ -63,7 +65,7 @@ const StatusChip = ({ map, value }) => {
 
 /* Which controls exist at all. Kept as data rather than a run of ternaries in
    the JSX so the answer to "what can be done to an event in this state" is
-   readable in one place — it is the table in the product spec, and it is the
+   readable in one place - it is the table in the product spec, and it is the
    thing that gets argued about. */
 function controlsFor(t, user) {
   const st = effStatus(t);
@@ -425,8 +427,8 @@ export function VendorsTab({ api, t }) {
       </div>
 
       {/* The two facts a manager needs told to them rather than counted off a
-          table. Unverified participation is deliberate here — it is the
-          standing rule, not an oversight — so it is stated as a fact, not a
+          table. Unverified participation is deliberate here - it is the
+          standing rule, not an oversight - so it is stated as a fact, not a
           warning somebody has to dismiss. */}
       {rows.length > 0 && (unverified > 0 || unregistered > 0) && (
         <div className="notice">
@@ -860,7 +862,7 @@ export function RegisterVendorDialog({ api, onClose }) {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState(null);
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
-  const ok = f.name.trim().length > 1 && (!f.email || f.email.includes("@"));
+  const ok = f.name.trim().length > 1 && (!f.email || f.email.includes("@")) && !phoneProblem(f.phone);
 
   const submit = async () => {
     setBusy(true); setProblem(null);
@@ -904,16 +906,13 @@ export function RegisterVendorDialog({ api, onClose }) {
         <div className="frow"><label className="lbl" htmlFor="rv-person">Contact person</label>
           <input id="rv-person" className="in" value={f.contactPerson} onChange={(e) => set("contactPerson", e.target.value)} /></div>
         <div className="frow"><label className="lbl" htmlFor="rv-phone">Phone</label>
-          <input id="rv-phone" className="in" value={f.phone} onChange={(e) => set("phone", e.target.value)} /></div>
+          <PhoneInput id="rv-phone" value={f.phone} onChange={(v) => set("phone", v)} /></div>
         <div className="frow"><label className="lbl" htmlFor="rv-loc">Location</label>
-          <input id="rv-loc" className="in" value={f.location} onChange={(e) => set("location", e.target.value)}
-                 placeholder="e.g. Lagos" /></div>
+          <LocationSelect id="rv-loc" value={f.location} onChange={(v) => set("location", v)} /></div>
         <div className="frow"><label className="lbl" htmlFor="rv-cat">Category</label>
-          <input id="rv-cat" className="in" value={f.category} onChange={(e) => set("category", e.target.value)}
-                 placeholder="e.g. Logistics" /></div>
+          <CategorySelect id="rv-cat" value={f.category} onChange={(v) => set("category", v)} /></div>
         <div className="frow"><label className="lbl" htmlFor="rv-terms">Payment terms</label>
-          <input id="rv-terms" className="in" value={f.paymentTerms} onChange={(e) => set("paymentTerms", e.target.value)}
-                 placeholder="e.g. 30 days" /></div>
+          <PaymentTermsSelect id="rv-terms" value={f.paymentTerms} onChange={(v) => set("paymentTerms", v)} /></div>
       </div>
       <div className="frow"><label className="lbl" htmlFor="rv-addr">Address</label>
         <input id="rv-addr" className="in" value={f.address} onChange={(e) => set("address", e.target.value)} /></div>

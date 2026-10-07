@@ -1,10 +1,10 @@
-/* My desk — what I have, what state it is in, and (if people report to me)
+/* My desk - what I have, what state it is in, and (if people report to me)
    what my team has.
 
    The dashboard already answers "what needs me right now". This answers the
    other question everyone actually has: *what am I carrying?* Those are
    different lists and conflating them is what made the old action queue
-   useless — a tender sitting correctly with an approver is not a task, but it
+   useless - a tender sitting correctly with an approver is not a task, but it
    is very much still yours.
 
    Scope is decided by the reporting line, not by role. `state.reports` is
@@ -24,7 +24,7 @@ export function MyDesk({ api }) {
   const reports = state.reports || [];
   const canSeeTeam = reports.length > 0;
 
-  /* "Mine" is what I own. "My team" is mine plus everyone below me — inclusive,
+  /* "Mine" is what I own. "My team" is mine plus everyone below me - inclusive,
      because a manager's own tenders are part of what their team is carrying and
      leaving them out makes the rollup disagree with the org chart. */
   const [scope, setScope] = useState("mine");

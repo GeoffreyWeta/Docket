@@ -8,7 +8,7 @@
 #
 # It exists so the cron lines and a person at the keyboard run the command
 # exactly the same way, against the workspace they meant. Getting this wrong by
-# hand is easy and quiet — manage.py with no DATABASE_URL in the shell falls back
+# hand is easy and quiet - manage.py with no DATABASE_URL in the shell falls back
 # to SQLite and writes to a file nothing serves, reporting success throughout.
 set -eu
 

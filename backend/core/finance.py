@@ -1,7 +1,7 @@
 """The finance view of procurement: savings, spend, contracts, payments, risk.
 
-Computed on the server rather than in the browser — unlike Analytics, which
-works from the bootstrap payload — because this reads a mirrored ledger that can
+Computed on the server rather than in the browser - unlike Analytics, which
+works from the bootstrap payload - because this reads a mirrored ledger that can
 run to tens of thousands of invoices. Shipping that to a laptop to be summed
 there would be a slow page and a large amount of somebody's payables history
 sitting in a browser tab.
@@ -21,15 +21,15 @@ that reads as fact and is not:
 
   * **No solvency estimate.** DOCKET cannot see a vendor's balance sheet.
     What it can see is how they bid, how concentrated our spend is on them, and
-    whether their paperwork is current — so the section is called financial
+    whether their paperwork is current - so the section is called financial
     distress *signals* and lists the observations, not a bankruptcy probability.
 
   * **No mixing currencies in a total.** Everything sums the base-currency
     column. Foreign-currency exposure is its own figure, computed from the rate
     struck against the rate today.
 
-  * **No silent exclusion.** Rows that cannot be linked — an invoice against no
-    contract, a contract against no tender — are counted and surfaced. They are
+  * **No silent exclusion.** Rows that cannot be linked - an invoice against no
+    contract, a contract against no tender - are counted and surfaced. They are
     the integration's real state and they are usually the finding.
 """
 import re
@@ -98,7 +98,7 @@ def savings(tenders):
       budget      award against the estimate set before going to market. This
                   measures the estimate as much as the buying.
       avoidance   award against the median bid received. Money not spent versus
-                  what the market was actually asking on the day — real, but a
+                  what the market was actually asking on the day - real, but a
                   counterfactual, so it is never added to the other two.
     """
     rows = []
@@ -154,7 +154,7 @@ def savings(tenders):
 
 
 def cost_avoidance(tenders, bids_by_tender):
-    """Award against the median bid received — what the market was asking.
+    """Award against the median bid received - what the market was asking.
 
     Reported apart from savings and never added to them. It is a genuine figure
     and a counterfactual at the same time: it says what the same purchase would
@@ -218,7 +218,7 @@ def contract_rows(contracts, now=None):
         # Category, from the tender where there was one and otherwise from the
         # vendor register. The register's category is the taxonomy the rest of
         # the product already counts by, so a contract placed with a logistics
-        # vendor lands in logistics rather than in "Unrecorded" — which would be
+        # vendor lands in logistics rather than in "Unrecorded" - which would be
         # true of almost every contract that predates this system and would make
         # the category chart useless on the day it shipped.
         category = (c.tender.category if c.tender else "") or \
@@ -266,8 +266,8 @@ def contract_summary(rows, now=None):
         "escalated": escalated,
         "changeValue": sum(r["changeValue"] for r in rows),
         "changeOrders": sum(r["changeOrders"] for r in rows),
-        # A contract nobody tendered is not necessarily wrong — renewals and
-        # novations are legitimate — but it is always worth being able to count.
+        # A contract nobody tendered is not necessarily wrong - renewals and
+        # novations are legitimate - but it is always worth being able to count.
         "untendered": [r for r in rows if not r["tenderId"]],
         "withoutOrders": [r for r in live if r["orders"] == 0],
     }
@@ -404,7 +404,7 @@ def spend_slices(tenders, contract_rows_):
     """Committed spend cut every way Finance asks for it.
 
     Spend means *committed*: an awarded tender or a signed contract. Not
-    invoiced, not paid — those are their own figures on the payments section,
+    invoiced, not paid - those are their own figures on the payments section,
     and conflating them is how a department is told it has spent money it has
     only promised.
 
@@ -463,7 +463,7 @@ def trends(tenders, bids_by_tender, contract_rows_, payments):
     """The time series the finance pack is built from.
 
     Each is a single measure over one axis. Two measures of different scale are
-    never put on one chart with two y-axes — where the pack wants a comparison
+    never put on one chart with two y-axes - where the pack wants a comparison
     (budget against actual) both are in the same unit and share one scale.
     """
     monthly_spend = defaultdict(int)
@@ -495,7 +495,7 @@ def trends(tenders, bids_by_tender, contract_rows_, payments):
                 cycle[mk].append((t.awarded_at - t.published_at) / DAY_MS)
 
     # Market price index: the median bid received, as a share of the tender's
-    # own budget. Not a unit price — scopes differ between tenders, so a naive
+    # own budget. Not a unit price - scopes differ between tenders, so a naive
     # average of award values would measure what was bought, not what it cost.
     # This measures market pressure against the organisation's own estimates,
     # which is the comparison that holds across dissimilar purchases.
@@ -509,7 +509,7 @@ def trends(tenders, bids_by_tender, contract_rows_, payments):
         price_index[month_key(t.opened_at)].append(_median(priced) / t.budget * 100)
 
     # Award against the budget that was approved for it. Only tenders carry a
-    # budget, so this series is exactly as long as the tendering history — which
+    # budget, so this series is exactly as long as the tendering history - which
     # is the honest length for it. Padding it with contracts that never had a
     # budget would draw a utilisation line out of nothing.
     util = [{"key": k, "at": month_start(k),
@@ -518,7 +518,7 @@ def trends(tenders, bids_by_tender, contract_rows_, payments):
             for k in sorted(monthly_budget) if monthly_budget[k]]
 
     # Drawdown: how much of what has been committed has actually been paid,
-    # cumulatively. This is the well-populated companion to the line above —
+    # cumulatively. This is the well-populated companion to the line above -
     # every contract has a value and payments against it, budget or no budget.
     committed_by_month, paid_by_month = defaultdict(int), defaultdict(int)
     for r in contract_rows_:
@@ -619,7 +619,7 @@ def compliance(tenders, contract_rows_, threshold, now=None):
                          len(contract_rows_) - len(untendered), len(contract_rows_),
                          [{"id": r["id"], "ref": r["ref"], "label": r["title"] or r["ref"],
                            "value": r["value"]} for r in untendered],
-                         "Renewals and novations legitimately have no tender — the point is to know which."))
+                         "Renewals and novations legitimately have no tender - the point is to know which."))
 
     scored = [c for c in checks if c["total"] > 0]
     score = _mean([c["rate"] for c in scored])
@@ -734,14 +734,14 @@ def distress_signals(now=None):
     """Observable signals that a vendor may be under financial strain.
 
     Explicitly not a solvency estimate. DOCKET sees bidding behaviour, our own
-    concentration, and paperwork currency — none of which is a balance sheet.
+    concentration, and paperwork currency - none of which is a balance sheet.
     Each signal is listed with what was observed so the reader judges it, and
     the count is a count of signals, never a score.
     """
     now = now or now_ms()
     by_supplier = defaultdict(list)
 
-    # Our spend concentrated on one vendor is our risk, not theirs — but it is
+    # Our spend concentrated on one vendor is our risk, not theirs - but it is
     # the number that decides how much their trouble would cost us.
     exposure = {r["supplierId"]: r for r in exposure_by_supplier(now)}
     total_exposure = sum(r["exposure"] for r in exposure.values()) or 1
@@ -826,7 +826,7 @@ def _ex_over_budget(now):
             out.append(_ex("over_budget", "warn",
                            f"Award exceeds budget: {t.ref}",
                            f"{t.title} was awarded at {fmt_money(t.awarded_amount)} against a budget of "
-                           f"{fmt_money(t.budget)} — over by {fmt_money(over)} ({over / t.budget * 100:.1f}%).",
+                           f"{fmt_money(t.budget)} - over by {fmt_money(over)} ({over / t.budget * 100:.1f}%).",
                            ref={"page": "tender", "id": t.id}, value=over, at=t.awarded_at,
                            key=f"over_budget:{t.id}"))
     for c in Contract.objects.filter(status="active").select_related("tender"):
@@ -868,7 +868,7 @@ def _ex_exposure(now):
     return [_ex("exposure", "warn",
                 f"Exposure limit exceeded: {r['supplier']}",
                 f"Open exposure of {fmt_money(r['exposure'])} against a limit of {fmt_money(r['limit'])} "
-                f"— over by {fmt_money(r['exposure'] - r['limit'])} across {r['contracts']} live contract(s).",
+                f"- over by {fmt_money(r['exposure'] - r['limit'])} across {r['contracts']} live contract(s).",
                 ref={"page": "supplier", "id": r["supplierId"]},
                 value=r["exposure"] - r["limit"], at=now,
                 key=f"exposure:{r['supplierId']}")
@@ -1008,7 +1008,7 @@ def _ex_variation(now):
     """Change orders that have grown a contract past the variation threshold.
 
     Reported on the cumulative total rather than per order, because the way a
-    contract doubles is rarely one variation anybody would have queried — it is
+    contract doubles is rarely one variation anybody would have queried - it is
     nine of them, each defensible on its own, which is exactly the pattern a
     per-order check is blind to.
     """
@@ -1023,7 +1023,7 @@ def _ex_variation(now):
         unapproved = [o for o in orders if not o.get("approved_by")]
         out.append(_ex("variation_threshold", "warn",
                        f"Variations exceed {VARIATION_THRESHOLD_PCT}%: {c.ref}",
-                       f"{c.title or c.ref} has grown {pct_:.1f}% since signature — "
+                       f"{c.title or c.ref} has grown {pct_:.1f}% since signature - "
                        f"{fmt_money(c.original_value)} to {fmt_money(c.amount)} across "
                        f"{len(orders)} change order(s)"
                        + (f", {len(unapproved)} of them with no approver recorded." if unapproved else ".")
