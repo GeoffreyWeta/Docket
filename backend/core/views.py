@@ -480,7 +480,8 @@ DEFAULT_LANDING = "studio"
 # frontend/src/studio.js, which is where the measured values live; this tuple
 # is only the allow-list, so the console cannot set a colour that has no block
 # to paint with. Ignored by the designs that are not Studio.
-STUDIO_ACCENTS = ("blue", "forest", "teal", "indigo", "crimson", "graphite")
+STUDIO_ACCENTS = ("blue", "indigo", "purple", "pink", "crimson", "orange", "gold",
+                  "forest", "teal", "graphite")
 DEFAULT_ACCENT = "blue"
 
 DEFAULT_SETTINGS = {

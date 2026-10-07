@@ -23,18 +23,32 @@ export function applyLayout(id) {
    The house green is absent on purpose. #00A651 measures 3.19:1 under white
    text — it is a fine mark and an unreadable button, which is the same finding
    styles.js already records for the main theme. `forest` is that green taken
-   down to a step that passes, and it is the closest thing here to the brand. */
+   down to a step that passes, and it is the closest thing here to the brand.
+
+   Listed in the order the Mac lists its own accent colours, so the picker
+   reads as a spectrum rather than in the order they were added. The same rule
+   is why there is no bright yellow: white text on any yellow a reader would
+   call yellow measures under 2:1, so `gold` is the deepest step that still
+   reads as gold and passes. */
 export const ACCENTS = [
   { key: "blue",     label: "Blue",     hex: "#0071e3",
     note: "The Apple blue. Calm, familiar, and says nothing in particular." },
+  { key: "indigo",   label: "Indigo",   hex: "#5a4ef0",
+    note: "The loudest option that still passes everywhere. Reads as software." },
+  { key: "purple",   label: "Purple",   hex: "#8a44cc",
+    note: "Confident, and far from every colour the interface uses for a status." },
+  { key: "pink",     label: "Pink",     hex: "#d12a66",
+    note: "Warm and modern. It sits near the red used for refusals, so it is lively rather than calm." },
+  { key: "crimson",  label: "Crimson",  hex: "#cc2a44",
+    note: "Deliberate. Note that the interface already uses red for refusals." },
+  { key: "orange",   label: "Orange",   hex: "#c4480c",
+    note: "Energetic. Close to the amber used for \"waiting\", so status pills lean on their words." },
+  { key: "gold",     label: "Gold",     hex: "#9a6700",
+    note: "Warm and premium. A deep gold, because white text on a bright yellow cannot be read." },
   { key: "forest",   label: "Forest",   hex: "#138354",
     note: "The house green taken down to a step that survives white text on it." },
   { key: "teal",     label: "Teal",     hex: "#118080",
     note: "Cooler than the green and further from every other procurement tool." },
-  { key: "indigo",   label: "Indigo",   hex: "#5a4ef0",
-    note: "The loudest option that still passes everywhere. Reads as software." },
-  { key: "crimson",  label: "Crimson",  hex: "#cc2a44",
-    note: "Deliberate. Note that the interface already uses red for refusals." },
   { key: "graphite", label: "Graphite", hex: "#1d1d1f",
     note: "No accent at all. The most restrained, and the most Apple." },
 ];
@@ -469,6 +483,72 @@ export const STUDIO_CSS = `
   --newbtn-bg-h:#4a2028;--newbtn-line-h:#f58a9c;
   --seal-hi:#ffc9d2;--seal-core:#f58a9c;--seal-crack:#52242c}
 
+/* Purple - 6.47 on white · 5.56 under white · 8.18 on dark */
+:root[data-accent="purple"]{
+  --brand:#7b3fb8;--brand-2:#7b3fb8;--brand-deep:#5f2d91;--brand-tint:#f3ebfc;
+  --pri-from:#8a44cc;--pri-to:#8a44cc;--pri-from-h:#7b3fb8;--pri-to-h:#7b3fb8;
+  --pri-line:#7b3fb8;--pri-glow:rgba(138,68,204,.13);--on-brand:#fff;
+  --brand-ring:rgba(138,68,204,.22);--side-on-bg:#ece1f9;--side-on-ink:#5f2d91;
+  --newbtn-bg-h:#f3ebfc;--newbtn-line-h:#7b3fb8;--unread-bg:#f5eefc;
+  --seal-hi:#dcc6f3;--seal-core:#8a44cc;--seal-crack:#3a1a5c}
+:root[data-accent="purple"][data-theme="dark"]{
+  --brand:#c9a2ff;--brand-2:#c9a2ff;--brand-deep:#ddc6ff;--brand-tint:#2e2347;
+  --pri-from:#c9a2ff;--pri-to:#c9a2ff;--pri-from-h:#d8bbff;--pri-to-h:#d8bbff;
+  --pri-line:#c9a2ff;--on-brand:#25103f;--side-on-bg:#2e2347;--side-on-ink:#ddc6ff;
+  --newbtn-bg-h:#2e2347;--newbtn-line-h:#c9a2ff;
+  --seal-hi:#e6d6ff;--seal-core:#c9a2ff;--seal-crack:#3a2a5c}
+
+/* Pink - 6.13 on white · 4.96 under white · 7.97 on dark.
+   Next to crimson on the wheel and to the red the interface uses for a
+   refusal, which is why it is a rose rather than the Mac's brighter pink. */
+:root[data-accent="pink"]{
+  --brand:#b8235a;--brand-2:#b8235a;--brand-deep:#8f1a45;--brand-tint:#fdeaf1;
+  --pri-from:#d12a66;--pri-to:#d12a66;--pri-from-h:#b8235a;--pri-to-h:#b8235a;
+  --pri-line:#b8235a;--pri-glow:rgba(209,42,102,.13);--on-brand:#fff;
+  --brand-ring:rgba(209,42,102,.22);--side-on-bg:#fadbe6;--side-on-ink:#8f1a45;
+  --newbtn-bg-h:#fdeaf1;--newbtn-line-h:#b8235a;--unread-bg:#fdedf3;
+  --seal-hi:#f6c3d5;--seal-core:#d12a66;--seal-crack:#5a0f2a}
+:root[data-accent="pink"][data-theme="dark"]{
+  --brand:#ff8fb4;--brand-2:#ff8fb4;--brand-deep:#ffb8cf;--brand-tint:#45202e;
+  --pri-from:#ff8fb4;--pri-to:#ff8fb4;--pri-from-h:#ffa8c5;--pri-to-h:#ffa8c5;
+  --pri-line:#ff8fb4;--on-brand:#3d0a1f;--side-on-bg:#45202e;--side-on-ink:#ffb8cf;
+  --newbtn-bg-h:#45202e;--newbtn-line-h:#ff8fb4;
+  --seal-hi:#ffd0df;--seal-core:#ff8fb4;--seal-crack:#5a2436}
+
+/* Orange - 5.78 on white · 4.91 under white · 8.67 on dark.
+   A burnt orange: the bright one fails under white text. It sits near the
+   amber of "waiting for approval", so status pills keep their words. */
+:root[data-accent="orange"]{
+  --brand:#b2400a;--brand-2:#b2400a;--brand-deep:#8a3107;--brand-tint:#fff0e6;
+  --pri-from:#c4480c;--pri-to:#c4480c;--pri-from-h:#b2400a;--pri-to-h:#b2400a;
+  --pri-line:#b2400a;--pri-glow:rgba(196,72,12,.13);--on-brand:#fff;
+  --brand-ring:rgba(196,72,12,.22);--side-on-bg:#fde3d2;--side-on-ink:#8a3107;
+  --newbtn-bg-h:#fff0e6;--newbtn-line-h:#b2400a;--unread-bg:#fff3eb;
+  --seal-hi:#f8cdb3;--seal-core:#c4480c;--seal-crack:#4f1c04}
+:root[data-accent="orange"][data-theme="dark"]{
+  --brand:#ffa36b;--brand-2:#ffa36b;--brand-deep:#ffc39e;--brand-tint:#45281a;
+  --pri-from:#ffa36b;--pri-to:#ffa36b;--pri-from-h:#ffb68a;--pri-to-h:#ffb68a;
+  --pri-line:#ffa36b;--on-brand:#3a1600;--side-on-bg:#45281a;--side-on-ink:#ffc39e;
+  --newbtn-bg-h:#45281a;--newbtn-line-h:#ffa36b;
+  --seal-hi:#ffd6bd;--seal-core:#ffa36b;--seal-crack:#5a3018}
+
+/* Gold - 5.76 on white · 4.87 under white · 10.45 on dark.
+   The deepest step that still reads as gold. See the note above ACCENTS for
+   why there is no yellow. */
+:root[data-accent="gold"]{
+  --brand:#8a5d00;--brand-2:#8a5d00;--brand-deep:#6b4800;--brand-tint:#fbf3dc;
+  --pri-from:#9a6700;--pri-to:#9a6700;--pri-from-h:#8a5d00;--pri-to-h:#8a5d00;
+  --pri-line:#8a5d00;--pri-glow:rgba(154,103,0,.13);--on-brand:#fff;
+  --brand-ring:rgba(154,103,0,.22);--side-on-bg:#f5e8c4;--side-on-ink:#6b4800;
+  --newbtn-bg-h:#fbf3dc;--newbtn-line-h:#8a5d00;--unread-bg:#fcf6e5;
+  --seal-hi:#efd9a1;--seal-core:#9a6700;--seal-crack:#3d2900}
+:root[data-accent="gold"][data-theme="dark"]{
+  --brand:#f5c451;--brand-2:#f5c451;--brand-deep:#f9da8f;--brand-tint:#3d3218;
+  --pri-from:#f5c451;--pri-to:#f5c451;--pri-from-h:#f8d27a;--pri-to-h:#f8d27a;
+  --pri-line:#f5c451;--on-brand:#2e2100;--side-on-bg:#3d3218;--side-on-ink:#f9da8f;
+  --newbtn-bg-h:#3d3218;--newbtn-line-h:#f5c451;
+  --seal-hi:#fbe5ad;--seal-core:#f5c451;--seal-crack:#4f3d10}
+
 /* Graphite - 11.31 on white · 16.83 under white · 10.75 on dark.
    The one with no hue at all. Every status colour in the interface still does
    its job; this only removes the accent competing with them. */
@@ -505,6 +585,14 @@ export const STUDIO_CSS = `
 :root[data-accent="indigo"][data-theme="dark"]{--st-accent-dark:#a99dff;--st-accent-fill:#a99dff;--st-accent-fill-h:#a99dff}
 :root[data-accent="crimson"]{--st-accent:#b3243a;--st-accent-fill:#cc2a44;--st-accent-fill-h:#b3243a}
 :root[data-accent="crimson"][data-theme="dark"]{--st-accent-dark:#f58a9c;--st-accent-fill:#f58a9c;--st-accent-fill-h:#f58a9c}
+:root[data-accent="purple"]{--st-accent:#7b3fb8;--st-accent-fill:#8a44cc;--st-accent-fill-h:#7b3fb8}
+:root[data-accent="purple"][data-theme="dark"]{--st-accent-dark:#c9a2ff;--st-accent-fill:#c9a2ff;--st-accent-fill-h:#c9a2ff}
+:root[data-accent="pink"]{--st-accent:#b8235a;--st-accent-fill:#d12a66;--st-accent-fill-h:#b8235a}
+:root[data-accent="pink"][data-theme="dark"]{--st-accent-dark:#ff8fb4;--st-accent-fill:#ff8fb4;--st-accent-fill-h:#ff8fb4}
+:root[data-accent="orange"]{--st-accent:#b2400a;--st-accent-fill:#c4480c;--st-accent-fill-h:#b2400a}
+:root[data-accent="orange"][data-theme="dark"]{--st-accent-dark:#ffa36b;--st-accent-fill:#ffa36b;--st-accent-fill-h:#ffa36b}
+:root[data-accent="gold"]{--st-accent:#8a5d00;--st-accent-fill:#9a6700;--st-accent-fill-h:#8a5d00}
+:root[data-accent="gold"][data-theme="dark"]{--st-accent-dark:#f5c451;--st-accent-fill:#f5c451;--st-accent-fill-h:#f5c451}
 :root[data-accent="graphite"]{--st-accent:#3a3a3f;--st-accent-fill:#1d1d1f;--st-accent-fill-h:#39393e}
 :root[data-accent="graphite"][data-theme="dark"]{--st-accent-dark:#c7c7ce;--st-accent-fill:#c7c7ce;--st-accent-fill-h:#c7c7ce}
 /* Shared branding; status colours retain their meaning. */
