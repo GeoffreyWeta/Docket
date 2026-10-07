@@ -116,6 +116,13 @@ say "Installing Python dependencies"
 run "$APP_DIR/.venv/bin/pip" install --quiet -r "$APP_DIR/requirements.txt"
 
 # ---------------------------------------------------------------- the interface
+# Uploaded bundles can retain read-only directory modes from Windows. Vite
+# empties dist before building, so the service account needs write access to
+# both the directory and its contents even when the files already belong to it.
+if [ -d "$APP_DIR/frontend/dist" ]; then
+  chown -R "$APP_USER:$APP_USER" "$APP_DIR/frontend/dist"
+  chmod -R u+rwX,go+rX "$APP_DIR/frontend/dist"
+fi
 #
 # frontend/dist is gitignored, so it does not arrive with the fetch and has to be
 # built here. `npm ci` rather than `npm install`: a deploy that silently resolves
