@@ -105,6 +105,16 @@ export async function downloadDoc(docId, name) {
   URL.revokeObjectURL(url);
 }
 
+/* An <img> cannot send the bearer token, so a protected picture is fetched
+   here and handed back as an object URL. The caller revokes it. */
+export async function blobUrl(path) {
+  const r = await fetch(apiBase() + path, {
+    headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
+  });
+  if (!r.ok) throw new Error("Could not load that image.");
+  return URL.createObjectURL(await r.blob());
+}
+
 export const fetchBootstrap = () => raw("/bootstrap/");
 
 /* The finance rollups, fetched on their own rather than with the bootstrap:

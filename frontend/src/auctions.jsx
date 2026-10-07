@@ -29,7 +29,7 @@
    describes a phone. */
 import React, { useEffect, useRef, useState } from "react";
 
-import { raw, uploadFile } from "./api";
+import { blobUrl, raw, uploadFile } from "./api";
 import { BP } from "./breakpoints";
 import { Empty } from "./atoms";
 import { Figures, Guide, Page, Quiet } from "./page";
@@ -62,6 +62,103 @@ function AucStamp({ s }) {
 
 const lotsOf = (a) => (a && a.lots) || [];
 const stateOf = (a, lotId) => ((a && a.lotState) || []).find((s) => s.lotId === lotId) || {};
+const MAX_PHOTOS = 10; // auction_views.MAX_IMAGES
+
+/* ---------------------------------------------------------------- the photos
+
+   Optional. An auction without any draws nothing. With some, they sit in a
+   strip that snaps one photo at a time, so a phone swipes through them with
+   no script involved; the arrows and dots are for a mouse and a keyboard.
+
+   The room is polled, so this receives a new `a` every few seconds. Photos
+   are fetched once per id and kept, which is also what keeps the strip from
+   jumping back to the first photo on every poll. */
+export function AuctionGallery({ a, onRemove }) {
+  const imgs = (a && a.images) || [];
+  const ids = imgs.map((x) => x.id).join(",");
+  const [urls, setUrls] = useState({});
+  const [at, setAt] = useState(0);
+  const strip = useRef(null);
+  const made = useRef({});
+  const alive = useRef(true);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      Object.values(made.current).forEach((u) => u && u !== "pending" && URL.revokeObjectURL(u));
+      made.current = {};
+    };
+  }, []);
+
+  useEffect(() => {
+    imgs.forEach((im) => {
+      if (made.current[im.id]) return;
+      made.current[im.id] = "pending";
+      blobUrl(`/auctions/${a.id}/images/${im.id}/`)
+        .then((u) => {
+          if (!alive.current) { URL.revokeObjectURL(u); return; }
+          made.current[im.id] = u;
+          setUrls((m) => ({ ...m, [im.id]: u }));
+        })
+        .catch(() => { delete made.current[im.id]; });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [a && a.id, ids]);
+
+  if (!imgs.length) return null;
+  const cur = Math.min(at, imgs.length - 1);
+  const goTo = (i) => {
+    const el = strip.current;
+    if (!el) return;
+    el.scrollTo({ left: Math.max(0, Math.min(imgs.length - 1, i)) * el.clientWidth, behavior: "smooth" });
+  };
+  const onScroll = () => {
+    const el = strip.current;
+    if (el) setAt(Math.round(el.scrollLeft / Math.max(1, el.clientWidth)));
+  };
+
+  return (
+    <div className="aucgal">
+      <div className="aucgal-frame">
+        <div className="aucgal-strip" ref={strip} onScroll={onScroll} tabIndex={0}
+             role="region" aria-roledescription="carousel"
+             aria-label={`Photos, ${cur + 1} of ${imgs.length}`}
+             onKeyDown={(e) => {
+               if (e.key === "ArrowRight") { e.preventDefault(); goTo(cur + 1); }
+               if (e.key === "ArrowLeft") { e.preventDefault(); goTo(cur - 1); }
+             }}>
+          {imgs.map((im, i) => (
+            <div className="aucgal-slide" key={im.id}>
+              {urls[im.id]
+                ? <img src={urls[im.id]} alt={`Photo ${i + 1} of ${imgs.length}`} draggable={false} />
+                : <span className="faint">Loading photo&hellip;</span>}
+              {onRemove && (
+                <button className="btn sm aucgal-del" onClick={() => onRemove(im)}>Remove</button>
+              )}
+            </div>
+          ))}
+        </div>
+        {imgs.length > 1 && (
+          <>
+            <button className="aucgal-nav prev" aria-label="Previous photo"
+                    onClick={() => goTo(cur - 1)} disabled={cur === 0}>&lsaquo;</button>
+            <button className="aucgal-nav next" aria-label="Next photo"
+                    onClick={() => goTo(cur + 1)} disabled={cur === imgs.length - 1}>&rsaquo;</button>
+          </>
+        )}
+      </div>
+      {imgs.length > 1 && (
+        <div className="aucgal-dots">
+          {imgs.map((im, i) => (
+            <button key={im.id} aria-label={`Photo ${i + 1}`} aria-current={i === cur}
+                    onClick={() => goTo(i)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ------------------------------------------------------------------ the poll
 
@@ -610,6 +707,27 @@ function DraftAuction({ api, a, refresh }) {
 
   const sendInvites = () => call("/invite/", {}, "Invitations sent.");
 
+  const photos = a.images || [];
+  const addPhotos = async (e) => {
+    const files = [...(e.target.files || [])].slice(0, MAX_PHOTOS - photos.length);
+    e.target.value = "";
+    if (!files.length) return;
+    setBusy("/images/");
+    let added = 0;
+    for (const file of files) {
+      try {
+        await uploadFile(`/auctions/${a.id}/images/`, file);
+        added += 1;
+      } catch (err) {
+        toast.warn(`${file.name} was not added`, err.message || "");
+      }
+    }
+    setBusy("");
+    if (added) toast.ok(`${added} photo${added === 1 ? "" : "s"} added.`);
+    refresh();
+  };
+  const removePhoto = (im) => call(`/images/${im.id}/delete/`, {}, "Photo removed.");
+
   const untold = parts.filter((x) => !x.inviteCount && !x.disqualified).length;
   const invited = new Set(parts.map((x) => x.supplierId));
   const available = (state.suppliers || []).filter((x) => !invited.has(x.id));
@@ -680,6 +798,31 @@ function DraftAuction({ api, a, refresh }) {
                       onChange={(e) => setF({ ...f, terms: e.target.value })} />
             <div className="hint">Bidders read this before their first bid. Say what they see of each other.</div>
           </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="chead"><h3>Photos</h3>
+          <span className="mono faint" style={{ marginLeft: "auto" }}>
+            {photos.length ? `${photos.length} of ${MAX_PHOTOS}` : "optional"}
+          </span>
+        </div>
+        <div className="cbody">
+          {photos.length > 0
+            ? <AuctionGallery a={a} onRemove={canEdit ? removePhoto : null} />
+            : <div className="hint" style={{ marginTop: 0 }}>
+                Pictures of what you are buying, for bidders to swipe through. Leave this empty if words are enough.
+              </div>}
+          {canEdit && photos.length < MAX_PHOTOS && (
+            <div className="formrow" style={{ marginTop: 12, alignItems: "center" }}>
+              <label className="btn sm">
+                <Icon n="upload" s={14} /> {busy === "/images/" ? "Uploading…" : "Add photos"}
+                <input type="file" accept="image/png,image/jpeg,image/webp" multiple hidden
+                       disabled={!!busy} onChange={addPhotos} />
+              </label>
+              <span className="hint" style={{ marginTop: 0 }}>PNG, JPEG or WebP, up to 10 MB each.</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1044,6 +1187,15 @@ export function AuctionPage({ api, id }) {
         </div>
       )}
 
+      {(a.images || []).length > 0 && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="chead"><h3>Photos</h3>
+            <span className="mono faint" style={{ marginLeft: "auto" }}>what bidders see</span>
+          </div>
+          <div className="cbody"><AuctionGallery a={a} /></div>
+        </div>
+      )}
+
       {/* A lot selector, and only when there is a choice to make. A single-lot
           auction is the common case and a tab strip over one tab is furniture. */}
       {lots.length > 1 && (
@@ -1140,6 +1292,30 @@ export const AUCTION_CSS = `
 .aucready>span:first-child i{width:7px;height:7px;border-radius:50%;
   box-shadow:inset 0 0 0 1.5px var(--line2)}
 .auclots{margin-bottom:14px;overflow-x:auto}
+
+/* The photos. Scroll-snap does the swiping, so a phone gets native momentum
+   and the browser's own gesture handling. The arrows only appear where there
+   is a pointer that hovers; on a touch screen they would sit over the photo. */
+.aucgal-frame{position:relative}
+.aucgal-strip{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;overscroll-behavior-x:contain;
+  scrollbar-width:none;border-radius:var(--r-sm);background:var(--sunk)}
+.aucgal-strip::-webkit-scrollbar{display:none}
+.aucgal-slide{flex:0 0 100%;scroll-snap-align:center;position:relative;aspect-ratio:4/3;
+  max-height:440px;display:grid;place-items:center;overflow:hidden;font-size:13px}
+.aucgal-slide img{width:100%;height:100%;object-fit:contain;user-select:none;-webkit-user-drag:none}
+.aucgal-del{position:absolute;top:8px;right:8px}
+.aucgal-nav{display:none;position:absolute;top:50%;transform:translateY(-50%);width:36px;height:36px;
+  border-radius:50%;border:1px solid var(--line2);background:var(--card);color:var(--ink);
+  font-size:22px;line-height:1;cursor:pointer;box-shadow:var(--shadow)}
+.aucgal-nav.prev{left:10px}
+.aucgal-nav.next{right:10px}
+.aucgal-nav:disabled{opacity:.35;cursor:default}
+.aucgal-dots{display:flex;justify-content:center;gap:2px;margin-top:6px}
+.aucgal-dots button{width:20px;height:20px;border:0;padding:0;background:none;cursor:pointer;
+  display:grid;place-items:center}
+.aucgal-dots button::after{content:"";width:7px;height:7px;border-radius:50%;background:var(--line2)}
+.aucgal-dots button[aria-current="true"]::after{background:var(--ink)}
+@media(hover:hover){.aucgal-nav{display:grid;place-items:center}}
 
 /* A row that just changed price. The flash is on the background rather than
    the text, so a figure never becomes briefly unreadable while it moves. */

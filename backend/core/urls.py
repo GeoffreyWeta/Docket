@@ -47,6 +47,9 @@ auction_urlpatterns = [
     path("auctions/<str:aid>/", auction_views.auction_update),
     path("auctions/<str:aid>/lots/", auction_views.lot_create),
     path("auctions/<str:aid>/lots/<str:lid>/delete/", auction_views.lot_delete),
+    path("auctions/<str:aid>/images/", auction_views.image_upload),
+    path("auctions/<str:aid>/images/<str:did>/", auction_views.image_view),
+    path("auctions/<str:aid>/images/<str:did>/delete/", auction_views.image_delete),
     path("auctions/<str:aid>/participants/", auction_views.participants),
     path("auctions/<str:aid>/invite/", auction_views.send_invites),
     # A spreadsheet of names and emails: read it (writes nothing), then add

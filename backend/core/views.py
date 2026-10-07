@@ -1684,7 +1684,7 @@ def declare_coi(request, p, body, tid):
 
 # ---------------- documents ----------------
 
-def _read_upload(request):
+def _read_upload(request, allowed=None):
     f = request.FILES.get("file")
     if not f:
         return None, "No file in the upload."
@@ -1692,7 +1692,7 @@ def _read_upload(request):
         return None, f"Files are capped at {settings.MAX_UPLOAD_BYTES // (1024 * 1024)} MB."
     name = f.name[-200:]
     ext = ("." + name.rsplit(".", 1)[-1].lower()) if "." in name else ""
-    if ext not in settings.ALLOWED_UPLOAD_EXTENSIONS:
+    if ext not in (allowed or settings.ALLOWED_UPLOAD_EXTENSIONS):
         return None, f"File type {ext or '(none)'} is not accepted."
     return {"name": name, "content_type": f.content_type or "application/octet-stream",
             "size": f.size, "data": f.read()}, None
@@ -1752,7 +1752,7 @@ def upload_bid_doc(request, p, body, tid):
 @route(["POST", "DELETE"])
 def delete_doc(request, p, body, doc_id):
     d = Document.objects.select_related("tender").filter(pk=doc_id).first()
-    if not d:
+    if not d or d.kind == "auction":
         return err("Document not found.", 404)
     if d.kind == "supplier":
         return err("Compliance documents are managed from your company profile.", 403)
@@ -1772,7 +1772,7 @@ def delete_doc(request, p, body, doc_id):
 @route(["GET"])
 def download_doc(request, p, body, doc_id):
     d = Document.objects.select_related("tender").filter(pk=doc_id).first()
-    if not d:
+    if not d or d.kind == "auction":
         return err("Document not found.", 404)
     if d.kind == "supplier":
         if p["role"] == "supplier" and d.supplier_id != p["supplierId"]:

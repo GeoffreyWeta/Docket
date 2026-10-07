@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 import { downloadDoc, raw } from "./api";
+import { AuctionGallery } from "./auctions";
 import { Countdown, Empty, Money, Stat } from "./atoms";
 import { Meter } from "./charts";
 import { Figures, Guide, More, Page, Quiet, Row, Rows } from "./page";
@@ -1065,10 +1066,17 @@ export function AuctionRoom({ api, id }) {
         </div>
       </div>
 
-      {a.scope && (
+      {(a.scope || (a.images || []).length > 0) && (
         <div className="card" style={{ marginTop: 14 }}>
-          <div className="chead"><h3>Scope</h3></div>
-          <div className="cbody" style={{ fontSize: 13.5, lineHeight: 1.6 }}>{a.scope}</div>
+          <div className="chead"><h3>What you are bidding on</h3>
+            {(a.images || []).length > 1 && (
+              <span className="mono faint" style={{ marginLeft: "auto" }}>swipe for more photos</span>
+            )}
+          </div>
+          <div className="cbody" style={{ fontSize: 13.5, lineHeight: 1.6 }}>
+            <AuctionGallery a={a} />
+            {a.scope && <div style={{ marginTop: (a.images || []).length ? 12 : 0 }}>{a.scope}</div>}
+          </div>
         </div>
       )}
     </div>

@@ -21,17 +21,17 @@ A vendor never receives another vendor's identity in any position, and the
 undisclosed reserve is never sent to a bidder in any position at all.
 """
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 
 from . import auction as engine
 from . import bulk_invite
-from .models import (ActionToken, Auction, AuctionLot, AuctionParticipant, LotBid,
-                     Profile, Supplier)
+from .models import (ActionToken, Auction, AuctionLot, AuctionParticipant, Document,
+                     LotBid, Profile, Supplier)
 from .permissions import has
 from .taxonomy import canonical
 from .util import now_ms, record_event, rid
 from .notify import notify_supplier
-from .views import err, log, org_name, route
+from .views import _read_upload, err, log, org_name, route
 
 
 # ---------------- serialization ----------------
@@ -70,6 +70,7 @@ def _auction_view(a, p, *, monitor=False):
         "awardedAt": a.awarded_at, "awardMemo": a.award_memo or "",
         "lots": [_lot_view(l, for_buyer=not supplier, monitor=monitor)
                  for l in a.lots.all()],
+        "images": _images_view(a),
         "serverNow": now_ms(),
         "live": a.is_live(),
     }
@@ -80,6 +81,13 @@ def _auction_view(a, p, *, monitor=False):
         out["participants"] = a.participants.count()
         out["movements"] = a.bids.filter(retracted_at__isnull=True).count()
     return out
+
+
+def _images_view(a):
+    # `data` is deferred: this runs on every poll of the room, and the photos
+    # themselves are fetched once, by id, from their own endpoint.
+    return [{"id": d.id, "name": d.name, "size": d.size}
+            for d in a.images.defer("data").order_by("uploaded_at", "id")]
 
 
 def _find(aid):
@@ -229,6 +237,88 @@ def lot_delete(request, p, body, aid, lid):
             l.number = i
             l.save(update_fields=["number"])
     return JsonResponse({"ok": True})
+
+
+# ---------------- photos ----------------
+#
+# Optional pictures of what is being bought, for bidders to swipe through.
+# They are part of what bidders price against, so like the lots they can only
+# change while the auction is a draft or scheduled.
+
+MAX_IMAGES = 10
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+def _image_type(data):
+    """The real type, read from the bytes. The browser's claimed content type is
+    never trusted: these are served inline, and a page that said it was a PNG
+    but was HTML would run in the app's origin."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+@route(["POST"], perm="auction.edit")
+def image_upload(request, p, body, aid):
+    a = _find(aid)
+    if not a:
+        return err("Auction not found.", 404)
+    if a.status not in ("draft", "scheduled"):
+        return err("Photos cannot change once the room is open.", 409)
+    if a.images.count() >= MAX_IMAGES:
+        return err(f"An auction can carry at most {MAX_IMAGES} photos.")
+    up, msg = _read_upload(request, IMAGE_EXTENSIONS)
+    if msg:
+        return err(msg if "not accepted" not in msg else "Photos have to be PNG, JPEG or WebP.")
+    kind = _image_type(up["data"])
+    if not kind:
+        return err("That file is not a PNG, JPEG or WebP image.")
+    up["content_type"] = kind
+    d = Document.objects.create(id=rid("d"), kind="auction", auction=a, tender=None,
+                                supplier_id=None, envelope="",
+                                uploaded_by=p["name"], uploaded_at=now_ms(), **up)
+    return JsonResponse({"image": {"id": d.id, "name": d.name, "size": d.size}})
+
+
+@route(["POST", "DELETE"], perm="auction.edit")
+def image_delete(request, p, body, aid, did):
+    a = _find(aid)
+    if not a:
+        return err("Auction not found.", 404)
+    if a.status not in ("draft", "scheduled"):
+        return err("Photos cannot change once the room is open.", 409)
+    d = a.images.filter(pk=did).first()
+    if not d:
+        return err("Photo not found.", 404)
+    d.delete()
+    return JsonResponse({"ok": True})
+
+
+@route(["GET"])
+def image_view(request, p, body, aid, did):
+    """Same door as the room: a buyer who can see auctions, or a vendor on
+    this auction's list who has not been removed from it."""
+    a = Auction.objects.filter(pk=aid).first()
+    if not a:
+        return err("Auction not found.", 404)
+    if p["role"] == "supplier":
+        part = _mine(a, p)
+        if not part or part.disqualified:
+            return err("You are not a participant in this auction.", 403)
+    elif not has(p, "page.auctions"):
+        return err("You don't have permission to do that.", 403)
+    d = a.images.filter(pk=did).first()
+    if not d:
+        return err("Photo not found.", 404)
+    resp = HttpResponse(bytes(d.data), content_type=d.content_type)
+    resp["X-Content-Type-Options"] = "nosniff"
+    resp["Content-Disposition"] = "inline"
+    resp["Cache-Control"] = "private, max-age=3600"
+    return resp
 
 
 # ---------------- who may bid ----------------

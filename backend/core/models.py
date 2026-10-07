@@ -595,11 +595,13 @@ class Document(models.Model):
 
     kind='tender'  — buyer-published tender document (visible to invited suppliers)
     kind='bid'     — supplier submission document; sealed until the recorded opening
+    kind='auction' — a photo of what an auction is buying, shown to its bidders
     envelope       — 'technical' or 'commercial' for bid documents
     """
     id = models.CharField(primary_key=True, max_length=16)
-    kind = models.CharField(max_length=12)  # tender | bid | supplier
+    kind = models.CharField(max_length=12)  # tender | bid | supplier | auction
     tender = models.ForeignKey(Tender, null=True, blank=True, on_delete=models.CASCADE, related_name="documents")
+    auction = models.ForeignKey("Auction", null=True, blank=True, on_delete=models.CASCADE, related_name="images")
     # Which round this belongs to, where it belongs to one. Null is the event
     # itself (the buyer's document pack) or a single-round competition, which is
     # every document uploaded before rounds existed.

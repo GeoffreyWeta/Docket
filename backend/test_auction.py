@@ -433,6 +433,62 @@ st, b = maybe("POST", f"/api/auctions/{a.id}/", PROC_T, {"title": "Changed"})
 ok("a live auction's rules cannot be edited", st == 409, f"{st} {b}")
 
 
+# ---------------------------------------------------------------- photos
+
+print("\n=== photos ===")
+
+from django.core.files.uploadedfile import SimpleUploadedFile  # noqa: E402
+
+# A real 1x1 PNG.
+PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+    "1f15c4890000000d49444154789c63f80f00000101000518d84e0000"
+    "000049454e44ae426082")
+
+
+def upload(a, token, name, data, ctype="image/png"):
+    r = c.post(f"/api/auctions/{a.id}/images/",
+               {"file": SimpleUploadedFile(name, data, content_type=ctype)},
+               HTTP_AUTHORIZATION=f"Bearer {token}")
+    return r.status_code, json.loads(r.content) if r.content else {}
+
+
+a = Auction.objects.create(id=rid("a"), ref="AUC-" + rid("")[:6], title="Pictured",
+                           status="draft", created_at=now_ms())
+AuctionParticipant.objects.create(id=rid("ap"), auction=a, supplier_id=V1.id)
+ok("an auction with no photos says so", call("GET", f"/api/auctions/{a.id}/room/", PROC_T)["images"] == [])
+
+st, b = upload(a, PROC_T, "tanker.png", PNG)
+ok("procurement can add a photo to a draft", st == 200, f"{st} {b}")
+img = b.get("image", {})
+room = call("GET", f"/api/auctions/{a.id}/room/", PROC_T)
+ok("and the room lists it", [x["id"] for x in room["images"]] == [img.get("id")], str(room["images"]))
+
+st, b = upload(a, PROC_T, "page.png", b"<html><script>alert(1)</script></html>", "image/png")
+ok("a file that only claims to be a photo is refused", st == 400, f"{st} {b}")
+st, b = upload(a, PROC_T, "spec.pdf", b"%PDF-1.4", "application/pdf")
+ok("so is a document", st == 400, f"{st} {b}")
+st, b = upload(a, V1_T, "mine.png", PNG)
+ok("a vendor cannot add photos", st == 403, f"{st} {b}")
+
+r = c.get(f"/api/auctions/{a.id}/images/{img['id']}/", HTTP_AUTHORIZATION=f"Bearer {V1_T}")
+ok("an invited vendor can see the photo", r.status_code == 200 and r.content == PNG, str(r.status_code))
+ok("served as the type its bytes say", r["Content-Type"] == "image/png" and r["X-Content-Type-Options"] == "nosniff")
+st, _ = maybe("GET", f"/api/auctions/{a.id}/images/{img['id']}/", OUT_T)
+ok("a vendor not on the list cannot", st == 403, str(st))
+st, _ = maybe("GET", f"/api/docs/{img['id']}/download/", PROC_T)
+ok("nor is it reachable as a tender document", st == 404, str(st))
+
+Auction.objects.filter(pk=a.id).update(status="live")
+st, _ = upload(a, PROC_T, "late.png", PNG)
+ok("photos cannot be added once the room is open", st == 409, str(st))
+st, _ = maybe("POST", f"/api/auctions/{a.id}/images/{img['id']}/delete/", PROC_T)
+ok("or removed", st == 409, str(st))
+Auction.objects.filter(pk=a.id).update(status="draft")
+st, _ = maybe("POST", f"/api/auctions/{a.id}/images/{img['id']}/delete/", PROC_T)
+ok("a draft's photo can be removed", st == 200 and not a.images.exists(), str(st))
+
+
 # ---------------------------------------------------------------- result
 
 print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")

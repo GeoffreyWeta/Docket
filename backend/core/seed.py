@@ -1,4 +1,6 @@
 """Idempotent demo seed for the Kestrel Hospitality Group workspace."""
+import os
+
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import transaction
@@ -17,6 +19,15 @@ TINY_PDF = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
             b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
             b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n"
             b"trailer<</Root 1 0 R/Size 4>>\n%%EOF")
+
+# Illustrations on the demo auction, so its bidders have photos to swipe.
+DEMO_PHOTO_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                              "data", "demo")
+DEMO_AUCTION_PHOTOS = (
+    ("generator.jpg", "Standby generator at a store site.jpg"),
+    ("tanker.jpg", "Weekly delivery by road tanker.jpg"),
+    ("storage.jpg", "On-site storage, 10,000 litres.jpg"),
+)
 
 DEMO_USERS = [
     # (username, persona_id, supplier_id)
@@ -396,6 +407,15 @@ def seed_all():
         LotBid.objects.create(id=rid("ab"), lot=diesel, auction=auc, supplier_id=sid,
                               amount=amt, at=when, kind="manual",
                               closes_at_bid_time=AUC_CLOSES)
+    for i, (fname, label) in enumerate(DEMO_AUCTION_PHOTOS):
+        path = os.path.join(DEMO_PHOTO_DIR, fname)
+        if not os.path.exists(path):
+            continue  # a missing illustration should not cost the demo its auction
+        with open(path, "rb") as fh:
+            data = fh.read()
+        Document.objects.create(id=rid("d"), kind="auction", auction=auc, name=label,
+                                content_type="image/jpeg", size=len(data), data=data,
+                                uploaded_by="Amara Okafor", uploaded_at=T - d(1.1) + i)
 
     Bid.objects.bulk_create([
         Bid(id="b1", tender=t1, supplier_id="s3", submitted_at=T - d(8), amount=452_000_000, lines={},
