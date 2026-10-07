@@ -5101,7 +5101,10 @@ export function TeamPage({ api }) {
           {members.map((m) => (
             <Row key={m.id || m.username}
                  title={m.name}
-                 meta={<>{m.title && <span>{m.title}</span>}<span>{m.email}</span></>}
+                 meta={<>{m.title && <span>{m.title}</span>}<span>{m.email}</span>
+                   <span>{m.managerId
+                     ? `Reports to: ${members.find((person) => person.id === m.managerId)?.name || "Manager not available"}`
+                     : "Top of reporting hierarchy"}</span></>}
                  right={<>
                    <span className="chip">{m.roleLabel || m.role}</span>
                    {m.claimed === false
@@ -5169,10 +5172,7 @@ export function TeamPage({ api }) {
             <RolesEditor api={api} onReload={load} />
           </More>
 
-          <More title="Reporting lines and signing authority"
-                summary="whose work rolls up to whom, and who may commit what">
-            <ReportingLines api={api} team={team} onReload={load} />
-          </More>
+          <ReportingLines api={api} team={team} onReload={load} />
 
           <More title="Delegation of authority"
                 summary={(team?.levels || []).length
@@ -5531,7 +5531,8 @@ function ReportingLines({ api, team, onReload }) {
   const { state, user, act, toast, refresh } = api;
   const members = (team && team.members) || [];
   const editable = can(user, "team.org");
-  const org = React.useMemo(() => orgIndex(state.users || []), [state.users]);
+  const chartUsers = team?.members || state.users || [];
+  const org = React.useMemo(() => orgIndex(chartUsers), [chartUsers]);
   const [busy, setBusy] = useState("");
   const levels = (team && team.levels) || state.org.approvalLevels || [];
 
@@ -5590,7 +5591,7 @@ function ReportingLines({ api, team, onReload }) {
           role: it decides <i>whose</i> work they see, not <i>what</i> they may do.
         </div>
 
-        <OrgChart users={state.users || []} org={org} me={user.id} />
+        <OrgChart users={chartUsers} org={org} me={user.id} />
 
         {editable && (
           <div className="orgedit">
