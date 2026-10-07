@@ -4,7 +4,7 @@ import { downloadDoc, raw } from "./api";
 import { AuctionGallery } from "./auctions";
 import { Countdown, Empty, Money, Stat } from "./atoms";
 import { Meter } from "./charts";
-import { CategorySelect, DocTypeSelect, LocationSelect } from "./fields";
+import { CategorySelect, DocTypeSelect, LocationSelect, PhoneInput } from "./fields";
 import { Figures, Guide, More, Page, Quiet, Row, Rows } from "./page";
 import {
   REG_STATUS, VERIFY_STATUS, activeRound, daysLeft, effStatus, fmtCompact, fmtDate,
@@ -39,7 +39,11 @@ export function PortalHome({ api }) {
   const supplier = state.suppliers.find((s) => s.id === me);
   const [tab, setTab] = useState(api.route.tab || "overview");
   const [docForm, setDocForm] = useState({ type: "", label: "", expiry: "" });
-  const [profileForm, setProfileForm] = useState({ name: supplier.name, category: supplier.category, location: supplier.location });
+  const [profileForm, setProfileForm] = useState({
+    name: supplier.name, category: supplier.category, location: supplier.location,
+    phone: supplier.phone || "", contactPerson: supplier.contactPerson || "",
+  });
+  const [dropDoc, setDropDoc] = useState(null);
   const myComplianceDocs = (state.documents || []).filter((x) => x.kind === "supplier" && x.supplierId === me);
   /* The type is chosen from the list, so a buyer filtering the register for a
      tax clearance finds every one of them; "Other" is the only one described
@@ -88,6 +92,7 @@ export function PortalHome({ api }) {
   const openNow = invitations.filter((t) => effStatus(t) === "published");
   const notStarted = openNow.filter((t) => {
     const rnd = activeRound(t);
+    if (rnd && rnd.mine === false) return false;  // not shortlisted for this round
     return !state.bids.some((b) => b.tenderId === t.id && b.supplierId === me && (rnd && rnd.id ? b.roundId === rnd.id : true));
   });
   const soonest = openNow.length ? openNow.reduce((a, t) => (t.deadline < a.deadline ? t : a)) : null;
@@ -134,9 +139,11 @@ export function PortalHome({ api }) {
     <Guide art={notStarted.length ? "draft" : openNow.length || liveAucs.length ? "clear" : "tray"}
            headline={liveAucs.length
              ? `${liveAucs.length} auction${liveAucs.length === 1 ? " is" : "s are"} open now`
-             : openNow.length
-               ? `${openNow.length} tender${openNow.length === 1 ? " is" : "s are"} waiting for your bid`
-               : "Nothing open right now"}
+             : notStarted.length
+               ? `${notStarted.length} tender${notStarted.length === 1 ? " is" : "s are"} waiting for your bid`
+               : openNow.length
+                 ? "Your bids are in"
+                 : "Nothing open right now"}
            why={soonest
              ? <>The nearest closes {fmtDate(soonest.deadline)}. Nothing you seal is visible to the buyer before then.</>
              : "When a buyer invites you, it appears here with its closing date."}
@@ -228,7 +235,7 @@ export function PortalHome({ api }) {
               {expired.length > 0
                 ? <><b>{expired.length} document{expired.length === 1 ? " has" : "s have"} expired.</b> A lapsed document can cost you a prequalification you already hold. </>
                 : <><b>{expiringSoon.length} document{expiringSoon.length === 1 ? "" : "s"} expire{expiringSoon.length === 1 ? "s" : ""} within sixty days.</b> </>}
-              {[...expired, ...expiringSoon].slice(0, 3).map((d) => d.name || d.label).join(", ")}
+              {[...expired, ...expiringSoon].slice(0, 3).map((d) => d.label || d.name).join(", ")}
               {". "}
               <button className="doclink" onClick={() => setTab("company")}>Update them under Company</button>
             </div>
@@ -279,13 +286,16 @@ export function PortalHome({ api }) {
                   return (
                     <Row key={a.id}
                          title={a.title}
-                         meta={<>{a.ref}{lot && lot.ceiling ? <> &middot; ceiling {fmtCompact(lot.ceiling)}</> : null}
+                         meta={<>{a.ref}{lot && lot.ceiling ? <> &middot; opening price {fmtCompact(lot.ceiling)}</> : null}
                            {a.disqualified ? <> &middot; you were removed</> : null}</>}
                          right={a.live
                            ? <LiveCountdown deadline={a.endsAt} />
                            : a.status === "awarded" && aucWon(a).length
                              ? <span className="chip gold">Awarded to you</span>
-                             : <span className="chip">{a.status === "awarded" ? "Awarded" : a.status === "scheduled" ? "Opens soon" : "Closed"}</span>}
+                             : <span className="chip">{a.status === "awarded" ? "Awarded"
+                                 : a.status === "scheduled" || a.status === "draft" || (a.status === "live" && (a.startsAt || 0) > Date.now()) ? "Opens soon"
+                                 : a.status === "paused" ? "Paused"
+                                 : a.status === "cancelled" ? "Cancelled" : "Closed"}</span>}
                          onOpen={a.disqualified ? undefined : () => go({ page: "auction", id: a.id })} />
                   );
                 })}
@@ -301,6 +311,7 @@ export function PortalHome({ api }) {
                 const rnd = activeRound(t);
                 const myBid = state.bids.find((b) => b.tenderId === t.id && b.supplierId === me
                   && (rnd && rnd.id ? b.roundId === rnd.id : true));
+                const left = rnd && rnd.mine === false;
                 return (
                   <Row key={t.id} title={t.title}
                        onOpen={st === "published" ? () => go({ page: "bidroom", id: t.id }) : undefined}
@@ -315,9 +326,10 @@ export function PortalHome({ api }) {
                          <Countdown t={t.deadline} />
                          {st === "paused" ? <span className="chip warn">Paused by the buyer</span>
                            : myBid ? <span className="chip ok">Sealed</span>
+                           : left ? <span className="chip">Not shortlisted</span>
                            : st === "published" ? <span className="chip warn">Not started</span>
                            : <span className="chip">Closed</span>}
-                         {st === "published" && <button className="btn sm pri" onClick={() => go({ page: "bidroom", id: t.id })}>{myBid ? "View receipt" : "Bid"}</button>}
+                         {st === "published" && !left && <button className="btn sm pri" onClick={() => go({ page: "bidroom", id: t.id })}>{myBid ? "View receipt" : "Bid"}</button>}
                        </>} />
                 );
               })}
@@ -350,11 +362,15 @@ export function PortalHome({ api }) {
             {outcomes.map((t) => {
               const letter = t.letters && t.letters[me];
               const won = t.status === "awarded" && t.awardedTo === me;
-              const lost = t.status === "awarded" && t.awardedTo !== me;
+              /* Returned at the technical stage: the decision on this vendor is
+                 made, even while the event is still being evaluated. */
+              const out = t.status === "evaluation" && state.bids.some((b) => b.tenderId === t.id
+                && b.supplierId === me && b.disqualified);
+              const lost = (t.status === "awarded" && t.awardedTo !== me) || out;
               return (
                 <Row key={t.id} title={t.title} meta={<span className="mono">{t.ref}</span>}
                      right={<>
-                       {t.status === "evaluation" && <span className="chip">Being evaluated</span>}
+                       {t.status === "evaluation" && !out && <span className="chip">Being evaluated</span>}
                        {won && <span className="chip gold">Awarded to you &middot; {fmtCompact(t.awardedAmount)}</span>}
                        {lost && <span className="chip">Not successful</span>}
                        {letter && <button className="btn sm" onClick={() => setOpenL((o) => ({ ...o, [t.id]: !o[t.id] }))}>{openL[t.id] ? "Hide letter" : "Read the letter"}</button>}
@@ -383,10 +399,22 @@ export function PortalHome({ api }) {
                 <div className="frow"><label className="lbl">Location</label>
                   <LocationSelect value={profileForm.location} required
                                   onChange={(v) => setProfileForm({ ...profileForm, location: v })} /></div>
+                <div className="frow"><label className="lbl" htmlFor="co-contact">Contact person</label>
+                  <input id="co-contact" className="in" autoComplete="name" value={profileForm.contactPerson}
+                         onChange={(e) => setProfileForm({ ...profileForm, contactPerson: e.target.value })} /></div>
+                <div className="frow"><label className="lbl" htmlFor="co-phone">Phone</label>
+                  <PhoneInput id="co-phone" value={profileForm.phone}
+                              onChange={(v) => setProfileForm({ ...profileForm, phone: v })} /></div>
               </div>
               <div className="gaterow">
                 <button className="btn" disabled={profileForm.name.trim().length < 2}
-                        onClick={() => act.rename({ name: profileForm.name, category: profileForm.category, location: profileForm.location })}>Save details</button>
+                        onClick={async () => {
+                          const ok = await act.rename({
+                            name: profileForm.name, category: profileForm.category, location: profileForm.location,
+                            phone: profileForm.phone, contactPerson: profileForm.contactPerson.trim(),
+                          });
+                          if (ok) api.toast.ok("Saved", "Your company details are up to date.");
+                        }}>Save details</button>
                 {profileForm.name.trim().length < 2 && <span className="hint gatehint">The company name needs at least two characters.</span>}
               </div>
             </div>
@@ -405,14 +433,19 @@ export function PortalHome({ api }) {
                 const soon = x.expiry && !gone && x.expiry - nowMs() < SOON_MS;
                 return (
                   <div className="docrow" key={x.id}>
-                    <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}><Icon n="file" s={13} />{x.name}</button>
+                    {/* What the document is, and when it lapses: "Tax clearance
+                        certificate, expires 12 Jan 2027". The file name is
+                        only what the vendor's phone called it. */}
+                    <button className="doclink" title={x.name} onClick={() => downloadDoc(x.id, x.name)}>
+                      <Icon n="file" s={13} />{x.label || x.name}
+                    </button>
                     {x.expiry
                       ? <span className={"hint" + (gone || soon ? " docwarn" : "")} style={{ marginTop: 0 }}>
                           {gone ? "expired " : "expires "}{fmtDate(x.expiry)}
                         </span>
                       : null}
                     <span style={{ flex: 1 }} />
-                    <button className="btn sm iconly" aria-label="Remove document" onClick={() => act.deleteMyDoc(x.id)}><Icon n="close" s={12} /></button>
+                    <button className="btn sm iconly" aria-label={"Remove " + (x.label || x.name)} onClick={() => setDropDoc(x)}><Icon n="close" s={12} /></button>
                   </div>
                 );
               })}
@@ -440,6 +473,13 @@ export function PortalHome({ api }) {
               <div className="hint">The buyer's procurement team sees these when reviewing your prequalification, and Docket reminds them before anything expires.</div>
             </div>
           </div>
+          {dropDoc && (
+            <ConfirmDialog title="Remove this document?" confirmLabel="Remove it" tone="wax"
+                           onClose={() => setDropDoc(null)}
+                           onConfirm={() => act.deleteMyDoc(dropDoc.id)}>
+              {dropDoc.label || dropDoc.name} will no longer be on file with {state.org.name}. You can upload it again later.
+            </ConfirmDialog>
+          )}
         </>
       )}
     </Page>
@@ -453,6 +493,22 @@ export const PORTAL_CSS = `
    It is the commonest way a vendor loses a prequalification they had. */
 .docwarn{color:var(--wax);font-weight:600}
 `;
+
+/* "Closes Fri 14 Oct 2026, 12:00 WAT". A date alone left a vendor guessing
+   whether noon or midnight, and the zone matters to anyone bidding from
+   elsewhere. Formatted here rather than in helpers, in the reader's own zone. */
+const closesAt = (ms) => {
+  let s;
+  try {
+    s = new Date(ms).toLocaleString("en-NG", {
+      weekday: "short", day: "numeric", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit", hour12: false, timeZoneName: "short",
+    });
+  } catch (e) {
+    s = new Date(ms).toLocaleString();
+  }
+  return "Closes " + s.replace(/^(\w+),/, "$1");
+};
 
 /* The lookup and the room are two components because the room calls hooks
    below the point where it would otherwise return early. A refresh that took
@@ -468,16 +524,39 @@ function BidRoomFor({ api, t }) {
   const { state, user, act, ai, go, toast } = api;
   const id = t.id;
   const me = user.supplierId;
-  const [form, setForm] = useState({ amount: "", decl: false });
-  const [prices, setPrices] = useState({});
+  const st = effStatus(t);
+  const rnd = activeRound(t);
+  const rounds = roundsOf(t);
+  /* TYPED PRICES SURVIVE A DROPPED CONNECTION. A vendor pricing forty lines on
+     a phone loses all of it to a reload or a dead battery, so the draft is
+     kept on this device per tender and round, and cleared once it is sealed. */
+  const draftKey = `docket.bidDraft.${t.id}.${(rnd && rnd.id) || "r1"}`;
+  const [draft0] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(draftKey) || "null"); } catch (e) { return null; }
+  });
+  const [form, setForm] = useState({ amount: (draft0 && draft0.amount) || "", decl: false });
+  const [prices, setPrices] = useState((draft0 && draft0.prices) || {});
+  const [restored, setRestored] = useState(!!draft0);
   const [acks, setAcks] = useState({});
   const [q, setQ] = useState("");
   const [aiFb, setAiFb] = useState("");
   const [busy, setBusy] = useState(false);
   const [askWithdraw, setAskWithdraw] = useState(false);
-  const st = effStatus(t);
-  const rnd = activeRound(t);
-  const rounds = roundsOf(t);
+  const [askSeal, setAskSeal] = useState(false);
+  const [sealing, setSealing] = useState(false);
+  const typed = !!String(form.amount).trim() || Object.values(prices).some((v) => String(v).trim());
+  useEffect(() => {
+    try {
+      if (typed) localStorage.setItem(draftKey, JSON.stringify({ amount: form.amount, prices }));
+      else localStorage.removeItem(draftKey);
+    } catch (e) { /* private mode: the draft just is not kept */ }
+  }, [draftKey, typed, form.amount, prices]);
+  /* The clock by the submit button, refreshed so "closes in 12 min" counts. */
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const h = setInterval(() => setTick((n) => n + 1), 30000);
+    return () => clearInterval(h);
+  }, []);
   /* Scoped to the open round: an event running a best-and-final has this
      vendor's first-round bid on file too, and that one is not the bid the room
      is asking them to make. */
@@ -489,8 +568,12 @@ function BidRoomFor({ api, t }) {
   const hasLines = t.lines && t.lines.length > 0;
   const addenda = t.addenda || [];
 
-  const linesTotal = hasLines ? t.lines.reduce((s, l) => s + (Number(prices[l.id]) || 0) * l.qty, 0) : 0;
-  const amountValid = hasLines ? t.lines.every((l) => Number(prices[l.id]) > 0) : Number(form.amount) > 0;
+  /* "540,000,000" is how people write money, so commas and spaces are fine. */
+  const num = (v) => Number(String(v ?? "").replace(/[,\s₦]/g, ""));
+  const linesTotal = hasLines ? t.lines.reduce((s, l) => s + (num(prices[l.id]) || 0) * l.qty, 0) : 0;
+  const amountValid = hasLines ? t.lines.every((l) => num(prices[l.id]) > 0) : num(form.amount) > 0;
+  const sealTotal = hasLines ? linesTotal : num(form.amount) || 0;
+  const notShortlisted = !myBid && rnd && rnd.mine === false;
   const myDocs = (state.documents || []).filter((x) => x.kind === "bid" && x.tenderId === t.id);
   const tenderDocs = (state.documents || []).filter((x) => x.kind === "tender" && x.tenderId === t.id);
   const hasTechDoc = myDocs.some((x) => x.envelope === "technical");
@@ -537,13 +620,36 @@ function BidRoomFor({ api, t }) {
     e.target.value = "";
   };
 
+  /* Typed but not sealed: the browser asks before the tab closes. */
+  const unsent = typed && !myBid && st === "published";
+  useEffect(() => {
+    if (!unsent) return undefined;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unsent]);
+
+  /* Locked from the first tap until the server answers: a double tap used to
+     seal once and then report the second attempt as an error. */
   const submit = async () => {
-    const ok = await act.submitBid(t.id, {
-      amount: hasLines ? undefined : Number(form.amount),
-      lines: hasLines ? Object.fromEntries(t.lines.map((l) => [l.id, Number(prices[l.id])])) : undefined,
-      acks: addenda.map((a) => a.id).filter((aid) => acks[aid]),
-    });
+    if (sealing) return;
+    setSealing(true);
+    let ok = false;
+    try {
+      ok = await act.submitBid(t.id, {
+        amount: hasLines ? undefined : num(form.amount),
+        lines: hasLines ? Object.fromEntries(t.lines.map((l) => [l.id, num(prices[l.id])])) : undefined,
+        acks: addenda.map((a) => a.id).filter((aid) => acks[aid]),
+        decl: form.decl === true,
+      });
+    } finally {
+      setSealing(false);
+    }
     if (ok) {
+      try { localStorage.removeItem(draftKey); } catch (e) { /* nothing kept */ }
+      setPrices({});
+      setForm({ amount: "", decl: false });
+      setRestored(false);
       cue.stamp();
       toast.ok("Bid sealed", "Encrypted at rest. The buyer sees only that a bid exists until the recorded opening.");
     }
@@ -556,14 +662,23 @@ function BidRoomFor({ api, t }) {
     const ok = await act.withdrawBid(t.id);
     setAiFb("");
     if (ok) {
+      /* "Withdraw & replace" starts from the bid that was there, so changing
+         one rate does not mean typing forty again. */
+      if (was) {
+        setPrices(Object.fromEntries(Object.entries(was.lines).map(([k, v]) => [k, String(v)])));
+        setForm((f) => ({ ...f, amount: was.amount != null && !hasLines ? String(was.amount) : "" }));
+      }
       toast.undo("Sealed bid withdrawn", "Your documents are unlocked. Submit a replacement any time before the deadline.",
                  async () => {
                    const back = await act.submitBid(t.id, {
                      amount: hasLines ? undefined : was?.amount,
                      lines: hasLines ? was?.lines : undefined,
                      acks: acksWere,
+                     decl: true,  // re-sealing the bid they signed, unchanged
                    });
                    if (back) {
+                     setPrices({});
+                     setForm({ amount: "", decl: false });
                      cue.stamp();
                      toast.ok("Bid re-sealed at the same figures", "Same prices, same documents, a new receipt.");
                    }
@@ -600,7 +715,7 @@ function BidRoomFor({ api, t }) {
       <button className="btn sm" style={{ marginBottom: 14 }} onClick={() => go({ page: "portal" })}>← My invitations</button>
       <div className="pagehead" style={{ marginBottom: 14 }}>
         <div><div className="mono muted" style={{ marginBottom: 3 }}>
-          {t.ref} · deadline {fmtDate(t.deadline)}
+          {t.ref} · {closesAt(t.deadline)}
           {rounds.length > 1 && rnd ? ` · ${rnd.name}` : ""}
         </div><h1>{t.title}</h1></div>
         <div className="grow" /><Countdown t={t.deadline} />
@@ -684,6 +799,14 @@ function BidRoomFor({ api, t }) {
           <b> The withdrawal is recorded in the audit trail under your company's name.</b>
         </ConfirmDialog>
       )}
+      {askSeal && !myBid && (
+        <ConfirmDialog title="Seal and submit your bid?" confirmLabel="Seal & submit" tone="wax"
+                       onClose={() => setAskSeal(false)}
+                       onConfirm={async () => { await submit(); }}>
+          You are submitting <b>{fmtMoney(sealTotal)}</b> for <b>{t.title}</b> with {myDocs.length} document{myDocs.length === 1 ? "" : "s"}.
+          {" "}You can withdraw and replace it any time before the deadline.
+        </ConfirmDialog>
+      )}
       {myBid ? (
         <div>
           <div className="receipt" style={{ marginBottom: 14 }}>
@@ -691,13 +814,44 @@ function BidRoomFor({ api, t }) {
             <h3 style={{ fontFamily: "Georgia,'Times New Roman',serif", margin: "10px 0 4px" }}>Bid sealed</h3>
             <p className="muted" style={{ margin: "0 0 12px", fontSize: 13 }}>
               Submitted {fmtDateTime(myBid.submittedAt)}. Your bid is cryptographically sealed: the buyer sees only that a bid exists.
-              Contents are revealed to everyone at the recorded opening after the deadline.
+              Only the buyer sees the contents, at the recorded opening after the deadline. Other vendors never do.
             </p>
+            {/* What was sealed, so the vendor's own copy of the receipt says it:
+                the figure, each rate, and the documents that went with it. */}
+            {myBid.amount != null && (
+              <div style={{ margin: "0 0 10px", fontSize: 13.5 }}>
+                Your bid: <span className="money" style={{ fontWeight: 600 }}>{fmtMoney(myBid.amount)}</span>
+              </div>
+            )}
+            {hasLines && myBid.lines && Object.keys(myBid.lines).length > 0 && (
+              <div style={{ margin: "0 0 10px", fontSize: 12.5 }}>
+                {t.lines.map((l) => (
+                  <div key={l.id} style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
+                    <span>{l.desc}</span>
+                    <span className="money">{fmtMoney(myBid.lines[l.id] || 0)} per {l.unit}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {myDocs.length > 0 && (
+              <div style={{ margin: "0 0 10px", fontSize: 12.5 }}>
+                {myDocs.map((x) => (
+                  <div key={x.id} className="docrow">
+                    <span className="chip" style={{ textTransform: "capitalize" }}>{x.envelope}</span>
+                    <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}><Icon n="file" s={13} />{x.name}</button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>
               RECEIPT <TypeOut text={myBid.id.toUpperCase()} /> · {t.ref}
             </div>
             {st === "published" && <div style={{ marginTop: 14 }}><button className="btn sm" onClick={() => setAskWithdraw(true)}>Withdraw & replace before deadline</button></div>}
           </div>
+        </div>
+      ) : st === "published" && notShortlisted ? (
+        <div className="notice" style={{ marginBottom: 14 }}>
+          You were not shortlisted for round {rnd.number}.{priorBids.length > 0 ? " Your earlier bid stands." : ""}
         </div>
       ) : st === "published" ? (
         <div className="card" style={{ marginBottom: 14 }}>
@@ -707,6 +861,11 @@ function BidRoomFor({ api, t }) {
             </span>
           </div>
           <div className="cbody">
+            {restored && typed && (
+              <div className="notice" role="status" style={{ marginBottom: 12 }}>
+                Draft restored. These are the prices you typed last time on this device. Nothing is sent until you seal.
+              </div>
+            )}
             {hasLines ? (
               <div className="frow" id="sb-price">
                 <label className="lbl">Your rate for each line</label>
@@ -719,8 +878,8 @@ function BidRoomFor({ api, t }) {
                      on a phone, and lays all three out in a row from 600px up */
                   <div key={l.id} className="priceline">
                     <div className="pdesc">{l.desc}<div className="mono faint" style={{ fontSize: 11 }}>{l.qty.toLocaleString()} × {l.unit}</div></div>
-                    <input className="in" type="number" min="0" placeholder={"per " + l.unit} aria-label={"Unit rate for " + l.desc} value={prices[l.id] ?? ""} onChange={(e) => setPrices((p) => ({ ...p, [l.id]: e.target.value }))} />
-                    <div className="money ptotal">{prices[l.id] ? fmtMoney(Number(prices[l.id]) * l.qty) : "-"}</div>
+                    <input className="in" type="text" inputMode="decimal" placeholder={"per " + l.unit} aria-label={"Unit rate for " + l.desc} value={prices[l.id] ?? ""} onChange={(e) => setPrices((p) => ({ ...p, [l.id]: e.target.value.replace(/[^\d.,\s]/g, "") }))} />
+                    <div className="money ptotal">{num(prices[l.id]) > 0 ? fmtMoney(num(prices[l.id]) * l.qty) : "-"}</div>
                   </div>
                 ))}
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, borderTop: "1px solid var(--line)", paddingTop: 10, alignItems: "baseline" }}>
@@ -732,7 +891,13 @@ function BidRoomFor({ api, t }) {
               <div className="frow">
                 <label className="lbl" htmlFor="bid-amt">Your total bid</label>
                 <div className="hint" style={{ marginTop: 0, marginBottom: 6 }}>In naira. This is the figure that gets sealed.</div>
-                <input id="bid-amt" className="in" type="number" min="0" placeholder="e.g. 540000000" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+                <input id="bid-amt" className="in" type="text" inputMode="numeric" placeholder="e.g. 540,000,000"
+                       aria-describedby="bid-amt-says" value={form.amount}
+                       onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/[^\d,\s]/g, "") })} />
+                {/* Read back as money, so a missing zero shows before it is sealed. */}
+                <div id="bid-amt-says" className="money" style={{ marginTop: 6, fontWeight: 600 }} aria-live="polite">
+                  {num(form.amount) > 0 ? fmtMoney(num(form.amount)) : ""}
+                </div>
               </div>
             )}
             <div className="frow">
@@ -802,7 +967,14 @@ function BidRoomFor({ api, t }) {
               </ul>
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button className="btn wax" disabled={pct < 100} onClick={submit}><Icon n="stamp" s={15} />Seal & submit bid</button>
+              <button className="btn wax" disabled={pct < 100 || sealing} onClick={() => setAskSeal(true)}>
+                <Icon n="stamp" s={15} />{sealing ? "Sealing…" : "Seal & submit bid"}
+              </button>
+              {t.deadline - nowMs() > 0 && t.deadline - nowMs() <= 3600000 && (
+                <span className="hint docwarn" style={{ alignSelf: "center", marginTop: 0 }} role="status">
+                  Closes in {Math.max(1, Math.ceil((t.deadline - nowMs()) / 60000))} min, submit now
+                </span>
+              )}
               {/* AI OFF (no ANTHROPIC_API_KEY): supplier bid review button.
               <button className="btn" onClick={reviewAI} disabled={busy}>{busy ? "Reviewing…" : "Review my bid with AI"}</button>
               */}
@@ -856,56 +1028,116 @@ const POLL_IDLE_MS = 10000;
    it is computed on the server on purpose: in rank mode the browser is never
    told the standing best, so it cannot work that number out for itself. Every
    quick-bid button below is built from it rather than from arithmetic here. */
+/* "2 minutes", "30 seconds", "1 hour 30 minutes": a span of time in words. */
+function plainSpan(ms) {
+  const s = Math.round((ms || 0) / 1000);
+  const part = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  if (s < 60) return part(s, "second");
+  const m = Math.round(s / 60);
+  if (m < 60) return part(m, "minute");
+  const h = Math.floor(m / 60);
+  return part(h, "hour") + (m % 60 ? " " + part(m % 60, "minute") : "");
+}
+
+/* How far below the best price a new bid must be, in naira, at `from`. The
+   same rule as the server's step_to_beat, so the buttons offer prices it takes. */
+function stepAt(lot, from) {
+  if (!lot || !(lot.minDecrement > 0)) return 1;
+  return lot.decrementIsPct ? Math.max(1, Math.floor((from * lot.minDecrement) / 100)) : lot.minDecrement;
+}
+
 export function AuctionRoom({ api, id }) {
-  const { go, toast } = api;
+  const { go, toast, user } = api;
+  const me = user && user.supplierId;
   const [a, setA] = useState(null);
+  const [lotId, setLotId] = useState(null);   // the lot on screen; the first until the vendor picks another
   const [amount, setAmount] = useState("");
   const [msg, setMsg] = useState("");
   const [extended, setExtended] = useState(0);
   const [placing, setPlacing] = useState(false);
+  const [confirmLow, setConfirmLow] = useState(false);
+  const [offset, setOffset] = useState(0);     // server clock minus this phone's clock
+  const [failures, setFailures] = useState(0); // refreshes in a row that did not get through
   const [nonce, setNonce] = useState(0);   // bumped to re-read the room after an action
+  const busy = useRef(false);   // the button and the Enter key share one guard, so one press is one bid
 
-  const lot = ((a && a.lots) || [])[0] || null;
+  const lots = (a && a.lots) || [];
+  const lot = lots.find((l) => l.id === lotId) || lots[0] || null;
   const st = (((a && a.lotState) || []).find((x) => lot && x.lotId === lot.id)) || {};
-  const prevRank = usePrev(st.myRank == null ? null : st.myRank);
   const prevMovements = usePrev(st.movements || 0);
+  const prevLot = usePrev(lot ? lot.id : null);
   const prevEnds = useRef(null);
+  const ranks = useRef(null);
   const live = a ? a.live : null;
 
   useEffect(() => {
     let stop = false;
     const poll = async () => {
+      const sent = Date.now();
       try {
         const next = await raw(`/auctions/${id}/room/`);
         if (stop) return;
+        /* The clock runs on the server's time, not the phone's. Measured at
+           the middle of the round trip so a slow network is not read as a
+           slow clock. */
+        if (next.serverNow) setOffset(next.serverNow - Math.round((sent + Date.now()) / 2));
         if (prevEnds.current && next.endsAt > prevEnds.current + 1000 && next.live) {
           setExtended(next.endsAt);
-          toast.info("Close extended", "A bid landed inside the closing window, so anti-sniping pushed the deadline out.");
+          toast.info("Time added", `A bid came in near the end, so the auction now ends at ${fmtDateTime(next.endsAt)}.`);
         }
         prevEnds.current = next.endsAt;
+        setFailures(0);
         setA(next);
-      } catch (e) { /* keep the last known room rather than blanking it */ }
+      } catch (e) {
+        /* Keep the last known room rather than blanking it, but count the
+           misses so the page can say it is out of date. */
+        if (!stop) setFailures((n) => n + 1);
+      }
     };
     poll();
     const h = setInterval(poll, live === false ? POLL_IDLE_MS : POLL_LIVE_MS);
-    return () => { stop = true; clearInterval(h); };
+    // A phone that was asleep or offline re-reads at once instead of at the next tick.
+    const wake = () => { if (document.visibilityState === "visible") poll(); };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("online", poll);
+    return () => {
+      stop = true; clearInterval(h);
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("online", poll);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, live, nonce]);
 
   /* Overtaken or back in front, announced in words, with a glyph, and only
-     then in colour (see the CVD note in ui.jsx). */
+     then in colour (see the CVD note in ui.jsx). Watched on every lot, not
+     just the one on screen, so being outbid on another lot is not missed. */
   useEffect(() => {
-    if (prevRank == null || st.myRank == null || prevRank === st.myRank) return;
-    if (st.myRank > prevRank) {
-      cue.outbid();
-      toast.warn(`▼ Outbid, now position ${st.myRank}`,
-                 `You held position ${prevRank}. ${st.toLead ? `Bid ${fmtCompact(st.toLead)} or less to take the lead back.` : ""}`);
-    } else {
-      cue.lead();
-      toast.ok(`▲ Position ${st.myRank}${st.myRank === 1 ? ", you lead" : ""}`, `Up from position ${prevRank}.`);
-    }
+    if (!a) return;
+    const now = {};
+    (a.lotState || []).forEach((s) => { now[s.lotId] = s.myRank == null ? null : s.myRank; });
+    const before = ranks.current;
+    ranks.current = now;
+    if (!before) return;
+    const many = (a.lots || []).length > 1;
+    (a.lotState || []).forEach((s) => {
+      const was = before[s.lotId], is = now[s.lotId];
+      if (was == null || is == null || was === is) return;
+      const l = (a.lots || []).find((x) => x.id === s.lotId);
+      const where = many && l ? `Lot ${l.number}: ` : "";
+      if (is > was) {
+        cue.outbid();
+        toast.warn(`▼ ${where}Outbid, now position ${is}`,
+                   `You held position ${was}.${s.toLead ? ` Bid ${fmtMoney(s.toLead)} or less to take the lead back.` : ""}`);
+      } else {
+        cue.lead();
+        toast.ok(`▲ ${where}Position ${is}${is === 1 ? ", you lead" : ""}`, `Up from position ${was}.`);
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [st.myRank]);
+  }, [a]);
+
+  // A price typed for one lot is not carried over to another.
+  useEffect(() => { setAmount(""); setMsg(""); setConfirmLow(false); }, [lot && lot.id]);
 
   if (!a) return <Empty art="chart">Opening the room&hellip;</Empty>;
   if (a.disqualified) {
@@ -920,45 +1152,94 @@ export function AuctionRoom({ api, id }) {
   const myBids = st.myBids || [];
   const myLast = myBids.length ? myBids[myBids.length - 1] : null;
   const leading = !!st.leading;
+  /* The server only leaves toLead empty for a vendor who has bid when that
+     vendor already holds the best price, and it refuses a leader who bids
+     again. So the leader gets a sentence, not a form. */
+  const iLead = leading || (!!myLast && st.toLead == null);
+  const blind = a.visibility === "blind";
   const stateColor = st.myRank ? (leading ? "var(--green)" : "var(--wax)") : "var(--muted)";
-  const roomMoved = (st.movements || 0) > (prevMovements || 0);
+  const roomMoved = prevLot === (lot && lot.id) && (st.movements || 0) > (prevMovements || 0);
   const ceiling = lot ? lot.ceiling : null;
-  const step = lot ? lot.minDecrement : 0;
+  const stepWords = !lot || !(lot.minDecrement > 0) ? null
+    : lot.decrementIsPct ? `${lot.minDecrement}%` : fmtMoney(lot.minDecrement);
+  const qtyWords = lot && lot.qty > 1 ? `${lot.qty.toLocaleString()} ${lot.uom || "units"}` : null;
 
   /* Built from the server's own toLead, because in rank mode the browser is
-     never told the standing best and cannot work it out.
-
-     toLead is absent in two opposite situations and they need opposite
-     ladders. If nobody has bid, the ceiling is the opening price. If the
-     bidder is ALREADY LEADING there is nobody to beat, and offering the
-     ceiling then would hand the leader a ladder of prices worse than their own
-     bid - every rung of it rejected by the server. They improve on themselves
-     instead, a step at a time. */
-  const from = st.toLead || (myLast ? myLast.amount - step : ceiling);
-  const quick = (from ? [from, from - step, from - step * 3] : [])
+     never told the standing best and cannot work it out. If nobody has bid,
+     toLead is the opening price. The leader gets no ladder at all: the server
+     refuses a vendor who tries to beat their own leading price. */
+  const from = iLead ? null : st.toLead;
+  const quick = (from ? [from, from - stepAt(lot, from), from - stepAt(lot, from) * 3] : [])
     .filter((v) => v && v > 0);
 
+  /* What the room is doing, in one word, for the header chip and the notice
+     under the standing card. The server's `live` is checked first because a
+     row can say "live" after its clock has run out. */
+  const serverNow = Date.now() + offset;
+  const phase = a.live ? "live"
+    : a.status === "cancelled" ? "cancelled"
+    : a.status === "paused" ? "paused"
+    : a.status === "awarded" ? "awarded"
+    : a.status === "draft" || a.status === "scheduled" || (a.status === "live" && (a.startsAt || 0) > serverNow) ? "notyet"
+    : "ended";
+  const won = lots.filter((l) => me && l.awardedTo === me);
+
+  const typed = Number(amount) || 0;
+  // More than a tenth under what would lead is usually a slipped zero, so ask once.
+  const tooLow = !!(st.toLead && typed > 0 && typed < st.toLead * 0.9);
+
   const place = async () => {
+    if (busy.current || !typed || !lot) return;
+    if (tooLow && !confirmLow) { setConfirmLow(true); return; }
+    busy.current = true;
     setMsg("");
+    setConfirmLow(false);
     setPlacing(true);
+    const seen = new Set(myBids.map((b) => b.at));
     try {
       const r = await raw(`/auctions/${a.id}/lots/${lot.id}/bid/`, {
-        method: "POST", body: { amount: Number(amount) },
+        method: "POST", body: { amount: typed },
       });
       setAmount("");
       cue.tick();
       if (r.extended) {
         setExtended(r.endsAt);
-        toast.info("Your bid extended the close", "Bids inside the closing window push the deadline out, so nobody can snipe this auction.");
+        toast.info("Your bid added time", `It came in near the end, so the auction now ends at ${fmtDateTime(r.endsAt)}.`);
       }
-      toast.ok(r.myRank === 1 ? "▲ Bid placed, you lead" : `Bid placed, position ${r.myRank}`,
-               "Binding until someone undercuts you.");
+      toast.ok(blind ? `Bid placed: ${fmtMoney(typed)}`
+                 : r.myRank === 1 ? `▲ Bid placed, you lead at ${fmtMoney(typed)}` : `Bid placed, position ${r.myRank}`,
+               "Your price stands, and you are held to it, until the auction ends.");
       prevEnds.current = r.endsAt;
       setNonce((n) => n + 1);   // "your current bid" and the quick prices, now, not at the next tick
     } catch (e) {
-      setMsg(e.message);
-      toast.warn("Bid rejected", e.message);
+      if (e.status) {
+        setMsg(e.message);
+        toast.warn("Bid not accepted", e.message);
+      } else {
+        /* No answer at all: the bid may or may not have reached the server.
+           Saying "rejected" here would invite a second, lower bid by mistake,
+           so ask the server what it holds and report that instead. */
+        setMsg("Checking whether your bid arrived…");
+        try {
+          const next = await raw(`/auctions/${a.id}/room/`);
+          setA(next);
+          setFailures(0);
+          const s2 = (next.lotState || []).find((x) => x.lotId === lot.id) || {};
+          const arrived = (s2.myBids || []).some((b) => b.amount === typed && !seen.has(b.at));
+          if (arrived) {
+            setAmount("");
+            setMsg("");
+            toast.ok("Your bid arrived", `${fmtMoney(typed)} is in.`);
+          } else {
+            setMsg(`Your bid of ${fmtMoney(typed)} did not arrive. Check your connection and press Place bid again.`);
+          }
+        } catch (e2) {
+          setFailures((n) => n + 1);
+          setMsg("We cannot reach the server to check. Your bid may not have arrived. When you are back online, look at your price history below before you bid again.");
+        }
+      }
     }
+    busy.current = false;
     setPlacing(false);
   };
 
@@ -972,24 +1253,91 @@ export function AuctionRoom({ api, id }) {
 
   const needsAccept = a.requireAcceptance && !a.accepted;
 
+  const many = lots.length > 1;
+  const extsLeft = Math.max(0, (a.maxExtensions || 0) - (a.extensions || 0));
+  const anyAward = lots.some((l) => l.awardedTo);
+  const chipText = phase === "notyet" ? "Not open yet"
+    : phase === "paused" ? "Paused"
+    : phase === "cancelled" ? "Cancelled"
+    : phase === "awarded" ? (won.length ? "You won" : anyAward ? "Not won" : "Not awarded")
+    : "Time is up";
+  // After the award, each lot says whether THIS vendor won it, not just that someone did.
+  const awardLine = (l) => (me && l.awardedTo === me
+    ? `You won${many ? ` lot ${l.number} (${l.title})` : ""} at ${fmtMoney(l.awardedAmount)}. The buyer will contact you about next steps.`
+    : l.awardedTo ? `${many ? `Lot ${l.number} (${l.title})` : "This auction"} went to another vendor.`
+    : `${many ? `Lot ${l.number} (${l.title})` : "This auction"} was not awarded.`);
+
   return (
     <div>
       <button className="btn sm" onClick={() => go({ page: "portal" })} style={{ marginBottom: 16 }}>&larr; All invitations</button>
       <div className="pagehead">
         <div>
-          <div className="mono muted" style={{ marginBottom: 3 }}>{a.ref} &middot; REVERSE AUCTION</div>
+          <div className="mono muted" style={{ marginBottom: 3 }}>{a.ref} &middot; REVERSE AUCTION, LOWEST PRICE WINS</div>
           <h1>{a.title}</h1>
         </div>
         <div className="grow" />
-        {extended === a.endsAt && live && <span className="extbadge">anti-snipe</span>}
-        {live ? <LiveCountdown deadline={a.endsAt} />
-              : <span className="chip">{a.status === "awarded" ? "Awarded" : "Auction closed"}</span>}
+        {extended === a.endsAt && live && <span className="extbadge">time added</span>}
+        <div style={{ textAlign: "right" }}>
+          {/* The deadline is moved onto this phone's clock, so a phone set a
+              few minutes wrong still counts down to the real end. */}
+          {live ? <LiveCountdown deadline={a.endsAt - offset} />
+                : <span className={"chip" + (phase === "awarded" && won.length ? " gold" : "")}>{chipText}</span>}
+          {live && a.endsAt && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Ends {fmtDateTime(a.endsAt)}</div>}
+        </div>
       </div>
 
+      {failures >= 2 && (
+        <div className="notice" role="status" style={{ marginBottom: 14, fontSize: 12.5 }}>
+          Reconnecting&hellip; The figures below may be out of date until the connection is back.
+        </div>
+      )}
+
+      {many && (
+        <div role="group" aria-label="Lots in this auction" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+          {lots.map((l) => {
+            const s = ((a.lotState || []).find((x) => x.lotId === l.id)) || {};
+            const tag = s.leading ? "you lead" : s.myRank ? `position ${s.myRank}`
+              : (s.myBids || []).length ? "bid in" : "no bid yet";
+            const on = lot && l.id === lot.id;
+            return (
+              <button key={l.id} className={"btn sm" + (on ? " pri" : "")} aria-pressed={on}
+                      onClick={() => setLotId(l.id)}>
+                Lot {l.number}: {l.title} &middot; {tag}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {lot && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="chead"><h3>What you&rsquo;re pricing</h3>
+            {many && <span className="mono faint" style={{ marginLeft: "auto" }}>lot {lot.number} of {lots.length}</span>}
+          </div>
+          <div className="cbody" style={{ fontSize: 13.5, lineHeight: 1.6 }}>
+            <div style={{ fontWeight: 600 }}>{lot.title}</div>
+            <div className="muted">Quantity: {(lot.qty || 1).toLocaleString()} {lot.uom || ""}</div>
+            {lot.description && <div style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{lot.description}</div>}
+            <div className="notice" style={{ marginTop: 10 }}>
+              {qtyWords ? <>Your price is the total for all {qtyWords}, not the price of one.</>
+                        : <>Your price is the total for this lot.</>}
+              {ceiling ? <> The buyer will pay at most <b>{fmtMoney(ceiling)}</b>, so your first bid must be that or less.</> : null}
+            </div>
+          </div>
+        </div>
+      )}
+      {!lot && <div className="notice" style={{ marginBottom: 14 }}>The buyer has not added anything to price yet.</div>}
+
       {needsAccept && (
-        <div className="notice" style={{ marginBottom: 14 }}>
-          You have to accept this auction&rsquo;s terms before you can bid.{" "}
-          <button className="btn sm pri" style={{ marginLeft: 8 }} onClick={accept}>Accept the terms</button>
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="chead"><h3>Terms of this auction</h3></div>
+          <div className="cbody" style={{ fontSize: 13.5, lineHeight: 1.6 }}>
+            {a.terms
+              ? <div style={{ whiteSpace: "pre-wrap", maxHeight: 320, overflowY: "auto", marginBottom: 12 }}>{a.terms}</div>
+              : <div className="muted" style={{ marginBottom: 12 }}>The buyer did not write any extra terms. Accepting means you agree to the rules on this page and that every bid you place is binding.</div>}
+            <div className="muted" style={{ marginBottom: 10 }}>You have to accept these terms before you can bid.</div>
+            <button className="btn pri" onClick={accept}>Accept the terms</button>
+          </div>
         </div>
       )}
 
@@ -998,8 +1346,8 @@ export function AuctionRoom({ api, id }) {
           <div className="card" style={{ marginBottom: 14 }}>
             <div className="chead"><h3>Where you stand</h3>
               <span className="mono faint" style={{ marginLeft: "auto" }}>
-                {a.visibility === "rank" ? "rank only, competitor prices are never shown"
-                  : a.visibility === "price" ? "rank and the standing best" : "blind, no rank shown"}
+                {a.visibility === "rank" ? "you see your position, not other prices"
+                  : a.visibility === "price" ? "you see your position and the best price" : "sealed, positions are hidden"}
               </span>
             </div>
             <div className="cbody" style={{ textAlign: "center", padding: "20px 18px" }}>
@@ -1010,66 +1358,120 @@ export function AuctionRoom({ api, id }) {
                       <RollNumber value={st.myRank} size={54} color={stateColor} />
                     </div>
                     <div style={{ marginTop: 6, fontSize: 13, fontWeight: leading ? 600 : 400, color: leading ? "var(--green)" : "var(--ink)" }}>
-                      {leading ? "You hold the leading price" : "You are being outbid"}
+                      {leading ? "You have the lowest price" : "Someone has a lower price"}
                     </div>
                     <div className="muted" style={{ fontSize: 12.5, marginTop: 2 }}>
-                      {st.bidders ? `of ${st.bidders} bidder${st.bidders === 1 ? "" : "s"} · ` : ""}
+                      {st.bidders ? `of ${st.bidders} vendor${st.bidders === 1 ? "" : "s"} · ` : ""}
                       your price <Money n={myLast ? myLast.amount : null} />
-                      {st.best ? <> &middot; best <Money n={st.best} /></> : null}
+                      {st.best ? <> &middot; best price <Money n={st.best} /></> : null}
                     </div>
                   </>
                 : <div className="muted" style={{ fontSize: 13.5 }}>
-                    No bid placed yet.{st.bidders ? ` ${st.bidders} bidder(s) are already in.` : ""}
-                    {ceiling ? <> Your opening bid must be at or under the <b><Money n={ceiling} /></b> ceiling.</> : null}
+                    {myLast
+                      ? <>Your bid is in: <b>{fmtMoney(myLast.amount)}</b> at {fmtDateTime(myLast.at)}.{blind ? " Positions are hidden in this auction." : ""}</>
+                      : <>No bid placed yet.{st.bidders ? ` ${st.bidders} other vendor${st.bidders === 1 ? " has" : "s have"} bid.` : ""}</>}
                   </div>}
             </div>
           </div>
 
-          {live && !needsAccept && lot && (
+          {live && !needsAccept && lot && lot.status === "open" && (
             <div className="card" style={{ marginBottom: 14 }}>
               <div className="chead"><h3>Place a bid</h3>
                 <span className={"mono faint" + (roomMoved ? " tickbump" : "")} style={{ marginLeft: "auto" }}>
-                  {st.movements || 0} movement{st.movements === 1 ? "" : "s"} in the room
+                  {st.movements || 0} bid{st.movements === 1 ? "" : "s"} on this lot so far
                 </span>
               </div>
               <div className="cbody">
-                <div className="frow" style={{ marginBottom: 9 }}>
-                  <label className="lbl" htmlFor="auc-amt">Your price</label>
-                  <div className="hint" style={{ marginTop: 0, marginBottom: 6 }}>
-                    In naira.{st.toLead
-                      ? <> It has to come in at or under <Money n={st.toLead} /> to take the lead.</>
-                      : leading ? <> You already lead. A new bid has to beat your own by at least <Money n={step} />.</>
-                      : null}
+                {iLead ? (
+                  <div className="notice" style={{ marginBottom: 10 }}>
+                    <b>You lead.</b> Nothing to do unless someone beats you. If they do, this page tells you what to bid.
                   </div>
-                  <input id="auc-amt" className="in" type="number" value={amount} onChange={(e) => setAmount(e.target.value)}
-                         onKeyDown={(e) => e.key === "Enter" && Number(amount) && place()}
-                         placeholder={String(from || "")} />
-                </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 11 }}>
-                  {quick.map((v, i) => (
-                    <button key={i} className="btn sm" onClick={() => setAmount(String(v))}
-                            title={i === 0 && st.toLead ? "Take the lead" : "Bid this price"}>
-                      {i === 0 ? (st.toLead ? "take the lead · " : leading ? "improve on yours · " : "") : ""}{fmtCompact(v)}
-                    </button>
-                  ))}
-                </div>
+                ) : (
+                  <>
+                    <div className="frow" style={{ marginBottom: 9 }}>
+                      <label className="lbl" htmlFor="auc-amt">Your price{qtyWords ? ` for all ${qtyWords}` : ""}</label>
+                      <div className="hint" style={{ marginTop: 0, marginBottom: 6 }}>
+                        In naira.{st.toLead ? <> To take the lead, bid <b>{fmtMoney(st.toLead)}</b> or less.</> : null}
+                      </div>
+                      <input id="auc-amt" className="in" type="number" inputMode="numeric" value={amount}
+                             onChange={(e) => { setAmount(e.target.value); setConfirmLow(false); }}
+                             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); place(); } }}
+                             placeholder={String(from || "")} />
+                      {typed > 0 && <div className="hint" aria-live="polite" style={{ fontWeight: 600 }}>{fmtMoney(typed)}</div>}
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 11 }}>
+                      {quick.map((v, i) => (
+                        <button key={i} className="btn sm" onClick={() => { setAmount(String(v)); setConfirmLow(false); }}>
+                          {i === 0 ? "Take the lead: " : ""}{fmtMoney(v)}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
                 {myLast && <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
-                  Your current bid: <Money n={myLast.amount} /> &middot; minimum decrement <Money n={step} />
+                  Your current bid: <Money n={myLast.amount} />
                 </div>}
                 {st.myLimit && <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
-                  Standing limit: keep me leading down to <Money n={st.myLimit} />.
+                  Automatic bidding is on: we keep you in the lead down to <Money n={st.myLimit} /> and no lower.
                 </div>}
-                {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 10 }}>{msg}</div>}
-                <button className="btn pri" onClick={place} disabled={!Number(amount) || placing}>{placing ? "Placing…" : "Place bid"}</button>
-                <div className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>Bids are binding. A bid inside the closing window extends the close.</div>
+                {msg && <div className="notice" role="status" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 10 }}>{msg}</div>}
+                {confirmLow && tooLow && !iLead && (
+                  <div className="notice" role="alert" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 10 }}>
+                    <b>Are you sure?</b> {fmtMoney(typed)} is {Math.round((1 - typed / st.toLead) * 100)}% below
+                    the {fmtMoney(st.toLead)} you need to lead. If it wins, you are held to it.
+                    <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                      <button className="btn sm pri" onClick={place} disabled={placing}>{placing ? "Placing…" : `Yes, bid ${fmtMoney(typed)}`}</button>
+                      <button className="btn sm" onClick={() => setConfirmLow(false)}>Change my price</button>
+                    </div>
+                  </div>
+                )}
+                {!iLead && !(confirmLow && tooLow) && (
+                  <button className="btn pri" onClick={place} disabled={!typed || placing}>{placing ? "Placing…" : "Place bid"}</button>
+                )}
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>Every bid is binding: if it wins, you must supply at that price.</div>
               </div>
             </div>
           )}
           {!live && (
             <div className="notice" style={{ marginBottom: 14 }}>
-              The auction has closed. The buyer settles the standings, any award follows the standard approval flow, and you&rsquo;ll be notified either way.
+              {phase === "notyet"
+                ? <>Not open yet.{a.startsAt ? <> Bidding opens {fmtDateTime(a.startsAt)}.</> : " The buyer has not set the opening time yet."} You can read everything here now and come back then.</>
+                : phase === "paused" ? <>Paused{a.pausedReason ? `: ${a.pausedReason}` : ""}. The clock is stopped and you lose no time.</>
+                : phase === "cancelled" ? <>Cancelled{a.cancelReason ? `: ${a.cancelReason}` : ""}. Nobody will be awarded from this auction.</>
+                : phase === "awarded" ? lots.map((l) => <div key={l.id}>{awardLine(l)}</div>)
+                : <>Time is up, waiting for the buyer to settle. You will be told the result either way.</>}
             </div>
           )}
+
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div className="chead"><h3>Rules in plain words</h3></div>
+            <div className="cbody" style={{ fontSize: 13, lineHeight: 1.6 }}>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                <li>The lowest price leads.</li>
+                <li>{stepWords ? <>Each new bid must be at least {stepWords} lower than the best price.</>
+                               : <>Each new bid just has to be lower than the best price.</>}</li>
+                {ceiling ? <li>The first bid{many ? " on this lot" : ""} can be at most {fmtMoney(ceiling)}.</li> : null}
+                <li>{a.endsAt
+                  ? <>Bidding ends {fmtDateTime(a.endsAt)}{a.scheduledEndsAt && a.scheduledEndsAt !== a.endsAt ? ` (it was first set for ${fmtDateTime(a.scheduledEndsAt)})` : ""}.</>
+                  : <>The end time is not set yet.</>}</li>
+                {a.snipeWindowMs > 0 && a.extendByMs > 0 && a.maxExtensions > 0
+                  ? <li>If anyone bids in the last {plainSpan(a.snipeWindowMs)}, the end moves {plainSpan(a.extendByMs)} later so everyone can answer.{" "}
+                      {extsLeft > 0 ? `This can happen ${extsLeft} more time${extsLeft === 1 ? "" : "s"}.`
+                                    : "It has already moved as many times as allowed, so the end time is now fixed."}</li>
+                  : <li>The end time does not move, even if someone bids at the last second.</li>}
+                <li>{a.visibility === "rank" ? "You see your position, never other vendors' prices or names."
+                  : a.visibility === "price" ? "You see your position and the best price, never other vendors' names."
+                  : "Positions and other prices stay hidden until the end."}</li>
+                <li>Every bid is binding: if it wins, you must supply at that price.</li>
+              </ul>
+              {a.terms && !needsAccept && (
+                <details style={{ marginTop: 10 }}>
+                  <summary>Read the full terms</summary>
+                  <div style={{ whiteSpace: "pre-wrap", marginTop: 6 }}>{a.terms}</div>
+                </details>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="card">

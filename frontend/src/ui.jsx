@@ -52,7 +52,11 @@ export const useIsDesktop = () => useMedia(DESKTOP_Q);
 /* ---------------- toasts ---------------- */
 
 const GLYPH = { ok: "check", warn: "alert", info: "info" };
-const LIFE = { ok: 4200, info: 5200, warn: 7000 };
+/* A warning stays until it is dismissed: it is usually the only account of
+   something that did not happen, and seven seconds is less than it takes to
+   look up from the keyboard. */
+const LIFE = { ok: 4200, info: 5200, warn: null };
+const UNDO_LIFE = 10000;
 
 /** Toast stack. `toast.ok(title, body)` / `.warn()` / `.info()`. */
 export function useToasts() {
@@ -68,7 +72,8 @@ export function useToasts() {
     const id = ++seq.current;
     setItems((xs) => [...xs.slice(-3), { id, kind, title, body, action }]);
     /* an offer to undo needs longer on screen than a confirmation does */
-    setTimeout(() => drop(id), action ? LIFE.warn + 3000 : LIFE[kind]);
+    const life = kind === "warn" ? null : action ? UNDO_LIFE : LIFE[kind];
+    if (life) setTimeout(() => drop(id), life);
     return id;
   }, [drop]);
   const toast = useRef(null);
@@ -89,7 +94,8 @@ export function Toasts({ items, onDismiss }) {
   return (
     <div className="toasts" role="status" aria-live="polite">
       {items.map((t) => (
-        <div key={t.id} className={"toast " + t.kind + (t.leaving ? " leaving" : "")}>
+        <div key={t.id} className={"toast " + t.kind + (t.leaving ? " leaving" : "")}
+             role={t.kind === "warn" ? "alert" : undefined}>
           <span className={"tglyph " + (t.kind === "warn" ? "waxfg" : t.kind === "ok" ? "greenfg" : "brassfg")}>
             <Icon n={GLYPH[t.kind]} s={15} />
           </span>
@@ -113,13 +119,35 @@ export function Toasts({ items, onDismiss }) {
 
 export function Dialog({ title, children, footer, onClose, wide }) {
   const card = useRef(null);
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const previous = document.activeElement;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); close.current(); }
+      if (e.key !== "Tab") return;
+      const nodes = [...(card.current?.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],[tabindex="0"]') || [])]
+        .filter((node) => node.getClientRects().length > 0);
+      const first = nodes[0], last = nodes[nodes.length - 1];
+      if (!first) { e.preventDefault(); card.current?.focus(); }
+      else if (e.shiftKey && (document.activeElement === first || document.activeElement === card.current)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && (document.activeElement === last || !card.current?.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener("keydown", onKey);
-    const first = card.current?.querySelector("button,input,select,textarea");
+    /* Once, on opening: the first field if there is one, else the first
+       button. Re-running this on a parent's re-render is what used to pull the
+       cursor out of whatever was being typed. */
+    const first = card.current?.querySelector("input:not(:disabled),select:not(:disabled),textarea:not(:disabled)")
+      || card.current?.querySelector("button:not(:disabled)");
     (first || card.current)?.focus?.();
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = overflow;
+      if (previous?.isConnected) previous.focus();
+    };
+  }, []);
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={"dlg" + (wide ? " wide" : "")} ref={card} role="dialog" aria-modal="true"
@@ -141,12 +169,19 @@ export function Dialog({ title, children, footer, onClose, wide }) {
 export function ConfirmDialog({ title, children, confirmLabel = "Confirm", tone = "pri",
                                hold = false, holdHint, disabled = false, onConfirm, onClose }) {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const pending = useRef(false);
   const run = async () => {
+    if (pending.current || disabled) return;
+    pending.current = true;
     setBusy(true);
-    try { await onConfirm(); } finally { setBusy(false); onClose(); }
+    setError("");
+    try { if (await onConfirm() !== false) onClose(); }
+    catch (e) { setError(e.message || "That didn't go through. Please try again."); }
+    finally { pending.current = false; setBusy(false); }
   };
   return (
-    <Dialog title={title} onClose={onClose} footer={
+    <Dialog title={title} onClose={() => { if (!pending.current) onClose(); }} footer={
       <>
         {hold && <span className="holdhint" style={{ marginRight: "auto" }}>{holdHint || "Press and hold to confirm"}</span>}
         <button className="btn" onClick={onClose} disabled={busy}>Cancel</button>
@@ -157,6 +192,7 @@ export function ConfirmDialog({ title, children, confirmLabel = "Confirm", tone 
       </>
     }>
       {children}
+      {error && <p className="notice" role="alert">{error}</p>}
     </Dialog>
   );
 }

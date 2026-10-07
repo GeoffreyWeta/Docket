@@ -70,9 +70,13 @@ const PREFERRED_HOME = {
   auditor: "audit", supplier: "portal",
 };
 
+/* Somebody who reads the books but does not run tenders lands on Finance, not
+   on a procurement dashboard they cannot act on. Nobody with no sections at
+   all is sent to the audit trail: null, and App.jsx says so in plain words. */
 export function homePage(user) {
   const pages = navPages(user);
   const pref = PREFERRED_HOME[user.role];
   if (pref && pages.includes(pref)) return pref;
-  return pages[0] || "audit";
+  if (pages.includes("finance") && !can(user, "tender.create")) return "finance";
+  return pages[0] || null;
 }

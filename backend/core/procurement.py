@@ -111,6 +111,11 @@ def vendor_rows(t, p):
     bids = list(Bid.objects.filter(tender=t).select_related("round"))
     rounds = {r.id: r for r in t.rounds.all()}
     latest = t.latest_round()
+    # Who the publish invitation reached nobody at (views._publish records it).
+    from .models import Event
+    from .views import UNREACHED
+    unreached = " ".join(Event.objects.filter(tender_id=t.id, action=UNREACHED)
+                         .values_list("detail", flat=True))
     out = []
     for sid in ids:
         s = suppliers.get(sid)
@@ -129,7 +134,8 @@ def vendor_rows(t, p):
             "verificationStatus": s.verification_status(),
             # Invited to the event is a fact about the event; the vendor-level
             # `invited_at` is about the register drive and is a different thing.
-            "invitationStatus": ("awaiting" if t.status in ("draft", "approval") else "sent"),
+            "invitationStatus": ("awaiting" if t.status in ("draft", "approval")
+                                 else "unreachable" if f"[{sid}]" in unreached else "sent"),
             "bidStatus": ("submitted" if last else "none"),
             "submittedAt": last.submitted_at if last else None,
             "roundsBid": [b.round.number if b.round_id else 1 for b in mine],
@@ -356,6 +362,7 @@ def cancel_event(request, p, body, tid):
     if not reason:
         return err("Give a reason - every invited vendor is told it verbatim.")
     n = t.bids.count()
+    opened = bool(t.opened_at or t.tech_opened_at)
     with transaction.atomic():
         t.status = "cancelled"
         t.cancelled_at = now_ms()
@@ -363,10 +370,13 @@ def cancel_event(request, p, body, tid):
         t.save(update_fields=["status", "cancelled_at", "cancel_reason"])
         t.rounds.exclude(status__in=("completed", "cancelled")).update(
             status="cancelled", cancel_reason=reason)
-    log(p, "Event cancelled", f"{reason} {n} submission(s) held unopened.", t.id)
+    log(p, "Event cancelled", f"{reason} {n} submission(s) "
+        + ("had already been opened." if opened else "held unopened."), t.id)
     notify_suppliers(t.invited, f"Event cancelled: {t.title}",
                      f"{org_name()} has cancelled {t.ref}. No award will be made. "
-                     f"Reason given: {reason}\n\nAny sealed bid you submitted was not opened.", t.id)
+                     f"Reason given: {reason}\n\n"
+                     + ("Bids had already been opened for evaluation before the cancellation."
+                        if opened else "Any sealed bid you submitted was not opened."), t.id)
     notify_perm("bid.open", f"Event cancelled: {t.title}",
                 f"{p['name']} cancelled {t.ref}. {reason}", t.id)
     return JsonResponse({"ok": True})
@@ -467,11 +477,14 @@ def event_vendors(request, p, body, tid):
 
     live = t.status in ("published", "paused") or eff_status(t) == "closed"
     if live and body.get("notify", True):
+        from .views import UNREACHED, _closes_at
         for sid in fresh:
-            notify_supplier(sid, f"Invitation to tender: {t.title}",
-                            f"{org_name()} invites your sealed bid for {t.ref} - {t.title}. "
-                            + (f"Submissions close {fmt_date_ms(t.deadline)}. " if t.deadline else "")
-                            + "Full terms are in your bid room.", t.id)
+            if not notify_supplier(sid, f"Invitation to tender: {t.title}",
+                                   f"{org_name()} invites your sealed bid for {t.ref} - {t.title}. "
+                                   + (f"Submissions close {_closes_at(t.deadline)}. " if t.deadline else "")
+                                   + "Full terms are in your bid room.", t.id):
+                log(p, UNREACHED, f"{found[sid].name} [{sid}] has no account and no contact "
+                                  f"email on the register, so the invitation reached nobody.", t.id)
     return JsonResponse({"ok": True, "added": fresh, "alreadyInvited": already,
                          "unverified": unverified, "invited": t.invited})
 

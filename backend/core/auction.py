@@ -49,8 +49,17 @@ MAX_PROXY_ROUNDS = 40
 
 # ---------------- reading the lot ----------------
 
+def _removed(auction_id):
+    """Suppliers taken out of this auction. Their prices stay on the record
+    but stop counting: a removed bidder must not lead, rank or win."""
+    return (AuctionParticipant.objects.filter(auction_id=auction_id, disqualified=True)
+            .values_list("supplier_id", flat=True))
+
+
 def live_bids(lot):
-    return lot.bids.filter(retracted_at__isnull=True).order_by("amount", "at")
+    return (lot.bids.filter(retracted_at__isnull=True)
+            .exclude(supplier_id__in=_removed(lot.auction_id))
+            .order_by("amount", "at"))
 
 
 def best_bid(lot):
@@ -165,7 +174,11 @@ def _maybe_extend(a, now):
         # fact the award file needs, because the last bidder was denied the
         # answer every earlier bidder got.
         return None
-    return now + a.extend_by_ms
+    # Never earlier than the close already standing: when the window is wider
+    # than the extension, `now + extend_by` can land before it, and an
+    # "extension" that pulls the close in would cut the auction short.
+    new_close = max(a.ends_at or 0, now + a.extend_by_ms)
+    return new_close if new_close > (a.ends_at or 0) else None
 
 
 # ---------------- placing one ----------------
@@ -238,9 +251,11 @@ def resolve_proxies(lot, now=None):
         if top is None:
             break
         limit = lot.step_to_beat(top.amount)
+        removed = set(_removed(lot.auction_id))
         contenders = [
             px for px in lot.proxies.filter(cancelled_at__isnull=True)
             if px.supplier_id != top.supplier_id and px.floor <= limit
+            and px.supplier_id not in removed
         ]
         if not contenders:
             break
@@ -294,6 +309,8 @@ def open_auction(a, actor, now=None):
         return "Invite at least one vendor before opening."
     if not a.ends_at:
         return "Set a closing time before opening."
+    if a.ends_at <= now:
+        return "The closing time has already passed. Set a later one."
     a.status = "live"
     a.starts_at = a.starts_at or now
     a.scheduled_ends_at = a.scheduled_ends_at or a.ends_at
@@ -343,6 +360,35 @@ def close_auction(a, actor, now=None):
                  detail=f"{a.ref} - {a.bids.count()} price movements, "
                         f"{len(a.extensions or [])} extension(s), {won} lot(s) with a winner.")
     return outcome, None
+
+
+def settle_if_due(a, now=None):
+    """Close a live auction whose clock has run out. True if it closed one.
+
+    Nothing else ends an auction on time: without this a room sat at "live"
+    with the clock at zero, the Close button gone (it is offered only while
+    the room is open) and Award refused (it wants "closed"). Called lazily by
+    the endpoints that read an auction and by the background sweep, under a
+    row lock so two polls arriving together settle it once.
+    """
+    now = now if now is not None else now_ms()
+    if a.status != "live" or not a.ends_at or a.ends_at > now:
+        return False
+    with transaction.atomic():
+        fresh = Auction.objects.select_for_update().filter(pk=a.pk).first()
+        if not fresh or fresh.status != "live" or not fresh.ends_at or fresh.ends_at > now:
+            return False
+        # Settled as at the moment the clock ran out, not whenever somebody
+        # next happened to look.
+        close_auction(fresh, "System", now=fresh.ends_at)
+    return True
+
+
+def settle_due(now=None):
+    """Every live auction whose time is up. Returns how many were settled."""
+    now = now if now is not None else now_ms()
+    return sum(1 for a in Auction.objects.filter(status="live", ends_at__lte=now)
+               if settle_if_due(a, now=now))
 
 
 def savings(a):

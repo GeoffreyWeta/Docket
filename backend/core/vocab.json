@@ -76,6 +76,19 @@
     ["Milestone payments", "Staged against milestones"]
   ],
 
+  "returnReasons": [
+    "Scope or specification needs work",
+    "Budget or ceiling needs checking",
+    "Wrong vendors invited",
+    "Evaluation criteria or weights need changing",
+    "Deadline is too short",
+    "Scores need explaining",
+    "Pricing needs checking",
+    "Recommended bid has compliance gaps",
+    "Missing supporting documents",
+    "Other"
+  ],
+
   "docTypes": [
     "CAC certificate of incorporation",
     "CAC status report",

@@ -50,6 +50,15 @@ def _seal_key(t):
 def run_sweep():
     now = now_ms()
 
+    # Auctions whose clock has run out. The room and list endpoints settle
+    # these lazily when somebody looks; this catches the ones nobody opened,
+    # so an unattended room still closes and becomes awardable.
+    from . import auction as auction_engine
+    try:
+        auction_engine.settle_due(now)
+    except Exception:                                             # noqa: BLE001
+        pass
+
     # 0) Rounds whose window has run out. The tender's own deadline already
     #    reads as sealed through eff_status; this is the round row catching up,
     #    so the rounds table and the bid bucket agree with the countdown.
@@ -89,40 +98,53 @@ def run_sweep():
             if left <= 0:
                 continue
             for days, who in ((60, "vendor"), (30, "procurement"), (7, "vendor")):
-                if left <= days * DAY_MS and _once(f"docexp:{s.id}:{doc['name']}:{days}"):
+                # Keyed on the document, not its name: a renewed tax clearance is
+                # a new upload with the same name, and still needs its reminders.
+                key = doc.get("docId") or f"{doc.get('name')}:{exp}"
+                if left <= days * DAY_MS and _once(f"docexp:{s.id}:{key}:{days}"):
                     if who == "vendor":
                         notify_supplier(s.id, f"Document expiring: {doc['name']}",
-                                        f"Your {doc['name']} expires on {fmt_date_ms(exp)}. Upload a renewal from "
+                                        f"Your {doc['name']} expires on {fmt_date_ms(exp, date_only=True)}. Upload a renewal from "
                                         f"your company profile to stay eligible for invitations.")
                     else:
                         notify_perm("supplier.prequalify", f"Compliance document expiring: {s.name}",
-                                    f"{doc['name']} for {s.name} expires on {fmt_date_ms(exp)}. "
+                                    f"{doc['name']} for {s.name} expires on {fmt_date_ms(exp, date_only=True)}. "
                                     f"Request a renewal before inviting them to new tenders.")
 
-    # 4) Evaluation stalled: opened 3+ days ago, an evaluator still hasn't scored every bid.
-    from django.contrib.auth.models import User
-    evaluators = [(u.profile.persona.id, u) for u in
-                  User.objects.filter(profile__persona__role="evaluator").select_related("profile__persona")]
-    from .notify import notify_users
+    # 4) Evaluation stalled: opened 3+ days ago, a scorer still hasn't fully
+    #    scored every bid. Addressed by capability, not by role name: companies
+    #    name their own roles, and whoever holds `bid.score` is the panel.
+    from .notify import _users_for_perm, notify_personas, notify_users
+    evaluators = [(u.profile.persona_id, u) for u in _users_for_perm("bid.score")]
     for t in Tender.objects.filter(status="evaluation"):
         opened = t.opened_at or t.tech_opened_at
-        if not opened or now - opened < 3 * DAY_MS:
+        if not opened or now - opened < 3 * DAY_MS or t.award_rec:
             continue
+        crit = [c["id"] for c in (t.criteria or [])]
         bids = [b for b in t.bids.all() if not b.disqualified]
         for pid, user in evaluators:
-            missing = sum(1 for b in bids if pid not in (b.scores or {}))
+            # A bid with one criterion scored is not scored.
+            missing = sum(1 for b in bids
+                          if any((b.scores or {}).get(pid, {}).get(c) in (None, "") for c in crit))
             if missing and _once(f"scorenudge:{t.id}:{pid}"):
                 notify_users([user], f"Scores outstanding: {t.title}",
-                             f"{missing} bid(s) on {t.ref} are still waiting for your scores. The commercial "
-                             f"stage and the award are blocked until the panel is complete.", t.id)
+                             f"{missing} bid(s) on {t.ref} are still waiting for your scores.", t.id)
 
-    # 5) Award recommendation sitting with the approver for 2+ days.
+    # 5) Award recommendation sitting with its signer for 2+ days: the
+    #    signature the chain is waiting on, or, with no ladder, whoever can
+    #    decide awards.
+    from . import approvals
     for t in Tender.objects.filter(status="evaluation"):
         rec = t.award_rec
         if rec and now - rec.get("at", now) >= 2 * DAY_MS and _once(f"recnudge:{t.id}"):
-            notify_perm("tender.publish_decision", f"Approval waiting: {t.title}",
-                        f"The award recommendation on {t.ref} has been in your queue since "
-                        f"{fmt_date_ms(rec['at'])}. Suppliers hear nothing until you decide.", t.id)
+            subject = f"Approval waiting: {t.title}"
+            text = (f"The award recommendation on {t.ref} has been in your queue since "
+                    f"{fmt_date_ms(rec['at'])}. Suppliers hear nothing until you decide.")
+            step = approvals.current_step(t, approvals.AWARD)
+            if step:
+                notify_personas(approvals.signers(step), subject, text, t.id)
+            else:
+                notify_perm("award.decide", subject, text, t.id)
 
     # 6) The registration drive, a bounded batch at a time. Placed last because
     #    it is the slowest step by an order of magnitude and everything above it
@@ -142,7 +164,7 @@ def run_sweep():
     for s in Supplier.objects.filter(prequalified=False, registered_at__isnull=False, rejected_reason=""):
         if now - s.registered_at >= 3 * DAY_MS and _once(f"regnudge:{s.id}"):
             notify_perm("supplier.prequalify", f"Registration awaiting review: {s.name}",
-                        f"{s.name} registered on {fmt_date_ms(s.registered_at)} and is still waiting for a "
+                        f"{s.name} registered on {fmt_date_ms(s.registered_at, date_only=True)} and is still waiting for a "
                         f"prequalification decision. Vendors who hear nothing stop responding to invitations.")
 
     # 8) The finance exceptions. Same eight rules the Finance page lists, run
@@ -175,13 +197,39 @@ def sweep_finance(now=None):
         # the deadline sealing above it is time-critical and this is not.
         return 0
 
-    sent = 0
-    for ex in found:
-        if ex["severity"] not in NOTIFY_SEVERITIES:
-            continue
-        if not _once(f"fin:{ex['key']}"):
-            continue
-        notify_perm("page.finance", ex["subject"], ex["detail"],
-                    ex["ref"]["id"] if (ex["ref"] or {}).get("page") == "tender" else None)
-        sent += 1
-    return sent
+    fresh = [ex for ex in found
+             if ex["severity"] in NOTIFY_SEVERITIES and _once(f"fin:{ex['key']}")]
+    if not fresh:
+        return 0
+
+    # One summary per sweep, not one notification per finding: forty overdue
+    # invoices on a first import is forty notifications nobody reads. And the
+    # payables findings name what a vendor is owed, so they only go to people
+    # who can see payables - the same split the Finance page itself makes.
+    from .notify import _users_for_perm, notify_users
+    payable = [ex for ex in fresh if ex["kind"] in PAYABLES_KINDS]
+    general = [ex for ex in fresh if ex["kind"] not in PAYABLES_KINDS]
+    pay_ids = {u.id for u in _users_for_perm("finance.payables")}
+    everyone = _users_for_perm("page.finance")
+
+    def summary(items):
+        n = len(items)
+        subject = f"{n} new thing{'s' if n != 1 else ''} need{'' if n != 1 else 's'} attention in Finance"
+        body = "; ".join(ex["subject"] for ex in items[:5])
+        if n > 5:
+            body += f"; and {n - 5} more"
+        return subject, body + ". Open the Exceptions tab on the Finance page to work through them."
+
+    for group, users in (
+        (fresh, [u for u in everyone if u.id in pay_ids]),
+        (general, [u for u in everyone if u.id not in pay_ids]),
+    ):
+        if group and users:
+            subject, body = summary(group)
+            notify_users(users, subject, body, None, destination={"page": "finance"})
+    return len(payable) + len(general)
+
+
+# Findings about what a named vendor is owed. Kept from anyone without
+# `finance.payables`, here and in finance_views.
+PAYABLES_KINDS = ("exposure", "payment_overdue", "duplicate_invoice")

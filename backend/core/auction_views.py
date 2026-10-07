@@ -105,6 +105,7 @@ def _mine(a, p):
 
 @route(["GET"], perm="page.auctions")
 def auction_list(request, p, body):
+    engine.settle_due()
     rows = [_auction_view(a, p, monitor=has(p, "auction.monitor"))
             for a in Auction.objects.prefetch_related("lots").all()]
     return JsonResponse({"auctions": rows})
@@ -114,6 +115,7 @@ def auction_list(request, p, body):
 def my_auctions(request, p, body):
     """A vendor sees the auctions they were actually invited to, and drafts
     never appear: an auction nobody has opened is not yet an invitation."""
+    engine.settle_due()
     ids = list(AuctionParticipant.objects
                .filter(supplier_id=p["supplierId"]).values_list("auction_id", flat=True))
     qs = (Auction.objects.filter(pk__in=ids)
@@ -156,10 +158,12 @@ def auction_update(request, p, body, aid):
         return err("A live auction's rules cannot be changed. Pause it and cancel "
                    "if the terms were wrong - bidders priced against what was published.", 409)
 
-    for key, attr in (("title", "title"), ("scope", "scope"), ("terms", "terms"),
-                      ("ref", "ref")):
+    # Capped to each column's length. Scope and terms are text columns and are
+    # not cut: a bidder prices against the whole of them.
+    for key, attr, cap in (("title", "title", 200), ("scope", "scope", None),
+                           ("terms", "terms", None), ("ref", "ref", 40)):
         if key in body:
-            setattr(a, attr, str(body[key]).strip()[:200])
+            setattr(a, attr, str(body[key]).strip()[:cap])
     if "visibility" in body:
         if body["visibility"] not in dict(Auction.VISIBILITY):
             return err("Visibility must be rank, price or blind.")
@@ -323,6 +327,29 @@ def image_view(request, p, body, aid, did):
 
 # ---------------- who may bid ----------------
 
+def _when(ms):
+    """A closing time as a vendor reads it in an email: date, hour, zone.
+    Lagos time, which is fixed at UTC+1 with no daylight saving."""
+    import datetime
+    return (datetime.datetime.utcfromtimestamp(ms / 1000 + 3600)
+            .strftime("%d %b %Y at %H:%M") + " (Lagos time)")
+
+
+def _bidders(a):
+    """Everybody still in the auction: on the list and not removed."""
+    return list(a.participants.filter(disqualified=False).values_list("supplier_id", flat=True))
+
+
+def _tell(sids, subject, body, a):
+    """Best effort, one vendor at a time: a bad address is that vendor's problem
+    and must not stop the act that triggered the message."""
+    for sid in sids:
+        try:
+            notify_supplier(sid, subject, body, destination={"page": "auction", "id": a.id})
+        except Exception:                           # noqa: BLE001
+            pass
+
+
 def _send_invites(a, p, only=None):
     """Email the vendors who have not been told yet, and count it on the row.
 
@@ -353,7 +380,8 @@ def _send_invites(a, p, only=None):
                 + (f"The opening price is {lot.ceiling:,} {a.currency}. "
                    if lot and lot.ceiling and a.ceiling_visible else "")
                 + ("The room is open now. " if a.is_live()
-                   else "You will be told when the room opens. "),
+                   else "You will be told when the room opens. ")
+                + (f"Bidding closes on {_when(a.ends_at)}. " if a.ends_at else ""),
                 destination={"page": "auction", "id": a.id})
             if reached:
                 part.invite_count += 1
@@ -379,6 +407,13 @@ def send_invites(request, p, body, aid):
         return err("Auction not found.", 404)
     sent = _send_invites(a, p, body.get("supplierIds"))
     if not sent:
+        # Untold vendors left over after a send are ones nobody could reach,
+        # which is not the same as everybody having been told.
+        untold = a.participants.filter(invite_count=0, disqualified=False).count()
+        if untold:
+            return err(f"Nobody could be emailed: {untold} vendor{'s' if untold != 1 else ''} "
+                       f"on this auction {'have' if untold != 1 else 'has'} no email address "
+                       f"on the register. Add one to the vendor's record and send again.", 409)
         return err("Everybody on this auction has already been invited.", 409)
     log(p, "Auction invitations sent", f"{sent} vendor(s) emailed for {a.ref}.")
     return JsonResponse({"ok": True, "sent": sent,
@@ -671,9 +706,16 @@ def auction_open(request, p, body, aid):
     a = _find(aid)
     if not a:
         return err("Auction not found.", 404)
+    told = list(a.participants.filter(invite_count__gt=0, disqualified=False)
+                .values_list("supplier_id", flat=True))
     bad = engine.open_auction(a, p["name"])
     if bad:
         return err(bad, 409)
+    # Those invited earlier were promised "you will be told when the room
+    # opens", so they are told, with the close.
+    _tell(told, f"The auction room is open: {a.title}",
+          f"{org_name()} has opened {a.ref} - {a.title}. You can bid now. "
+          f"Bidding closes on {_when(a.ends_at)}.", a)
     # Anyone still untold is told now. Up to here silence was the point - the
     # buyer was still shaping the thing - but an open room nobody was invited
     # to is just a clock running in an empty building.
@@ -706,6 +748,9 @@ def auction_pause(request, p, body, aid):
     a.save(update_fields=["status", "paused_at", "paused_reason"])
     record_event(actor=p["name"], role=p["role"], action="Auction paused",
                  detail=f"{a.ref}: {reason}")
+    _tell(_bidders(a), f"Auction paused: {a.title}",
+          f"{a.ref} - {a.title} is paused. The clock is stopped and no prices are being "
+          f"taken. Reason: {reason.rstrip('.')}. The time lost is given back when the room reopens.", a)
     return JsonResponse(_auction_view(a, p, monitor=True))
 
 
@@ -784,6 +829,22 @@ def auction_award(request, p, body, aid):
     record_event(actor=p["name"], role=p["role"], action="Auction awarded",
                  detail=f"{a.ref}: {len(won)} lot(s), {s['final']:,} against an opening "
                         f"{s['ceiling']:,} - {s['saved']:,} below the opening price.")
+
+    # Tell the room how it ended: each winner what they won and at what price,
+    # and everybody else who bid that they were not successful.
+    wins = {}
+    for l in won:
+        wins.setdefault(l.awarded_to, []).append(
+            f"Lot {l.number}, {l.title}: {l.awarded_amount:,} {a.currency}")
+    for sid, lines in wins.items():
+        _tell([sid], f"You won: {a.title}",
+              f"{org_name()} has awarded {a.ref} - {a.title}. You won:\n"
+              + "\n".join(lines) + "\n\nThe buyer will be in touch about the order.", a)
+    bid = set(a.bids.filter(retracted_at__isnull=True).values_list("supplier_id", flat=True))
+    _tell([sid for sid in _bidders(a) if sid in bid and sid not in wins],
+          f"Auction result: {a.title}",
+          f"{org_name()} has awarded {a.ref} - {a.title}. Your bid was not successful "
+          f"this time. Thank you for taking part.", a)
     return JsonResponse({"ok": True, "savings": s,
                          "auction": _auction_view(a, p, monitor=True)})
 
@@ -803,6 +864,10 @@ def room(request, p, body, aid):
     a = _find(aid)
     if not a:
         return err("Auction not found.", 404)
+    # Time up: settle it now, so whoever is looking sees the result rather
+    # than a "live" room with the clock at zero.
+    if engine.settle_if_due(a):
+        a = _find(aid)
     supplier = p["role"] == "supplier"
     part = _mine(a, p)
     if supplier and not part:

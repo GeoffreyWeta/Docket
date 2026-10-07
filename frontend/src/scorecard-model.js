@@ -177,8 +177,6 @@ function holdOutReason(s) {
   if (!s.prequalified) {
     return s.rejectedReason ? "prequalification declined" : "in prequalification review";
   }
-  const perf = s.perf || {};
-  if (perf.onTime == null && perf.quality == null) return "no operating history yet";
   return null;
 }
 
@@ -200,7 +198,18 @@ export function buildBoard(state, now = nowMs()) {
       held.push({ id: s.id, name: s.name, category: s.category, reason });
       continue;
     }
-    rows.push(scoreSupplier(s, tenders, bids, now));
+    /* Delivery and quality are carried from the register, and nothing in a
+       real workspace writes them yet. A vendor without them is scored on the
+       parts DOCKET measures itself (price, response, compliance) and flagged,
+       rather than held out: holding them out left every real vendor off the
+       board. Held out only when there is nothing measured to score. */
+    const r = scoreSupplier(s, tenders, bids, now);
+    r.unrecorded = r.scores.delivery == null && r.scores.quality == null;
+    if (r.unrecorded && r.scores.price == null && !r.detail.invitations) {
+      held.push({ id: s.id, name: s.name, category: s.category, reason: "no bids or invitations yet" });
+      continue;
+    }
+    rows.push(r);
   }
 
   /* The peer average comes first, because it is what a missing dimension is

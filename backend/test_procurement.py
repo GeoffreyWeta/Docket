@@ -417,7 +417,7 @@ def sec_round_one(ctx):
 
     # --- a bid needs its technical proposal first --------------------------
     refused("sealing a bid with no technical proposal", "POST", f"/api/tenders/{tid}/bids/",
-            a_mail, {"amount": 34_000_000}, status=(400,))
+            a_mail, {"decl": True, "amount": 34_000_000}, status=(400,))
     call("POST", f"/api/tenders/{tid}/bid_docs/", a_mail,
          files={"file": pdf("alpha-technical.pdf"), "envelope": "technical"})
     call("POST", f"/api/tenders/{tid}/bid_docs/", b_mail,
@@ -426,18 +426,20 @@ def sec_round_one(ctx):
     # --- line-item pricing -------------------------------------------------
     t = tender_of(a_mail, tid)
     line = t["lines"][0]["id"]
+    refused("sealing a bid without the conflict-of-interest declaration", "POST",
+            f"/api/tenders/{tid}/bids/", a_mail, {"lines": {line: 17_000}}, status=(400,))
     refused("a line priced at zero", "POST", f"/api/tenders/{tid}/bids/", a_mail,
-            {"lines": {line: 0}}, status=(400,))
+            {"decl": True, "lines": {line: 0}}, status=(400,))
 
     mail.outbox = []
-    call("POST", f"/api/tenders/{tid}/bids/", a_mail, {"lines": {line: 17_000}},
+    call("POST", f"/api/tenders/{tid}/bids/", a_mail, {"decl": True, "lines": {line: 17_000}},
          label="vendor A sealed a bid")
-    call("POST", f"/api/tenders/{tid}/bids/", b_mail, {"lines": {line: 18_500}},
+    call("POST", f"/api/tenders/{tid}/bids/", b_mail, {"decl": True, "lines": {line: 18_500}},
          label="vendor B (unverified) sealed a bid")
     yes("each bidder got a submission confirmation",
         mail_to(a_mail) and any("received" in m.subject.lower() for m in mail_to(a_mail)))
     refused("bidding twice in the same round", "POST", f"/api/tenders/{tid}/bids/", a_mail,
-            {"lines": {line: 16_000}}, status=(409,))
+            {"decl": True, "lines": {line: 16_000}}, status=(409,))
 
     # --- one vendor cannot see another's bid -------------------------------
     a_bids = [b for b in boot(a_mail)["bids"] if b["tenderId"] == tid]
@@ -483,7 +485,7 @@ def sec_round_one(ctx):
     eq("status reads paused", tender_of(BUYER, tid)["status"], "paused")
     yes("vendors were told it stopped", any("paused" in m.subject.lower() for m in mail_to(a_mail)))
     refused("submitting into a paused event", "POST", f"/api/tenders/{tid}/bids/", a_mail,
-            {"lines": {line: 1}}, status=(409,))
+            {"decl": True, "lines": {line: 1}}, status=(409,))
     refused("opening bids on a paused event", "POST", f"/api/tenders/{tid}/open/", BUYER,
             {}, status=(409,))
     refused("pausing an already-paused event", "POST", f"/api/tenders/{tid}/pause/", BUYER,
@@ -508,7 +510,7 @@ def sec_closing_opening(ctx):
     eq("the event reads as sealed once the deadline passes",
        tender_of(BUYER, tid)["effStatus"], "closed")
     refused("submitting after the deadline", "POST", f"/api/tenders/{tid}/bids/", a_mail,
-            {"lines": {line: 1}}, status=(409,))
+            {"decl": True, "lines": {line: 1}}, status=(409,))
 
     # Opening is a capability, not a role: an evaluator scores, they do not
     # break seals, and an auditor does neither.
@@ -589,9 +591,9 @@ def sec_round_two(ctx):
         all(b.get("sealed") and b.get("amount") is None for b in r2_bids) if r2_bids else True)
 
     # --- a second submission from the same vendor, in the new round --------
-    call("POST", f"/api/tenders/{tid}/bids/", a_mail, {"lines": {ctx["line"]: 15_500}},
+    call("POST", f"/api/tenders/{tid}/bids/", a_mail, {"decl": True, "lines": {ctx["line"]: 15_500}},
          label="vendor A re-priced in round 2")
-    call("POST", f"/api/tenders/{tid}/bids/", b_mail, {"lines": {ctx["line"]: 18_000}},
+    call("POST", f"/api/tenders/{tid}/bids/", b_mail, {"decl": True, "lines": {ctx["line"]: 18_000}},
          label="vendor B re-priced in round 2")
     eq("both rounds' bids coexist", Bid.objects.filter(tender_id=tid).count(), 4)
     signin(BUYER)
@@ -604,7 +606,7 @@ def sec_round_two(ctx):
     eq("without a fresh technical proposal being demanded",
        Bid.objects.filter(tender_id=tid, round__number=2).count(), 2)
     refused("bidding twice in round 2", "POST", f"/api/tenders/{tid}/bids/", a_mail,
-            {"lines": {ctx["line"]: 15_000}}, status=(409,))
+            {"decl": True, "lines": {ctx["line"]: 15_000}}, status=(409,))
 
     signin(BUYER)
     call("POST", f"/api/rounds/{rid}/close/", BUYER, {}, label="round 2 closed early")
@@ -674,7 +676,10 @@ def sec_evaluation_award(ctx):
 
     # --- returned for review, then approved --------------------------------
     signin(APPROVER)
-    call("POST", f"/api/tenders/{tid}/award_decision/", APPROVER, {"ok": False},
+    refused("returning without a reason", "POST", f"/api/tenders/{tid}/award_decision/", APPROVER,
+            {"ok": False}, status=(400,))
+    call("POST", f"/api/tenders/{tid}/award_decision/", APPROVER,
+         {"ok": False, "reason": "Pricing needs checking"},
          label="approver returned the recommendation with questions")
     yes("the recommendation is back with the panel", tender_of(BUYER, tid)["awardRec"] is None)
     eq("and no award was made", tender_of(BUYER, tid)["status"], "evaluation")
@@ -733,7 +738,7 @@ def sec_cancellation(ctx):
     a_mail = VENDOR_A["email"]
     call("POST", f"/api/tenders/{tid}/bid_docs/", a_mail,
          files={"file": pdf("alpha-technical-2.pdf"), "envelope": "technical"})
-    call("POST", f"/api/tenders/{tid}/bids/", a_mail, {"amount": 11_000_000})
+    call("POST", f"/api/tenders/{tid}/bids/", a_mail, {"decl": True, "amount": 11_000_000})
     ok("a vendor sealed a bid before the withdrawal")
 
     signin(AUDITOR)
@@ -758,7 +763,7 @@ def sec_cancellation(ctx):
     refused("opening a cancelled event's bids", "POST", f"/api/tenders/{tid}/open/", BUYER,
             {}, status=(409,))
     refused("submitting into a cancelled event", "POST", f"/api/tenders/{tid}/bids/", a_mail,
-            {"amount": 1}, status=(409,))
+            {"decl": True, "amount": 1}, status=(409,))
     refused("cancelling twice", "POST", f"/api/tenders/{tid}/cancel/", BUYER,
             {"reason": "again"}, status=(409,))
     refused("resuming a cancelled event", "POST", f"/api/tenders/{tid}/resume/", BUYER,
@@ -808,7 +813,7 @@ def sec_two_stage_and_rounds(ctx):
              files={"file": pdf(f"{who}-technical.pdf"), "envelope": "technical"})
         call("POST", f"/api/tenders/{tid}/bid_docs/", who,
              files={"file": pdf(f"{who}-commercial.pdf"), "envelope": "commercial"})
-        call("POST", f"/api/tenders/{tid}/bids/", who, {"amount": amount})
+        call("POST", f"/api/tenders/{tid}/bids/", who, {"decl": True, "amount": amount})
     ok("both vendors sealed a bid with both envelopes")
 
     rewind(tid, 60_000)
@@ -857,7 +862,7 @@ def sec_two_stage_and_rounds(ctx):
 
     call("POST", f"/api/tenders/{tid}/bid_docs/", a_mail,
          files={"file": pdf("alpha-round2-technical.pdf"), "envelope": "technical"})
-    call("POST", f"/api/tenders/{tid}/bids/", a_mail, {"amount": 16_000_000})
+    call("POST", f"/api/tenders/{tid}/bids/", a_mail, {"decl": True, "amount": 16_000_000})
     signin(BUYER)
     r2docs = [d for d in boot(BUYER)["documents"]
               if d["tenderId"] == tid and d["kind"] == "bid" and d["roundId"] == r["id"]]

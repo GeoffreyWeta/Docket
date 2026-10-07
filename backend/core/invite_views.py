@@ -171,19 +171,29 @@ def invite_send(request, p, body):
                     role=r["role"], title=(r.get("title") or "")[:80])
                 tok = _mint("team_invite", email,
                             {"role": r["role"], "title": persona.title,
-                             "name": persona.name, "personaId": persona.id})
-                _mail(email, f"You're invited to {org_name()}'s DOCKET workspace",
-                      f"{p['name']} invited you as {role_label(r['role'])}.\n\n"
-                      f"Set your password here:\n{_link(request, 'itoken', tok.token)}\n\n"
-                      f"The link is valid for 3 days.")
+                             "name": persona.name, "personaId": persona.id,
+                             "invitedBy": p["name"]})
+                if not _mail(email, f"You're invited to {org_name()}'s DOCKET workspace",
+                             f"{p['name']} invited you as {role_label(r['role'])}.\n\n"
+                             f"Set your password here:\n{_link(request, 'itoken', tok.token)}\n\n"
+                             f"The link is valid for 3 days."):
+                    # Nothing went, so nothing is left behind: a person on the
+                    # chart with a link they never received is a ghost.
+                    tok.delete()
+                    persona.delete()
+                    failed.append({**r, "why": "The email could not be sent."})
+                    continue
                 sent.append({"email": email, "personaId": persona.id, "role": r["role"]})
             else:
-                _mint("vendor_invite", email, {})
-                _mail(email, f"{org_name()} invites you to register on DOCKET",
-                      f"{org_name()} uses DOCKET for sealed-bid tendering and reverse "
-                      f"auctions.\n\nRegister your company here:\n"
-                      f"{_link(request, 'register', '1')}\n\n"
-                      f"Once registered and prequalified you can be invited to bid.")
+                vtok = _mint("vendor_invite", email, {})
+                if not _mail(email, f"{org_name()} invites you to register on DOCKET",
+                             f"{org_name()} uses DOCKET for sealed-bid tendering and reverse "
+                             f"auctions.\n\nRegister your company here:\n"
+                             f"{_link(request, 'register', '1')}\n\n"
+                             f"Once registered and prequalified you can be invited to bid."):
+                    vtok.delete()
+                    failed.append({**r, "why": "The email could not be sent."})
+                    continue
                 sent.append({"email": email})
         except Exception as e:
             # One bad address must not abandon the other four hundred, and the

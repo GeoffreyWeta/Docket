@@ -91,13 +91,13 @@ call("GET", f"/api/docs/{t3doc.id}/download/", "amara", expect=403)
 
 # --- supplier bid flow with real uploads on t2 ---
 pdf = io.BytesIO(b"%PDF-1.4 fake proposal"); pdf.name = "coldline-proposal.pdf"
-r = call("POST", "/api/tenders/t2/bids/", "coldline", {"lines": {"l1": 32000, "l2": 850000, "l3": 260000}, "acks": []}, expect=400)
+r = call("POST", "/api/tenders/t2/bids/", "coldline", {"decl": True, "lines": {"l1": 32000, "l2": 850000, "l3": 260000}, "acks": []}, expect=400)
 up = call("POST", "/api/tenders/t2/bid_docs/", "coldline", files={"file": pdf, "envelope": "technical"})
-call("POST", "/api/tenders/t2/bids/", "coldline", {"lines": {"l1": 32000, "l2": 850000, "l3": 260000}, "acks": []})
+call("POST", "/api/tenders/t2/bids/", "coldline", {"decl": True, "lines": {"l1": 32000, "l2": 850000, "l3": 260000}, "acks": []})
 # doc locked while bid is sealed; unlocked after withdraw
 call("DELETE", f"/api/docs/{up['doc']['id']}/", "coldline", expect=409)
 call("DELETE", "/api/tenders/t2/bids/", "coldline")
-call("POST", "/api/tenders/t2/bids/", "coldline", {"lines": {"l1": 31000, "l2": 840000, "l3": 255000}, "acks": []})
+call("POST", "/api/tenders/t2/bids/", "coldline", {"decl": True, "lines": {"l1": 31000, "l2": 840000, "l3": 255000}, "acks": []})
 # oversized upload rejected
 big = io.BytesIO(b"x" * (11 * 1024 * 1024)); big.name = "big.pdf"
 call("POST", "/api/tenders/t2/bid_docs/", "coldline", files={"file": big, "envelope": "technical"}, expect=400)
@@ -158,7 +158,7 @@ for u in ["deji", "ngozi", "mark", "aisha", "coldline", "harmattan", "bluechip"]
 from core.models import Bid as _Bid
 pdfc = io.BytesIO(b"%PDF-1.4 proposal"); pdfc.name = "coldline-proposal.pdf"
 call("POST", "/api/tenders/t2/bid_docs/", "coldline", files={"file": pdfc, "envelope": "technical"})
-call("POST", "/api/tenders/t2/bids/", "coldline", {"lines": {"l1": 32000, "l2": 850000, "l3": 260000}, "acks": []})
+call("POST", "/api/tenders/t2/bids/", "coldline", {"decl": True, "lines": {"l1": 32000, "l2": 850000, "l3": 260000}, "acks": []})
 nb = _Bid.objects.filter(tender_id="t2").first()
 assert nb.amount is None and nb.sealed_blob, "fresh bid must be ciphertext at rest"
 from core.models import Document as _Doc
@@ -282,7 +282,7 @@ for who, amt in (("coldline", 36_000_000), ("harmattan", 38_000_000)):
     call("POST", f"/api/tenders/{ts_id}/bid_docs/", who, files={"file": f1, "envelope": "technical"})
     f2 = io.BytesIO(b"%PDF-1.4 commercial"); f2.name = f"{who}-commercial.pdf"
     call("POST", f"/api/tenders/{ts_id}/bid_docs/", who, files={"file": f2, "envelope": "commercial"})
-    call("POST", f"/api/tenders/{ts_id}/bids/", who, {"amount": amt, "acks": []})
+    call("POST", f"/api/tenders/{ts_id}/bids/", who, {"decl": True, "amount": amt, "acks": []})
 _T.objects.filter(pk=ts_id).update(deadline=int(time.time() * 1000) - 1000)
 # stage 1: technical only
 call("POST", f"/api/tenders/{ts_id}/open/", "amara", {})
@@ -338,7 +338,9 @@ _sweep()  # idempotent
 assert _N.objects.filter(user__username="harmattan", subject__startswith="Document expiring").count() == before
 
 # stalled scoring: t1 opened long ago (seed); tunde (new evaluator) hasn't scored → nudged once
-_T.objects.filter(pk="t1").update(status="evaluation")  # t1 was awarded earlier in this run - restage it
+# t1 was awarded earlier in this run - restage it. The recommendation goes too:
+# scores are locked while one is pending, so nobody is nudged to score then.
+_T.objects.filter(pk="t1").update(status="evaluation", award_rec=None)
 from core.models import Tender as _T2
 _TM.objects.filter(key__startswith="scorenudge:t1").delete()
 _sweep()

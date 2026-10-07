@@ -55,6 +55,21 @@ CAMPAIGN_KEY = "vendor_campaign"     # TaskMark row holding the campaign's state
 # to guess what the sender meant.
 TOKEN_KIND = "vendor_claim"
 
+# An address that has failed this many times is left out of the queue. Retrying
+# a dead mailbox forever wastes every sweep on it, and forty of them at the top
+# of an alphabetical list stalled the whole drive. The count lives on the
+# vendor's `registry` record, beside the reason in `invite_error`.
+MAX_TRIES = 3
+
+
+def _failures(s):
+    return int((s.registry or {}).get("inviteFailures") or 0)
+
+
+def gave_up_ids():
+    return [s.id for s in Supplier.objects.exclude(invite_error="").only("id", "registry")
+            if _failures(s) >= MAX_TRIES]
+
 
 # ---------------------------------------------------------------- eligibility
 
@@ -71,11 +86,14 @@ def eligible():
     """
     registered = set(Profile.objects.filter(supplier__isnull=False)
                      .values_list("supplier_id", flat=True))
+    # Never-tried vendors first, then the ones that failed and are worth one
+    # more go: "" sorts before any error.
     return (Supplier.objects
             .exclude(contact_email="")
             .filter(invited_at__isnull=True, rejected_reason="")
             .exclude(id__in=registered)
-            .order_by("name"))
+            .exclude(id__in=gave_up_ids())
+            .order_by("invite_error", "name"))
 
 
 def preview():
@@ -97,11 +115,29 @@ def preview():
             "alreadyInvited": Supplier.objects.filter(invited_at__isnull=False).count(),
             "alreadyRegistered": len(registered),
             "heldOut": Supplier.objects.exclude(rejected_reason="").count(),
+            "gaveUp": len(gave_up_ids()),
         },
         "batch": BATCH,
+        # How often a batch goes out, so the screen can say how long it takes.
+        "sweepMinutes": 10,
+        "failedList": failed_list(),
         "live": is_live(),
         "state": state(),
     }
+
+
+def failed_list(limit=200):
+    """The vendors whose invitation did not go, each with the reason, so the
+    screen can show them rather than only count them."""
+    out = []
+    for s in (Supplier.objects.exclude(invite_error="")
+              .only("id", "name", "contact_email", "invite_error", "registry", "invited_at")
+              .order_by("name")[:limit]):
+        n = _failures(s)
+        out.append({"id": s.id, "name": s.name, "email": s.contact_email,
+                    "why": s.invite_error, "tries": n,
+                    "gaveUp": n >= MAX_TRIES, "duplicate": s.invited_at is not None})
+    return out
 
 
 # Backends that deliver nothing: everything else is assumed to reach real
@@ -170,7 +206,8 @@ def is_running():
 
 def _message(supplier, token, base_url, org):
     link = f"{base_url}/?register={token}"
-    subject = f"{org} - register as a supplier on DOCKET"
+    # The company name is added once, as the "[Org]" prefix in send_batch.
+    subject = "Register as a supplier on DOCKET"
     body = (
         f"Dear {supplier.contact_person or supplier.name},\n\n"
         f"{org} now runs its tendering through DOCKET, a sealed-bid procurement "
@@ -235,8 +272,12 @@ def send_batch(base_url, org, limit=BATCH):
             sent += 1
         except Exception as e:
             # Recorded on the vendor, not swallowed. `invited_at` is left null so
-            # a fixed address is retried; the error is what makes it findable.
-            Supplier.objects.filter(pk=s.id).update(invite_error=str(e)[:200])
+            # a fixed address is retried, up to MAX_TRIES; the error is what
+            # makes it findable.
+            reg = dict(s.registry or {})
+            reg["inviteFailures"] = _failures(s) + 1
+            Supplier.objects.filter(pk=s.id).update(invite_error=str(e)[:200] or "Could not send.",
+                                                    registry=reg)
             failed += 1
             log.warning("registration drive: send to %s failed", addr, exc_info=True)
 

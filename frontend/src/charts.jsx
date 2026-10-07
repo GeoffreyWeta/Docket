@@ -325,7 +325,8 @@ export function Donut({ data, total, format = fmtCompact, centre, centreLabel, s
   const width = R - r;
   let acc = 0;
   return (
-    <div className="donutwrap" onMouseLeave={hide}>
+    <div className="donutwrap" onMouseLeave={hide}
+         style={{ flexWrap: "wrap", alignItems: "center", gap: 16 }}>
       <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} className="donut" role="img"
            aria-label={`Total ${format(sum)}`}>
         <g transform={`rotate(-90 ${R} ${R})`}>
@@ -347,6 +348,17 @@ export function Donut({ data, total, format = fmtCompact, centre, centreLabel, s
         <text x={R} y={R - 2} textAnchor="middle" className="dnum">{centre ?? format(sum)}</text>
         <text x={R} y={R + 16} textAnchor="middle" className="dlbl">{centreLabel || "total"}</text>
       </svg>
+      {/* Name every slice in words with its share: colour alone cannot be
+          read by everyone, and cannot be read at all once printed. */}
+      <ul className="legend" style={{ flexDirection: "column", alignItems: "flex-start", margin: 0 }}>
+        {data.map((d) => (
+          <li key={d.key}>
+            <span className="lgd" style={{ background: d.color }} aria-hidden="true" />
+            {d.label}
+            <span className="faint"> {format(d.value)} · {Math.round((NUM(d.value) / sum) * 100)}%</span>
+          </li>
+        ))}
+      </ul>
       <Tip tip={tip} />
     </div>
   );
@@ -366,6 +378,8 @@ export function foldTail(data, keep = 6, otherLabel = "Other") {
 /* ---------------- line / area over time ---------------- */
 
 /* `series`: [{key,label,color,points:[{x,y}]}] with x as epoch ms. */
+const dateTick = (ms) => new Date(ms).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+
 export function TimeChart({ series, height = 210, format = fmtCompact, area, yLabel }) {
   const [hover, setHover] = useState(null);
   const wrapRef = useRef(null);
@@ -438,6 +452,13 @@ export function TimeChart({ series, height = 210, format = fmtCompact, area, yLa
         {ticks.slice(1).map((t, i) => (
           <span key={i} style={{ bottom: (H - py(t) - PAD) + "px" }}>{format(t)}</span>
         ))}
+      </div>
+      {/* Where the line starts and ends, so the period is readable without
+          hovering. */}
+      <div className="mono faint" style={{ display: "flex", justifyContent: "space-between",
+                                             fontSize: 10.5, marginTop: -PAD + 8 }}>
+        <span>{dateTick(x0)}</span>
+        {x1 !== x0 && <span>{dateTick(x1)}</span>}
       </div>
       {hover && (
         <div className="charttip" style={{ left: `${px(hover.p.x)}%`, top: py(hover.p.y) - 6 }} role="status">

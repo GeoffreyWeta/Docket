@@ -48,7 +48,16 @@ function WorkspacePreview() {
 export function StudioLanding({ cfg = {}, onScreen }) {
   const [menu, setMenu] = useState(false);
   const canDemo = !!cfg.demoUrl || !!cfg.demoLogin;
-  const start = () => cfg.signupUrl ? window.location.assign(cfg.signupUrl.replace(/\/$/, "") + "/?setup=1") : onScreen("setup");
+  /* Setup needs a code, so it is offered only when there is somewhere to set
+     up: an empty workspace here, or a sign-up address elsewhere. Otherwise
+     "Get started" writes to the company instead. */
+  const canSetup = !!(cfg.needsSetup || cfg.signupUrl);
+  const contact = cfg.contactEmail || "";
+  const start = canSetup
+    ? () => (cfg.signupUrl ? window.location.assign(cfg.signupUrl.replace(/\/$/, "") + "/?setup=1") : onScreen("setup"))
+    : contact ? () => window.location.assign(`mailto:${contact}?subject=${encodeURIComponent("Starting a DOCKET workspace")}`)
+    : null;
+  const startLabel = canSetup ? "Get started" : "Contact us";
   const demo = () => cfg.demoUrl ? window.location.assign(cfg.demoUrl) : onScreen("demo");
   return (
     <div className="st-page">
@@ -61,7 +70,9 @@ export function StudioLanding({ cfg = {}, onScreen }) {
             <a href="#st-overview" onClick={() => setMenu(false)}>Overview</a><a href="#st-workflow" onClick={() => setMenu(false)}>The experience</a><a href="#st-security" onClick={() => setMenu(false)}>Peace of mind</a>
             <button onClick={() => onScreen("signin")}>Sign in</button>
           </nav>
-          <button className="st-button compact" onClick={start}>Get started</button>
+          {/* On a phone the links fold into the menu; Sign in stays out. */}
+          <button className="st-navsignin" onClick={() => onScreen("signin")}>Sign in</button>
+          {start && <button className="st-button compact" onClick={start}>{startLabel}</button>}
           <button className="st-menubutton" onClick={() => setMenu(!menu)} aria-expanded={menu} aria-label={menu ? "Close menu" : "Open menu"}><Icon n={menu ? "close" : "menu"} s={21} /></button>
         </div>
       </header>
@@ -70,7 +81,7 @@ export function StudioLanding({ cfg = {}, onScreen }) {
           <p className="st-eyebrow">Meet Docket.</p>
           <h1>Everything.<br /><span>In good order.</span></h1>
           <p className="st-hero-sub">A beautifully clear way to manage procurement.<br className="st-desktopbreak" /> From the first invitation to the final decision.</p>
-          <div className="st-actions"><button className="st-button" onClick={start}>Get started</button>{canDemo ? <button className="st-textlink" onClick={demo}>Explore the demo <span aria-hidden="true">↗</span></button> : <a className="st-textlink" href="#st-workflow">Take a closer look <span aria-hidden="true">↓</span></a>}</div>
+          <div className="st-actions">{start && <button className="st-button" onClick={start}>{startLabel}</button>}{canDemo ? <button className="st-textlink" onClick={demo}>Explore the demo <span aria-hidden="true">↗</span></button> : <a className="st-textlink" href="#st-workflow">Take a closer look <span aria-hidden="true">↓</span></a>}</div>
           <div className="st-stage"><WorkspacePreview /></div>
           <p className="st-caption">One workspace. A clearer picture.</p>
         </section>
@@ -91,7 +102,7 @@ export function StudioLanding({ cfg = {}, onScreen }) {
           <p>Sealed bids stay encrypted until their recorded opening.<br className="st-desktopbreak" /> Every decision leaves a trace you can follow.</p>
           <div className="st-securityfacts"><span><Icon n="lock" s={17} /> Sealed bidding</span><span><Icon n="scales" s={17} /> Blind evaluation</span><span><Icon n="audit" s={17} /> Linked audit records</span></div>
         </section>
-        <section className="st-start"><Mark s={48} /><h2>A fresh perspective.<br /><span>On everything you do.</span></h2><p>Your next tender starts with a little more clarity.</p><div className="st-actions"><button className="st-button" onClick={start}>Start your workspace</button>{canDemo && <button className="st-textlink" onClick={demo}>Try the demo <span aria-hidden="true">↗</span></button>}</div><button className="st-vendor" onClick={() => onScreen("register")}>Here as a supplier? Register your company <span aria-hidden="true">›</span></button></section>
+        <section className="st-start"><Mark s={48} /><h2>A fresh perspective.<br /><span>On everything you do.</span></h2><p>Your next tender starts with a little more clarity.</p><div className="st-actions">{start && <button className="st-button" onClick={start}>{canSetup ? "Start your workspace" : "Ask us for a workspace"}</button>}{canDemo && <button className="st-textlink" onClick={demo}>Try the demo <span aria-hidden="true">↗</span></button>}</div><button className="st-vendor" onClick={() => onScreen("register")}>Here as a supplier? Register your company <span aria-hidden="true">›</span></button></section>
       </main>
       <footer className="st-footer"><div><span>Docket. A product of EatnGo Africa.</span><nav aria-label="Footer"><button onClick={() => onScreen("signin")}>Sign in</button><button onClick={() => onScreen("register")}>For suppliers</button><a href="#st-security">Security</a></nav></div><p>© {new Date().getFullYear()} EatnGo Africa. All rights reserved.<span>Lagos, Nigeria</span></p></footer>
     </div>
@@ -134,4 +145,6 @@ export const STUDIO_LANDING_CSS = `
 .st-footer{padding:29px max(24px,calc((100% - 1050px)/2)) 25px;background:var(--st-soft);font-size:11px;color:var(--st-muted)}.st-footer>div{display:flex;justify-content:space-between;gap:22px;padding-bottom:21px;border-bottom:1px solid var(--st-line)}.st-footer nav{display:flex;gap:24px}.st-footer button{padding:0;background:none;color:inherit}.st-footer>p{display:flex;justify-content:space-between;gap:20px;margin-top:18px}
 @media(max-width:760px){.st-navinner{padding:0 20px;gap:15px;min-height:60px}.st-navinner>.st-button{margin-left:auto}.st-menubutton{display:inline-flex}.st-links{display:none;position:absolute;top:60px;left:0;right:0;background:var(--st-card);padding:24px;box-shadow:0 12px 18px #0001;font-size:17px}.st-links.open{display:flex;flex-direction:column;align-items:flex-start;gap:20px}.st-hero{padding:55px 18px 35px}.st-page .st-hero h1{font-size:clamp(58px,10vw,78px);margin-top:20px}.st-eyebrow{font-size:17px}.st-hero-sub{font-size:19px;max-width:440px;margin:auto!important}.st-desktopbreak{display:none}.st-actions{gap:22px}.st-page .st-textlink{font-size:16px}.st-stage{margin-top:48px;padding:0}.st-device{border-width:5px;border-radius:16px;transform:none}.st-devicebar{font-size:8px;height:27px}.st-workspace{grid-template-columns:minmax(0,1fr)}.st-rail{padding:9px 12px;flex-direction:row;border-right:0;border-bottom:1px solid #dddde3;justify-content:center;gap:5px}.st-railbrand,.st-raillabel,.st-railuser{display:none}.st-rail button{font-size:10px;padding:8px;gap:5px}.st-desk{padding:18px 13px}.st-desktopline{font-size:8px;margin-bottom:20px;gap:8px}.st-page .st-desktitle h2{font-size:25px}.st-desktitle small{font-size:7px}.st-metrics{gap:6px;margin:18px 0 15px}.st-metrics>div{padding:9px 8px;border-radius:8px}.st-metrics>div>span{font-size:8px}.st-metrics b{font-size:24px}.st-metrics>div:last-child b{font-size:14px;line-height:1.2;min-height:35px}.st-metrics svg,.st-minichart{display:none}.st-registerhead{padding:12px 10px}.st-registerhead>span{font-size:8px}.st-record{padding:12px 10px;gap:8px}.st-recordicon{width:25px;height:29px}.st-record b{font-size:10px}.st-record>div>span{font-size:8px}.st-status{font-size:8px!important;padding:3px 6px}.st-experience{padding:70px 18px 55px}.st-sectionhead{margin-bottom:32px;padding:0 8px}.st-sectionhead>p:last-child{font-size:18px}.st-featuregrid{grid-template-columns:1fr;gap:18px}.st-feature{min-height:590px;padding-top:36px}.st-page .st-feature h3{font-size:36px}.st-tenderart{padding-inline:30px}.st-security{padding:65px 22px}.st-security>p:not(.st-eyebrow){font-size:17px}.st-securityfacts{gap:18px;font-size:12px}.st-start{padding:70px 22px}.st-start>p{font-size:18px}.st-footer>div,.st-footer>p{flex-direction:column;gap:16px}.st-footer nav{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){.st-page *{scroll-behavior:auto;transition:none}}
+.st-navsignin{display:none;background:none;border:0;font:inherit;font-size:15px;color:inherit;cursor:pointer;padding:6px 4px}
+@media(max-width:760px){.st-navsignin{display:inline-flex;margin-left:auto}.st-navinner>.st-navsignin~.st-button{margin-left:0}}
 `;

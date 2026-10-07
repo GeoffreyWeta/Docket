@@ -19,6 +19,7 @@ import { applyLayout, STUDIO_CSS } from "./studio";
 import { ICON_CSS, Icon } from "./icons";
 import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
 import { fmtMoney } from "./helpers";
+import { MOTION_CSS } from "./motion";
 import { Dialog, Toasts, useToasts } from "./ui";
 
 const TKEY = "docket_admin_token";
@@ -64,6 +65,30 @@ const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$
 /* ---------------- talking about people like people ---------------- */
 
 /** "Amara Okafor" → "AO"; falls back to the first letters of an email. */
+/* True only when the clipboard really took it. Browsers refuse without a
+   secure page or a recent click, and a password the screen claims was copied
+   when it was not is a password nobody has. */
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+}
+
+/* A password that was set but not copied, shown so it is not lost. */
+function IssuedPassword({ label, text, onDone }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="notice" style={{ borderLeft: "3px solid var(--brass)", marginTop: 10 }}>
+      {label} It could not be copied automatically, so copy it now: it is not shown again.
+      <div className="pwrow" style={{ marginTop: 8 }}>
+        <input className="in mono" readOnly value={text} onFocus={(e) => e.target.select()} />
+        <button className="btn sm" onClick={async () => setCopied(await copyText(text))}>
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      {onDone && <button className="btn sm" style={{ marginTop: 8 }} onClick={onDone}>Done</button>}
+    </div>
+  );
+}
+
 function initials(name = "") {
   const words = name.replace(/[^\p{L}\p{N} .@-]/gu, " ").split(/[ .@-]+/).filter(Boolean);
   if (!words.length) return "?";
@@ -283,6 +308,7 @@ export function UserPanel({ state, user, onClose, onSaved, toast }) {
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [issued, setIssued] = useState("");   // a set password the clipboard refused
   /* The list reloads after every action and hands this panel the fresh row.
      Revoking sessions, resetting two-factor and setting a password answer with
      no user, so without taking the fresh row the panel went on saying "2
@@ -322,11 +348,15 @@ export function UserPanel({ state, user, onClose, onSaved, toast }) {
     setExtra(nx); setRevoked(nr);
   };
 
-  const run = async (fn, okTitle, okBody) => {
+  /* `keepPerms`: saving the details must not throw away permission ticks
+     that have not been saved yet. */
+  const run = async (fn, okTitle, okBody, { keepPerms = false } = {}) => {
     setBusy(true);
     try {
       const res = await fn();
-      if (res && res.user) { setU(res.user); setExtra(new Set(res.user.extra)); setRevoked(new Set(res.user.revoked));
+      if (res && res.user) {
+        setU(res.user);
+        if (!keepPerms) { setExtra(new Set(res.user.extra)); setRevoked(new Set(res.user.revoked)); }
         setForm({ name: res.user.name, email: res.user.email, title: res.user.title, role: res.user.role }); }
       if (okTitle) toast.ok(okTitle, okBody);
       await onSaved();
@@ -347,7 +377,8 @@ export function UserPanel({ state, user, onClose, onSaved, toast }) {
       if (form.role !== u.role) body.role = form.role;
       return req(`/users/${u.id}/`, { method: "POST", body });
     },
-    "Account updated", "");
+    "Account updated", dirtyPerms ? "Your permission changes are not saved yet." : "",
+    { keepPerms: dirtyPerms });
 
   const footer = (
     <>
@@ -412,7 +443,8 @@ export function UserPanel({ state, user, onClose, onSaved, toast }) {
 
           <div className="btnrow">
             <button className="btn sm" disabled={busy || isSelf}
-                    onClick={() => run(() => req(`/users/${u.id}/`, { method: "POST", body: { active: !u.active } }),
+                    onClick={() => (!u.active || window.confirm(`Disable ${u.name}'s account? They are signed out everywhere and cannot sign in until it is enabled again.`))
+                      && run(() => req(`/users/${u.id}/`, { method: "POST", body: { active: !u.active } }),
                                        u.active ? "Account disabled" : "Account enabled",
                                        u.active ? "They are signed out everywhere and cannot sign in." : "They can sign in again.")}>
               {u.active ? "Disable account" : "Enable account"}
@@ -431,7 +463,8 @@ export function UserPanel({ state, user, onClose, onSaved, toast }) {
             )}
             {!isVendor && (
               <button className="btn sm" disabled={busy || isSelf}
-                      onClick={() => run(() => req(`/users/${u.id}/`, { method: "POST", body: { isAdmin: !u.isAdmin } }),
+                      onClick={() => (u.isAdmin || window.confirm(`Make ${u.name} an administrator? They can sign in to this console and change anyone's permissions.`))
+                        && run(() => req(`/users/${u.id}/`, { method: "POST", body: { isAdmin: !u.isAdmin } }),
                                          u.isAdmin ? "Administrator access removed" : "Administrator access granted",
                                          u.isAdmin ? "" : "They can now sign in at /superadmin and change anyone's permissions.")}>
                 {u.isAdmin ? "Remove administrator access" : "Make administrator"}
@@ -447,12 +480,20 @@ export function UserPanel({ state, user, onClose, onSaved, toast }) {
           </div>
           <button className="btn sm" style={{ marginTop: 8 }} disabled={busy || pw.length < 10}
                   onClick={async () => {
-                    const ok = await run(() => req(`/users/${u.id}/password/`, { method: "POST", body: { password: pw } }),
-                                         "Password set", "Every existing session for this account was revoked.");
-                    if (ok) { navigator.clipboard?.writeText(pw).catch(() => {}); setPw(""); }
+                    const given = pw;
+                    const ok = await run(() => req(`/users/${u.id}/password/`, { method: "POST", body: { password: given } }));
+                    if (!ok) return;
+                    setPw("");
+                    if (await copyText(given)) {
+                      toast.ok("Password set and copied", "Every existing session for this account was revoked.");
+                    } else {
+                      setIssued(given);
+                      toast.ok("Password set", "Every existing session for this account was revoked.");
+                    }
                   }}>
             Set password (and copy it)
           </button>
+          {issued && <IssuedPassword label="Password set." text={issued} onDone={() => setIssued("")} />}
 
           {!isVendor && (
             <>
@@ -528,18 +569,32 @@ export function NewUserDialog({ state, onClose, onSaved, toast }) {
   });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [created, setCreated] = useState(false);   // made, but the clipboard refused
 
   const save = async () => {
     setBusy(true); setMsg("");
     try {
       await req("/users/", { method: "POST", body: { ...f, email: f.username } });
-      navigator.clipboard?.writeText(`${f.username} / ${f.password}`).catch(() => {});
-      toast.ok("Account created", `${f.name} can sign in now. Username and password copied to your clipboard.`);
       await onSaved();
-      onClose();
+      if (await copyText(`${f.username} / ${f.password}`)) {
+        toast.ok("Account created", `${f.name} can sign in now. Username and password copied to your clipboard.`);
+        onClose();
+      } else {
+        toast.ok("Account created", `${f.name} can sign in now.`);
+        setCreated(true);
+      }
     } catch (e) { setMsg(e.message || "Could not create the account."); }
     setBusy(false);
   };
+
+  if (created) {
+    return (
+      <Dialog title="Account created" onClose={onClose}>
+        <IssuedPassword label={`${f.name} can sign in with this username and password.`}
+                        text={`${f.username} / ${f.password}`} onDone={onClose} />
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog title="New account" onClose={onClose} footer={
@@ -804,6 +859,7 @@ export function RolesTab({ state, reload, toast }) {
   const [busy, setBusy] = useState(false);
 
   const remove = async (r) => {
+    if (!window.confirm(`${r.builtin ? "Remove" : "Delete"} the role "${r.label}"? This cannot be undone.`)) return;
     setBusy(true);
     try {
       await req(`/roles/${r.key}/delete/`, { method: "POST", body: {} });
@@ -1476,7 +1532,7 @@ export default function SuperAdmin() {
     setSignedIn(false); setState(null);
   };
 
-  const style = <style>{CSS + EXTRA_CSS + THEME_CSS + ICON_CSS + ADMIN_CSS + STUDIO_CSS}</style>;
+  const style = <style>{CSS + EXTRA_CSS + THEME_CSS + ICON_CSS + MOTION_CSS + STUDIO_CSS + ADMIN_CSS}</style>;
 
   if (!signedIn) {
     return <>{style}<AdminLogin onIn={() => setSignedIn(true)} /></>;
@@ -1502,7 +1558,7 @@ export default function SuperAdmin() {
             <span className="adminmark">Administration</span>
           </div>
           <div className="spacer" style={{ flex: 1 }} />
-          <span className="mono faint" style={{ fontSize: 11.5 }}>{state.admin.name}</span>
+          <span className="mono faint adminname" style={{ fontSize: 11.5 }}>{state.admin.name}</span>
           <button className="btn sm" onClick={signOut}>Sign out</button>
         </header>
 
@@ -1641,6 +1697,56 @@ export const ADMIN_CSS = `
   color:var(--brand);border:1px solid var(--brand-ring);background:var(--brand-tint);
   border-radius:var(--r-xs);padding:3px 7px;margin-left:8px}
 .adminmain{max-width:1180px;margin:0 auto;padding:18px var(--gutter) 60px;overflow:visible}
+/* Keep console spacing independent of workspace and appearance overrides. */
+.adminroot{--admin-gutter:24px}
+:root .adminroot .admintop{padding:12px max(var(--admin-gutter),calc((100% - 1180px)/2 + var(--admin-gutter)));gap:16px}
+:root .adminroot .admintop .loginlogo{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+:root .adminroot .adminmark{margin-left:4px}
+:root .adminroot .admintop>.btn{flex-shrink:0;white-space:nowrap}
+:root .adminroot .adminname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
+:root .adminroot .adminmain{width:100%;max-width:1180px;margin:0 auto;padding:24px var(--admin-gutter) 40px}
+:root .adminroot .pagehead{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:0 0 20px}
+:root .adminroot .pagehead h1{margin:0;font-size:28px;line-height:1.2;overflow-wrap:anywhere}
+:root .adminroot .pagehead>.sub{margin:0;line-height:1.5}
+:root .adminroot .statrow{gap:12px;margin:0 0 20px;grid-template-columns:repeat(7,minmax(0,1fr))}
+:root .adminroot .stat{padding:14px;min-width:0}
+:root .adminroot .stat .k{line-height:1.35}
+:root .adminroot .stat .v{font-size:26px;line-height:1.2;margin:6px 0}
+:root .adminroot .stat .d{line-height:1.4;margin:0}
+:root .adminroot .admintabs{gap:4px;margin:0 0 20px}
+:root .adminroot .toolrow{gap:12px;margin-bottom:12px}
+:root .adminroot .filterchips{gap:8px;margin-bottom:16px}
+:root .adminroot .people{gap:10px}
+:root .adminroot .person{padding:14px 16px;gap:12px}
+:root .adminroot .card .chead{padding:14px 16px;flex-wrap:wrap;gap:8px}
+:root .adminroot .cbody{padding:16px}
+:root .adminroot .rolegrid{grid-template-columns:repeat(auto-fit,minmax(min(250px,100%),1fr));gap:16px}
+@media(max-width:1050px){
+  :root .adminroot .statrow{grid-template-columns:repeat(4,minmax(0,1fr))}
+}
+@media(max-width:600px){
+  .adminroot{--admin-gutter:16px}
+  :root .adminroot .admintop{gap:8px;padding:12px var(--admin-gutter)}
+  :root .adminroot .admintop .loginlogo{gap:6px;font-size:18px}
+  :root .adminroot .adminmark{font-size:10px;margin-left:0;padding:3px 5px}
+  :root .adminroot .adminname{display:none}
+  :root .adminroot .adminmain{padding-top:20px;padding-bottom:28px}
+  :root .adminroot .pagehead{margin-bottom:16px}
+  :root .adminroot .pagehead h1{font-size:24px}
+  :root .adminroot .statrow{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:16px}
+  :root .adminroot .stat{padding:12px}
+  :root .adminroot .stat .v{font-size:23px;margin:4px 0}
+  :root .adminroot .stat .d{font-size:11px}
+  :root .adminroot .admintabs{gap:0;margin-bottom:16px}
+  :root .adminroot .admintab{padding:10px 12px}
+  :root .adminroot .toolrow .in{flex-basis:100%;min-width:0}
+  :root .adminroot .toolrow>.btn{min-height:40px}
+  :root .adminroot .person{padding:12px;align-items:flex-start;gap:10px}
+  :root .adminroot .person>.avatar{margin-top:2px}
+  :root .adminroot .filterchips{gap:6px;margin-bottom:12px}
+  :root .adminroot .fchip{padding:7px 10px}
+  :root .adminroot .card .chead,:root .adminroot .cbody{padding:12px}
+}
 .statrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:10px;margin-bottom:18px}
 .admintabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px;overflow-x:auto}
 .admintab{background:none;border:0;border-bottom:2px solid transparent;padding:10px 14px;

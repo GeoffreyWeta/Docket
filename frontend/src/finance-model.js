@@ -21,26 +21,47 @@ export const FRESHNESS = {
   LIVE: "live", AGEING: "ageing", STALE: "stale", NEVER: "never",
 };
 
+/* The feeds freshness is judged on. Vendors, items, dimensions and exchange
+   rates change rarely, so a two-week-old vendor list says nothing about whether
+   the money figures are current; contracts, invoices and payments do. */
+export const CORE_FEEDS = ["contract", "invoice", "payment"];
+
+export const FEED_LABELS = {
+  dimension: "Cost centres and dimensions", vendor: "Vendors", item: "Items",
+  contract: "Contracts", po: "Purchase orders", grn: "Goods receipts",
+  invoice: "Invoices", payment: "Payments", fx: "Exchange rates",
+};
+
+/** The last attempt failed: an error recorded, and no success since it. */
+export const feedFailed = (f) =>
+  !!f?.error && (!f.lastSuccess || (f.lastAttempt || 0) > f.lastSuccess);
+
 export function freshness(ledger) {
-  if (!ledger) return { band: FRESHNESS.NEVER, days: null, label: "never loaded" };
-  const { oldestSync, neverSynced } = ledger;
+  if (!ledger) return { band: FRESHNESS.NEVER, days: null, label: "never loaded", failed: [] };
+  const feeds = ledger.feeds || [];
+  const failed = feeds.filter(feedFailed).map((f) => ({
+    entity: f.entity, label: FEED_LABELS[f.entity] || f.entity, error: f.error, at: f.lastAttempt,
+  }));
+  const core = feeds.filter((f) => CORE_FEEDS.includes(f.entity) && f.lastSuccess);
+  const oldestSync = core.length ? Math.min(...core.map((f) => f.lastSuccess)) : null;
   if (!oldestSync) {
-    return { band: FRESHNESS.NEVER, days: null,
+    return { band: FRESHNESS.NEVER, days: null, failed,
              label: "no finance export has been loaded yet" };
   }
   const days = Math.floor((nowMs() - oldestSync) / DAY);
   const band = days <= 1 ? FRESHNESS.LIVE : days <= 7 ? FRESHNESS.AGEING : FRESHNESS.STALE;
-  const missing = (neverSynced || []).length;
+  const missing = CORE_FEEDS.filter((e) => !core.some((f) => f.entity === e))
+    .map((e) => FEED_LABELS[e].toLowerCase());
   return {
-    band, days, at: oldestSync,
+    band, days, at: oldestSync, failed,
     label: days === 0 ? "loaded today"
       : days === 1 ? "loaded yesterday"
-      : `oldest feed is ${days} days old`,
-    missing,
+      : `oldest of contracts, invoices and payments is ${days} days old`,
+    missing: missing.length,
     // The oldest feed, not the newest: a page is only as current as its
     // stalest input, and quoting the newest lets one healthy feed vouch for
-    // five dead ones.
-    note: missing ? `${missing} feed${missing === 1 ? "" : "s"} have never run` : "",
+    // the others.
+    note: missing.length ? `Never loaded: ${missing.join(", ")}.` : "",
   };
 }
 
@@ -172,6 +193,10 @@ export const LEVEL_META = {
   high: { label: "High", tone: "var(--wax)", icon: "alert", rank: 0 },
   medium: { label: "Medium", tone: "var(--s4)", icon: "info", rank: 1 },
   low: { label: "Low", tone: "var(--green)", icon: "check", rank: 2 },
+  /* Neither is a level: one is data this person may not see, the other is
+     data nobody has loaded. Both used to read as a green Low. */
+  withheld: { label: "Withheld", tone: "var(--muted)", icon: "lock", rank: 3 },
+  unknown: { label: "Not assessed yet", tone: "var(--muted)", icon: "info", rank: 3 },
 };
 
 export const RISK_THRESHOLDS = {
@@ -244,6 +269,7 @@ export function riskLevels(d) {
       level: lvl(fxShare >= T.fxMoveHigh, (fx.rows || []).length > 0),
       basis: (fx.rows || []).length
         ? `${fx.rows.length} open ${fx.currencies.join("/")} commitment(s), rates moved ${fxShare.toFixed(1)}% against us`
+        : (fx.unpriced || []).length ? "no foreign-currency commitment could be valued"
         : "every open commitment is in naira",
       value: fx.movement,
     },
@@ -266,6 +292,33 @@ export function riskLevels(d) {
       value: fraud.reduce((n, e) => n + e.value, 0),
     },
   ];
+
+  /* Withheld before not-assessed: the server dropped payables for anyone
+     without the permission, so "nothing past due" would be a guess. */
+  const withheld = (d.restricted || []).includes("payables");
+  const held = withheld ? ["payments", "health"] : [];
+  const rowsOnFile = d.ledger?.rows || {};
+  const empty = {
+    payments: !rowsOnFile.invoices,
+    fx: !rowsOnFile.contracts,
+    expiry: !rowsOnFile.contracts,
+    overrun: !rowsOnFile.contracts && !committed,
+  };
+  rows.forEach((r) => {
+    if (held.includes(r.key)) {
+      r.level = "withheld";
+      r.basis = "Withheld (you don't have access to payments)";
+      r.value = 0;
+    } else if (empty[r.key] && r.level === LEVEL.LOW) {
+      r.level = "unknown";
+      r.basis = "no finance data loaded for this yet";
+    }
+  });
+  if ((fx.unpriced || []).length && rows.find((r) => r.key === "fx").level === LEVEL.LOW) {
+    const r = rows.find((x) => x.key === "fx");
+    r.level = LEVEL.MEDIUM;
+    r.basis = `${fx.unpriced.length} foreign-currency commitment(s) with no exchange rate loaded`;
+  }
 
   return rows.sort((a, b) => LEVEL_META[a.level].rank - LEVEL_META[b.level].rank);
 }

@@ -130,7 +130,24 @@ def auth_config(request):
         # and a second round trip for ten colour tokens would show the visitor
         # the default accent and then repaint it.
         "accent": studio_accent(),
+        # Where "Contact us" and "Request a demonstration" write to, when the
+        # setup wizard is not on offer to a stranger.
+        "contactEmail": _contact_email(org_settings()),
     })
+
+
+def _contact_email(org):
+    """The company's reply-to mailbox, else the procurement email on its
+    profile, else the sending address unless it is a no-reply one."""
+    from email.utils import parseaddr
+    for cand in list(settings.EMAIL_REPLY_TO) + [
+            ((org.get("profile") or {}).get("email") or ""),
+            parseaddr(settings.DEFAULT_FROM_EMAIL or "")[1]]:
+        cand = str(cand).strip()
+        if "@" in cand and "no-reply" not in cand and "noreply" not in cand \
+                and not cand.endswith(".local"):
+            return cand
+    return ""
 
 
 @csrf_exempt
@@ -286,4 +303,36 @@ def logout_all(request):
         return _err("Not signed in.", 401)
     n = user.tokens.count()
     user.tokens.all().delete()
+    return JsonResponse({"ok": True, "revoked": n})
+
+
+@csrf_exempt
+def change_password(request):
+    """Change your own password while signed in. The current one is asked for
+    first, so a session left open on a shared desk cannot be used to take the
+    account over. Every other session is signed out; this one stays."""
+    if request.method != "POST":
+        return _err("Method not allowed", 405)
+    user = _current_user(request)
+    if not user:
+        return _err("Not signed in.", 401)
+    body = _body(request)
+    current, new = str(body.get("current", "")), str(body.get("password", ""))
+    if _locked(user.username):
+        return _err("Too many failed attempts - try again in 15 minutes.", 429)
+    if not user.check_password(current):
+        _fail(user.username)
+        return _err("Your current password is not right.", 400)
+    if len(new) < 8:
+        return _err("The new password must be at least 8 characters.")
+    if new == current:
+        return _err("The new password is the same as the current one.")
+    user.set_password(new)
+    user.save()
+    key = request.headers.get("Authorization", "")[7:]
+    n = user.tokens.exclude(key=key).count()
+    user.tokens.exclude(key=key).delete()
+    ident = user.profile.identity
+    record_event(actor=ident["name"], role=ident["role"], action="Password changed",
+                 detail=f"Changed while signed in; {n} other session(s) signed out.")
     return JsonResponse({"ok": True, "revoked": n})

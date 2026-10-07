@@ -199,9 +199,34 @@ def regret_letter(org, tender, supplier_name):
     )
 
 
-def fmt_date_ms(ms):
+def org_timezone():
+    """The organisation's time zone: the company profile's, else Africa/Lagos.
+
+    A deadline in an email is read against the reader's wall clock, and the
+    server's UTC is nobody's. Falls back to a fixed WAT offset if the zone
+    database is missing or the profile names a zone it does not know."""
     import datetime
-    return datetime.datetime.utcfromtimestamp(ms / 1000).strftime("%d %b %Y")
+    try:
+        from zoneinfo import ZoneInfo
+
+        from .models import OrgSetting
+        row = OrgSetting.objects.filter(pk=1).first()
+        name = ((row.data if row else {}) or {}).get("timezone") or "Africa/Lagos"
+        try:
+            return ZoneInfo(name)
+        except Exception:
+            return ZoneInfo("Africa/Lagos")
+    except Exception:
+        return datetime.timezone(datetime.timedelta(hours=1), "WAT")
+
+
+def fmt_date_ms(ms, date_only=False):
+    """"Fri 14 Oct 2026, 12:00 WAT" in the organisation's time zone, or
+    "Fri 14 Oct 2026" with date_only. Takes epoch milliseconds."""
+    import datetime
+    dt = datetime.datetime.fromtimestamp(ms / 1000, tz=org_timezone())
+    day = f"{dt:%a} {dt.day} {dt:%b %Y}"
+    return day if date_only else f"{day}, {dt:%H:%M} {dt:%Z}".rstrip()
 
 
 # ---------------- cryptographic sealing ----------------

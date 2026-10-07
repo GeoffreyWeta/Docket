@@ -72,21 +72,23 @@ const SUGGESTED_ROLES = [
 /* A ladder most organisations recognise, offered as a starting point rather
    than imposed. Every row is editable and the whole thing can be deleted.
 
-   `role` is deliberately blank on all four. A rung's authority is the people
+   `role` is blank on the lower three. A rung's authority is the people
    standing on it; the role is a fallback for a rung nobody stands on yet, and
    defaulting every rung to "approver" would have made all four interchangeable
-   for anyone holding that role - which is a ladder that enforces nothing. See
-   approvals.may_sign. */
+   for anyone holding that role - which is a ladder that enforces nothing. The
+   top rung falls back to the starter role that signs things off (whatever the
+   company renames it), so a fresh workspace always has somebody who can
+   approve. See approvals.may_sign. */
 const SUGGESTED_LADDER = [
   { name: "Line Manager",        limit: 5_000_000,   role: "" },
   { name: "Head of Department",  limit: 50_000_000,  role: "" },
   { name: "Director",            limit: 500_000_000, role: "" },
-  { name: "Chief Executive",     limit: 0,           role: "" },
+  { name: "Chief Executive",     limit: 0,           role: "approver" },
 ];
 
 /* ------------------------------------------------------------------ helpers */
 
-const money = (n) => (Number(n) > 0 ? fmtMoney(Number(n)) : "unlimited");
+const money = (n, cur) => (Number(n) > 0 ? fmtMoney(Number(n), cur || "NGN") : "unlimited");
 
 /** Parse a pasted or uploaded vendor list. Accepts CSV and TSV, with or
     without a header row, and maps whatever column names it finds onto the four
@@ -338,6 +340,10 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
 
   const filledTeam = f.team.filter((t) => t.email.trim());
   const chart = useMemo(() => treeRows(filledTeam, f.name.trim()), [filledTeam, f.name]);
+  /* A row with a name and no email would be dropped on save, and anyone
+     reporting to them would then point at nobody. Say so instead. */
+  const mailless = f.team.find((t) => t.name.trim() && !t.email.trim());
+  const cur = f.profile.currency || "NGN";
 
   /* ---- validation: every condition able to say what to do about it ---- */
   const badEmail = filledTeam.find((t) => !EMAIL.test(t.email.trim()));
@@ -373,6 +379,10 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
     .filter((l) => l.name.trim() && !l.role
       && f.ownerLevel !== l.id && !filledTeam.some((t) => t.level === l.id))
     .map((l) => l.name.trim());
+  /* At least one rung somebody can actually sign: a person on it, you on it,
+     or a role to fall back to. Without one every request waits forever. */
+  const signable = !f.useLadder || f.levels.some((l) => l.role
+    || f.ownerLevel === l.id || filledTeam.some((t) => t.level === l.id));
 
   const checks = [
     { key: "code", step: 0, ok: codeOk, to: "su-code",
@@ -403,12 +413,16 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
       done: f.useLadder
         ? `${f.levels.length} level${f.levels.length === 1 ? "" : "s"} of signing authority`
         : "Single threshold: " + (Number(f.threshold) > 0
-          ? "sign-off from " + fmtMoney(Number(f.threshold)) : "everything publishes straight away"),
+          ? "sign-off from " + fmtMoney(Number(f.threshold), cur) : "everything publishes straight away"),
       note: f.useLadder
         ? "Requests walk your reporting line until somebody's limit covers the amount."
         : undefined },
-    { key: "team", step: 5, ok: !badEmail && !dupEmail && !roleless, to: "su-team",
-      todo: badEmail ? `Fix ${badEmail.email.trim() || "an empty email"} in your team list`
+    { key: "signer", step: 4, ok: signable, to: "su-ladder",
+      todo: "Nobody can approve tenders yet. Put someone on a level, or let anyone in a role sign it.",
+      done: "Somebody can sign at every step up" },
+    { key: "team", step: 5, ok: !mailless && !badEmail && !dupEmail && !roleless, to: "su-team",
+      todo: mailless ? `Add an email for ${mailless.name.trim()}, or remove them.`
+        : badEmail ? `Fix ${badEmail.email.trim() || "an empty email"} in your team list`
         : dupEmail ? `${dupEmail.email.trim()} is on the list twice`
         : roleless ? `Pick a role for ${roleless.name.trim() || roleless.email.trim()}`
         : "Team list looks fine",
@@ -491,7 +505,9 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
         roles: f.roles.map((r) => (r.removed
           ? { key: r.key, remove: true }
           : { ref: r.ref, key: r.key || undefined, label: r.label.trim(), kind: r.kind })),
-        approvalThreshold: f.useLadder ? 0 : (Number(f.threshold) || 0),
+        /* 0 means "nothing needs sign-off" and is sent as 0; an empty box is left
+           out so the default applies. */
+        approvalThreshold: f.useLadder || String(f.threshold).trim() === "" ? undefined : (Number(f.threshold) || 0),
         approvalLevels: f.useLadder
           ? f.levels.map((l) => ({ id: l.id, name: l.name.trim(), limit: Number(l.limit) || 0,
                                    role: l.role || "", holders: [] }))
@@ -567,7 +583,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
               <div className="donerow">
                 <span className="doneicon"><Icon n="stamp" s={15} /></span>
                 <div><b>{done.levels.length} levels of signing authority</b>
-                  <i>{done.levels.map((l) => `${l.name} ${money(l.limit)}`).join(" · ")}</i></div>
+                  <i>{done.levels.map((l) => `${l.name} ${money(l.limit, cur)}`).join(" · ")}</i></div>
               </div>
             )}
             {v.created > 0 && (
@@ -749,7 +765,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                 <div className="frow"><label className="lbl" htmlFor="su-email">Your work email</label>
                   <input id="su-email" className="in" type="email" autoComplete="username" value={f.email}
                          onChange={(e) => set("email", e.target.value)} />
-                  <div className="hint">This becomes your sign-in. Invitations you send come from it.</div></div>
+                  <div className="hint">This becomes your sign-in. Replies to the invitations DOCKET sends go to your company mailbox.</div></div>
                 <div className="frow" style={{ marginBottom: 0 }}>
                   <label className="lbl" htmlFor="su-pw">Choose a password</label>
                   <input id="su-pw" className="in" type="password" autoComplete="new-password"
@@ -1017,7 +1033,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                                  aria-label={`Level ${i + 1} limit`}
                                  placeholder="0 = unlimited" value={l.limit || ""}
                                  onChange={(e) => editLevel(l.id, { limit: e.target.value })} />
-                          <i>{money(l.limit)}</i>
+                          <i>{money(l.limit, cur)}</i>
                         </div>
                         <select className="in" value={l.role}
                                 aria-label={`Who signs level ${i + 1} if nobody is placed on it`}
@@ -1049,7 +1065,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                         <div className="ladprevrow" key={l.id}>
                           <span className="ladprevn">{i + 1}</span>
                           <span className="ladprevname">{l.name.trim() || <em className="faint">unnamed</em>}</span>
-                          <span className="ladprevlim mono">{money(l.limit)}</span>
+                          <span className="ladprevlim mono">{money(l.limit, cur)}</span>
                         </div>
                       ))}
                       {unlimitedCount !== 1 && (
@@ -1067,7 +1083,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                               onChange={(e) => set("ownerLevel", e.target.value)}>
                         <option value="">None - I raise requests, I do not sign them</option>
                         {sortedLevels.filter((l) => l.name.trim()).map((l) =>
-                          <option key={l.id} value={l.id}>{l.name.trim()} · {money(l.limit)}</option>)}
+                          <option key={l.id} value={l.id}>{l.name.trim()} · {money(l.limit, cur)}</option>)}
                       </select>
                       <div className="hint">
                         Most procurement leads leave this as none. It never lets you approve your
@@ -1164,7 +1180,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                                   onChange={(e) => editPerson(t.key, { level: e.target.value })}>
                             <option value="">None</option>
                             {sortedLevels.filter((l) => l.name.trim()).map((l) => (
-                              <option key={l.id} value={l.id}>{l.name.trim()} - {money(l.limit)}</option>
+                              <option key={l.id} value={l.id}>{l.name.trim()} - {money(l.limit, cur)}</option>
                             ))}
                           </select>
                           <div className="hint">

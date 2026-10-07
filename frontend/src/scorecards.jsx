@@ -176,6 +176,9 @@ export function ScorecardsPage({ api }) {
                   </td>
                   <td data-l="Supplier"><b>{r.name}</b>
                     <div className="muted" style={{ fontSize: 12 }}>{r.category}</div>
+                    {r.unrecorded && (
+                      <div className="faint" style={{ fontSize: 11.5 }}>Delivery and quality not recorded yet</div>
+                    )}
                   </td>
                   {DIMENSIONS.map((d) => (
                     <ScoreCell key={d.key} value={r.scores[d.key]} peerValue={peer[d.key]} label={d.label} />
@@ -200,6 +203,8 @@ export function ScorecardsPage({ api }) {
             Rank is fixed by the composite model: sorting a column reorders the rows, not the ranking.
             {rows.some((r) => r.imputed.length > 0) &&
               " An asterisk marks a supplier with no history on one or more dimensions: those are scored at the peer average, which is neutral, rather than dropped, which would reward a thin record."}
+            {rows.some((r) => r.unrecorded) &&
+              " Where delivery and quality are not recorded yet, the supplier is scored on price, response and compliance only."}
             {held.length ? " " + holdOutSummary(held) : ""}
           </div>
           {held.length > 0 && <HeldOut held={held} />}

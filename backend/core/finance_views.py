@@ -99,6 +99,10 @@ def finance_import(request, p, body):
             "read": len(rows), "recognised": len(normalised),
             "unrecognised": len(rows) - len(normalised),
             "sample": normalised[:5],
+            # The headings the file arrived with, so a preview that recognised
+            # nothing can show why: usually the wrong data type, or an export
+            # with its columns renamed.
+            "columns": [str(k) for k in (rows[0].keys() if isinstance(rows[0], dict) else [])][:40],
         })
 
     try:

@@ -45,9 +45,13 @@ export function StaffCsvDialog({ api, roles, onClose, onSent }) {
       setBusy(false);
       onClose();
       if (onSent) onSent();
-      toast.ok(`${r.sent} invitation${r.sent === 1 ? "" : "s"} sent`,
-               r.failed ? `${r.failed} could not be sent. Upload the file again to see which, and why.`
-                        : "Each person sets their own password from the link in their email.");
+      if (r.failed) {
+        toast.warn(`${r.sent} sent, ${r.failed} couldn't be sent`,
+                   "Not sent: " + (r.notSent || []).map((x) => `${x.email} (${x.why || "not sent"})`).join(", "));
+      } else {
+        toast.ok(`${r.sent} invitation${r.sent === 1 ? "" : "s"} sent`,
+                 "Each person sets their own password from the link in their email.");
+      }
     } catch (e) {
       setProblem(e.message || "The invitations did not go out.");
       setBusy(false);

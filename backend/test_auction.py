@@ -489,6 +489,47 @@ st, _ = maybe("POST", f"/api/auctions/{a.id}/images/{img['id']}/delete/", PROC_T
 ok("a draft's photo can be removed", st == 200 and not a.images.exists(), str(st))
 
 
+# ---------------------------------------------------------------- the clock
+
+print("\n=== the clock closes the room, and only ever moves out ===")
+
+# Nothing used to close an auction on time: it sat at "live" with the clock at
+# zero, the Close button gone and Award refused. Reading the room settles it.
+a, lot = make()
+bid(a, lot, V1_T, 88_000_000)
+Auction.objects.filter(pk=a.id).update(ends_at=now_ms() - SEC)
+call("GET", f"/api/auctions/{a.id}/room/", PROC_T)
+a.refresh_from_db()
+lot.refresh_from_db()
+ok("reading a room whose time is up settles it", a.status == "closed", a.status)
+ok("and the lot goes to the best price", lot.awarded_to == V1.id, lot.awarded_to)
+
+a, lot = make()
+bid(a, lot, V2_T, 87_000_000)
+Auction.objects.filter(pk=a.id).update(ends_at=now_ms() - SEC)
+ok("the background sweep settles one nobody is watching", engine.settle_due() >= 1)
+ok("closed by the sweep", Auction.objects.get(pk=a.id).status == "closed")
+ok("and settling twice does nothing", engine.settle_due() == 0)
+
+# A closing window longer than the extension used to pull the close IN.
+a, lot = make(snipe=5, extend=1)
+bid(a, lot, V1_T, 88_000_000)
+Auction.objects.filter(pk=a.id).update(ends_at=now_ms() + 4 * MIN)
+was = Auction.objects.get(pk=a.id).ends_at
+bid(a, lot, V2_T, 87_000_000)
+ok("a late bid never brings the close earlier", Auction.objects.get(pk=a.id).ends_at >= was,
+   f"{was} -> {Auction.objects.get(pk=a.id).ends_at}")
+
+# A removed bidder's prices stop counting.
+a, lot = make(vendors=(V1, V2))
+bid(a, lot, V2_T, 86_000_000)
+bid(a, lot, V1_T, 85_000_000)
+ok("before removal the lower price leads", engine.best_bid(lot).supplier_id == V1.id)
+AuctionParticipant.objects.filter(auction=a, supplier_id=V1.id).update(disqualified=True)
+ok("a removed bidder no longer leads", engine.best_bid(lot).supplier_id == V2.id,
+   engine.best_bid(lot).supplier_id)
+
+
 # ---------------------------------------------------------------- result
 
 print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")

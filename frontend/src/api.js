@@ -50,11 +50,38 @@ export const clearAuth = () => {
   setDemo(false);   // signing out of the demo leaves the demo
 };
 
+/* What a person reads when the request never got a sentence of its own back.
+   "Failed to fetch" and "Request failed (502)" are the browser and the proxy
+   talking; nobody can act on them. */
+const OFFLINE = "We can't reach DOCKET right now. Check your connection and try again.";
+const RESTARTING = "DOCKET is restarting. Try again in a minute.";
+function plainError(status, said) {
+  if (status === 413) return "That file is too large.";
+  if (status === 502 || status === 503 || status === 504) return RESTARTING;
+  if (said === "Invalid JSON body.") return "Something went wrong sending that. Please try again.";
+  if (said) return said;
+  if (status >= 500) return "Something went wrong on our side. Please try again.";
+  if (status === 401) return "You've been signed out. Sign in to continue.";
+  if (status === 403) return "You don't have permission to do that.";
+  if (status === 404) return "We couldn't find that. It may have been removed.";
+  return "That didn't go through. Please try again.";
+}
+
+/** fetch, with a network failure turned into a sentence. */
+async function send(url, init) {
+  try { return await fetch(url, init); }
+  catch (e) {
+    const err = new Error(OFFLINE);
+    err.status = 0;
+    throw err;
+  }
+}
+
 async function handle(r) {
   let data = null;
   try { data = await r.json(); } catch (e) { /* empty or binary */ }
   if (!r.ok) {
-    const e = new Error((data && data.error) || `Request failed (${r.status})`);
+    const e = new Error(plainError(r.status, data && data.error));
     e.status = r.status;
     /* The whole body, not just the sentence. A refusal sometimes carries the
        way out of it - a duplicate vendor comes back with the record it clashed
@@ -66,7 +93,7 @@ async function handle(r) {
 }
 
 export async function raw(path, { method = "GET", body } = {}) {
-  const r = await fetch(apiBase() + path, {
+  const r = await send(apiBase() + path, {
     method,
     headers: {
       "Content-Type": "application/json",
@@ -81,7 +108,7 @@ export async function uploadFile(path, file, extra = {}) {
   const fd = new FormData();
   fd.append("file", file);
   Object.entries(extra).forEach(([k, v]) => fd.append(k, v));
-  const r = await fetch(apiBase() + path, {
+  const r = await send(apiBase() + path, {
     method: "POST",
     headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
     body: fd,
@@ -89,21 +116,38 @@ export async function uploadFile(path, file, extra = {}) {
   return handle(r);
 }
 
-export async function downloadDoc(docId, name) {
-  const r = await fetch(`${apiBase()}/docs/${docId}/download/`, {
-    headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
-  });
-  if (!r.ok) throw new Error("Download not allowed.");
-  const blob = await r.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+/* Downloads are fired from plain onClick handlers that nobody awaits, so a
+   thrown error went nowhere and the button simply did nothing. They report
+   through a window event instead; App.jsx turns it into a warning toast. */
+export const DOWNLOAD_FAILED = "docket:download-failed";
+
+async function download(path, name) {
+  try {
+    const r = await send(apiBase() + path, {
+      headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
+    });
+    if (!r.ok) {
+      let said = null;
+      try { said = (await r.json()).error; } catch (e) { /* not JSON */ }
+      throw new Error(r.status === 403 ? "You don't have permission to download that." : plainError(r.status, said));
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return true;
+  } catch (e) {
+    window.dispatchEvent(new CustomEvent(DOWNLOAD_FAILED, { detail: { name, message: e.message } }));
+    return false;
+  }
 }
+
+export const downloadDoc = (docId, name) => download(`/docs/${docId}/download/`, name);
 
 /* An <img> cannot send the bearer token, so a protected picture is fetched
    here and handed back as an object URL. The caller revokes it. */
@@ -183,13 +227,4 @@ export const setApprovalLevel = (personId, levelId) =>
 export const forgotPassword = (email) => raw("/auth/forgot/", { method: "POST", body: { email } });
 export const resetPassword = (token, password) => raw("/auth/reset_password/", { method: "POST", body: { token, password } });
 
-export async function downloadUrl(path, name) {
-  const r = await fetch(apiBase() + path, { headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {} });
-  if (!r.ok) throw new Error("Download not allowed.");
-  const blob = await r.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
-}
+export const downloadUrl = (path, name) => download(path, name);

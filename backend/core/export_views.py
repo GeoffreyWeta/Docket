@@ -30,7 +30,7 @@ def export_comparison(request, p, body, tid):
     bold = Font(bold=True)
     ws.append([f"{t.ref} - {t.title}"]); ws["A1"].font = Font(bold=True, size=13)
     maxima = line_maxima(t)
-    ws.append([f"{'Ceiling (line maximums × quantity)' if maxima else 'Budget ceiling'}: {t.budget:,}"
+    ws.append([f"{'Ceiling (line maximums × quantity)' if maxima else 'Budget ceiling'}: {(t.budget or 0):,}"
                f" · Opened: {fmt_date_ms(t.opened_at)}"])
     ws.append([])
     sups = {s.id: s.name for s in Supplier.objects.all()}
@@ -47,8 +47,12 @@ def export_comparison(request, p, body, tid):
     if maxima:
         ws.append(["Our maximum per unit", t.budget, ""] + [l["price"] for l in t.lines])
     for b in bids:
-        row = [sups.get(b.supplier_id, b.supplier_id), b.amount,
-               f"{(b.amount - t.budget) / t.budget * 100:+.1f}%"]
+        # A zero budget or a bid with no amount has no percentage to show;
+        # dividing anyway crashed the whole download.
+        vs = (f"{(b.amount - t.budget) / t.budget * 100:+.1f}%"
+              if t.budget and b.amount is not None else "")
+        row = [sups.get(b.supplier_id, b.supplier_id),
+               b.amount if b.amount is not None else "no amount", vs]
         if t.lines:
             row += [(b.lines or {}).get(l["id"], "") for l in t.lines]
         if maxima:
@@ -93,10 +97,33 @@ def export_memo(request, p, body, tid):
 
 @route(["GET"], perm="audit.export")
 def export_audit(request, p, body):
+    """The trail as an auditor reads it: the moment in the company's own time
+    zone, the tender by its reference, the role by the name the company gave
+    it. A UTF-8 byte-order mark goes first so Excel shows the naira sign."""
+    import datetime
+    from zoneinfo import ZoneInfo
+
+    from .permissions import custom_roles, role_label
+    from .views import org_settings
+    tzname = (org_settings().get("profile") or {}).get("timezone") or "Africa/Lagos"
+    try:
+        tz = ZoneInfo(tzname)
+    except Exception:                                              # noqa: BLE001
+        # No time zone database on this host: West Africa Time, fixed.
+        tz, tzname = datetime.timezone(datetime.timedelta(hours=1)), "UTC+01:00"
+    custom = custom_roles()
+    tenders = {t.id: (t.ref, t.title) for t in Tender.objects.only("id", "ref", "title")}
+
+    def when(ms):
+        return datetime.datetime.fromtimestamp(ms / 1000, tz).strftime("%Y-%m-%d %H:%M:%S %z")
+
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["seq", "at", "actor", "role", "action", "tender", "detail", "prev_hash", "hash"])
+    w.writerow(["seq", f"at ({tzname})", "actor", "role", "action", "tender ref", "tender title",
+                "detail", "prev_hash", "hash"])
     for e in Event.objects.order_by("seq"):
-        w.writerow([e.seq, fmt_date_ms(e.at), e.actor, e.role, e.action, e.tender_id or "", e.detail,
-                    e.prev_hash, e.hash])
-    return _file(buf.getvalue().encode(), "docket-audit-trail.csv", "text/csv")
+        ref, title = tenders.get(e.tender_id, (e.tender_id or "", ""))
+        w.writerow([e.seq, when(e.at), e.actor, role_label(e.role, custom) if e.role else "",
+                    e.action, ref, title, e.detail, e.prev_hash, e.hash])
+    return _file(("﻿" + buf.getvalue()).encode("utf-8"), "docket-audit-trail.csv",
+                 "text/csv; charset=utf-8")

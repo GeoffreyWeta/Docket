@@ -74,6 +74,11 @@ const CAP_STEPS = [
   ["settings.threshold", "Set the approval matrix", "You decide the value above which publication needs a sign-off."],
   ["audit.integrity", "Verify the trail", "One click recomputes the hash chain and names the first altered entry, if there is one."],
   ["audit.export", "Pull the evidence", "The full event chain as CSV, hashes included."],
+  ["page.analytics", "Read how the buying is going", "Analytics shows spend, savings and how many vendors compete, by category and over time."],
+  ["page.finance", "Check the money", "Finance shows savings, spend, contracts and anything that needs attention. The banner at the top says how old the finance data is."],
+  ["finance.sync", "Load the finance data", "On the Finance page, open Load finance data, pick what the file holds, upload it, check the preview and confirm."],
+  ["finance.payables", "Watch what is owed", "You can see payments: what each vendor is owed, what is overdue and how long invoices take to pay."],
+  ["finance.baseline", "Set the prior prices", "On the Savings tab, adopt past contract prices as baselines so savings are measured against what you used to pay."],
 ];
 
 function fromCapabilities(user) {

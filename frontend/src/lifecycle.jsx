@@ -116,7 +116,9 @@ export function LifecycleBar({ api, t }) {
                       onClose={() => setOpen(null)}
                       onConfirm={async (reason) => {
                         if (await act.cancelEvent(t.id, reason)) {
-                          toast.ok("Event cancelled", "Sealed bids stay unopened. Every invited vendor has been told.");
+                          toast.ok("Event cancelled", (t.openedAt || t.techOpenedAt
+                            ? "The bids had already been opened. " : "Sealed bids stay unopened. ")
+                            + "Every invited vendor has been told.");
                         }
                       }}>
           No award will be made, sealed bids are never opened, and every invited vendor is told your
@@ -392,8 +394,10 @@ export function VendorsTab({ api, t }) {
                     <td data-l="Registration"><StatusChip map={REG_STATUS} value={r.registrationStatus} /></td>
                     <td data-l="Verification"><StatusChip map={VERIFY_STATUS} value={r.verificationStatus} /></td>
                     <td data-l="Invitation">
-                      <span className={"chip " + (r.invitationStatus === "sent" ? "ok" : "")}>
-                        {r.invitationStatus === "sent" ? "Invited" : "Not yet sent"}
+                      <span className={"chip " + (r.invitationStatus === "sent" ? "ok" : r.invitationStatus === "unreachable" ? "warn" : "")}
+                            title={r.invitationStatus === "unreachable" ? "No account and no email on the register, so the invitation reached nobody." : undefined}>
+                        {r.invitationStatus === "sent" ? "Invited"
+                          : r.invitationStatus === "unreachable" ? "Not reachable (no email)" : "Not yet sent"}
                       </span>
                     </td>
                     <td data-l="Bid">

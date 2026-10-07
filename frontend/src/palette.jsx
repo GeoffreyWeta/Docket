@@ -17,13 +17,15 @@ import { THEMES, getTheme, setTheme } from "./theme";
 
 /** Pages a role may reach, in the order the sidebar lists them. */
 const PAGE_LABELS = {
-  dashboard: "Dashboard", tenders: "Tenders", suppliers: "Suppliers", scorecards: "Scorecards",
-  team: "Team", analytics: "Analytics", audit: "Audit trail", approvals: "Approvals",
+  dashboard: "Dashboard", tenders: "Tenders", auctions: "Auctions", suppliers: "Suppliers",
+  scorecards: "Scorecards", team: "Team", analytics: "Analytics", finance: "Finance",
+  audit: "Audit trail", approvals: "Approvals",
   evals: "My evaluations", portal: "My invitations", new: "New tender",
 };
 const PAGE_ICONS = {
-  dashboard: "dashboard", tenders: "tender", suppliers: "suppliers", scorecards: "trophy",
-  team: "team", analytics: "analytics", audit: "audit", approvals: "stamp",
+  dashboard: "dashboard", tenders: "tender", auctions: "gavel", suppliers: "suppliers",
+  scorecards: "trophy", team: "team", analytics: "analytics", finance: "finance",
+  audit: "audit", approvals: "stamp",
   evals: "scales", portal: "portal", new: "plus",
 };
 
@@ -82,7 +84,8 @@ export function buildCommands({ api, allowed, chrome }) {
       out.push({
         id: "supplier:" + s.id, group: "Suppliers", icon: "suppliers",
         label: s.name, meta: s.category + (s.prequalified ? "" : " · pending review"),
-        run: () => go(allowed.includes("scorecards") ? { page: "scorecards" } : { page: "suppliers" }),
+        run: () => go(allowed.includes("suppliers") || !allowed.includes("scorecards")
+          ? { page: "suppliers" } : { page: "scorecards" }),
       });
     }
   }

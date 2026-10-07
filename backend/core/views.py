@@ -297,11 +297,32 @@ def doc_visible(d, t, p):
     return True
 
 
-def doc_view(d):
-    return {"id": d.id, "kind": d.kind, "tenderId": d.tender_id, "supplierId": d.supplier_id,
-            "roundId": d.round_id,
-            "envelope": d.envelope, "name": d.name, "size": d.size,
-            "uploadedBy": d.uploaded_by, "uploadedAt": d.uploaded_at}
+def doc_view(d, label=None):
+    # A compliance document carries its expiry, and its type as the vendor
+    # chose it from the list (held on the supplier's docs record, keyed by
+    # docId). Without them the portal could never say what had lapsed.
+    out = {"id": d.id, "kind": d.kind, "tenderId": d.tender_id, "supplierId": d.supplier_id,
+           "roundId": d.round_id,
+           "envelope": d.envelope, "name": d.name, "size": d.size,
+           "uploadedBy": d.uploaded_by, "uploadedAt": d.uploaded_at}
+    if d.kind == "supplier":
+        out["expiry"] = d.expiry or None
+        out["label"] = (label or {}).get("name") or ""
+        out["docType"] = (label or {}).get("type") or ""
+    return out
+
+
+def supplier_doc_views(qs):
+    """doc_view for compliance documents, with each one's type and label from
+    its supplier's docs record."""
+    docs = list(qs)
+    sids = {d.supplier_id for d in docs}
+    meta = {}
+    for s in Supplier.objects.filter(id__in=sids).only("id", "docs"):
+        for x in (s.docs or []):
+            if x.get("docId"):
+                meta[x["docId"]] = x
+    return [doc_view(d, meta.get(d.id)) for d in docs]
 
 
 def clar_view(c, p):
@@ -351,16 +372,34 @@ def bootstrap(request, p, body):
         deep.update(Bid.objects.filter(tender_id__in=visible_ids).values_list("supplier_id", flat=True))
         suppliers = [supplier_view(s, full=s.id in deep)
                      for s in Supplier.objects.all().order_by("name")]
+        # "Scores changed" carries the numbers. Until award, a scorer reads only
+        # their own: hiding the rest on screen alone would leave a colleague's
+        # marks one network tab away, and blind scoring blind in name only.
+        sees_scores = has(p, "bid.see_all_scores")
+        awarded = {t["id"] for t in tenders if t.get("status") == "awarded"}
+
+        def _detail(e):
+            if (e.action != "Scores changed" or sees_scores or e.actor == p.get("name")
+                    or e.tender_id in awarded):
+                return e.detail
+            return "Scores held back until the panel's scores are revealed."
+
         events = [{"id": e.id, "at": e.at, "actor": e.actor, "role": e.role, "action": e.action,
-                   "tenderId": e.tender_id, "detail": e.detail} for e in Event.objects.all()[:400]]
+                   "tenderId": e.tender_id, "detail": _detail(e)} for e in Event.objects.all()[:400]]
 
     # The org chart travels with the payload: reporting lines change rarely and
     # every desk rollup needs them, so fetching them separately would be a round
     # trip per dashboard render for data that fits in a few hundred bytes.
-    people = list(Persona.objects.select_related("manager").order_by("id"))
-    users = [{"id": u.id, "name": u.name, "role": u.role, "title": u.title,
-              "managerId": u.manager_id, "approvalLevel": u.approval_level or None}
-             for u in people]
+    #
+    # Not to a vendor, though: the buyer's staff list (names, titles, approval
+    # levels) is the buyer's business, and nothing on the portal reads it.
+    if p["role"] == "supplier":
+        users = []
+    else:
+        people = list(Persona.objects.select_related("manager").order_by("id"))
+        users = [{"id": u.id, "name": u.name, "role": u.role, "title": u.title,
+                  "managerId": u.manager_id, "approvalLevel": u.approval_level or None}
+                 for u in people]
 
     # Whose work this person may see rolled up. Derived server-side rather than
     # left to the client to walk: "who reports to me" decides what numbers a
@@ -380,9 +419,9 @@ def bootstrap(request, p, body):
         if doc_visible(d, tmap[d.tender_id], p):
             docs.append(doc_view(d))
     if p["role"] == "supplier":
-        docs += [doc_view(d) for d in Document.objects.filter(kind="supplier", supplier_id=p["supplierId"])]
+        docs += supplier_doc_views(Document.objects.filter(kind="supplier", supplier_id=p["supplierId"]))
     else:
-        docs += [doc_view(d) for d in Document.objects.filter(kind="supplier")]
+        docs += supplier_doc_views(Document.objects.filter(kind="supplier"))
 
     notifs = [{"id": n.id, "at": n.at, "subject": n.subject, "body": n.body,
                "tenderId": n.tender_id, "destination": n.destination, "read": n.read}
@@ -720,14 +759,38 @@ def org_logo(request, p, body):
     return JsonResponse(org_settings())
 
 
+def _closes_at(ms):
+    """A closing date with its time, as a bidder needs it. West Africa Time,
+    which is where the deadline was picked (the form sets 17:00 local)."""
+    import datetime
+    if not ms:
+        return "-"
+    wat = datetime.timezone(datetime.timedelta(hours=1))
+    return datetime.datetime.fromtimestamp(ms / 1000, wat).strftime("%d %b %Y at %H:%M WAT")
+
+
+# Marker action for vendors an invitation reached nobody at. procurement.vendor_rows
+# reads it back so the Vendors tab says "Not reachable" instead of "Invited".
+UNREACHED = "Invitation not delivered"
+
+
 def _publish(t, p):
+    from .notify import notify_personas
     t.status = "published"
     t.published_at = now_ms()
     t.save()
     log(p, "Published", f"{t.title} released to {len(t.invited)} invited supplier(s).", t.id)
-    notify_suppliers(t.invited, f"Invitation to tender: {t.title}",
-                     f"{org_name()} invites your sealed bid for {t.ref} - {t.title}. "
-                     f"Deadline: see the bid room for full terms.", t.id)
+    body = (f"{org_name()} invites your sealed bid for {t.ref} - {t.title}. "
+            f"Bids close {_closes_at(t.deadline)}. Full terms are in your bid room.")
+    names = {s.id: s.name for s in Supplier.objects.filter(id__in=list(t.invited or []))}
+    for sid in t.invited or []:
+        if not notify_supplier(sid, f"Invitation to tender: {t.title}", body, t.id):
+            log(p, UNREACHED, f"{names.get(sid, sid)} [{sid}] has no account and no contact "
+                              f"email on the register, so the invitation reached nobody.", t.id)
+    if t.owner_id and t.owner_id != p.get("id"):
+        notify_personas([t.owner_id], f"Published: {t.title}",
+                        f"{t.ref} is live. Invitations went to {len(t.invited)} vendor(s); "
+                        f"bids close {_closes_at(t.deadline)}.", t.id)
 
 
 def _ask_next_signature(t, kind, subject, body):
@@ -768,8 +831,9 @@ def _route_submission(t, p):
 
 def _route_submission_legacy(t, p):
     """The single-threshold matrix: at/above the threshold→ approver; below → publish now."""
-    threshold = org_settings()["approvalThreshold"]
-    if t.budget >= threshold:
+    # A threshold of 0 means nothing needs sign-off, not that everything does.
+    threshold = int(org_settings().get("approvalThreshold") or 0)
+    if threshold > 0 and t.budget >= threshold:
         t.status = "approval"
         t.save()
         log(p, "Submitted for approval",
@@ -827,7 +891,7 @@ def _apply_tender_payload(t, body):
     t.tech_weight = int(body.get("techWeight", 70))
     t.comm_weight = 100 - t.tech_weight
     t.scope = str(body.get("scope", "")).strip()
-    t.criteria = [{"id": c.get("id") or rid("c"), "name": str(c.get("name", "")), "weight": int(c.get("weight", 0) or 0)}
+    t.criteria = [{"id": c.get("id") or rid("c"), "name": str(c.get("name", "")).strip(), "weight": int(c.get("weight", 0) or 0)}
                   for c in body.get("criteria", [])]
     # `itemCode` is optional and links the line to the material master, which is
     # what makes the same purchase comparable across tenders. Free text still
@@ -885,6 +949,8 @@ def _validate_tender(t, submitting):
         # Was an `elif` hanging off a reverse-auction branch, which had no
         # criteria to weigh. Auctions are their own event now, so every tender
         # reaching here is scored and the check is unconditional.
+        if any(not str(c.get("name", "")).strip() for c in t.criteria):
+            return "Every criterion needs a name. Name it or remove it."
         if sum(c["weight"] for c in t.criteria) != 100:
             return "Criteria weights must total exactly 100%."
         if not t.invited:
@@ -892,6 +958,22 @@ def _validate_tender(t, submitting):
         if any(l["qty"] <= 0 for l in t.lines):
             return "Every line item needs a quantity above zero."
     return None
+
+
+def _next_ref(ttype):
+    """The next free reference for this year: one past the highest number
+    already used under this prefix and year, so a deleted draft or a renamed
+    prefix never hands out a reference that is already taken."""
+    import datetime
+    import re
+    year = datetime.datetime.utcnow().year
+    head = f"{ref_prefix()}-{ttype}-{year}-"
+    used = [int(m.group(1)) for r in Tender.objects.filter(ref__startswith=head).values_list("ref", flat=True)
+            if (m := re.search(r"-(\d+)$", r))]
+    seq = max(used, default=0) + 1
+    while Tender.objects.filter(ref=f"{head}{seq:03d}").exists():
+        seq += 1
+    return f"{head}{seq:03d}"
 
 
 @route(["POST"], perm="tender.create")
@@ -906,8 +988,7 @@ def tender_create(request, p, body):
     msg = _validate_tender(t, submitting)
     if msg:
         return err(msg)
-    seq = Tender.objects.count() + 28
-    t.ref = f"{ref_prefix()}-{t.ttype}-2026-{seq:03d}"
+    t.ref = _next_ref(t.ttype)
     t.save()
     if submitting:
         _route_submission(t, p)
@@ -953,6 +1034,22 @@ def tender_submit(request, p, body, tid):
     return JsonResponse({"ok": True})
 
 
+def _return_reason(body):
+    """Why a signer sent something back. Required: a return with no reason
+    leaves the drafter guessing what to fix."""
+    return str(body.get("reason") or body.get("note") or "").strip()[:300]
+
+
+def _tell_drafter(t, subject, body):
+    """The person who raised the tender, or, with nobody on record, whoever
+    can submit drafts."""
+    from .notify import notify_personas
+    if t.owner_id:
+        notify_personas([t.owner_id], subject, body, t.id)
+    else:
+        notify_perm("tender.submit", subject, body, t.id)
+
+
 @route(["POST"])
 def publish_decision(request, p, body, tid):
     """Sign, or send back, one publication.
@@ -979,16 +1076,30 @@ def publish_decision(request, p, body, tid):
         return err("You don't have permission to approve publication.", 403)
 
     if not body.get("ok"):
+        reason = _return_reason(body)
+        if not reason:
+            return err("Say why it is going back, so the drafter knows what to fix.")
+        # The reason goes into the trail BEFORE the chain is cleared: the
+        # step's note is deleted with the chain, and the trail is what keeps it.
         if step:
-            approvals.decide(step, p, False, body.get("note", ""))
-            approvals.clear_chain(t, approvals.PUBLISH)
+            approvals.decide(step, p, False, reason)
         t.status = "draft"
         t.save()
         log(p, "Returned to draft",
             (f"Declined at step {step.seq} ({step.level_name}); the chain is cancelled and the "
-             f"tender goes back to the drafter." if step
-             else "Changes were requested before publication."), t.id)
+             f"tender goes back to the drafter. Reason: {reason}" if step
+             else f"Changes were requested before publication. Reason: {reason}"), t.id)
+        if step:
+            approvals.clear_chain(t, approvals.PUBLISH)
+        _tell_drafter(t, f"Returned to draft: {t.title}",
+                      f"{p['name']} returned {t.ref} to draft before publication. "
+                      f"Reason: {reason}")
         return JsonResponse({"ok": True})
+
+    # Signing a tender whose deadline has gone publishes one that is already
+    # closed: suppliers would be invited to a bid room that seals on arrival.
+    if t.deadline and t.deadline <= now_ms():
+        return err("The deadline has passed. Extend it before approving.", 409)
 
     if step:
         approvals.decide(step, p, True, body.get("note", ""))
@@ -1001,9 +1112,11 @@ def publish_decision(request, p, body, tid):
             _ask_next_signature(t, approvals.PUBLISH, f"Publication approval needed: {t.title}",
                                 f"{t.ref} at {fmt_compact(t.budget)} has cleared step {step.seq} "
                                 f"of {total} and is now waiting on you.")
-            return JsonResponse({"ok": True})
+            return JsonResponse({"ok": True, "done": False,
+                                 "next": nxt.persona.name if nxt.persona_id and nxt.persona
+                                 else nxt.level_name})
     _publish(t, p)
-    return JsonResponse({"ok": True})
+    return JsonResponse({"ok": True, "done": True})
 
 
 @route(["POST"], perm="tender.addendum")
@@ -1016,11 +1129,18 @@ def add_addendum(request, p, body, tid):
     title = str(body.get("title", "")).strip()
     if not title:
         return err("An addendum needs a title.")
-    seq = f"{len(t.addenda) + 1:02d}"
-    t.addenda = t.addenda + [{"id": rid("a"), "at": now_ms(),
-                              "title": f"Addendum {seq} - {title}",
-                              "note": str(body.get("note", "")).strip()}]
-    t.save()
+    note = str(body.get("note", "")).strip()
+    with transaction.atomic():
+        t = Tender.objects.select_for_update().get(pk=t.pk)
+        # A double click sends the same addendum twice; the second is refused
+        # rather than issued as Addendum 03 with identical words.
+        if any(a.get("title", "").endswith(f" - {title}") and a.get("note", "") == note
+               and now_ms() - int(a.get("at") or 0) < 60_000 for a in (t.addenda or [])):
+            return err("This addendum was just issued.", 409)
+        seq = f"{len(t.addenda) + 1:02d}"
+        t.addenda = t.addenda + [{"id": rid("a"), "at": now_ms(),
+                                  "title": f"Addendum {seq} - {title}", "note": note}]
+        t.save()
     log(p, "Addendum issued", f"Addendum {seq} - {title}. New submissions must acknowledge it.", t.id)
     notify_suppliers(t.invited, f"Addendum issued: {t.title}",
                      f"Addendum {seq} - {title}. Review it in the bid room; new submissions must acknowledge it.",
@@ -1181,13 +1301,14 @@ def recommend_award(request, p, body, tid):
     for c in variance_flags(t, bid):
         flags.append(f'panel split on "{c["name"]}"')
     memo = (
-        f"Panel recommends {s.name} at {fmt_compact(bid.amount)} - {under:.1f}% under the "
+        f"Panel recommends {s.name} at {fmt_compact(bid.amount)} - {abs(under):.1f}% "
+        f"{'under' if under >= 0 else 'over'} the "
         f"{fmt_compact(t.budget)} ceiling. Technical {f'{ts:.0f}' if ts is not None else '-'}/100, "
         f"commercial {cs:.0f}/100, weighted total {f'{tot:.1f}' if tot is not None else '-'}. "
         + (("Flags: " + "; ".join(flags) + ".") if flags else "No variance or pricing flags.")
     )
     t.award_rec = {"bidId": bid.id, "supplierId": bid.supplier_id, "amount": bid.amount,
-                   "by": p["name"], "at": now_ms(), "memo": memo}
+                   "by": p["name"], "byId": p.get("id"), "at": now_ms(), "memo": memo}
     t.save()
 
     # The award walks the ladder on the *awarded* amount, not the budget: the
@@ -1239,27 +1360,30 @@ def award_decision(request, p, body, tid):
     if not rec or t.status != "evaluation":
         return err("No award recommendation is awaiting approval on this tender.", 409)
 
+    reason = "" if body.get("ok") else _return_reason(body)
     step = approvals.current_step(t, approvals.AWARD)
     if step:
         if not approvals.may_sign(step, p):
             who = step.persona.name if step.persona_id and step.persona else step.level_name
             return err(f"This is waiting on {who} at step {step.seq}. It is not yours to sign.", 403)
-        approvals.decide(step, p, bool(body.get("ok")), body.get("note", ""))
+    elif not has(p, "award.decide"):
+        return err("You don't have permission to approve awards.", 403)
+    if not body.get("ok") and not reason:
+        return err("Say why it is going back, so the panel knows what to look at.")
+
+    if step:
+        approvals.decide(step, p, bool(body.get("ok")), body.get("note", "") if body.get("ok") else reason)
         if body.get("ok"):
             nxt = approvals.current_step(t, approvals.AWARD)
             if nxt:
                 total = len(approvals.steps_for(t, approvals.AWARD))
+                nxt_name = nxt.persona.name if nxt.persona_id and nxt.persona else nxt.level_name
                 log(p, "Award signed off",
-                    f"Step {step.seq} of {total} signed at {step.level_name}. Now with "
-                    f"{nxt.persona.name if nxt.persona_id and nxt.persona else nxt.level_name}.", t.id)
+                    f"Step {step.seq} of {total} signed at {step.level_name}. Now with {nxt_name}.", t.id)
                 _ask_next_signature(t, approvals.AWARD, f"Award approval needed: {t.title}",
                                     f"The award on {t.ref} at {fmt_compact(rec['amount'])} has "
                                     f"cleared step {step.seq} of {total} and is now waiting on you.")
-                return JsonResponse({"ok": True})
-        else:
-            approvals.clear_chain(t, approvals.AWARD)
-    elif not has(p, "award.decide"):
-        return err("You don't have permission to approve awards.", 403)
+                return JsonResponse({"ok": True, "done": False, "next": nxt_name})
 
     if body.get("ok"):
         winner = Supplier.objects.get(pk=rec["supplierId"])
@@ -1282,7 +1406,8 @@ def award_decision(request, p, body, tid):
         t.rounds.exclude(status="cancelled").update(status="completed")
         under = (t.budget - t.awarded_amount) / t.budget * 100
         log(p, "Award approved",
-            f"Awarded to {winner.name} at {fmt_compact(t.awarded_amount)} - {under:.1f}% under budget. "
+            f"Awarded to {winner.name} at {fmt_compact(t.awarded_amount)} - {abs(under):.1f}% "
+            f"{'under' if under >= 0 else 'over'} budget. "
             f"Award and regret letters issued.", t.id)
         notify_perm("award.recommend", f"Award approved: {t.title}",
                     f"The award to {winner.name} was approved. Letters have been issued to all bidders.", t.id)
@@ -1291,12 +1416,24 @@ def award_decision(request, p, body, tid):
                             f"The outcome of {t.ref} has been decided. Your letter is available in your portal.",
                             t.id)
     else:
+        # Trail first, chain second: the step's note goes with the chain, and
+        # the trail is where the reason has to outlive it.
+        at = f" at step {step.seq} ({step.level_name})" if step else ""
+        log(p, "Award recommendation returned",
+            f"The recommendation was returned to the panel{at}. Reason: {reason}", t.id)
         t.award_rec = None
         t.save()
-        log(p, "Award recommendation returned", "The recommendation was returned to the panel with questions.", t.id)
-        notify_perm("award.recommend", f"Recommendation returned: {t.title}",
-                    "The award recommendation was returned to the panel with questions.", t.id)
-    return JsonResponse({"ok": True})
+        if step:
+            approvals.clear_chain(t, approvals.AWARD)
+        subject = f"Recommendation returned: {t.title}"
+        text = (f"{p['name']} returned the award recommendation on {t.ref} to the panel. "
+                f"Reason: {reason}")
+        if rec.get("byId"):
+            from .notify import notify_personas
+            notify_personas([rec["byId"]], subject, text, t.id)
+        else:
+            notify_perm("award.recommend", subject, text, t.id)
+    return JsonResponse({"ok": True, "done": True})
 
 
 # ---------------- bids ----------------
@@ -1333,6 +1470,12 @@ def bid_collection(request, p, body, tid):
 
     if mine.exists():
         return err("You already have a sealed bid - withdraw it first to replace it.", 409)
+    # The conflict-of-interest declaration is signed in the signer's own name,
+    # so it is required here and recorded against the bid, not only ticked on
+    # a screen that never sent it.
+    decl = body.get("decl")
+    if not (decl is True or (isinstance(decl, dict) and decl.get("noConflict") is True)):
+        return err("Sign the conflict-of-interest declaration before sealing the bid.")
     acks = set(body.get("acks", []))
     missing = [a["title"] for a in t.addenda if a["id"] not in acks]
     if missing:
@@ -1366,11 +1509,18 @@ def bid_collection(request, p, body, tid):
     if first_round and not Document.objects.filter(
             tender=t, kind="bid", supplier_id=me, envelope="technical").exists():
         return err("Upload your technical proposal before sealing the bid.")
-    Bid.objects.create(id=rid("b"), tender=t, round=rnd, supplier_id=me, submitted_at=now_ms(),
-                       amount=None, lines={}, scores={},
-                       sealed_blob=seal_json({"amount": amount, "lines": clean_lines}))
+    signed_at = now_ms()
+    signed = {"noConflict": True, "signedBy": p["name"], "signedAt": signed_at}
+    b = Bid.objects.create(id=rid("b"), tender=t, round=rnd, supplier_id=me, submitted_at=signed_at,
+                           amount=None, lines={}, scores={},
+                           sealed_blob=seal_json({"amount": amount, "lines": clean_lines,
+                                                  "decl": signed}))
     where = f" in {rnd.label.lower()}" if rnd else ""
     log(p, "Sealed bid received", f"Contents sealed until the opening is logged{where}.", t.id)
+    sup_name = Supplier.objects.filter(pk=me).values_list("name", flat=True).first() or me
+    log(p, "Conflict-of-interest declaration signed",
+        f"{p['name']} declared no conflict of interest for {sup_name}, signed electronically "
+        f"with bid {b.id} on {fmt_date_ms(signed_at)}.", t.id)
     notify_supplier(me, f"Bid received: {t.title}",
                     f"{org_name()} has received your sealed bid for {t.ref}{where}. It stays sealed "
                     f"until the recorded opening after the deadline, {fmt_date_ms(t.deadline)}.", t.id)
@@ -1390,10 +1540,17 @@ def save_scores(request, p, body, bid_id):
         return err("Scoring is only open between the bid opening and the award.", 409)
     if p["id"] not in (t.coi or {}):
         return err("Sign the conflict-of-interest declaration for this tender before scoring.", 403)
-    valid = {c["id"] for c in t.criteria}
+    # The approvers sign the memo the scores produced. Moving a score under a
+    # signature that is already on its way up would change what they signed.
+    if t.award_rec:
+        return err("Scores are locked while the recommendation is with the approvers. "
+                   "Withdraw it to change scores.", 409)
+    valid = {c["id"]: c.get("name") or c["id"] for c in t.criteria}
+    changes = []
     with transaction.atomic():
         b = Bid.objects.select_for_update().get(pk=bid_id)
         mine = dict((b.scores or {}).get(p["id"], {}))
+        before = dict(mine)
         for cid, v in (body.get("scores") or {}).items():
             if cid not in valid:
                 continue
@@ -1404,6 +1561,11 @@ def save_scores(request, p, body, bid_id):
                     mine[cid] = max(0, min(10, float(v)))
                 except (TypeError, ValueError):
                     continue
+        def _fmt(x):
+            return "not scored" if x is None else f"{x:g}"
+        for cid, name in valid.items():
+            if before.get(cid) != mine.get(cid):
+                changes.append(f"{name} {_fmt(before.get(cid))} → {_fmt(mine.get(cid))}")
         scores = dict(b.scores or {})
         scores[p["id"]] = mine
         b.scores = scores
@@ -1418,6 +1580,12 @@ def save_scores(request, p, body, bid_id):
             b.notes = notes
             update_fields.append("notes")
         b.save(update_fields=update_fields)
+    if changes:
+        # One entry per save, not per dial: the trail answers "who moved which
+        # score, from what, to what", and a save is one decision.
+        s = Supplier.objects.filter(pk=b.supplier_id).first()
+        log(p, "Scores changed",
+            f"{s.name if s else b.supplier_id}: " + "; ".join(changes) + ".", t.id)
     return JsonResponse({"ok": True})
 
 
@@ -1449,10 +1617,19 @@ def answer_clarification(request, p, body, cid):
     a = str(body.get("a", "")).strip()
     if not a:
         return err("The answer is empty.")
-    c.a = a
-    c.answered_at = now_ms()
-    c.save()
-    log(p, "Clarification answered", "Published to all invited suppliers.", c.tender_id)
+    # One answer per question. The conditional update is the lock: of two
+    # colleagues (or two clicks) answering at once, exactly one lands, and the
+    # other is told who got there first instead of silently overwriting it.
+    if not Clarification.objects.filter(pk=c.pk, answered_at__isnull=True).update(a=a, answered_at=now_ms()):
+        from .models import Event
+        c.refresh_from_db()
+        ev = (Event.objects.filter(tender_id=c.tender_id, action="Clarification answered",
+                                   detail__contains=f"[{c.id}]").first()
+              or Event.objects.filter(tender_id=c.tender_id, action="Clarification answered",
+                                      at__gte=(c.answered_at or 0) - 5000,
+                                      at__lte=(c.answered_at or 0) + 5000).first())
+        return err(f"This question was already answered by {ev.actor if ev else 'a colleague'}.", 409)
+    log(p, "Clarification answered", f"Published to all invited suppliers. [{c.id}]", c.tender_id)
     t = c.tender
     notify_suppliers(t.invited, f"Clarification answered: {t.title}",
                      "The buyer published an answer to a clarification. All invited suppliers can view it.", t.id)
@@ -1767,6 +1944,10 @@ def upload_tender_doc(request, p, body, tid):
                                 uploaded_by=p["name"], uploaded_at=now_ms(), **up)
     log(p, "Tender document published",
         f"{d.name} attached" + (f" to {rnd.label}" if rnd else "") + "; visible to all invited suppliers.", t.id)
+    if t.status not in ("draft", "approval"):
+        notify_suppliers(rnd.bidders() if rnd else t.invited, f"New tender document: {t.title}",
+                         f"{org_name()} added \"{d.name}\" to {t.ref}. Read it in your bid room "
+                         f"before you submit.", t.id)
     return JsonResponse({"doc": doc_view(d)})
 
 
@@ -1810,7 +1991,14 @@ def delete_doc(request, p, body, doc_id):
             return err("Not allowed.", 403)
         if Bid.objects.filter(tender=t, supplier_id=p["supplierId"]).exists():
             return err("Withdraw your sealed bid before changing its documents.", 409)
+    name, kind = d.name, d.kind
     d.delete()
+    if kind == "tender":
+        log(p, "Tender document removed", f"{name} withdrawn from the document pack.", t.id)
+        if t.status not in ("draft", "approval"):
+            notify_suppliers(t.invited, f"Tender document withdrawn: {t.title}",
+                             f"{org_name()} removed \"{name}\" from {t.ref}. Check your bid room "
+                             f"for the current documents.", t.id)
     return JsonResponse({"ok": True})
 
 
@@ -1879,9 +2067,19 @@ def upload_supplier_doc(request, p, body):
     docs = list(sup.docs or [])
     docs.append({"name": label, "type": kind, "expiry": expiry or 0, "docId": d.id})
     sup.docs = docs
-    sup.save(update_fields=["docs"])
+    # A declined vendor who sends new papers is answering the decline, so they
+    # go back on the Review list rather than staying declined until somebody
+    # happens to open their record.
+    was_declined = bool(sup.rejected_reason) and not sup.prequalified
+    if was_declined:
+        sup.rejected_reason = ""
+    sup.save(update_fields=["docs", "rejected_reason"] if was_declined else ["docs"])
     record_event(actor=p["name"], role="supplier", action="Compliance document submitted",
-                 detail=f"{label} uploaded for prequalification review.")
+                 detail=f"{label} uploaded for prequalification review."
+                 + (" Previously declined; returned to review." if was_declined else ""))
+    if was_declined:
+        notify_perm("supplier.prequalify", f"Declined vendor sent new documents: {sup.name}",
+                    f"{sup.name} uploaded {label} after being declined and is back in the Review list.")
     return JsonResponse({"doc": doc_view(d)})
 
 
@@ -1935,10 +2133,14 @@ def team(request, p, body):
                         "role": per.role, "roleLabel": role_label(per.role, custom).split(" - ")[0].strip(),
                         "title": per.title, "active": False, "claimed": False, "custom": False})
 
+    # A link older than three days no longer works, so it is shown as expired
+    # (with Resend and Cancel) rather than as waiting to be accepted forever.
+    from .account_views import TOKEN_TTL_MS
     pending = [{"email": t.email, "role": t.payload.get("role", ""),
                 "personaId": t.payload.get("personaId") or None,
+                "name": t.payload.get("name", ""),
                 "roleLabel": role_label(t.payload.get("role", ""), custom).split(" - ")[0].strip(),
-                "at": t.created}
+                "at": t.created, "expired": now_ms() - t.created > TOKEN_TTL_MS}
                for t in ActionTokenModel.objects.filter(kind="team_invite", used_at__isnull=True)]
     # Invitations setup prepared and nobody has sent yet.
     held = [{"email": t.email, "personaId": t.payload.get("personaId") or None,
@@ -1970,29 +2172,141 @@ def team_send_invites(request, p, body):
     rows = list(rows)
     if not rows:
         return err("There are no held invitations to send.", 409)
-    sent, links = 0, []
+    sent, links, failed = 0, [], []
     for h in rows:
-        h.used_at = now_ms()
-        h.save(update_fields=["used_at"])
         if User.objects.filter(username=h.email).exists():
+            h.used_at = now_ms()
+            h.save(update_fields=["used_at"])
             continue        # they found their own way in; nothing to send
         persona = Persona.objects.filter(pk=h.payload.get("personaId")).first()
-        tok = _mint("team_invite", h.email, dict(h.payload))
+        tok = _mint("team_invite", h.email, {**h.payload, "invitedBy": p["name"]})
         link = _link(request, "itoken", tok.token)
         role = role_label(h.payload.get("role", ""))
         line = (f", reporting to {persona.manager.name}"
                 if persona and persona.manager_id else "")
-        _mail(h.email, f"You're invited to {org_name()}'s DOCKET workspace",
-              f"{p['name']} invited you to {org_name()} as {role}{line}.\n\n"
-              f"Set your password here:\n\n{link}\n\nThe link is valid for 3 days.")
+        if not _mail(h.email, f"You're invited to {org_name()}'s DOCKET workspace",
+                     f"{p['name']} invited you to {org_name()} as {role}{line}.\n\n"
+                     f"Set your password here:\n\n{link}\n\nThe link is valid for 3 days."):
+            # Still held, so it can be fixed or sent again from the Team page.
+            tok.delete()
+            failed.append({"email": h.email, "name": h.payload.get("name", "")})
+            continue
+        h.used_at = now_ms()
+        h.save(update_fields=["used_at"])
         sent += 1
         if settings.DEMO_LOGIN:
             links.append({"email": h.email, "link": link})
-    log(p, "Team invitations sent", f"{sent} held invitation(s) sent.")
-    out = {"ok": True, "sent": sent}
+    log(p, "Team invitations sent", f"{sent} held invitation(s) sent"
+        + (f"; {len(failed)} could not be sent." if failed else "."))
+    out = {"ok": True, "sent": sent, "failed": failed}
     if settings.DEMO_LOGIN:
         out["links"] = links
     return JsonResponse(out)
+
+
+@route(["POST"], perm="team.invite")
+def team_invite_resend(request, p, body):
+    """Send a sent invitation again with a fresh three-day link. The old link
+    stops working. Picked by email: the link itself is never shown on the Team
+    page, because whoever holds it can join as that person."""
+    from django.contrib.auth.models import User
+
+    from .account_views import _link, _mail, _mint
+    from .permissions import role_label
+    email = str(body.get("email", "")).strip().lower()
+    old = list(ActionTokenModel.objects.filter(kind="team_invite", email=email, used_at__isnull=True))
+    if not old:
+        return err("There is no invitation waiting for that address.", 404)
+    if User.objects.filter(username=email).exists():
+        return err("That email already has an account.", 409)
+    payload = dict(old[-1].payload)
+    payload["invitedBy"] = p["name"]
+    tok = _mint("team_invite", email, payload)
+    if not _mail(email, f"You're invited to {org_name()}'s DOCKET workspace",
+                 f"{p['name']} invited you as {role_label(payload.get('role', ''))}. "
+                 f"Set your password here:\n\n{_link(request, 'itoken', tok.token)}\n\n"
+                 f"The link is valid for 3 days."):
+        tok.delete()
+        return err(f"The invitation to {email} could not be sent. Try again in a few minutes.", 502)
+    ActionTokenModel.objects.filter(pk__in=[t.pk for t in old]).update(used_at=now_ms())
+    log(p, "Team invitation resent", f"A fresh invitation link was sent to {email}.")
+    out = {"ok": True}
+    if settings.DEMO_LOGIN:
+        out["inviteLink"] = _link(request, "itoken", tok.token)
+    return JsonResponse(out)
+
+
+@route(["POST"], perm="team.invite")
+def team_invite_cancel(request, p, body):
+    """Withdraw a sent invitation. The link stops working at once."""
+    email = str(body.get("email", "")).strip().lower()
+    n = ActionTokenModel.objects.filter(kind="team_invite", email=email,
+                                        used_at__isnull=True).update(used_at=now_ms())
+    if not n:
+        return err("There is no invitation waiting for that address.", 404)
+    log(p, "Team invitation cancelled", f"The invitation to {email} was withdrawn.")
+    return JsonResponse({"ok": True})
+
+
+@route(["POST"], perm="team.invite")
+def team_held_edit(request, p, body):
+    """Correct a held (not yet sent) invitation: name, email, role. The person
+    is already drawn on the chart, so their name and role change there too."""
+    from django.contrib.auth.models import User
+
+    from .account_views import EMAIL_RE
+    from .permissions import assignable_roles
+    from .setup_views import HELD_INVITE
+    pid = str(body.get("personaId", ""))
+    h = ActionTokenModel.objects.filter(kind=HELD_INVITE, used_at__isnull=True,
+                                        payload__personaId=pid).first()
+    if not h:
+        return err("That invitation has already gone out or been removed.", 404)
+    email = str(body.get("email", h.email)).strip().lower()
+    name = str(body.get("name", h.payload.get("name", ""))).strip()[:80]
+    role = str(body.get("role", h.payload.get("role", ""))).strip()
+    if not EMAIL_RE.match(email):
+        return err("Enter a valid email address.")
+    if len(name) < 2:
+        return err("Enter their name.")
+    if role not in {r["key"] for r in assignable_roles()}:
+        return err("Pick a role that exists in this workspace.")
+    if email != h.email:
+        if User.objects.filter(username=email).exists():
+            return err("That email already has an account.", 409)
+        if ActionTokenModel.objects.filter(kind__in=[HELD_INVITE, "team_invite"], email=email,
+                                           used_at__isnull=True).exclude(pk=h.pk).exists():
+            return err("Somebody else is already being invited at that address.", 409)
+    h.email = email
+    h.payload = {**h.payload, "name": name, "role": role}
+    h.save(update_fields=["email", "payload"])
+    Persona.objects.filter(pk=pid, profile__isnull=True).update(name=name, role=role)
+    log(p, "Held invitation changed", f"{name} <{email}>, invitation not sent yet.")
+    return JsonResponse({"ok": True})
+
+
+@route(["POST"], perm="team.invite")
+def team_held_remove(request, p, body):
+    """Drop a held invitation and take the person off the chart. Anyone who
+    reported to them moves up to their manager rather than being orphaned."""
+    from .setup_views import HELD_INVITE
+    pid = str(body.get("personaId", ""))
+    h = ActionTokenModel.objects.filter(kind=HELD_INVITE, used_at__isnull=True,
+                                        payload__personaId=pid).first()
+    if not h:
+        return err("That invitation has already gone out or been removed.", 404)
+    h.used_at = now_ms()
+    h.save(update_fields=["used_at"])
+    persona = Persona.objects.filter(pk=pid, profile__isnull=True).first()
+    name = h.payload.get("name") or h.email
+    if persona:
+        Persona.objects.filter(manager_id=persona.id).update(manager_id=persona.manager_id)
+        try:
+            persona.delete()
+        except Exception:
+            pass    # referenced elsewhere: the invitation is gone, the chart entry stays
+    log(p, "Held invitation removed", f"{name} <{h.email}> was taken off the list before being invited.")
+    return JsonResponse({"ok": True})
 
 
 @route(["GET", "POST"], perm="team.view")
@@ -2109,10 +2423,14 @@ def invite_team(request, p, body):
     if User.objects.filter(username=email).exists():
         return err("That email already has an account.", 409)
     tok = _mint("team_invite", email, {"role": role, "title": str(body.get("title", "")).strip(),
-                                       "name": str(body.get("name", "")).strip()})
-    _mail(email, f"You're invited to {org_name()}'s DOCKET workspace",
-          f"{p['name']} invited you as {role_label(role)}. Set your password here:\n\n"
-          f"{_link(request, 'itoken', tok.token)}\n\nThe link is valid for 3 days.")
+                                       "name": str(body.get("name", "")).strip(),
+                                       "invitedBy": p["name"]})
+    if not _mail(email, f"You're invited to {org_name()}'s DOCKET workspace",
+                 f"{p['name']} invited you as {role_label(role)}. Set your password here:\n\n"
+                 f"{_link(request, 'itoken', tok.token)}\n\nThe link is valid for 3 days."):
+        tok.delete()
+        return err(f"The invitation to {email} could not be sent. Check the address, "
+                   f"or try again in a few minutes.", 502)
     log(p, "Team member invited", f"{email} invited as {role_label(role)}.")
     resp = {"ok": True}
     if settings.DEMO_LOGIN:  # demo convenience: surface the link so the flow is testable without a mailbox
@@ -2339,8 +2657,7 @@ def duplicate_tender(request, p, body, tid):
         # rounds do not, because those are facts about the run, not the template.
         projected_cost=src.projected_cost,
     )
-    seq = Tender.objects.count() + 28
-    t.ref = f"{ref_prefix()}-{t.ttype}-2026-{seq:03d}"
+    t.ref = _next_ref(t.ttype)
     t.save()
     log(p, "Tender duplicated", f"Draft created from {src.ref} - dates cleared, everything else carried over.", t.id)
     return JsonResponse({"id": t.id})
@@ -2450,6 +2767,12 @@ def me_update(request, p, body):
             sup.category = vocab.category(body["category"], keep=sup.category)
         if body.get("location"):
             sup.location = vocab.location(body["location"], keep=sup.location)
+        # Who the buyer should ring, and on what number. Both belong to the
+        # vendor, so the vendor keeps them current; blank clears them.
+        if "phone" in body:
+            sup.phone = vocab.phone(body.get("phone"), keep=sup.phone)
+        if "contactPerson" in body:
+            sup.contact_person = str(body.get("contactPerson") or "").strip()[:140]
         sup.save()
         if old != name:
             record_event(actor=name, role="supplier", action="Company renamed",

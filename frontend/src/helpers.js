@@ -4,20 +4,31 @@ export const DAY = 86400000;
 export const nowMs = () => Date.now();
 export const uid = () => Math.random().toString(36).slice(2, 9);
 
+/* The minus goes in front of the currency sign ("-₦12,000,000"), never between
+   the sign and the digits. */
 export const fmtMoney = (n, cur = "NGN") => {
+  const sign = n < 0 ? "-" : "";
   try {
-    return new Intl.NumberFormat("en-NG", { style: "currency", currency: cur, maximumFractionDigits: 0 }).format(n);
+    return sign + new Intl.NumberFormat("en-NG", { style: "currency", currency: cur, maximumFractionDigits: 0 }).format(Math.abs(n));
   } catch (e) {
-    return "₦" + Math.round(n).toLocaleString();
+    return sign + "₦" + Math.round(Math.abs(n)).toLocaleString();
   }
 };
 export const fmtCompact = (n) => {
-  if (n >= 1e9) return "₦" + (n / 1e9).toFixed(2).replace(/\.?0+$/, "") + "bn";
-  if (n >= 1e6) return "₦" + (n / 1e6).toFixed(1).replace(/\.0$/, "") + "m";
-  return "₦" + Math.round(n).toLocaleString();
+  const sign = n < 0 ? "-" : "";
+  const a = Math.abs(n);
+  if (a >= 1e9) return sign + "₦" + (a / 1e9).toFixed(2).replace(/\.?0+$/, "") + "bn";
+  if (a >= 1e6) return sign + "₦" + (a / 1e6).toFixed(1).replace(/\.0$/, "") + "m";
+  return sign + "₦" + Math.round(a).toLocaleString();
 };
 export const fmtDate = (t) => new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-export const fmtDateTime = (t) => new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+/* The year only when it is not this one: "14 Oct, 12:00" reads cleaner, but a
+   date from last year without its year reads as this year's. */
+export const fmtDateTime = (t) => {
+  const d = new Date(t);
+  const year = d.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {};
+  return d.toLocaleString("en-GB", { day: "numeric", month: "short", ...year, hour: "2-digit", minute: "2-digit" });
+};
 export const daysLeft = (t) => Math.ceil((t - nowMs()) / DAY);
 
 export const median = (a) => { const s = [...a].sort((x, y) => x - y); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };

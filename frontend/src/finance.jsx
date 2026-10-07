@@ -26,15 +26,17 @@
 */
 import React, { useEffect, useMemo, useState } from "react";
 
+import { raw } from "./api";
 import { Empty, Stat } from "./atoms";
 import { BaselineBackfill } from "./baselines";
+import { Choice } from "./fields";
 import {
   Bars, Columns, DataTable, Donut, Dumbbell, Figure, Heatmap, Legend, Meter,
   StackedBars, TimeChart, foldTail, palette, slot,
 } from "./charts";
 import {
-  AGE_TONE, EXCEPTION_KINDS, FRAUD_KINDS, FRESHNESS, LEVEL_META, TONE, asAt,
-  columns, days, delta, exceptionTotals, freshness, groupExceptions, pct, points,
+  AGE_TONE, EXCEPTION_KINDS, FEED_LABELS, FRAUD_KINDS, FRESHNESS, LEVEL_META, TONE, asAt,
+  columns, days, delta, exceptionTotals, feedFailed, freshness, groupExceptions, pct, points,
   riskLevels, term, topN, weakest,
 } from "./finance-model";
 import { fmtCompact, fmtDate, fmtMoney } from "./helpers";
@@ -42,6 +44,11 @@ import { Icon } from "./icons";
 import { useReveal } from "./motion";
 import { can } from "./perms";
 import { CountUp } from "./ui";
+
+const thisQuarter = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
+};
 
 const thisMonth = () =>
   new Date().toLocaleDateString("en-GB", { month: "long" });
@@ -67,6 +74,7 @@ export function FinancePage({ api }) {
      baseline moves every savings number), so the page re-reads the ledger
      instead of showing the totals from before. */
   const [nonce, setNonce] = useState(0);
+  const [exKind, setExKind] = useState(null);
   const reload = () => setNonce((n) => n + 1);
 
   useEffect(() => {
@@ -89,6 +97,10 @@ export function FinancePage({ api }) {
      Above the early returns, where hooks have to live: the loading render must
      call exactly as many as the loaded one. */
   useReveal([data, tab]);
+
+  /* A fraud tile on the Risk tab opens the Exceptions tab filtered to its
+     rule, rather than the page it is already on. */
+  const openKind = (k) => { setExKind(k); setTab("exceptions"); };
 
   const tabs = TABS.filter((t) => !t.perm || can(user, t.perm));
   const shown = tabs.some((t) => t.key === tab) ? tab : tabs[0].key;
@@ -122,7 +134,8 @@ export function FinancePage({ api }) {
         <span className="sub">What procurement cost, what is still owed, and what is about to go wrong.</span>
       </div>
 
-      <LedgerBanner ledger={data.ledger} restricted={data.restricted} />
+      <LedgerBanner ledger={data.ledger} restricted={data.restricted} canLoad={can(user, "finance.sync")} />
+      {can(user, "finance.sync") && <LedgerLoader api={api} onLoaded={reload} />}
 
       <div className="anbar">
         <div className="antabs" role="tablist">
@@ -137,23 +150,31 @@ export function FinancePage({ api }) {
             </button>
           ))}
         </div>
-        <YearPicker value={year} onChange={setYear} savings={data.savings} />
+        <YearPicker value={year} onChange={setYear} years={data.years} savings={data.savings} />
       </div>
 
       {shown === "savings" && <SavingsTab d={data} api={api} onChanged={reload} />}
+      {year != null && (data.allTime || []).length > 0 && ["payments", "risk", "exceptions"].includes(shown) && (
+        <div className="muted" style={{ fontSize: 12.5, margin: "-4px 0 12px" }}>
+          Payments, exposure, exchange rates and exceptions are shown for all time: what is
+          owed or overdue today does not belong to {year}.
+        </div>
+      )}
       {shown === "spend" && <SpendTab d={data} api={api} />}
       {shown === "contracts" && <ContractsTab d={data} api={api} />}
       {shown === "payments" && <PaymentsTab d={data} api={api} />}
       {shown === "compliance" && <ComplianceTab d={data} api={api} />}
-      {shown === "risk" && <RiskTab d={data} api={api} />}
-      {shown === "exceptions" && <ExceptionsTab d={data} api={api} />}
+      {shown === "risk" && <RiskTab d={data} api={api} openKind={openKind} />}
+      {shown === "exceptions" && <ExceptionsTab d={data} api={api} kind={exKind} setKind={setExKind} openTab={setTab} />}
     </div>
   );
 }
 
 /* The years the data actually covers, rather than a range somebody guessed. */
-function YearPicker({ value, onChange, savings }) {
-  const years = (savings.byYear || []).map((y) => y.key).slice(-3);
+function YearPicker({ value, onChange, years: all, savings }) {
+  /* The server sends every year on file whatever year is picked; the savings
+     rows only cover the picked one, so they are the fallback, not the source. */
+  const years = (all || (savings.byYear || []).map((y) => y.key)).slice(-3);
   return (
     <div className="anrange">
       <button className={"btn xs ghost" + (value == null ? " on" : "")} aria-pressed={value == null}
@@ -172,10 +193,11 @@ function YearPicker({ value, onChange, savings }) {
    is only as true as the copy it was computed from, and that is a fact about
    every number on the page rather than a notice about one of them. */
 
-function LedgerBanner({ ledger, restricted }) {
+function LedgerBanner({ ledger, restricted, canLoad }) {
   const f = freshness(ledger);
   const rows = ledger?.rows || {};
   const total = Object.values(rows).reduce((n, v) => n + v, 0);
+  const failed = f.failed || [];
 
   const tone = { live: "var(--green)", ageing: "var(--s4)", stale: "var(--wax)", never: "var(--wax)" }[f.band];
   const words = {
@@ -186,16 +208,23 @@ function LedgerBanner({ ledger, restricted }) {
   }[f.band];
 
   return (
-    <div className="ledgerbar" style={{ borderLeftColor: tone }}>
-      <Icon n={f.band === "live" ? "check" : "alert"} s={15} />
+    <div className="ledgerbar" style={{ borderLeftColor: failed.length ? "var(--wax)" : tone }}>
+      <Icon n={f.band === "live" && !failed.length ? "check" : "alert"} s={15} />
       <div className="lbmain">
         <b>{words}</b>{" "}
         <span className="muted">
           {f.band === "never"
-            ? "Contracts, invoices and payments come from Dynamics NAV. Until an export is loaded, the sections below show only what this system knows: tenders and awards."
+            ? <>Contracts, invoices and payments come from the finance system. Until they are
+               loaded, the sections below show only what this system knows: tenders and awards.
+               {canLoad ? " Use Load finance data below to add them." : " Ask someone who can load finance data to add them."}</>
             : <>Every contract, invoice and payment below is a mirror of the finance
                system, {f.label}{f.at ? ` (${fmtDate(f.at)})` : ""}. {f.note}</>}
         </span>
+        {failed.map((x) => (
+          <div key={x.entity} style={{ fontSize: 12.5, marginTop: 4, color: "var(--wax)" }}>
+            <b>{x.label}: the last load failed</b>{x.at ? ` on ${fmtDate(x.at)}` : ""}. {x.error}
+          </div>
+        ))}
       </div>
       {total > 0 && (
         <span className="mono faint lbcount">
@@ -206,6 +235,180 @@ function LedgerBanner({ ledger, restricted }) {
         <span className="chip" title="You can see spend and savings, but not what individual vendors are owed.">
           payables hidden
         </span>
+      )}
+    </div>
+  );
+}
+
+/* Loading the ledger: pick what the file holds, upload it, read the preview,
+   then confirm. Preview first because an import that matched 3% of vendors is
+   one somebody needs to see before it lands. Only for `finance.sync`. */
+function LedgerLoader({ api, onLoaded }) {
+  const [open, setOpen] = useState(false);
+  const [info, setInfo] = useState(null);
+  const [entity, setEntity] = useState("");
+  const [source, setSource] = useState("nav");
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [result, setResult] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const loadInfo = () => api.finance.feeds()
+    .then((d) => { setInfo(d); setMsg(""); })
+    .catch((e) => setMsg(e.message || "Could not read the finance feeds."));
+  useEffect(() => { if (open && !info) loadInfo(); }, [open]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const reset = () => { setFile(null); setPreview(null); };
+  const label = (k) => FEED_LABELS[k] || k;
+
+  const run = async (dryRun) => {
+    if (!entity || !file) return;
+    setBusy(true); setMsg(""); if (dryRun) setResult(null);
+    try {
+      const r = await api.finance.import(file, { entity, source, dryRun: dryRun ? "true" : "" });
+      if (dryRun) setPreview(r);
+      else {
+        setResult(r); reset();
+        setInfo((i) => ({ ...(i || {}), feeds: r.feeds, rows: r.rows }));
+        onLoaded();
+      }
+    } catch (e) {
+      setMsg(e.message || "The import failed.");
+      if (!dryRun) loadInfo();
+    } finally { setBusy(false); }
+  };
+
+  const pull = async () => {
+    setBusy(true); setMsg(""); setResult(null);
+    try {
+      const r = await raw("/finance/pull/", { method: "POST", body: entity ? { entity } : {} });
+      setInfo((i) => ({ ...(i || {}), feeds: r.feeds, rows: r.rows }));
+      setMsg("Pulled from Business Central.");
+      onLoaded();
+    } catch (e) {
+      setMsg(e.message || "The pull failed.");
+      loadInfo();
+    } finally { setBusy(false); }
+  };
+
+  const feeds = info?.feeds || [];
+  const feedOf = (k) => feeds.find((f) => f.entity === k);
+  const bc = info?.connection?.configured;
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div className="chead">
+        <h3>Load finance data</h3>
+        <span className="mono faint">contracts, invoices, payments and the lists behind them</span>
+        <button className="btn xs ghost" style={{ marginLeft: "auto" }} onClick={() => setOpen((o) => !o)}>
+          {open ? "Close" : "Open"}
+        </button>
+      </div>
+      {open && (
+        <div className="cbody">
+          {!info && !msg && <div className="muted">Reading the feeds…</div>}
+          {info && (
+            <>
+              <div className="ldform">
+                <label className="lbl">What the file holds
+                  <Choice value={entity} onChange={(v) => { setEntity(v); reset(); setResult(null); }}
+                          options={(info.entities || []).map((e) => [e.key, label(e.key)])}
+                          placeholder="Choose the data type…" required />
+                </label>
+                {(info.sources || []).length > 1 && (
+                  <label className="lbl">Exported from
+                    <Choice value={source} onChange={(v) => { setSource(v); reset(); }}
+                            options={info.sources.map((x) => [x.key, x.label])} required />
+                  </label>
+                )}
+                <label className="lbl">File (CSV or Excel)
+                  <input type="file" className="in" accept=".csv,.xlsx,.xlsm,.txt"
+                         onChange={(e) => { setFile(e.target.files[0] || null); setPreview(null); setResult(null); }} />
+                </label>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                  <button className="btn sm" disabled={!entity || !file || busy} onClick={() => run(true)}>
+                    Preview
+                  </button>
+                  {bc && (
+                    <button className="btn sm ghost" disabled={busy} onClick={pull}
+                            title={entity ? `Pull ${label(entity).toLowerCase()} live` : "Pull every feed live"}>
+                      <Icon n="refresh" s={13} /> Pull now from Business Central
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {preview && (
+                <div className="ldpreview">
+                  <div>
+                    <b>{preview.read}</b> row{preview.read === 1 ? "" : "s"} read ·{" "}
+                    <b>{preview.recognised}</b> recognised as {label(preview.entity).toLowerCase()} ·{" "}
+                    <b>{preview.unrecognised}</b> will be skipped
+                  </div>
+                  {preview.unrecognised > 0 && (
+                    <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
+                      Skipped rows have no number or reference the import recognises: usually blank
+                      lines, total rows, or a file of a different data type.
+                      {preview.recognised === 0 && preview.columns?.length
+                        ? ` The file's columns are: ${preview.columns.join(", ")}.` : ""}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+                    <button className="btn sm primary" disabled={busy || !preview.recognised} onClick={() => run(false)}>
+                      Import {preview.recognised} {label(preview.entity).toLowerCase()}
+                    </button>
+                    <button className="btn sm ghost" disabled={busy} onClick={() => setPreview(null)}>Cancel</button>
+                  </div>
+                </div>
+              )}
+
+              {result && (
+                <div className="ldpreview">
+                  <b>Imported {result.written} of {result.seen} {label(result.entity).toLowerCase()}.</b>
+                  {result.unlinked > 0 && <> {result.unlinked} could not be linked to anything held here.</>}
+                  {(result.skipped || []).length > 0 && (
+                    <ul className="muted" style={{ fontSize: 12.5, margin: "6px 0 0 18px" }}>
+                      {result.skipped.slice(0, 8).map((x, i) => (
+                        <li key={i}>{x.row ? `Row ${x.row}: ` : ""}{x.why}</li>
+                      ))}
+                      {result.skipped.length > 8 && <li>and {result.skipped.length - 8} more skipped</li>}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+          {msg && <div style={{ marginTop: 10, fontSize: 13, color: msg.startsWith("Pulled") ? undefined : "var(--wax)" }}>{msg}</div>}
+
+          {info && (
+            <div style={{ overflowX: "auto" }}>
+              <table className="risktab" style={{ marginTop: 14 }}>
+                <thead>
+                  <tr><th>Data type</th><th>Last loaded</th><th className="num">Rows</th><th>Last problem</th></tr>
+                </thead>
+                <tbody>
+                  {(info.entities || []).map((e) => {
+                    const f = feedOf(e.key);
+                    const bad = feedFailed(f);
+                    return (
+                      <tr key={e.key}>
+                        <td><b>{label(e.key)}</b></td>
+                        <td>{f?.lastSuccess ? fmtDate(f.lastSuccess) : <span className="faint">never</span>}</td>
+                        <td className="num mono">{f?.lastSuccess ? f.rowsWritten : "-"}</td>
+                        <td className={bad ? "" : "muted"} style={{ color: bad ? "var(--wax)" : undefined }}>
+                          {f?.error
+                            ? `${bad ? "Failed" : "Loaded with warnings"}${f.lastAttempt ? ` ${fmtDate(f.lastAttempt)}` : ""}: ${f.error}`
+                            : "-"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -394,9 +597,12 @@ function SpendTab({ d, api }) {
         <Stat k="Not yet recorded" v={unrecorded ? fmtCompact(unrecorded) : "none"}
               d={unrecorded ? `not coded to a ${slice.label.toLowerCase()}` : `every commitment carries a ${slice.label.toLowerCase()}`}
               tone={unrecorded ? "var(--wax)" : null} />
+        {/* The calendar quarter we are in, not the last one with data: a quiet
+            quarter is zero, and showing last quarter's figure under "This
+            quarter" would hide that. */}
         <Stat k="This quarter"
-              v={t.quarterly.length ? fmtCompact(t.quarterly[t.quarterly.length - 1].value) : "-"}
-              d={t.quarterly.length ? t.quarterly[t.quarterly.length - 1].key : ""} />
+              v={fmtCompact((t.quarterly.find((q) => q.key === thisQuarter()) || {}).value || 0)}
+              d={thisQuarter()} />
       </div>
 
       <div className="dimbar" role="tablist" aria-label="Break spend down by">
@@ -876,7 +1082,7 @@ function ComplianceTab({ d, api }) {
 
 /* =================================================================== risk */
 
-function RiskTab({ d, api }) {
+function RiskTab({ d, api, openKind }) {
   const fx = d.fx;
   const exposure = d.exposure || [];
   const distress = d.distress || [];
@@ -967,14 +1173,35 @@ function RiskTab({ d, api }) {
                           note: `${r.currency} ${r.outstandingSrc.toLocaleString()} at ${r.rateAt.toFixed(0)} → ${r.rateNow.toFixed(0)}` }))}
                         fromLabel="At the rate struck" toLabel="At today's rate" goodDown />
             </>
-          ) : (
+          ) : (fx.unpriced || []).length ? null : (
             <Empty icon="shield">
               Every open commitment is in naira, so there is no exchange-rate exposure to carry.
             </Empty>
           )}
+          {(fx.unpriced || []).length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div className="muted" style={{ fontSize: 12.5, marginBottom: 6 }}>
+                <b style={{ color: "var(--ink)" }}>
+                  {fx.unpriced.length} foreign-currency commitment{fx.unpriced.length === 1 ? "" : "s"} could
+                  not be valued: no exchange rate loaded.
+                </b>{" "}
+                Load exchange rates to include {fx.unpriced.length === 1 ? "it" : "them"} above.
+              </div>
+              {fx.unpriced.slice(0, 8).map((r) => (
+                <div className="rowline" key={r.id}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <b>{r.title || r.ref}</b>
+                    <div className="muted" style={{ fontSize: 12 }}>{r.supplier} · {r.why}</div>
+                  </div>
+                  <span className="chip">{r.currency}</span>
+                  <span className="mono faint">{fmtCompact(r.amount)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </Figure>
 
-        <FraudPanel d={d} api={api} />
+        <FraudPanel d={d} api={api} openKind={openKind} />
 
         <div className="card" data-reveal style={{ gridColumn: "1 / -1" }}>
           <div className="chead">
@@ -1071,7 +1298,7 @@ function RiskRegister({ d }) {
    there they are work to clear, here they are a pattern to read. What is not
    here is a composite score - a single "fraud risk: 62" is an accusation with
    arithmetic painted on it, and nobody can act on it or contest it. */
-function FraudPanel({ d, api }) {
+function FraudPanel({ d, api, openKind }) {
   const ex = (d.exceptions || []).filter((e) => FRAUD_KINDS.includes(e.kind));
   const groups = groupExceptions(ex);
   const value = ex.reduce((n, e) => n + e.value, 0);
@@ -1096,7 +1323,7 @@ function FraudPanel({ d, api }) {
           <div className="fraudgrid">
             {groups.map((g) => (
               <button key={g.key} className="fraudcell"
-                      onClick={() => api.go({ page: "finance" })}
+                      onClick={() => openKind(g.key)}
                       title={g.rows.map((r) => r.subject).slice(0, 5).join("\n")}>
                 <Icon n={g.icon} s={16} />
                 <b>{g.rows.length}</b>
@@ -1118,8 +1345,11 @@ function FraudPanel({ d, api }) {
 
 /* ============================================================= exceptions */
 
-function ExceptionsTab({ d, api }) {
-  const [open, setOpen] = useState(null);
+/* The rules whose findings are about a contract, so "Open" can take them to
+   the Contracts tab. Invoices and orders have no screen of their own here. */
+const CONTRACT_KINDS = ["over_budget", "contract_expired", "contract_expiring", "variation_threshold"];
+
+function ExceptionsTab({ d, api, kind: open, setKind: setOpen, openTab }) {
   const groups = groupExceptions(d.exceptions);
   const tot = exceptionTotals(d.exceptions);
   const shown = open ? groups.filter((g) => g.key === open) : groups;
@@ -1137,9 +1367,10 @@ function ExceptionsTab({ d, api }) {
 
       <div className="card" style={{ marginBottom: 14, borderLeft: "3px solid var(--s1)" }}>
         <div className="cbody" style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6 }}>
-          These run automatically on every background sweep, and anything marked{" "}
-          <b>needs attention</b> also raises a notification to everyone who can see this
-          page - once per finding, not once per sweep. Findings marked <b>watch</b> are
+          These run automatically on every background sweep. When a sweep finds new items
+          marked <b>needs attention</b>, everyone who can see this page gets one summary
+          notification for that sweep, not one per item; payment items only go to people
+          who can see payments. Findings marked <b>watch</b> are
           listed here but do not notify: a notification for every contract ninety days from
           expiry would train everybody to ignore the channel that also carries the
           duplicate invoices.
@@ -1162,7 +1393,7 @@ function ExceptionsTab({ d, api }) {
       {!groups.length && (
         <div className="card"><div className="cbody">
           <Empty icon="check">
-            Nothing is failing any of the eight checks. That is worth a second look at the
+            Nothing is failing any of the {EXCEPTION_KINDS.length} checks. That is worth a second look at the
             banner above - a clean sheet on a stale ledger is not the same as a clean sheet.
           </Empty>
         </div></div>
@@ -1193,6 +1424,13 @@ function ExceptionsTab({ d, api }) {
                     <button className="btn xs ghost"
                             onClick={() => api.go({ page: "tender", id: e.ref.id })}>Open</button>
                   )}
+                  {e.ref?.page === "supplier" && (
+                    <button className="btn xs ghost" title="Open the vendor register"
+                            onClick={() => api.go({ page: "suppliers" })}>Vendors</button>
+                  )}
+                  {e.ref?.page === "finance" && CONTRACT_KINDS.includes(e.kind) && openTab && (
+                    <button className="btn xs ghost" onClick={() => openTab("contracts")}>Contracts</button>
+                  )}
                 </div>
               </div>
             ))}
@@ -1214,6 +1452,10 @@ export const FINANCE_CSS = `
 .ledgerbar{display:flex;align-items:flex-start;gap:11px;padding:12px 15px;margin-bottom:16px;
   background:var(--card);border:1px solid var(--line);border-left-width:3px;border-radius:10px;
   font-size:12.5px;line-height:1.55}
+.ldform{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:end}
+.ldform .lbl{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted)}
+.ldpreview{margin-top:12px;padding:10px 12px;border-radius:8px;background:color-mix(in srgb,var(--muted) 8%,transparent);font-size:13px}
+.lvl-withheld,.lvl-unknown{background:color-mix(in srgb,var(--muted) 12%,transparent);color:var(--muted)}
 .ledgerbar>svg{flex:0 0 auto;margin-top:1px;color:var(--muted)}
 .lbmain{flex:1;min-width:0}
 .lbcount{flex:0 0 auto;font-size:11px;white-space:nowrap}

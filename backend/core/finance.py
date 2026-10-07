@@ -273,6 +273,18 @@ def contract_summary(rows, now=None):
     }
 
 
+# The audit events that are an actual sign-off on an award. Matched by name
+# rather than by "contains approv", which also caught "Submitted for approval":
+# asking for a sign-off is not having one.
+APPROVAL_ACTIONS = ("Award approved", "Award signed off")
+
+
+def _approved_tender_ids():
+    from .models import Event
+    return set(Event.objects.filter(action__in=APPROVAL_ACTIONS)
+               .exclude(tender_id=None).values_list("tender_id", flat=True))
+
+
 # ============================================================ payment performance
 
 def payment_performance(now=None):
@@ -297,6 +309,18 @@ def payment_performance(now=None):
         last_paid = max((p.paid_at for p in payments if p.paid_at), default=None)
         settled = paid >= inv.amount and inv.amount > 0
 
+        # Money is booked in the month it moved, payment by payment: a part
+        # payment is still cash out of the door, and an invoice settled over
+        # three months is not three months of spend landing in the last one.
+        for p in payments:
+            if p.paid_at:
+                monthly_paid[month_key(p.paid_at)] += p.amount
+
+        # A rejected invoice is not owed. It stays in the received count but
+        # never in outstanding, overdue or ageing.
+        if inv.status == "rejected" and not settled:
+            continue
+
         if inv.approved_at and inv.received_at:
             approve_days.append((inv.approved_at - inv.received_at) / DAY_MS)
 
@@ -304,7 +328,6 @@ def payment_performance(now=None):
             # Received → settled, not approved → settled: the clock a supplier
             # actually experiences starts when they send the invoice.
             pay_days.append((last_paid - inv.received_at) / DAY_MS)
-            monthly_paid[month_key(last_paid)] += paid
             if inv.due_at:
                 (monthly_ontime[month_key(last_paid)]["on" if last_paid <= inv.due_at else "late"]) += 1
                 if last_paid > inv.due_at:
@@ -564,8 +587,7 @@ def compliance(tenders, contract_rows_, threshold, now=None):
 
     # 1) Approval matrix respected: anything above the threshold needed sign-off.
     from .models import Event
-    approved_ids = set(Event.objects.filter(action__icontains="approv")
-                       .exclude(tender_id=None).values_list("tender_id", flat=True))
+    approved_ids = _approved_tender_ids()
     above = [t for t in awarded if (t.awarded_amount or 0) > threshold]
     missing_approval = [t for t in above if t.id not in approved_ids]
     checks.append(_check("approval-limit", "Procurements within the approval limit",
@@ -704,14 +726,24 @@ def fx_exposure(now=None):
         if p.invoice and p.invoice.contract_id:
             paid_by_contract[p.invoice.contract_id] += p.amount
 
+    unpriced = []
     for c in Contract.objects.filter(status="active").exclude(currency="NGN").select_related("supplier"):
         outstanding_base = max(0, c.amount - paid_by_contract.get(c.id, 0))
-        if outstanding_base <= 0 or not c.fx_rate:
+        if outstanding_base <= 0:
+            continue
+        today = latest.get(c.currency)
+        if not c.fx_rate or not today:
+            # Listed, not dropped: a foreign-currency commitment with no rate
+            # to value it at is still a foreign-currency commitment.
+            unpriced.append({
+                "id": c.id, "ref": c.ref, "title": c.title,
+                "supplier": c.supplier.name if c.supplier else "",
+                "currency": c.currency, "amount": int(outstanding_base),
+                "why": ("no rate recorded on the contract" if not c.fx_rate
+                        else f"no {c.currency} exchange rate loaded"),
+            })
             continue
         outstanding_src = outstanding_base / c.fx_rate
-        today = latest.get(c.currency)
-        if not today:
-            continue
         at_today = outstanding_src * today
         rows.append({
             "id": c.id, "ref": c.ref, "title": c.title,
@@ -727,6 +759,7 @@ def fx_exposure(now=None):
             "atToday": sum(r["atToday"] for r in rows),
             "movement": sum(r["movement"] for r in rows),
             "currencies": sorted({r["currency"] for r in rows}),
+            "unpriced": unpriced,
             "rates": latest}
 
 
@@ -878,6 +911,7 @@ def _ex_exposure(now):
 def _ex_overdue(now):
     out = []
     for inv in (Invoice.objects.exclude(due_at=None).filter(due_at__lt=now)
+                .exclude(status="rejected")
                 .select_related("supplier").prefetch_related("payments")):
         owed = inv.amount - sum(p.amount for p in inv.payments.all())
         if owed <= 0:
@@ -967,8 +1001,7 @@ def _ex_low_bid(now):
 def _ex_missing_approval(now, threshold):
     out = []
     from .models import Event
-    approved = set(Event.objects.filter(action__icontains="approv")
-                   .exclude(tender_id=None).values_list("tender_id", flat=True))
+    approved = _approved_tender_ids()
     for t in Tender.objects.filter(status="awarded").exclude(awarded_amount=None):
         if (t.awarded_amount or 0) > threshold and t.id not in approved:
             out.append(_ex("missing_approval", "warn",
@@ -1069,6 +1102,9 @@ def payload(threshold=None, year=None):
         threshold = org_settings().get("approvalThreshold") or 0
 
     tenders = list(Tender.objects.all())
+    # Every year on file, worked out before the year filter: the picker draws
+    # its buttons from this, and a list taken after filtering held one year.
+    years = sorted({str(year_of(t.awarded_at)) for t in tenders if t.awarded_at})
     if year:
         tenders = [t for t in tenders if not t.awarded_at or year_of(t.awarded_at) == year]
 
@@ -1105,4 +1141,8 @@ def payload(threshold=None, year=None):
         "distress": distress_signals(now),
         "exceptions": exceptions(now, threshold),
         "dimensions": [{"key": k, "label": lb} for k, lb in DIMENSIONS],
+        "years": years,
+        # Read from the whole ledger whatever year is picked: what is owed,
+        # overdue or exposed today does not belong to a year.
+        "allTime": ["payments", "exposure", "fx", "distress", "exceptions"],
     }

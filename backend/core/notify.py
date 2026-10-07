@@ -43,7 +43,54 @@ def _users_for_supplier(supplier_id):
     return User.objects.filter(profile__supplier_id=supplier_id).select_related("profile")
 
 
+_ID_PAGES = ("tender", "auction", "bidroom")
+
+
+def app_path(destination=None, tender_id=None, supplier=False, subject=""):
+    """The in-app address of a notification, in the same scheme the frontend
+    writes into the address bar (App.jsx routeToPath):
+
+        /app/tenders, /app/tender/42/eval, /app/auction/7, /app/portal/outcomes
+
+    It mirrors the notification panel's own "Open item" choice, so the email
+    and the bell lead to the same place. None when there is nowhere specific.
+    """
+    from urllib.parse import quote, urlencode
+    d = dict(destination or {})
+    if not d.get("page"):
+        if not tender_id:
+            return None
+        # A vendor's outcome letter lives in the portal, not the bid room.
+        d = ({"page": "portal", "tab": "outcomes"} if supplier and "outcome" in (subject or "").lower()
+             else {"page": "bidroom" if supplier else "tender", "id": tender_id})
+    page = d.pop("page")
+    path = f"/app/{quote(str(page))}"
+    if page in _ID_PAGES and d.get("id") is not None:
+        path += f"/{quote(str(d['id']))}"
+    d.pop("id", None)
+    if d.get("tab"):
+        path += f"/{quote(str(d['tab']))}"
+    d.pop("tab", None)
+    rest = {k: v for k, v in d.items() if v not in (None, "")}
+    return path + (f"?{urlencode(rest)}" if rest else "")
+
+
+def _with_link(body, path):
+    """Append the way back into DOCKET. Skipped when this deployment has no
+    public address configured: a link to nowhere is worse than none."""
+    base = (base_url() or "").rstrip("/")
+    if not base or not path:
+        return body
+    return f"{body}\n\nOpen it in DOCKET: {base}{path}"
+
+
 def notify_users(users, subject, body, tender_id=None, destination=None):
+    users = list(users)
+    if not users:
+        return
+    # The company's name, not the product's: "[Acme] Bid opened" is from
+    # somebody the reader works with; "[DOCKET]" reads like a vendor's robot.
+    prefix = org_name() or "DOCKET"
     for u in users:
         n = Notification.objects.create(
             id=rid("n"), user=u, at=now_ms(), subject=subject, body=body, tender_id=tender_id,
@@ -51,7 +98,10 @@ def notify_users(users, subject, body, tender_id=None, destination=None):
         )
         if u.email:
             try:
-                EmailMessage(f"[DOCKET] {subject}", body, settings.DEFAULT_FROM_EMAIL, [u.email],
+                is_vendor = bool(getattr(getattr(u, "profile", None), "supplier_id", None))
+                mail_body = _with_link(body, app_path(destination, tender_id, supplier=is_vendor,
+                                                         subject=subject))
+                EmailMessage(f"[{prefix}] {subject}", mail_body, settings.DEFAULT_FROM_EMAIL, [u.email],
                              reply_to=settings.EMAIL_REPLY_TO).send(fail_silently=False)
                 n.emailed = True
                 n.save(update_fields=["emailed"])
@@ -89,7 +139,7 @@ def notify_personas(persona_ids, subject, body, tender_id=None):
                  .select_related("profile"), subject, body, tender_id)
 
 
-def _mail_unclaimed(supplier_id, subject, body):
+def _mail_unclaimed(supplier_id, subject, body, ask="read the full terms and submit a sealed bid"):
     """Reach a vendor who is on the register but holds no account yet.
 
     A buyer can put a company on the register from inside a draft - they know
@@ -126,7 +176,7 @@ def _mail_unclaimed(supplier_id, subject, body):
     _mail(email, subject,
           f"{body}\n\n"
           f"{s.name} is on {org_name()}'s vendor register but nobody has claimed the account yet. "
-          f"Set a password to sign in, read the full terms and submit a sealed bid:\n\n"
+          f"Set a password to sign in, {ask}:\n\n"
           f"{base_url()}/?register={tok.token}")
     return True
 
@@ -150,6 +200,10 @@ def notify_supplier(supplier_id, subject, body, tender_id=None, destination=None
                      destination=destination or ({} if tender_id else {"page": "portal", "tab": "company"}))
         return True
     try:
+        # An auction is bid in a live room, not by sealed envelope.
+        if (destination or {}).get("page") == "auction":
+            return bool(_mail_unclaimed(supplier_id, subject, body,
+                                        ask="read the auction rules and bid in the live room"))
         return bool(_mail_unclaimed(supplier_id, subject, body))
     except Exception:
         log.warning("could not reach unclaimed vendor %s", supplier_id, exc_info=True)

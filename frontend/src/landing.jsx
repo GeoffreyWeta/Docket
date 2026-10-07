@@ -428,6 +428,17 @@ export function Landing({ cfg, onScreen }) {
     if (cfg && cfg.signupUrl) window.location.href = cfg.signupUrl + "/?setup=1";
     else onScreen("setup");
   };
+  /* The setup wizard needs a code, so it is only offered to a stranger when
+     there is somewhere for them to set up: an empty workspace here, or a
+     sign-up address elsewhere. Otherwise the buttons write to the company. */
+  const canSetup = !!(cfg && (cfg.needsSetup || cfg.signupUrl));
+  const contact = (cfg && cfg.contactEmail) || "";
+  const mail = (subject) => () => {
+    window.location.href = `mailto:${contact}?subject=${encodeURIComponent(subject)}`;
+  };
+  const goContact = contact ? mail("DOCKET enquiry") : canSetup ? goSetup : null;
+  const goDemoReq = contact ? mail("Request a DOCKET demonstration") : canSetup ? goSetup : null;
+  const goStart = canSetup ? goSetup : contact ? mail("Starting a DOCKET workspace") : null;
   const jump = (id) => () => {
     setMenu(false);
     const el = document.getElementById(id);
@@ -461,8 +472,9 @@ export function Landing({ cfg, onScreen }) {
             ))}
           </nav>
           <span className="lpbaracts">
-            <button className="lplink lpdesk" onClick={() => onScreen("signin")}>Sign in</button>
-            <button className="btn pri sm" onClick={goSetup}>Contact us</button>
+            {/* Sign in stays visible on a phone; Contact us moves into the menu. */}
+            <button className="lplink" onClick={() => onScreen("signin")}>Sign in</button>
+            {goContact && <button className="btn pri sm lpdesk" onClick={goContact}>Contact us</button>}
             <button className={"lpburger" + (menu ? " on" : "")} onClick={() => setMenu(!menu)}
                     aria-expanded={menu} aria-label={menu ? "Close menu" : "Open menu"}>
               <i aria-hidden="true" />
@@ -478,18 +490,11 @@ export function Landing({ cfg, onScreen }) {
               {NAV.map(([id, label]) => <button key={id} onClick={jump(id)}>{label}</button>)}
               <button onClick={() => { setMenu(false); onScreen("signin"); }}>Sign in</button>
               <button onClick={() => { setMenu(false); onScreen("register"); }}>Vendor registration</button>
+              {goContact && <button onClick={() => { setMenu(false); goContact(); }}>Contact us</button>}
             </div>
           </div>
         )}
       </header>
-
-      <div className="lpevent">
-        <div className="lpwrap lpeventin">
-          <b>EVENT</b>
-          <span>Nigerian Procurement Forum, Lagos. 5–7 October 2026, two days on sealed tendering, evaluation practice and audit defence.</span>
-          <a href="#resources" className="lpmore">Explore the event</a>
-        </div>
-      </div>
 
       <main id="main">
 
@@ -520,7 +525,7 @@ export function Landing({ cfg, onScreen }) {
                 reporting lines, and hash-chained so every decision stands up to review.
               </p>
               <div className="lpacts">
-                <button className="btn pri lpbtn" onClick={goSetup}>Request a demonstration</button>
+                {goDemoReq && <button className="btn pri lpbtn" onClick={goDemoReq}>Request a demonstration</button>}
                 {canDemo && <button className="btn lpbtn" onClick={goDemo}>See a live workspace</button>}
               </div>
               <p className="lpticks">
@@ -829,13 +834,13 @@ export function Landing({ cfg, onScreen }) {
               <span className="lpplate"><Icon n="clock" s={22} /></span>
               <h3>Request a demonstration</h3>
               <p>Forty minutes against your own categories and approval structure, not a canned script.</p>
-              <button className="btn pri" onClick={goSetup}>Book a session</button>
+              {goDemoReq && <button className="btn pri" onClick={goDemoReq}>Book a session</button>}
             </article>
             <article data-reveal style={{ transitionDelay: "70ms" }}>
               <span className="lpplate"><Icon n="seal" s={22} /></span>
               <h3>Start a workspace</h3>
               <p>Set your company up with a code issued to your organisation. Free while you run your first tender.</p>
-              <button className="btn" onClick={goSetup}>Create an account</button>
+              {goStart && <button className="btn" onClick={goStart}>{canSetup ? "Create an account" : "Ask us for a workspace"}</button>}
             </article>
             <article data-reveal style={{ transitionDelay: "140ms" }}>
               <span className="lpplate"><Icon n="suppliers" s={22} /></span>

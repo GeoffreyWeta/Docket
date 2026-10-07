@@ -574,9 +574,11 @@ class Profile(models.Model):
         # arrive in has to be reachable, or a workspace can place its finance
         # director on the top rung and give them nowhere to sign. This is the
         # one place a capability is derived from the org chart rather than from
-        # the role, and it is derived narrowly: the page, and nothing else.
+        # the role, and it is derived narrowly: the page, and the recommendation
+        # they are being asked to sign (an award nobody can read is not signed,
+        # it is guessed at).
         if base.get("approvalLevel"):
-            perms = set(perms) | {"page.approvals"}
+            perms = set(perms) | {"page.approvals", "award.see_recommendation"}
         base["perms"] = sorted(perms)
         base["isAdmin"] = admin
         return base

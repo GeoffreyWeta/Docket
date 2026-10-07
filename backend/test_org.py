@@ -457,9 +457,9 @@ def sec_bidding(ctx):
     prices = {cups: 6000, boxes: 9000}          # 12.0m + 10.8m = 22.8m of a 30m ceiling
     acks = [x["id"] for x in ta["addenda"]]
 
-    call("POST", f"/api/tenders/{a}/bids/", CO, {"lines": prices, "acks": []}, expect=400,
+    call("POST", f"/api/tenders/{a}/bids/", CO, {"decl": True, "lines": prices, "acks": []}, expect=400,
          label="cannot seal a bid without acknowledging the addendum")
-    call("POST", f"/api/tenders/{a}/bids/", CO, {"lines": prices, "acks": acks}, expect=400,
+    call("POST", f"/api/tenders/{a}/bids/", CO, {"decl": True, "lines": prices, "acks": acks}, expect=400,
          label="cannot seal a bid without a technical proposal")
     call("POST", f"/api/tenders/{a}/bid_docs/", CO,
          files={"file": pdf("big.pdf", b"x" * (11 * 1024 * 1024)), "envelope": "technical"}, expect=400,
@@ -477,7 +477,7 @@ def sec_bidding(ctx):
     call("GET", f"/api/docs/{doc_id}/download/", TU, expect=403,
          label="buyer cannot open a bid document before the opening")
 
-    call("POST", f"/api/tenders/{a}/bids/", CO, {"lines": prices, "acks": acks},
+    call("POST", f"/api/tenders/{a}/bids/", CO, {"decl": True, "lines": prices, "acks": acks},
          label="company seals its bid")
     bid = Bid.objects.get(tender_id=a, supplier_id=sid)
     yes("bid amount is ciphertext at rest", bid.amount is None and bid.sealed_blob is not None)
@@ -488,7 +488,7 @@ def sec_bidding(ctx):
     yes("procurement was notified of the sealed bid",
         any("Sealed bid received" in s for s in subjects(TU)))
 
-    call("POST", f"/api/tenders/{a}/bids/", CO, {"lines": prices, "acks": acks}, expect=409,
+    call("POST", f"/api/tenders/{a}/bids/", CO, {"decl": True, "lines": prices, "acks": acks}, expect=409,
          label="a second bid is refused until the first is withdrawn")
     call("DELETE", f"/api/docs/{doc_id}/", CO, expect=409,
          label="documents are locked while the bid is sealed")
@@ -496,14 +496,14 @@ def sec_bidding(ctx):
     call("DELETE", f"/api/docs/{doc_id}/", CO, {}, label="documents unlock after withdrawal")
     call("POST", f"/api/tenders/{a}/bid_docs/", CO,
          files={"file": pdf("test-company-technical-v2.pdf"), "envelope": "technical"})
-    call("POST", f"/api/tenders/{a}/bids/", CO, {"lines": prices, "acks": acks},
+    call("POST", f"/api/tenders/{a}/bids/", CO, {"decl": True, "lines": prices, "acks": acks},
          label="company reseals a replacement bid")
 
     # a rival bids too, so the evaluation has something to compare
     call("POST", f"/api/tenders/{a}/bid_docs/", "coldline",
          files={"file": pdf("coldline-technical.pdf"), "envelope": "technical"})
     call("POST", f"/api/tenders/{a}/bids/", "coldline",
-         {"lines": {cups: 6500, boxes: 9500}, "acks": acks})     # 24.4m
+         {"decl": True, "lines": {cups: 6500, boxes: 9500}, "acks": acks})     # 24.4m
     ok("rival supplier seals a competing bid")
     eq("rival cannot see the test company's bid",
        [x["supplierId"] for x in boot("coldline")["bids"] if x["tenderId"] == a], ["s2"])
@@ -528,7 +528,7 @@ def sec_opening_award(ctx):
     call("POST", f"/api/tenders/{a}/bid_docs/", CO,
          files={"file": pdf("late.pdf"), "envelope": "technical"}, expect=403,
          label="documents can no longer be swapped after the deadline")
-    call("POST", f"/api/tenders/{a}/bids/", "harmattan", {"amount": 1, "acks": []}, expect=403,
+    call("POST", f"/api/tenders/{a}/bids/", "harmattan", {"decl": True, "amount": 1, "acks": []}, expect=403,
          label="a late bid from an uninvited supplier is refused")
     call("POST", f"/api/tenders/{a}/open/", CO, {}, expect=403,
          label="a supplier cannot open the bids")
@@ -658,7 +658,7 @@ def sec_two_stage(ctx):
              files={"file": pdf(f"{who}-technical.pdf"), "envelope": "technical"})
         call("POST", f"/api/tenders/{tid}/bid_docs/", who,
              files={"file": pdf(f"{who}-commercial.pdf"), "envelope": "commercial"})
-        call("POST", f"/api/tenders/{tid}/bids/", who, {"amount": amount, "acks": []})
+        call("POST", f"/api/tenders/{tid}/bids/", who, {"decl": True, "amount": amount, "acks": []})
     ok("both bidders lodge technical and commercial envelopes")
     Tender.objects.filter(pk=tid).update(deadline=now_ms() - 1000)
 
@@ -1051,13 +1051,17 @@ def sec_sweep(ctx):
     keep_scores, keep_status = dict(bid.scores), Tender.objects.get(pk=a).status
     bid.scores = {k: v for k, v in keep_scores.items() if k != "u3"}
     bid.save(update_fields=["scores"])
-    Tender.objects.filter(pk=a).update(
-        status="evaluation", opened_at=now_ms() - 4 * DAY,
-        award_rec={"bidId": bid.id, "supplierId": sid, "amount": 1, "by": "test",
-                   "at": now_ms() - 3 * DAY, "memo": "m"})
+    # Two stages, because the nudges exclude each other: scores are locked
+    # while a recommendation waits for sign-off, so nobody is chased to score.
+    Tender.objects.filter(pk=a).update(status="evaluation", opened_at=now_ms() - 4 * DAY,
+                                       award_rec=None)
     TaskMark.objects.filter(key__startswith=f"scorenudge:{a}").delete()
     run_sweep()
     yes("an evaluator with outstanding scores is nudged", n_count("ngozi", "Scores outstanding") >= 1)
+    Tender.objects.filter(pk=a).update(
+        award_rec={"bidId": bid.id, "supplierId": sid, "amount": 1, "by": "test",
+                   "at": now_ms() - 3 * DAY, "memo": "m"})
+    run_sweep()
     yes("an approver sitting on a recommendation is nudged", n_count("mark", "Approval waiting") >= 1)
     bid.scores = keep_scores
     bid.save(update_fields=["scores"])
@@ -1262,7 +1266,7 @@ def sec_campaign(ctx):
     pre = call("GET", "/api/suppliers/campaign/", TU)
     yes("the preview counts who would be emailed", pre["toSend"] >= 0)
     yes("and accounts for everyone it skips", set(pre["skipped"]) == {
-        "noEmail", "alreadyInvited", "alreadyRegistered", "heldOut"})
+        "noEmail", "alreadyInvited", "alreadyRegistered", "heldOut", "gaveUp"})
     yes("and states whether mail actually leaves the building", "live" in pre)
 
     # The confirmation is the count itself: a stale preview cannot be confirmed.

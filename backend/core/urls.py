@@ -86,6 +86,8 @@ urlpatterns = admin_urlpatterns + feed_urlpatterns + auction_urlpatterns + [
     path("auth/mfa/disable/", auth_views.mfa_disable),
     path("auth/forgot/", account_views.forgot_password),
     path("auth/reset_password/", account_views.reset_password),
+    path("auth/change_password/", auth_views.change_password),
+    path("register/invite_info/", account_views.invite_info),
     path("register/vendor/", account_views.register_vendor),
     path("register/claim/", account_views.claim_vendor),
     path("register/verify/", account_views.verify_vendor),
@@ -142,6 +144,10 @@ urlpatterns = admin_urlpatterns + feed_urlpatterns + auction_urlpatterns + [
     path("team/", views.team),
     path("team/invite/", views.invite_team),
     path("team/send_invites/", views.team_send_invites),
+    path("team/invite/resend/", views.team_invite_resend),
+    path("team/invite/cancel/", views.team_invite_cancel),
+    path("team/held/edit/", views.team_held_edit),
+    path("team/held/remove/", views.team_held_remove),
     path("team/roles/", views.team_roles),
     # Bulk invitations from a spreadsheet, for your own people and for vendors.
     # Two calls, because sending a few hundred emails cannot be undone: parse

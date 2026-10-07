@@ -3,6 +3,7 @@ team invitations, password reset. All links are single-use tokens delivered by
 email; in demo mode (DEMO_LOGIN=1) vendor verification is skipped so the flow
 can be exercised without a mailbox."""
 import json
+import logging
 import re
 import secrets
 
@@ -38,11 +39,16 @@ def _body(request):
 
 
 def _mail(to, subject, body):
+    """Send one message. True when it went, False when it did not. A broken
+    mail setup must never break the flow that called it, but the caller has to
+    know, so it can tell the person who pressed the button."""
     try:
         EmailMessage(f"[DOCKET] {subject}", body, settings.DEFAULT_FROM_EMAIL, [to],
                      reply_to=settings.EMAIL_REPLY_TO).send(fail_silently=False)
+        return True
     except Exception:
-        pass  # console/misconfigured SMTP must never break the flow
+        logging.getLogger("docket.mail").exception("Could not send %r to %s", subject, to)
+        return False
 
 
 def _mint(kind, email, payload):
@@ -74,11 +80,40 @@ def _placed(clean, value, fallback):
         return fallback
 
 
-def _finish_vendor(payload):
+def _unclaimed_record(email):
+    """The vendor-list row already holding this address that nobody has
+    claimed, if there is one. Registering again would make a second record of
+    the same company; the claim link attaches the login to the first."""
+    for sup in Supplier.objects.filter(contact_email__iexact=email).order_by("id"):
+        if not Profile.objects.filter(supplier=sup).exists():
+            return sup
+    return None
+
+
+def _send_claim_link(request, sup, email):
+    tok = (ActionToken.objects
+           .filter(kind="vendor_claim", used_at__isnull=True,
+                   created__gt=now_ms() - CAMPAIGN_TTL_MS, payload__supplierId=sup.id)
+           .order_by("-created").first()) or _mint("vendor_claim", email, {"supplierId": sup.id})
+    return _mail(email, "Your company is already on the vendor list",
+                 f"{sup.name} is already on the vendor list, so there is no need to register again. "
+                 f"Set a password with this link to claim the account and sign in:\n\n"
+                 f"{_link(request, 'register', tok.token)}\n\n"
+                 f"If you did not ask for this, you can ignore this email.")
+
+
+def _finish_vendor(payload, request=None):
     """Create the supplier + login once identity is trusted (verified or invited)."""
     email = payload["email"]
     if User.objects.filter(username=email).exists():
         return None, "An account with this email already exists."
+    # Imported onto the vendor list after this registration was started: send
+    # the claim link rather than a second record of the same company.
+    existing = _unclaimed_record(email) if request is not None else None
+    if existing:
+        _send_claim_link(request, existing, email)
+        return None, ("Your company is already on the vendor list. We have emailed you a link "
+                      "to claim it. Check your email.")
     sup = Supplier.objects.create(
         id=rid("s"), name=payload["company"][:120],
         # A token minted before the dropdowns carries whatever was typed, so
@@ -127,6 +162,13 @@ def register_vendor(request):
         return _err("Password must be at least 8 characters.")
     if User.objects.filter(username=email).exists():
         return _err("An account with this email already exists.", 409)
+    # Already on the vendor list (imported, or added by a buyer) and not yet
+    # claimed: the claim link goes to that address, and no second record is made.
+    # The reply does not say which company, only to check the mailbox.
+    existing = _unclaimed_record(email)
+    if existing:
+        _send_claim_link(request, existing, email)
+        return JsonResponse({"verified": False, "claim": True})
     try:
         category = vocab.category(b.get("category"))
         location = vocab.location(b.get("location"))
@@ -231,7 +273,7 @@ def verify_vendor(request):
     t = _take(str(_body(request).get("token", "")), "vendor_verify")
     if not t:
         return _err("This link is invalid or has expired.", 410)
-    sup, msg = _finish_vendor(t.payload)
+    sup, msg = _finish_vendor(t.payload, request)
     if msg:
         return _err(msg, 409)
     return JsonResponse({"ok": True})
@@ -282,7 +324,34 @@ def accept_invite(request):
     record_event(actor=name, role=persona.role, action="Team member joined",
                  detail=f"Accepted an invitation as {persona.role}"
                         + (f", reporting to {manager}." if manager else "."))
-    return JsonResponse({"ok": True})
+    # Signed straight in, the same token the sign-in form would have issued:
+    # they have just chosen the password, asking for it again proves nothing.
+    from .auth_views import _issue
+    return JsonResponse({"ok": True, **_issue(user)})
+
+
+@csrf_exempt
+def invite_info(request):
+    """What an invitation link is for, read before the form is shown and
+    without using the link up: the company, the role, who sent it and to
+    which address. Says plainly when the link has expired or was already used."""
+    from .permissions import role_label
+    from .views import org_name
+    token = str(request.GET.get("token", "") or _body(request).get("token", ""))
+    t = ActionToken.objects.filter(pk=token, kind="team_invite").first() if token else None
+    if not t:
+        return JsonResponse({"state": "invalid"})
+    out = {"company": org_name(), "email": t.email,
+           "role": role_label(t.payload.get("role", "")).split(" - ")[0].strip(),
+           "name": t.payload.get("name", ""), "invitedBy": t.payload.get("invitedBy", "")}
+    if User.objects.filter(username=t.email).exists():
+        out["state"] = "used"
+    elif t.used_at or now_ms() - t.created > TOKEN_TTL_MS:
+        # used without an account means it was withdrawn or replaced by a resend
+        out["state"] = "expired"
+    else:
+        out["state"] = "ok"
+    return JsonResponse(out)
 
 
 @csrf_exempt
@@ -291,7 +360,10 @@ def forgot_password(request):
         return _err("Method not allowed", 405)
     email = str(_body(request).get("email", "")).strip().lower()
     user = User.objects.filter(username=email).first()
-    if user:  # deliberately identical response either way - no account enumeration
+    # A switched-off account would only reach "Wrong username or password"
+    # after resetting, so it is not sent a link. The response stays identical
+    # either way - no account enumeration.
+    if user and user.is_active:
         tok = _mint("reset", email, {})
         _mail(email, "Reset your DOCKET password",
               f"Reset your password here:\n\n{_link(request, 'rtoken', tok.token)}\n\n"

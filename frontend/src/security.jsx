@@ -40,6 +40,7 @@ export function SecurityPanel({ onClose, onLogoutAll, me, onRenamed }) {
           <button className="btn sm" style={{ marginLeft: "auto" }} onClick={onClose}>Close</button></div>
         <div className="cbody">
           <NameRow me={me} onRenamed={onRenamed} />
+          <PasswordRow onChanged={load} />
           <div className="rowline">
             <span style={{ flex: 1 }}>Two-factor authentication</span>
             <span className={"chip " + (st?.enabled ? "ok" : "warn")}>{st?.enabled ? "On" : "Off"}</span>
@@ -117,6 +118,65 @@ function NameRow({ me, onRenamed }) {
         <button className="btn" onClick={save} disabled={name.trim().length < 2 || name === me?.name}>Rename</button>
       </div>
       {saved && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>{saved}</div>}
+    </div>
+  );
+}
+
+
+/* Change your password while signed in. The current one is asked for first;
+   every other device is signed out, this one stays signed in. */
+function PasswordRow({ onChanged }) {
+  const [open, setOpen] = useState(false);
+  const [cur, setCur] = useState("");
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const problem = !cur ? "Enter your current password."
+    : pw.length < 8 ? "The new password needs at least 8 characters."
+    : pw !== pw2 ? "The two new passwords do not match."
+    : "";
+  const save = async () => {
+    setBusy(true); setNote("");
+    try {
+      const r = await raw("/auth/change_password/", { method: "POST", body: { current: cur, password: pw } });
+      setCur(""); setPw(""); setPw2(""); setOpen(false);
+      setNote(r.revoked
+        ? `Password changed. ${r.revoked} other device${r.revoked === 1 ? " was" : "s were"} signed out.`
+        : "Password changed.");
+      onChanged && onChanged();
+    } catch (e) { setNote(e.message || "Could not change the password."); }
+    setBusy(false);
+  };
+  return (
+    <div style={{ borderBottom: "1px solid var(--line)", paddingBottom: 12, marginBottom: 12 }}>
+      <div className="rowline">
+        <span style={{ flex: 1 }}>Password</span>
+        {!open && <button className="btn sm" onClick={() => { setOpen(true); setNote(""); }}>Change password</button>}
+      </div>
+      {open && (
+        <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+          <label className="lbl" htmlFor="sec-cur" style={{ margin: 0 }}>Current password</label>
+          <input id="sec-cur" className="in" type="password" autoComplete="current-password"
+                 value={cur} onChange={(e) => setCur(e.target.value)} />
+          <label className="lbl" htmlFor="sec-new" style={{ margin: 0 }}>New password</label>
+          <input id="sec-new" className="in" type="password" autoComplete="new-password"
+                 value={pw} onChange={(e) => setPw(e.target.value)} />
+          <label className="lbl" htmlFor="sec-new2" style={{ margin: 0 }}>New password again</label>
+          <input id="sec-new2" className="in" type="password" autoComplete="new-password"
+                 value={pw2} onChange={(e) => setPw2(e.target.value)}
+                 onKeyDown={(e) => e.key === "Enter" && !problem && save()} />
+          {problem && (cur || pw || pw2) && <div className="hint" style={{ margin: 0 }}>{problem}</div>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn pri" onClick={save} disabled={busy || !!problem}>
+              {busy ? "Saving..." : "Change password"}
+            </button>
+            <button className="btn" onClick={() => { setOpen(false); setCur(""); setPw(""); setPw2(""); }}>Cancel</button>
+          </div>
+          <div className="hint" style={{ margin: 0 }}>Your other devices are signed out. This one stays signed in.</div>
+        </div>
+      )}
+      {note && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>{note}</div>}
     </div>
   );
 }

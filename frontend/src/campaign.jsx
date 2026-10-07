@@ -22,6 +22,17 @@ import { Meter } from "./charts";
 import { Icon } from "./icons";
 import { Dialog } from "./ui";
 
+/* How long the queue takes, in words: batches go out about every
+   `sweepMinutes` while the workspace is in use. */
+export function drivePace(n, batch, minutes) {
+  if (!n || !batch) return "";
+  const mins = Math.ceil(n / batch) * (minutes || 10);
+  const when = mins < 60 ? `about ${mins} minutes`
+    : `about ${Math.round(mins / 60)} hour${Math.round(mins / 60) === 1 ? "" : "s"}`;
+  return `They go out ${batch} at a time, about every ${minutes || 10} minutes while the workspace is in use, `
+    + `so ${n.toLocaleString()} vendor${n === 1 ? "" : "s"} take ${when}.`;
+}
+
 export function CampaignDialog({ api, onClose }) {
   const { act, toast, refresh } = api;
   const [pre, setPre] = useState(null);
@@ -51,7 +62,7 @@ export function CampaignDialog({ api, onClose }) {
       setPre(out);
       setConfirm("");
       toast.ok("Registration drive started",
-               `${out.state.sent} sent so far. The rest go out in batches of ${out.batch} as the workspace ticks over.`);
+               `${out.state.sent} sent so far. ` + drivePace(out.toSend, out.batch, out.sweepMinutes));
       refresh();
     } catch (e) {
       setErr(e.message || "Could not start the drive.");
@@ -111,9 +122,9 @@ export function CampaignDialog({ api, onClose }) {
             <><b>Email is live.</b> These messages will be delivered to real mailboxes
               and cannot be recalled.</>
           ) : (
-            <><b>Email is not configured.</b> Messages will be written to the server log
-              instead of sent, so this is safe to run as a rehearsal. Set{" "}
-              <code>EMAIL_HOST</code> to send for real.</>
+            <><b>Email is not set up yet.</b> Nothing will reach the vendors: the messages
+              are only written to the server's log, so this is a safe rehearsal. Ask whoever
+              runs DOCKET for you to connect a mailbox to send for real.</>
           )}
         </div>
       </div>
@@ -121,8 +132,26 @@ export function CampaignDialog({ api, onClose }) {
       {running && (
         <div className="notice" style={{ marginTop: 12 }}>
           <b>A drive is running.</b> {pre.state.sent.toLocaleString()} invitation(s) sent,{" "}
-          {pre.toSend.toLocaleString()} still queued, {pre.batch} per sweep.
-          {pre.state.failed > 0 && <> {pre.state.failed} address(es) failed and are listed on the register.</>}
+          {pre.toSend.toLocaleString()} still to go. {drivePace(pre.toSend, pre.batch, pre.sweepMinutes)}
+          {pre.state.failed > 0 && <> {pre.state.failed} could not be sent; they are listed below.</>}
+        </div>
+      )}
+
+      {(pre.failedList || []).length > 0 && (
+        <div className="cmpskip" style={{ marginTop: 12 }}>
+          <div className="cmpskiphead">
+            Could not be sent - {pre.failedList.length.toLocaleString()}
+            <span className="faint"> (an address is tried 3 times, then left out until it is fixed)</span>
+          </div>
+          <div style={{ maxHeight: 180, overflowY: "auto" }}>
+            {pre.failedList.map((v) => (
+              <div key={v.id} className="cmpskiprow">
+                <span className="mono">{v.gaveUp ? "gave up" : v.duplicate ? "shared" : `try ${v.tries}`}</span>
+                <span>{v.name} <span className="faint">{v.email}</span>
+                  <span className="faint"> - {v.why}</span></span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -157,6 +186,8 @@ export function CampaignDialog({ api, onClose }) {
                  note="one invitation each, so a second run never double-mails" />
         <SkipRow n={skipped.heldOut} label="declined or held out"
                  note="somebody said no to this vendor; the system shouldn't overrule it" />
+        <SkipRow n={skipped.gaveUp} label="email failed 3 times"
+                 note="left out until the address is fixed" />
       </div>
 
       <div className="cmpwhat">
@@ -176,8 +207,7 @@ export function CampaignDialog({ api, onClose }) {
                  placeholder={String(pre.toSend)} value={confirm}
                  onChange={(e) => setConfirm(e.target.value.replace(/[^0-9]/g, ""))} />
           <div className="hint">
-            Sending goes out {pre.batch} at a time in the background, so a large register
-            clears over hours rather than in one burst. You can pause it at any point.
+            {drivePace(pre.toSend, pre.batch, pre.sweepMinutes)} You can pause it at any point.
           </div>
         </div>
       )}

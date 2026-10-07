@@ -56,10 +56,15 @@ const AUC_STATUS = {
   cancelled: ["cancelled", "Cancelled"],
 };
 
-function AucStamp({ s }) {
-  const [cls, label] = AUC_STATUS[s] || AUC_STATUS.draft;
+/* `timeUp` is a live row whose clock has run out but that the server has not
+   settled yet. It is not live any more, so it does not say so. */
+function AucStamp({ s, timeUp }) {
+  const [cls, label] = timeUp ? ["closed", "Time is up"] : (AUC_STATUS[s] || AUC_STATUS.draft);
   return <span className={"stamp st-" + cls}>{label}</span>;
 }
+
+const isTimeUp = (a) => !!a && a.status === "live" && !!a.endsAt
+  && (a.endsAt <= (a.serverNow || 0) || Date.now() >= a.endsAt);
 
 const lotsOf = (a) => (a && a.lots) || [];
 const stateOf = (a, lotId) => ((a && a.lotState) || []).find((s) => s.lotId === lotId) || {};
@@ -376,8 +381,8 @@ export function AuctionsPage({ api }) {
                     {a.participants != null ? ` · ${a.participants} invited` : ""}</small>
                 </span>
                 <span className="aucstate">
-                  <AucStamp s={a.status} />
-                  {a.status === "live" && a.endsAt
+                  <AucStamp s={a.status} timeUp={isTimeUp(a)} />
+                  {a.status === "live" && a.endsAt && !isTimeUp(a)
                     ? <LiveCountdown deadline={a.endsAt} className="mono" />
                     : <span className="mono faint">{a.movements != null ? `${a.movements} movements` : ""}</span>}
                 </span>
@@ -640,17 +645,22 @@ function InviteFromList({ api, a, onChanged }) {
   );
 }
 
+/* The details form as the server last saved it. `??` and not `||`: a closing
+   window of zero is a real setting (anti-sniping off), not a missing one. */
+const formOf = (a) => ({
+  title: a.title, ref: a.ref, scope: a.scope || "", terms: a.terms || "",
+  visibility: a.visibility, ceilingVisible: !!a.ceilingVisible,
+  requireAcceptance: !!a.requireAcceptance,
+  endsAt: toLocalInput(a.endsAt),
+  snipeWindowMs: a.snipeWindowMs ?? 120000,
+  extendByMs: a.extendByMs ?? 120000,
+  maxExtensions: a.maxExtensions == null ? 20 : a.maxExtensions,
+});
+const sameForm = (x, y) => Object.keys(x).every((k) => String(x[k] ?? "").trim() === String(y[k] ?? "").trim());
+
 function DraftAuction({ api, a, refresh }) {
   const { state, user, go, toast } = api;
-  const [f, setF] = useState({
-    title: a.title, ref: a.ref, scope: a.scope || "", terms: a.terms || "",
-    visibility: a.visibility, ceilingVisible: !!a.ceilingVisible,
-    requireAcceptance: !!a.requireAcceptance,
-    endsAt: toLocalInput(a.endsAt),
-    snipeWindowMs: a.snipeWindowMs || 120000,
-    extendByMs: a.extendByMs || 120000,
-    maxExtensions: a.maxExtensions == null ? 20 : a.maxExtensions,
-  });
+  const [f, setF] = useState(() => formOf(a));
   const [lot, setLot] = useState({ title: "", qty: 1, uom: "", ceiling: "", reserve: "", minDecrement: "" });
   const [parts, setParts] = useState([]);
   const [pick, setPick] = useState([]);
@@ -733,20 +743,27 @@ function DraftAuction({ api, a, refresh }) {
 
   const untold = parts.filter((x) => !x.inviteCount && !x.disqualified).length;
   const invited = new Set(parts.map((x) => x.supplierId));
-  const available = (state.suppliers || []).filter((x) => !invited.has(x.id));
+  /* A suspended vendor cannot be invited to anything, so it is not offered. */
+  const available = (state.suppliers || []).filter((x) => !invited.has(x.id) && !x.suspended);
 
-  /* The same four conditions engine.open_auction checks, in its order. */
+  /* The same conditions engine.open_auction checks, in its order, read from
+     what is SAVED: the server opens with the saved auction, so a checklist
+     that read the form would tick a closing time the server has never seen. */
+  const dirty = canEdit && !sameForm(f, formOf(a));
   const hasLot = lots.length > 0;
   const hasVendor = parts.length > 0 || (a.participants || 0) > 0;
-  const hasClock = !!f.endsAt;
-  const ready = hasLot && hasVendor && hasClock;
+  const hasClock = !!a.endsAt;
+  const clockAhead = hasClock && a.endsAt > Date.now();
+  const ready = hasLot && hasVendor && clockAhead && !dirty;
 
   const guide = (
     <Guide art="draft"
            headline={ready ? "Ready to open" : "Not ready yet"}
            why={ready
              ? "Opening starts the clock and invites cannot be taken back. Bidders price against what you publish here."
-             : "A room with no lot, no vendor or no closing time is a room nobody can bid in, and the server will refuse to open it."}
+             : dirty
+               ? "You have changes that are not saved. Save them first, so the room opens with what you see."
+               : "A room with no lot, no vendor or no closing time is a room nobody can bid in, and the server will refuse to open it."}
            items={ready && can(user, "auction.open")
              ? [{ key: "open", label: "Open the room", note: "Starts the clock now.", onPick: () => setAskOpen(true) }]
              : []}>
@@ -754,7 +771,8 @@ function DraftAuction({ api, a, refresh }) {
         <Ready ok={!!f.title}>A title</Ready>
         <Ready ok={hasLot}>At least one lot</Ready>
         <Ready ok={hasVendor}>At least one vendor invited</Ready>
-        <Ready ok={hasClock}>A closing time</Ready>
+        <Ready ok={clockAhead}>A closing time in the future</Ready>
+        {dirty && <Ready ok={false}>Changes saved</Ready>}
       </div>
     </Guide>
   );
@@ -1040,13 +1058,18 @@ function DraftAuction({ api, a, refresh }) {
             <div className="aucchecks" style={{ marginBottom: 12 }}>
               <Ready ok={hasLot}>{lots.length || "No"} lot{lots.length === 1 ? "" : "s"}</Ready>
               <Ready ok={hasVendor}>{parts.length || "No"} vendor{parts.length === 1 ? "" : "s"} invited</Ready>
-              <Ready ok={hasClock}>{hasClock ? "Closes " + new Date(f.endsAt).toLocaleString("en-GB") : "No closing time"}</Ready>
+              <Ready ok={clockAhead}>{!hasClock ? "No closing time"
+                : clockAhead ? "Closes " + fmtDateTime(a.endsAt)
+                : "The closing time, " + fmtDateTime(a.endsAt) + ", has already passed"}</Ready>
+              {dirty && <Ready ok={false}>Unsaved changes above. Save them first.</Ready>}
             </div>
             <button className="btn pri" disabled={!ready || !!busy} onClick={() => setAskOpen(true)}>Open the room</button>
             {!ready && <div className="hint" style={{ marginTop: 8 }}>
-              Everything above has to be ticked. The server checks the same three things and will refuse otherwise.
+              {dirty
+                ? "The room opens with what is saved, so save your changes before opening."
+                : "Everything above has to be ticked. The server checks the same things and will refuse otherwise."}
             </div>}
-            {hasClock && f.endsAt && new Date(f.endsAt).getTime() < Date.now() + HOUR && (
+            {clockAhead && a.endsAt < Date.now() + HOUR && (
               <div className="hint" style={{ marginTop: 8, color: "var(--wax)" }}>
                 That closing time is less than an hour away. Vendors need time to see the invitation.
               </div>
@@ -1064,7 +1087,8 @@ function DraftAuction({ api, a, refresh }) {
                        }}>
           {untold > 0 && <><b>{untold} vendor{untold === 1 ? "" : "s"} on the list
           {untold === 1 ? " has" : " have"} not been told yet, and will be emailed now.</b>{" "}</>}
-          The clock starts now and invited vendors can bid. The rules stop being editable:
+          The clock starts now and invited vendors can bid until <b>{fmtDateTime(a.endsAt)}</b>.
+          Everybody already invited is told the room is open. The rules stop being editable:
           bidders price against what you published, so changing them afterwards would mean
           pausing and cancelling instead.
         </ConfirmDialog>
@@ -1078,6 +1102,7 @@ export function AuctionPage({ api, id }) {
   const { a, err, moved, extended, refresh } = useRoom(api, id);
   const [lotId, setLotId] = useState(null);
   const [ask, setAsk] = useState(null);
+  const [why, setWhy] = useState("");            // the pause reason bidders are sent
 
   const lots = lotsOf(a);
   const lot = lots.find((l) => l.id === lotId) || lots[0] || null;
@@ -1092,7 +1117,11 @@ export function AuctionPage({ api, id }) {
     return <DraftAuction api={api} a={a} refresh={refresh} />;
   }
 
-  const live = a.live;
+  /* Time up but not settled yet: the server settles it on the next read, and
+     until then the room is neither open nor closed. It is offered the close
+     straight away rather than left with no way forward. */
+  const timeUp = isTimeUp(a);
+  const live = a.live && !timeUp;
   const best = (st.leaderboard || [])[0];
 
   /* Lifecycle. Each of these is a recorded event on the server, so the button
@@ -1116,10 +1145,15 @@ export function AuctionPage({ api, id }) {
   if (live && can(user, "auction.lifecycle")) {
     items.push({ key: "pause", label: "Pause the room",
                  note: "Stops the clock. Bidders are told why.",
-                 onPick: () => setAsk("pause") });
+                 onPick: () => { setWhy(""); setAsk("pause"); } });
     items.push({ key: "close", label: "Close it early",
                  note: "Settles every lot against its reserve. No further bids.",
                  onPick: () => setAsk("close") });
+  }
+  if (timeUp && can(user, "auction.lifecycle")) {
+    items.push({ key: "settle", label: "Close and settle",
+                 note: "Time is up. Settles every lot against its reserve.",
+                 onPick: () => setAsk("settle") });
   }
   if (a.status === "paused" && can(user, "auction.lifecycle")) {
     items.push({ key: "resume", label: "Resume the room",
@@ -1144,6 +1178,7 @@ export function AuctionPage({ api, id }) {
   const guide = (
     <Guide art={live ? "chart" : "clear"} tone={a.status === "awarded" ? "good" : undefined}
            headline={live ? "The room is open"
+             : timeUp ? "Time is up"
              : a.status === "paused" ? "The room is paused"
              : a.status === "awarded" ? "Awarded"
              : a.status === "cancelled" ? "Abandoned"
@@ -1151,6 +1186,8 @@ export function AuctionPage({ api, id }) {
              : nothingWon ? "Closed without a winner" : "The auction has closed"}
            why={live
              ? "Bidders see their own rank and never a competitor's price. Every movement is written to the record as it happens."
+             : timeUp
+               ? "The clock has run out and no further bids can land. The room settles itself in a moment, or close and settle it now."
              : a.status === "scheduled"
                ? "The room opens on its start time, or when somebody with the open capability starts it."
                : a.status === "awarded"
@@ -1181,7 +1218,7 @@ export function AuctionPage({ api, id }) {
             : a.visibility === "price" ? "best price visible" : "blind"}</p>
         </div>
         <div className="aucclock">
-          <AucStamp s={a.status} />
+          <AucStamp s={a.status} timeUp={timeUp} />
           {live && a.endsAt && <LiveCountdown deadline={a.endsAt} className="mono" />}
           {extended === a.endsAt && live && <span className="extbadge">anti-snipe</span>}
         </div>
@@ -1249,21 +1286,49 @@ export function AuctionPage({ api, id }) {
       {ask && (
         <ConfirmDialog
           title={ask === "pause" ? "Pause the room?" : ask === "resume" ? "Resume the room?"
-            : ask === "close" ? "Close the auction early?" : "Award this auction?"}
-          confirmLabel={ask === "close" ? "Close it" : ask === "award" ? "Award" : "Confirm"}
-          tone={ask === "close" || ask === "award" ? "wax" : "pri"}
+            : ask === "close" ? "Close the auction early?" : ask === "settle" ? "Close and settle?"
+            : "Award this auction?"}
+          confirmLabel={ask === "close" || ask === "settle" ? "Close it" : ask === "award" ? "Award" : "Confirm"}
+          tone={ask === "close" || ask === "settle" || ask === "award" ? "wax" : "pri"}
+          disabled={ask === "pause" && !why.trim()}
           onClose={() => setAsk(null)}
           onConfirm={() => {
-            if (ask === "pause") return run("pause", { reason: "Paused from the room" }, "The room is paused.");
+            if (ask === "pause") return run("pause", { reason: why.trim() }, "The room is paused.");
             if (ask === "resume") return run("resume", {}, "The room is open again.");
-            if (ask === "close") return run("close", {}, "The auction is closed.");
+            if (ask === "close" || ask === "settle") return run("close", {}, "The auction is closed.");
             return run("award", {}, "The auction is awarded.");
           }}>
-          {ask === "close"
+          {ask === "close" || ask === "settle"
             ? "Every lot settles against its reserve and no further bid can land. This is on the record."
             : ask === "award"
-              ? "This commits to the winning price on every lot that met its reserve."
-              : "Bidders are told the room's state changed."}
+              ? <>
+                  <p style={{ marginTop: 0 }}>This commits to these prices, and each bidder is told the result:</p>
+                  {lots.map((l) => {
+                    const won = l.awardedTo
+                      ? ((stateOf(a, l.id).leaderboard || []).find((r) => r.supplierId === l.awardedTo) || {}).supplier
+                        || ((api.state.suppliers || []).find((s) => s.id === l.awardedTo) || {}).name
+                        || l.awardedTo
+                      : null;
+                    return (
+                      <div className="docrow" key={l.id}>
+                        <span>{l.number}. {l.title}</span>
+                        <span style={{ flex: 1 }} />
+                        {won
+                          ? <span><b>{won}</b> at <span className="money">{fmtMoney(l.awardedAmount)}</span></span>
+                          : <span className="faint">no winner</span>}
+                      </div>
+                    );
+                  })}
+                </>
+              : ask === "pause"
+                ? <div className="frow" style={{ marginBottom: 0 }}>
+                    <label className="lbl" htmlFor="auc-why">Why is the room being paused?</label>
+                    <textarea id="auc-why" className="in" rows={2} autoFocus value={why} maxLength={300}
+                              onChange={(e) => setWhy(e.target.value)}
+                              placeholder="e.g. A lot description needs correcting" />
+                    <div className="hint">Every bidder is sent this. The clock stops and the time is given back on resume.</div>
+                  </div>
+                : "The clock restarts with the length of the pause added back, so nobody loses bidding time."}
         </ConfirmDialog>
       )}
     </Page>

@@ -26,7 +26,8 @@ import {
 } from "./lifecycle";
 import { Icon, SealMark } from "./icons";
 import { Mark, OrgMark } from "./logo";
-import { fmtPhone, phoneProblem, unitFor } from "./vocab";
+import { RETURN_REASONS, fmtPhone, phoneProblem, unitFor } from "./vocab";
+import { Choice } from "./fields";
 import { can, homePage, navPages } from "./perms";
 import { DUR, cue, reducedMotion, useCountUp, useFlip } from "./motion";
 import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwitch, TopProgress } from "./ui";
@@ -118,7 +119,7 @@ export function Sidebar({ api, chrome, open, desktop, onClose }) {
       )}
       <div className="spacer" />
       {!desktop && chrome && <ChromeActions api={api} {...chrome} stacked />}
-      <div className="sidefoot">Data stays on this device.<br />Sealed bids stay sealed.</div>
+      <div className="sidefoot">Sealed bids stay sealed.</div>
     </nav>
   );
 }
@@ -140,8 +141,14 @@ function Bell({ api }) {
       {open && (
         <div className="ndrop" role="dialog" aria-label="Notifications">
           {items.map((n) => {
-            const destination = n.destination?.page ? n.destination : n.tenderId
-              ? { page: user.role === "supplier" ? "bidroom" : "tender", id: n.tenderId }
+            /* A vendor's outcome notice goes to the Outcomes tab, where the
+               letter is. The bid room only says "Bid sealed". */
+            const tn = n.tenderId && (state.tenders || []).find((x) => x.id === n.tenderId);
+            const outcome = user.role === "supplier" && n.tenderId
+              && (/outcome/i.test(n.subject || "") || (tn && tn.status === "awarded"));
+            const destination = n.destination?.page ? n.destination
+              : outcome ? { page: "portal", tab: "outcomes" }
+              : n.tenderId ? { page: user.role === "supplier" ? "bidroom" : "tender", id: n.tenderId }
               : null;
             return (
             <div key={n.id} className={"nitem" + (n.read ? "" : " unread")}>
@@ -537,7 +544,9 @@ function workItems(state, tenders) {
       items.push({ key: "appr-" + t.id, cap: "tender.publish_decision", since: lastMoved(t.id),
                    title: t.title,
                    why: "Waiting to be approved for publication." + atStep(t.publishChain),
-                   verb: "Review it", to: { page: "approvals" }, waiting: "approval to publish" });
+                   /* The tender, not the Approvals page: the person waiting on
+                      a signature usually cannot open that page. */
+                   verb: "Review it", to: { page: "tender", id: t.id }, waiting: "approval to publish" });
     }
     if (t.status === "evaluation" && t.awardRec) {
       items.push({ key: "rec-" + t.id, cap: "award.decide", since: t.awardRec.at,
@@ -563,7 +572,7 @@ function workItems(state, tenders) {
     if (s.prequalified || s.suspended || !s.registeredAt) continue;
     items.push({ key: "vend-" + s.id, cap: "supplier.prequalify", since: s.registeredAt,
                  title: s.name, why: "Registered and waiting to be prequalified.",
-                 verb: "Review", to: { page: "suppliers" }, waiting: "prequalification" });
+                 verb: "Review", to: { page: "suppliers", tab: "review" }, waiting: "prequalification" });
   }
   return items.sort((a, b) => (a.since || Infinity) - (b.since || Infinity));
 }
@@ -973,6 +982,12 @@ function fmtTimeShort(at) {
 export function TendersPage({ api }) {
   const { state, go, user, act, route } = api;
   const [q, setQ] = useState("");
+  const [duping, setDuping] = useState(null);
+  const duplicate = async (id) => {
+    if (duping) return;
+    setDuping(id);
+    try { if (await act.duplicate(id)) go({ page: "tenders" }); } finally { setDuping(null); }
+  };
   /* The dashboard's figures are click-throughs, and each arrives carrying the
      filter it counted - landing on an unfiltered list would make the reader
      find the same rows again by hand. */
@@ -1061,7 +1076,7 @@ export function TendersPage({ api }) {
                      <Stamp s={st} />
                      {can(user, "tender.edit") && (
                        <button className="btn sm" title="Create a draft copy: dates cleared, structure carried over"
-                               onClick={async () => { if (await act.duplicate(t.id)) go({ page: "tenders" }); }}>Duplicate</button>
+                               disabled={!!duping} onClick={() => duplicate(t.id)}>{duping === t.id ? "Copying…" : "Duplicate"}</button>
                      )}
                    </>} />
             );
@@ -1131,7 +1146,7 @@ export function TenderDetail({ api, id, initialTab }) {
       <LifecycleBar api={api} t={t} />
       <div className="tabs" role="tablist">
         {tabs.map((k) => (
-          <button key={k} role="tab" aria-selected={tab === k} className={"tab" + (tab === k ? " on" : "")} onClick={() => setTab(k)}>
+          <button key={k} role="tab" aria-selected={tab === k} className={"tab" + (tab === k ? " on" : "")} onClick={() => { setTab(k); api.setTab?.(k); }}>
             {labels[k]}{k === "clar" && unansweredN ? ` (${unansweredN})` : ""}
           </button>
         ))}
@@ -1162,12 +1177,27 @@ export function OverviewTab({ api, t }) {
   const canDocs = can(user, "tender.docs");
   const canAddendum = can(user, "tender.addendum");
 
-  const submitForApproval = () => act.submitTender(t.id);
-  const issueAddendum = async () => {
+  /* One flag per button, so a second click while the first is in flight does
+     nothing instead of publishing, issuing or uploading twice. */
+  const [busy, setBusy] = useState("");
+  const [confirmPub, setConfirmPub] = useState(false);
+  const [dropDoc, setDropDoc] = useState(null);
+  const once = (key, fn) => async (...args) => {
+    if (busy) return false;
+    setBusy(key);
+    try { return await fn(...args); } finally { setBusy(""); }
+  };
+  /* Same rule the server routes by (views._route_submission). */
+  const thr = Number(state.org.approvalThreshold) || 0;
+  const needsSignOff = (state.org.approvalLevels || []).length > 0 || (thr > 0 && t.budget >= thr);
+  const submitForApproval = once("submit", () => act.submitTender(t.id));
+  const issueAddendum = once("addendum", async () => {
     if (!ad.title.trim()) return;
     const ok = await act.addAddendum(t.id, { title: ad.title.trim(), note: ad.note.trim() });
     if (ok) setAd({ title: "", note: "" });
-  };
+  });
+  const uploadDoc = once("upload", (f) => act.upload(`/tenders/${t.id}/docs/`, f));
+  const live = !["draft", "approval"].includes(t.status);
 
   return (
     <div className="grid g2">
@@ -1175,8 +1205,26 @@ export function OverviewTab({ api, t }) {
         <div className="notice" style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ flex: 1 }}>This tender is a draft. Suppliers can't see it until it's approved and published.</span>
           <button className="btn sm" onClick={() => go({ page: "new", editId: t.id })}>Edit draft</button>
-          <button className="btn sm pri" onClick={submitForApproval}>Submit for approval</button>
+          <button className="btn sm pri" disabled={!!busy}
+                  onClick={() => (needsSignOff ? submitForApproval() : setConfirmPub(true))}>
+            {busy === "submit" ? "Sending…" : needsSignOff ? "Submit for approval" : "Publish now"}
+          </button>
         </div>
+      )}
+      {confirmPub && (
+        <ConfirmDialog title="Publish this tender now?" confirmLabel="Publish and send invitations"
+                       onClose={() => setConfirmPub(false)}
+                       onConfirm={async () => ((await submitForApproval()) ? undefined : false)}>
+          <p>Nothing needs sign-off at this value, so this publishes straight away.
+            This emails {t.invited.length} {t.invited.length === 1 ? "vendor" : "vendors"} now.</p>
+        </ConfirmDialog>
+      )}
+      {dropDoc && (
+        <ConfirmDialog title={`Remove ${dropDoc.name}?`} confirmLabel="Remove document" tone="wax"
+                       onClose={() => setDropDoc(null)}
+                       onConfirm={async () => ((await act.deleteDoc(dropDoc.id)) ? undefined : false)}>
+          <p>{live ? "Every invited vendor is told it was withdrawn. " : ""}The removal is recorded in the audit trail.</p>
+        </ConfirmDialog>
       )}
       <div className="card" style={{ gridColumn: "1 / -1" }}>
         <div className="chead"><h3>Scope of work</h3></div>
@@ -1185,9 +1233,9 @@ export function OverviewTab({ api, t }) {
       <div className="card" style={{ gridColumn: "1 / -1" }}>
         <div className="chead"><h3>Tender documents</h3>
           {canDocs && t.status !== "awarded" && (
-            <label className="btn sm" style={{ marginLeft: "auto" }}>
-              Upload document
-              <input type="file" hidden onChange={(e) => { const f = e.target.files[0]; if (f) act.upload(`/tenders/${t.id}/docs/`, f); e.target.value = ""; }} />
+            <label className={"btn sm" + (busy === "upload" ? " dis" : "")} style={{ marginLeft: "auto" }} aria-disabled={busy === "upload"}>
+              {busy === "upload" ? "Uploading…" : "Upload document"}
+              <input type="file" hidden disabled={!!busy} onChange={(e) => { const f = e.target.files[0]; if (f) uploadDoc(f); e.target.value = ""; }} />
             </label>
           )}
         </div>
@@ -1197,7 +1245,7 @@ export function OverviewTab({ api, t }) {
               <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}><Icon n="file" s={13} />{x.name}</button>
               <span className="mono faint">{Math.max(1, Math.round(x.size / 1024))} KB · {fmtDate(x.uploadedAt)}</span>
               <span style={{ flex: 1 }} />
-              {canDocs && t.status !== "awarded" && <button className="btn sm" aria-label="Remove document" onClick={() => act.deleteDoc(x.id)}>✕</button>}
+              {canDocs && t.status !== "awarded" && <button className="btn sm" aria-label="Remove document" onClick={() => setDropDoc(x)}>✕</button>}
             </div>
           ))}
           {!(state.documents || []).some((x) => x.kind === "tender" && x.tenderId === t.id) && (
@@ -1234,7 +1282,7 @@ export function OverviewTab({ api, t }) {
           {t.baseline != null && (
             <div className="rowline"><span className="muted" style={{ flex: 1 }}>Baseline{t.baselineSource ? ` · ${t.baselineSource}` : ""}</span><Money n={t.baseline} /></div>
           )}
-          <div className="rowline"><span className="muted" style={{ flex: 1 }}>Submission deadline</span><span className="mono">{fmtDate(t.deadline)}</span></div>
+          <div className="rowline"><span className="muted" style={{ flex: 1 }}>Submission deadline</span><span className="mono">{t.deadline > 0 ? fmtDate(t.deadline) : "Not set"}</span></div>
           {t.publishedAt && <div className="rowline"><span className="muted" style={{ flex: 1 }}>Published</span><span className="mono">{fmtDate(t.publishedAt)}</span></div>}
           <div className="rowline"><span className="muted" style={{ flex: 1 }}>Evaluation split</span><span className="mono">{t.techWeight}% technical / {t.commWeight}% commercial</span></div>
           {(t.rounds || []).length > 1 && (
@@ -1278,7 +1326,7 @@ export function OverviewTab({ api, t }) {
                 <input className="in" placeholder="Addendum title, e.g. Delivery window revised" aria-label="Addendum title" value={ad.title} onChange={(e) => setAd({ ...ad, title: e.target.value })} />
                 <input className="in" placeholder="What changed (visible to all invited suppliers)" aria-label="Addendum note" value={ad.note} onChange={(e) => setAd({ ...ad, note: e.target.value })} />
               </div>
-              <button className="btn sm" onClick={issueAddendum} disabled={!ad.title.trim()}>Issue addendum</button>
+              <button className="btn sm" onClick={issueAddendum} disabled={!ad.title.trim() || !!busy}>{busy === "addendum" ? "Issuing…" : "Issue addendum"}</button>
               <span className="muted" style={{ fontSize: 12, marginLeft: 10 }}>Bids already sealed stay valid; new submissions must acknowledge every addendum.</span>
             </div>
           )}
@@ -1365,11 +1413,15 @@ export function ClarTab({ api, t }) {
   const items = state.clarifications.filter((c) => c.tenderId === t.id).sort((a, b) => b.askedAt - a.askedAt);
   const [drafts, setDrafts] = useState({});
   const [busyId, setBusyId] = useState(null);
+  const [sending, setSending] = useState(null);
   const answer = async (cid) => {
     const text = (drafts[cid] || "").trim();
-    if (!text) return;
-    const ok = await act.answerClar(cid, text);
-    if (ok) setDrafts((d) => ({ ...d, [cid]: "" }));
+    if (!text || sending) return;
+    setSending(cid);
+    try {
+      const ok = await act.answerClar(cid, text);
+      if (ok) setDrafts((d) => ({ ...d, [cid]: "" }));
+    } finally { setSending(null); }
   };
   const draftAI = async (c) => {
     setBusyId(c.id);
@@ -1399,7 +1451,7 @@ export function ClarTab({ api, t }) {
                 <div>
                   <textarea className="in" placeholder="Write the answer that all invited suppliers will see…" value={drafts[c.id] || ""} onChange={(e) => setDrafts((d) => ({ ...d, [c.id]: e.target.value }))} />
                   <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                    <button className="btn pri sm" onClick={() => answer(c.id)} disabled={!(drafts[c.id] || "").trim()}>Publish answer</button>
+                    <button className="btn pri sm" onClick={() => answer(c.id)} disabled={!(drafts[c.id] || "").trim() || !!sending}>{sending === c.id ? "Publishing…" : "Publish answer"}</button>
                     {/* AI OFF (no ANTHROPIC_API_KEY): clarification draft button.
                     <button className="btn sm" onClick={() => draftAI(c)} disabled={busyId === c.id}>{busyId === c.id ? "Drafting…" : "Draft with AI"}</button>
                     */}
@@ -1541,8 +1593,19 @@ export function BidsTab({ api, t }) {
               </div>
             );
           })}
-          {!bids.length && <Empty art="sealed">No bids yet. They arrive sealed, so you will see the count grow here, never a price.</Empty>}
+          {!bids.length && st !== "closed" && <Empty art="sealed">No bids yet. They arrive sealed, so you will see the count grow here, never a price.</Empty>}
         </div>
+        {/* A deadline that passed with nothing in the box needs a decision, not
+            an empty seal ceremony: give it more time, or call it off. */}
+        {st === "closed" && !bids.length && (
+          <div className="notice">
+            <b>The deadline passed on {fmtDate(t.deadline)} with no bids.</b>{" "}
+            {can(user, "tender.extend") || can(user, "tender.lifecycle")
+              ? "Reopen it with a new deadline, or cancel it. Both tell every invited vendor."
+              : "Someone who can steer this event needs to reopen or cancel it."}
+            <LifecycleBar api={api} t={t} />
+          </div>
+        )}
         {st === "closed" && can(user, "bid.open") && bids.length > 0 && (
           <div className="ceremony">
             <SealMark s={26} className="stamped" />
@@ -1616,7 +1679,9 @@ export function BidsTab({ api, t }) {
                           ? <span className="money" style={{ fontWeight: 600 }}><Decrypting n={b.amount} format={fmtMoney} /></span>
                           : <Money n={b.amount} strong />}
                       </td>
-                      <td className="num mono" data-l="vs ceiling" style={{ color: delta < 0 ? "var(--green)" : "var(--wax)" }}>{delta > 0 ? "+" : ""}{delta.toFixed(1)}%</td>
+                      {t.budget > 0
+                        ? <td className="num mono" data-l="vs ceiling" style={{ color: delta < 0 ? "var(--green)" : "var(--wax)" }}>{delta > 0 ? "+" : ""}{delta.toFixed(1)}%</td>
+                        : <td className="num faint" data-l="vs ceiling">-</td>}
                       <td data-l="Flags">
                         {over.length > 0 && <span className="chip warn" style={{ marginRight: 4 }} title={over.map((l) => l.desc).join(", ")}>
                           Over your maximum on {over.length} {over.length === 1 ? "line" : "lines"}</span>}
@@ -1675,9 +1740,10 @@ export function BidsTab({ api, t }) {
    mean one click, and the keyboard still works: 1 to 9 and 0 for ten, arrows to
    nudge, backspace to clear. The value is written on every change exactly as
    before, so the audit trail sees no difference. */
-function Dial({ value, label, onPick }) {
+function Dial({ value, label, onPick, disabled = false }) {
   const v = value === "" || value == null ? null : Number(value);
   const key = (e) => {
+    if (disabled) return;
     if (e.key >= "1" && e.key <= "9") { onPick(Number(e.key)); }
     else if (e.key === "0") { onPick(10); }
     else if (e.key === "ArrowRight" || e.key === "ArrowUp") { onPick(Math.min(10, (v ?? 0) + 1)); }
@@ -1687,9 +1753,10 @@ function Dial({ value, label, onPick }) {
     e.preventDefault();
   };
   return (
-    <span className="dial" role="radiogroup" aria-label={`Score for ${label}`} tabIndex={0} onKeyDown={key}>
+    <span className="dial" role="radiogroup" aria-label={`Score for ${label}`} aria-readonly={disabled || undefined}
+          tabIndex={0} onKeyDown={key}>
       {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-        <button key={n} type="button" role="radio" aria-checked={v === n}
+        <button key={n} type="button" role="radio" aria-checked={v === n} disabled={disabled}
                 className={"dpip" + (v === n ? " on" : "") + (v != null && n < v ? " under" : "")}
                 title={`${n} of 10`} onClick={() => onPick(v === n ? "" : n)}>{n}</button>
       ))}
@@ -1744,11 +1811,24 @@ export function EvalTab({ api, t }) {
     return save;
   };
 
-  if (!t.openedAt) {
+  /* A two-stage tender is scored between its two openings: stage one unseals
+     the technical envelopes only, and the prices stay sealed until the panel
+     has scored them. */
+  if (!t.openedAt && !t.techOpenedAt) {
     return <div className="notice">Evaluation opens once the deadline passes and the seals are formally broken. Until then there is nothing to score, by design.</div>;
   }
 
+  /* Scores lock while a recommendation is with the approvers: they are
+     signing the memo those scores produced. Scorers without sight of the
+     recommendation itself still see the chain and the trail. */
+  const recEvents = state.events.filter((e) => e.tenderId === t.id && /^Award recommend/.test(e.action))
+    .sort((a, b) => b.at - a.at);
+  const locked = t.status === "awarded" || !!t.awardRec || !!t.awardChain?.currentId
+    || recEvents[0]?.action === "Award recommended";
+  const lastReturn = !t.awardRec && recEvents[0]?.action === "Award recommendation returned" ? recEvents[0] : null;
+
   const setScore = async (bidId, cid, v) => {
+    if (locked) return;
     const num = v === "" ? "" : Math.max(0, Math.min(10, Number(v)));
     const before = (myScores[bidId] || {})[cid];
     setMyScores((s) => ({ ...s, [bidId]: { ...s[bidId], [cid]: num } }));
@@ -1786,11 +1866,21 @@ export function EvalTab({ api, t }) {
     setBusy(false);
   };
 
-  /* ---- evaluator: blind scoring ---- */
-  if (can(user, "bid.score") && !can(user, "bid.see_all_scores")) {
+  /* ---- anyone who scores: the declaration, then their own dials ----
+     Shown on its own to a blind scorer, and above the consensus matrix to a
+     chair who also sits on the panel. */
+  const scoring = (blind) => {
     if (!((t.coi || {})[user.id]) && t.status !== "awarded") {
+      if (!can(user, "coi.declare")) {
+        return (
+          <div className="notice" style={{ marginBottom: 14 }}>
+            Scores can only be entered after a conflict-of-interest declaration, and your role does not include
+            signing one. Ask an administrator to add it if you sit on this panel.
+          </div>
+        );
+      }
       return (
-        <div className="card" style={{ maxWidth: 620 }}>
+        <div className="card" style={{ maxWidth: 620, marginBottom: 14 }}>
           <div className="chead"><h3>Conflict-of-interest declaration</h3></div>
           <div className="cbody">
             <p style={{ margin: "0 0 12px", fontSize: 13.5, lineHeight: 1.6 }}>
@@ -1804,10 +1894,18 @@ export function EvalTab({ api, t }) {
       );
     }
     return (
-      <div>
-        <div className="notice" style={{ marginBottom: 14 }}>
-          Blind scoring: you can only see your own scores. The consensus matrix is revealed to the panel chair, never to individual scorers, so nobody anchors on a colleague's numbers.
-        </div>
+      <div style={{ marginBottom: blind ? 0 : 14 }}>
+        {locked && t.status !== "awarded" ? (
+          <div className="notice" style={{ marginBottom: 14 }}>
+            Scores are locked while the recommendation is with the approvers. Withdraw it to change scores.
+          </div>
+        ) : blind ? (
+          <div className="notice" style={{ marginBottom: 14 }}>
+            Blind scoring: you can only see your own scores. The consensus matrix is revealed to the panel chair, never to individual scorers, so nobody anchors on a colleague's numbers.
+          </div>
+        ) : (
+          <h3 style={{ margin: "0 0 10px" }}>Your scores</h3>
+        )}
         {bids.map((b) => {
           const s = state.suppliers.find((x) => x.id === b.supplierId);
           const mine = myScores[b.id] || {};
@@ -1834,7 +1932,7 @@ export function EvalTab({ api, t }) {
                 {t.criteria.map((c) => (
                   <div className="scorerow" key={c.id}>
                     <span className="scname">{c.name} <span className="mono faint">({c.weight}%)</span></span>
-                    <Dial value={mine[c.id]} label={c.name} onPick={(v) => setScore(b.id, c.id, v)} />
+                    <Dial value={mine[c.id]} label={c.name} disabled={locked} onPick={(v) => setScore(b.id, c.id, v)} />
                   </div>
                 ))}
                 <div style={{ marginTop: 12 }}>
@@ -1842,9 +1940,9 @@ export function EvalTab({ api, t }) {
                   <div className="hint" style={{ marginTop: 0, marginBottom: 6 }}>The panel chair and auditors can read this. Say what you saw, not just the number.</div>
                   <textarea id={"note-" + b.id} className="in" style={{ minHeight: 60 }}
                     placeholder="Why these scores? Auditors will ask."
-                    value={myNotes[b.id] ?? ""}
+                    value={myNotes[b.id] ?? ""} readOnly={locked}
                     onChange={(e) => setMyNotes((m) => ({ ...m, [b.id]: e.target.value }))}
-                    onBlur={() => track(act.saveScores(b.id, {}, myNotes[b.id] ?? ""))} />
+                    onBlur={() => { if (!locked) track(act.saveScores(b.id, {}, myNotes[b.id] ?? "")); }} />
                 </div>
               </div>
             </div>
@@ -1852,6 +1950,11 @@ export function EvalTab({ api, t }) {
         })}
       </div>
     );
+  };
+
+  /* ---- evaluator: blind scoring ---- */
+  if (can(user, "bid.score") && !can(user, "bid.see_all_scores")) {
+    return scoring(true);
   }
 
   /* ---- chair view: consensus matrix ---- */
@@ -1859,6 +1962,12 @@ export function EvalTab({ api, t }) {
   const recSupplier = recBid && state.suppliers.find((x) => x.id === recBid.supplierId);
   return (
     <div>
+      {lastReturn && (
+        <div className="notice" style={{ marginBottom: 14, borderLeft: "3px solid var(--wax)" }}>
+          <b>Returned by {lastReturn.actor}</b> on {fmtDateTime(lastReturn.at)}. {lastReturn.detail}
+        </div>
+      )}
+      {can(user, "bid.score") && scoring(false)}
       {recBid && (
         <ConfirmDialog title="Recommend this bid for award?" confirmLabel="Send for sign-off"
                        onClose={() => setRecBid(null)}
@@ -2016,6 +2125,15 @@ function EvalMoney({ t, bids }) {
   );
 }
 
+/* "Scores changed" entries carry the numbers. Until the tender is awarded a
+   scorer must not read a colleague's, or blind scoring is blind in name only,
+   so the detail is held back from anyone who cannot see every score. */
+function eventDetail(e, user, tenders) {
+  if (e.action !== "Scores changed" || can(user, "bid.see_all_scores") || e.actor === user.name) return e.detail;
+  const t = tenders.find((x) => x.id === e.tenderId);
+  return t && t.status === "awarded" ? e.detail : "Scores held back until the panel's scores are revealed.";
+}
+
 export function AuditTab({ api, t }) {
   const events = api.state.events.filter((e) => e.tenderId === t.id);
   return (
@@ -2027,7 +2145,7 @@ export function AuditTab({ api, t }) {
               <li key={e.id} className={/seal/i.test(e.action) ? "waxdot" : ""}>
                 <div className="when">{fmtDateTime(e.at)}</div>
                 <div className="what">{e.action}</div>
-                <div className="who">{e.actor} · {e.detail}</div>
+                <div className="who">{e.actor} · {eventDetail(e, api.user, api.state.tenders)}</div>
               </li>
             ))}
           </ul>
@@ -2083,7 +2201,8 @@ export function EvalsPage({ api }) {
                    meta={<><span className="mono">{t.ref}</span><span>{p.done} of {p.total} bids fully scored</span></>}
                    right={<>
                      {finished ? <span className="chip ok">Scored</span> : <span className="chip warn">{p.total - p.done} left</span>}
-                     <button className="btn sm pri">{finished ? "Review" : "Score"}</button>
+                     <button className="btn sm pri" onClick={() => go({ page: "tender", id: t.id, tab: "eval" })}>
+                       {finished ? "Review" : "Score"}</button>
                    </>} />
             );
           })}
@@ -2313,6 +2432,36 @@ export const CHAIN_CSS = `
 `;
 
 
+/* Sending something back needs a reason. A return with none leaves the
+   drafter, or the panel, guessing what to fix, and the reason outlives the
+   cancelled chain: it is written to the audit trail and sent to them. The
+   common answers come from vocab.json so everyone spells them one way. */
+function ReturnDialog({ kind, t, onClose, onConfirm }) {
+  const [pick, setPick] = useState("");
+  const [why, setWhy] = useState("");
+  const extra = why.trim();
+  const ready = pick && (pick !== "Other" || extra);
+  const reason = pick === "Other" ? extra : (extra ? `${pick}: ${extra}` : pick);
+  return (
+    <ConfirmDialog title={kind === "award" ? "Return to the panel?" : "Return to draft?"}
+                   confirmLabel={kind === "award" ? "Return to panel" : "Return to draft"}
+                   disabled={!ready} onClose={onClose} onConfirm={() => onConfirm(reason)}>
+      “{t.title}” goes back {kind === "award" ? "to whoever recommended it" : "to its drafter"}, and the
+      signatures so far are cancelled. Tell them why.
+      <div className="frow" style={{ marginTop: 12, marginBottom: 0 }}>
+        <label className="lbl" htmlFor="ret-why">Reason</label>
+        <Choice id="ret-why" value={pick} onChange={setPick} options={RETURN_REASONS}
+                placeholder="Choose a reason" required />
+      </div>
+      <div className="frow" style={{ marginTop: 10, marginBottom: 0 }}>
+        <label className="lbl" htmlFor="ret-more">{pick === "Other" ? "What needs to change" : "Anything to add (optional)"}</label>
+        <textarea id="ret-more" className="in" style={{ minHeight: 60 }} maxLength={240}
+                  value={why} onChange={(e) => setWhy(e.target.value)} />
+      </div>
+    </ConfirmDialog>
+  );
+}
+
 export function ApprovalsPage({ api }) {
   const { state, act } = api;
   const me = state.me;
@@ -2364,30 +2513,58 @@ export function ApprovalsPage({ api }) {
     } catch (e) { setThrMsg(e.message); }
   };
 
-  const decidePub = async (t, ok) => {
-    const done = await act.publishDecision(t.id, ok);
-    if (done) {
-      api.toast.ok(ok ? "Published" : "Returned to the panel",
-                   ok ? `Invitations are out to ${t.invited.length} supplier(s) on ${t.ref}.`
-                      : `${t.ref} is back with procurement as a draft.`);
-    }
+  const [pubT, setPubT] = useState(null);       // publication queued for sign-off
+  const [retQ, setRetQ] = useState(null);       // {t, kind} queued to be sent back
+
+  /* Decisions go straight to the server rather than through `act`, because a
+     return carries its reason and a signature's answer says whether it was
+     the last one. Errors are thrown so the dialog that asked shows them and
+     stays open; the dialog also holds its button while the request is out. */
+  const decide = async (t, kind, ok, reason) => {
+    const path = kind === "award" ? "award_decision" : "publish_decision";
+    const r = await raw(`/tenders/${t.id}/${path}/`, { method: "POST", body: ok ? { ok } : { ok, reason } });
+    await api.refresh();
+    return r || {};
+  };
+  /** Signatures still owed after this one, and who the next belongs to. */
+  const after = (chain) => {
+    if (!chain || !chain.currentId) return null;
+    const rest = chain.steps.filter((x) => !x.decidedAt && x.id !== chain.currentId)
+      .sort((a, b) => a.seq - b.seq);
+    return rest.length ? stepWho(rest[0], users) : null;
+  };
+  /** "₦5m under the ₦80m ceiling", or "over the ₦80m ceiling by ₦5m". */
+  const vsCeiling = (budget, amount, named = true) => {
+    const gap = budget - amount;
+    const ceil = named ? `the ${fmtCompact(budget)} ceiling` : "the ceiling";
+    return gap >= 0 ? `${fmtCompact(gap)} under ${ceil}` : `over ${ceil} by ${fmtCompact(-gap)}`;
   };
 
-  /** Approving an award issues letters to every bidder and cannot be undone,
-      so it is press-and-hold rather than a click. */
+  const approvePub = async (t) => {
+    const r = await decide(t, "publish", true);
+    if (r.done === false) api.toast.ok(`Signed. Now with ${r.next}.`, `${t.ref} moves on to the next signature.`);
+    else api.toast.ok("Published", `Invitations are out to ${t.invited.length} supplier(s) on ${t.ref}.`);
+  };
+
+  /** Approving the last signature on an award issues letters to every bidder
+      and cannot be undone, so that one is press-and-hold rather than a click.
+      A signature with more to come only passes it up, and says so. */
   const approveAward = async (t) => {
     const rec = t.awardRec;
-    const done = await act.awardDecision(t.id, true);   // letters generated server-side
-    setAwardT(null);
-    if (done) {
-      cue.chime();
-      const winner = state.suppliers.find((s) => s.id === rec.supplierId);
-      api.toast.ok("Award approved, letters issued", `${winner.name} at ${fmtCompact(rec.amount)}. Every bidder has been notified.`);
+    const r = await decide(t, "award", true);   // letters generated server-side
+    if (r.done === false) {
+      api.toast.ok(`Signed. Now with ${r.next}.`, `The award on ${t.ref} moves on to the next signature.`);
+      return;
     }
+    cue.chime();
+    const winner = state.suppliers.find((s) => s.id === rec.supplierId);
+    api.toast.ok("Award approved, letters issued", `${winner?.name} at ${fmtCompact(rec.amount)}. Every bidder has been notified.`);
   };
-  const returnAward = async (t) => {
-    const done = await act.awardDecision(t.id, false);
-    if (done) api.toast.info("Returned to the panel", "Procurement has been asked to revisit the recommendation.");
+  const sendBack = async ({ t, kind }, reason) => {
+    await decide(t, kind, false, reason);
+    api.toast.info(kind === "award" ? "Returned to the panel" : "Returned to draft",
+                   kind === "award" ? "Whoever recommended it has been told why."
+                                    : `${t.ref} is back with its drafter, with your reason.`);
   };
 
   /* The guide is the queue: one line per thing waiting for a signature, each
@@ -2421,12 +2598,24 @@ export function ApprovalsPage({ api }) {
         const rec = awardT.awardRec;
         const winner = state.suppliers.find((s) => s.id === rec.supplierId);
         const losers = state.bids.filter((b) => b.tenderId === awardT.id && b.supplierId !== rec.supplierId).length;
+        const nextWho = after(awardT.awardChain);
+        if (nextWho) {
+          return (
+            <ConfirmDialog title="Sign this award?" confirmLabel="Sign and pass it up"
+                           onClose={() => setAwardT(null)} onConfirm={() => approveAward(awardT)}>
+              <b>{winner?.name}</b> for “{awardT.title}” at <b>{fmtMoney(rec.amount)}</b>, {vsCeiling(awardT.budget, rec.amount)}.
+              <div style={{ marginTop: 8 }}>
+                Your signature passes it to {nextWho}. Nothing reaches any supplier until the last signature,
+                and your signature is recorded in the audit trail under your name.
+              </div>
+            </ConfirmDialog>
+          );
+        }
         return (
           <ConfirmDialog title="Approve this award?" confirmLabel="Hold to approve & issue letters"
                          tone="pri" hold holdHint="Irreversible: hold to sign off"
                          onClose={() => setAwardT(null)} onConfirm={() => approveAward(awardT)}>
-            <b>{winner.name}</b> wins “{awardT.title}” at <b>{fmtMoney(rec.amount)}</b>, {fmtCompact(awardT.budget - rec.amount)} under
-            the {fmtCompact(awardT.budget)} ceiling.
+            <b>{winner?.name}</b> wins “{awardT.title}” at <b>{fmtMoney(rec.amount)}</b>, {vsCeiling(awardT.budget, rec.amount)}.
             <div style={{ marginTop: 8 }}>
               Signing off issues the award letter immediately, plus {losers} regret letter{losers === 1 ? "" : "s"},
               and notifies every bidder. It is recorded in the audit trail under your name and <b>cannot be undone.</b>
@@ -2434,6 +2623,24 @@ export function ApprovalsPage({ api }) {
           </ConfirmDialog>
         );
       })()}
+      {pubT && (() => {
+        const nextWho = after(pubT.publishChain);
+        const late = pubT.deadline && pubT.deadline <= Date.now();
+        return (
+          <ConfirmDialog title={nextWho ? "Sign this publication?" : "Approve and publish?"}
+                         confirmLabel={nextWho ? "Sign and pass it up" : "Approve & publish"} disabled={late}
+                         onClose={() => setPubT(null)} onConfirm={() => approvePub(pubT)}>
+            “{pubT.title}”, ceiling {fmtMoney(pubT.budget)}, closing {fmtDate(pubT.deadline)}.
+            <div style={{ marginTop: 8 }}>
+              {late ? "The deadline has passed. Extend it before approving."
+                : nextWho ? `Your signature passes it to ${nextWho}. Nothing is sent to suppliers yet.`
+                : `Invitations go out to ${pubT.invited.length} supplier(s) as soon as you approve.`}
+            </div>
+          </ConfirmDialog>
+        );
+      })()}
+      {retQ && <ReturnDialog kind={retQ.kind} t={retQ.t} onClose={() => setRetQ(null)}
+                             onConfirm={(reason) => sendBack(retQ, reason)} />}
       <div className="pagehead">
         <h1>Approvals</h1>
         <span className="sub">Awards to sign off, and tenders waiting to be published.</span>
@@ -2452,8 +2659,8 @@ export function ApprovalsPage({ api }) {
             </div>
             <div className="cbody">
               <div className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
-                {rec.by} recommends <b>{winner.name}</b> at <b>{fmtMoney(rec.amount)}</b>, {fmtCompact(t.budget - rec.amount)} under
-                the ceiling, from {bids.length} sealed {bids.length === 1 ? "bid" : "bids"}. {fmtDateTime(rec.at)}.
+                {rec.by} recommends <b>{winner.name}</b> at <b>{fmtMoney(rec.amount)}</b>, {vsCeiling(t.budget, rec.amount, false)},
+                from {bids.length} sealed {bids.length === 1 ? "bid" : "bids"}. {fmtDateTime(rec.at)}.
               </div>
               <ApprovalChain chain={t.awardChain} users={users} me={me} compact />
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -2461,7 +2668,7 @@ export function ApprovalsPage({ api }) {
                   {t.awardChain && t.awardChain.total > t.awardChain.signed + 1
                     ? "Sign and pass it up" : "Approve award & issue letters"}
                 </button>
-                <button className="btn" onClick={() => returnAward(t)}>Return to panel</button>
+                <button className="btn" onClick={() => setRetQ({ t, kind: "award" })}>Return to panel…</button>
               </div>
               <More title="The recommendation in full" summary="the memo, every bidder's total, and the PDF">
                 <div className="aihint" style={{ marginBottom: 12 }}>{rec.memo}</div>
@@ -2492,11 +2699,11 @@ export function ApprovalsPage({ api }) {
             </div>
             <ApprovalChain chain={t.publishChain} users={users} me={me} compact />
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button className="btn pri" onClick={() => decidePub(t, true)}>
+              <button className="btn pri" onClick={() => setPubT(t)}>
                 {t.publishChain && t.publishChain.total > t.publishChain.signed + 1
                   ? "Sign and pass it up" : "Approve & publish"}
               </button>
-              <button className="btn" onClick={() => decidePub(t, false)}>Return to draft</button>
+              <button className="btn" onClick={() => setRetQ({ t, kind: "publish" })}>Return to draft…</button>
             </div>
             <More title="Scope and criteria" summary="what is being bought, and how bids will be scored">
               <p style={{ margin: "0 0 10px", fontSize: 13.5, lineHeight: 1.6 }}>{t.scope}</p>
@@ -2568,6 +2775,12 @@ export function ApprovalsPage({ api }) {
             );
           })}
         </More>
+      ) : !can(me, "settings.threshold") ? (
+        <div className="hint" style={{ margin: "4px 0 14px" }}>
+          {state.org.approvalThreshold
+            ? `Publication at or above ${fmtCompact(state.org.approvalThreshold)} needs a sign-off before it goes out.`
+            : "No sign-off threshold is set."}
+        </div>
       ) : (
         <More title="When a tender needs your sign-off" summary={thr ? `at or above ${fmtCompact(Number(thr))}` : "no threshold set"}>
           <div className="frow" style={{ marginBottom: 0 }}>
@@ -2766,8 +2979,11 @@ function InviteStep({ api, f, set }) {
 
   const chip = (s) => {
     const on = chosenIds.has(s.id);
+    /* No account and no email: the invitation would reach nobody. */
+    const unreachable = !s.contactEmail && s.registrationStatus !== "registered";
     return (
       <button key={s.id} className={"chip" + (on ? " on" : "")} aria-pressed={on}
+              title={unreachable ? "No email on the register and no account, so this vendor cannot be sent the invitation. Add an email on the Suppliers page." : undefined}
               onClick={() => toggle(s.id)}>
         {/* always rendered, so it can widen into place rather than appearing
             and shoving the label sideways */}
@@ -2776,7 +2992,8 @@ function InviteStep({ api, f, set }) {
         <small>
           {s.suspended ? "suspended - remove to publish"
                        : (s.category === f.category ? s.location : s.category)
-                         + (!s.prequalified ? " · unverified" : "")}
+                         + (!s.prequalified ? " · unverified" : "")
+                         + (unreachable ? " · no email, not reachable" : "")}
         </small>
       </button>
     );
@@ -2976,7 +3193,9 @@ export function NewTender({ api, editId }) {
   const editing = editId ? state.tenders.find((t) => t.id === editId) : null;
   const [f, setF] = useState(() => editing ? {
     title: editing.title, type: editing.type, category: editing.category,
-    deadline: new Date(editing.deadline).toISOString().slice(0, 10), techWeight: editing.techWeight, scope: editing.scope,
+    /* A draft saved without a date stores 0, which is "no date", not 1970. */
+    deadline: editing.deadline > 0 ? new Date(editing.deadline).toISOString().slice(0, 10) : "",
+    techWeight: editing.techWeight, scope: editing.scope,
     criteria: editing.criteria.map((c) => ({ ...c })), invited: [...editing.invited],
     /* A draft from before lines carried a maximum was a single lump sum. It
        comes back as one line for the whole scope at that figure, so nothing
@@ -3000,9 +3219,16 @@ export function NewTender({ api, editId }) {
   });
   const [busy, setBusy] = useState(false);
   const [busyC, setBusyC] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [confirmPub, setConfirmPub] = useState(false);
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const weightSum = f.criteria.reduce((s, c) => s + Number(c.weight || 0), 0);
   const isAuction = f.type === "AUC";
+  /* Bids close at 17:00 on the chosen day, so a date earlier than that is
+     already over and is caught here rather than by the server at the end. */
+  const deadlineMs = f.deadline ? new Date(f.deadline + "T17:00:00").getTime() : 0;
+  const deadlineOk = deadlineMs > Date.now();
+  const namesOk = isAuction || f.criteria.every((c) => String(c.name || "").trim());
   /* There is no "most you can spend" box any more. The ceiling is each line's
      maximum per unit times its quantity, and bids are checked and graded
      against those same maximums, so the two can never disagree. */
@@ -3010,8 +3236,8 @@ export function NewTender({ api, editId }) {
   const linesOk = f.lines.length > 0
     && f.lines.every((l) => l.desc.trim() && Number(l.qty) > 0 && Number(l.price) > 0);
   const projOk = !(Number(f.projectedCost) > 0 && ceiling > 0 && Number(f.projectedCost) > ceiling);
-  const ready = f.title.trim() && f.category && f.deadline && f.invited.length > 0 && projOk
-    && (isAuction ? Number(f.minDecrement) > 0 && f.lines.length === 0 : linesOk && weightSum === 100);
+  const ready = f.title.trim() && f.category && deadlineOk && f.invited.length > 0 && projOk
+    && (isAuction ? Number(f.minDecrement) > 0 && f.lines.length === 0 : linesOk && weightSum === 100 && namesOk);
   const setLine = (id, k, v) => set("lines", f.lines.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
 
   /* Move one weight and let the others absorb the difference, proportionally,
@@ -3062,9 +3288,10 @@ export function NewTender({ api, editId }) {
       todo: f.lines.length ? "Give every line a quantity and a maximum price" : "Add what you are buying, line by line",
       done: f.lines.length + (f.lines.length === 1 ? " line" : " lines") + " · ceiling " + fmtMoney(ceiling),
       note: "Each bid is checked and graded against the maximum on every line." },
-    { key: "deadline", ok: !!f.deadline, to: "nt-deadline",
-      todo: "Choose a closing date", done: "Closes " + fmtDeadline(f.deadline),
-      note: "Vendors need a date before they can be invited." },
+    { key: "deadline", ok: deadlineOk, to: "nt-deadline",
+      todo: f.deadline ? "That closing date has passed" : "Choose a closing date",
+      done: "Closes " + fmtDeadline(f.deadline),
+      note: f.deadline ? "Bids close at 17:00 on the day. Pick a later date." : "Vendors need a date before they can be invited." },
     { key: "invited", ok: f.invited.length > 0, to: "nt-invite",
       todo: "Invite at least one vendor",
       done: f.invited.length + (f.invited.length === 1 ? " vendor invited" : " vendors invited") },
@@ -3075,6 +3302,9 @@ export function NewTender({ api, editId }) {
       : { key: "weights", ok: weightSum === 100, to: "nt-weights",
           todo: "Scoring adds up to " + weightSum + ", not 100", done: "Scoring adds up to 100",
           note: "Move any slider and the rest will follow." },
+    { key: "critnames", ok: namesOk, to: "nt-weights", quiet: namesOk,
+      todo: "Name every scoring criterion", done: "Every criterion named",
+      note: "A criterion with no name cannot be scored. Name it or remove it." },
     { key: "auclines", ok: !(isAuction && f.lines.length > 0), to: "nt-lines", quiet: !isAuction || f.lines.length === 0,
       todo: "Remove the line items", done: "No line items",
       note: "A reverse auction is price-only, so it cannot carry priced lines." },
@@ -3093,8 +3323,12 @@ export function NewTender({ api, editId }) {
   const listRef = useRef(null);
   useFlip(listRef, ordered.map((c) => c.key).join("|"));
   const shownPct = useCountUp(pct, DUR.ceremony, pct);
+  /* The same rule the server routes by (views._route_submission): with an
+     approval ladder every tender needs a signature; without one, only a
+     ceiling at or above a threshold above 0 does. */
   const threshold = Number(state.org.approvalThreshold) || 0;
-  const needsApproval = threshold > 0 && ceiling >= threshold;
+  const hasLadder = (state.org.approvalLevels || []).length > 0;
+  const needsApproval = hasLadder || (threshold > 0 && ceiling >= threshold);
 
   const draftScope = async () => {
     setBusy(true);
@@ -3117,9 +3351,10 @@ export function NewTender({ api, editId }) {
   };
 
   const save = async (submit) => {
+    if (saving) return;
     const payload = {
       title: f.title.trim(), type: f.type, category: f.category,
-      budget: ceiling, deadline: f.deadline ? new Date(f.deadline + "T17:00:00").getTime() : 0,
+      budget: ceiling, deadline: deadlineMs,
       invited: f.invited, techWeight: Number(f.techWeight),
       criteria: f.criteria.map((c) => ({ id: c.id, name: c.name, weight: Number(c.weight) })),
       scope: f.scope.trim(),
@@ -3133,8 +3368,12 @@ export function NewTender({ api, editId }) {
       projectedCost: Number(f.projectedCost) || 0,
       submit,
     };
-    const ok = editing ? await act.updateTender(editId, payload) : await act.createTender(payload);
-    if (ok) go({ page: "tenders" });
+    setSaving(true);
+    try {
+      const ok = editing ? await act.updateTender(editId, payload) : await act.createTender(payload);
+      if (ok) go({ page: "tenders" });
+      return ok;
+    } finally { setSaving(false); }
   };
 
   return (
@@ -3419,19 +3658,30 @@ export function NewTender({ api, editId }) {
           </ul>
 
           <div className="readyfoot">
-            <button className="btn pri" disabled={!ready} onClick={() => save(true)}>
-              {needsApproval ? "Send for approval" : "Publish this tender"}
+            <button className="btn pri" disabled={!ready || saving}
+                    onClick={() => (needsApproval ? save(true) : setConfirmPub(true))}>
+              {saving ? "Saving…" : needsApproval ? "Send for approval" : "Publish this tender"}
             </button>
-            <button className="btn" disabled={!f.title.trim()} onClick={() => save(false)}>
+            <button className="btn" disabled={!f.title.trim() || saving} onClick={() => save(false)}>
               {editing ? "Save draft" : "Save as draft"}
             </button>
             <div className="readyroute">
-              {!ceiling || !threshold
-                ? "Drafts are private to you until you send them on."
-                : needsApproval
-                  ? `The ${fmtMoney(ceiling)} ceiling is at or above the ${fmtMoney(threshold)} sign-off threshold, so this needs a sign-off instead of publishing straight away.`
-                  : `Below the ${fmtMoney(threshold)} sign-off threshold, so it publishes as soon as you press the button.`}
+              {hasLadder
+                ? "Your approval ladder applies, so this goes for sign-off before any vendor is invited."
+                : !ceiling || !threshold
+                  ? "Nothing needs sign-off here, so it publishes and invites vendors as soon as you press the button."
+                  : needsApproval
+                    ? `The ${fmtMoney(ceiling)} ceiling is at or above the ${fmtMoney(threshold)} sign-off threshold, so this needs a sign-off instead of publishing straight away.`
+                    : `Below the ${fmtMoney(threshold)} sign-off threshold, so it publishes as soon as you press the button.`}
             </div>
+            {confirmPub && (
+              <ConfirmDialog title="Publish this tender now?" confirmLabel="Publish and send invitations"
+                             onClose={() => setConfirmPub(false)}
+                             onConfirm={async () => { const ok = await save(true); return ok ? undefined : false; }}>
+                <p>This emails {f.invited.length} {f.invited.length === 1 ? "vendor" : "vendors"} now.
+                  Bids close {fmtDeadline(f.deadline)} at 17:00.</p>
+              </ConfirmDialog>
+            )}
           </div>
         </aside>
       </div>
@@ -3708,7 +3958,7 @@ export function SuppliersPage({ api }) {
   const [cat, setCat] = useState("");
   const [loc, setLoc] = useState("");
   const [shown, setShown] = useState(PAGE);
-  const [tab, setTab] = useState("register");
+  const [tab, setTab] = useState(api.route?.tab === "review" && canPrequalify ? "review" : "register");
 
   /* The full register record (contact, address, payment terms, TIN, bank) is
      not in the bootstrap payload: 1,400 of them would be a megabyte refetched
@@ -4498,11 +4748,15 @@ export function AuditPage({ api }) {
     if (f !== "all" && e.tenderId !== f) return false;
     if (!aq.trim()) return true;
     const n = aq.trim().toLowerCase();
-    return [e.actor, e.action, e.detail].some((x) => (x || "").toLowerCase().includes(n));
+    return [e.actor, e.action, eventDetail(e, api.user, state.tenders)].some((x) => (x || "").toLowerCase().includes(n));
   });
+  /* A refusal or a dropped connection is not a broken chain. Saying "the
+     history has been altered" because the network blinked is the one thing
+     this page must never do, so a failed check reads as a failed check. */
   const verify = async () => {
     setIntegrity({ busy: true });
-    try { setIntegrity(await raw("/audit/integrity/")); } catch (e) { setIntegrity({ ok: false, error: e.message }); }
+    try { setIntegrity(await raw("/audit/integrity/")); }
+    catch (e) { setIntegrity({ failed: true, error: e.message || "the server did not answer" }); }
   };
 
   /* Patterns worth a second look. Findings, not accusations - so each one names
@@ -4537,23 +4791,27 @@ export function AuditPage({ api }) {
 
   /* Once the chain has been checked, that result *is* what the page is about,
      so it becomes the headline rather than a notice under the toolbar. */
-  const checked = integrity && !integrity.busy;
+  const canVerify = can(api.user || state.me, "audit.integrity");
+  const checked = integrity && !integrity.busy && !integrity.failed;
+  const failed = integrity && integrity.failed;
   const total = state.events.length;
   const guide = (
     <Guide art="sealed" tone={checked ? (integrity.ok ? "good" : "bad") : undefined}
            headline={checked
              ? (integrity.ok ? "The chain holds" : "The chain has been broken")
+             : failed ? `Couldn't check: ${integrity.error}`
              : `${total.toLocaleString()} ${total === 1 ? "entry" : "entries"} recorded`}
            why={checked
              ? (integrity.ok
                  ? `Every one of the ${integrity.count} entries is linked to the one before it. Rewriting any of them would break every hash that follows, and none are broken.`
                  : `Entry ${integrity.brokenAt ? "#" + integrity.brokenAt : "unknown"} does not match the hash before it, which means the recorded history has been altered. ${integrity.error || ""}`)
+             : failed ? "This says nothing about the trail itself. Try again in a moment."
              : "Nothing here can be edited quietly: each entry carries a hash of the one before it. Check it yourself - the answer is arithmetic, not a promise."}
-           action={
+           action={canVerify ? (
              <button className="btn pri" onClick={verify} disabled={!!integrity?.busy}>
-               {integrity?.busy ? "Checking…" : checked ? "Check it again" : "Verify the chain"}
+               {integrity?.busy ? "Checking…" : checked || failed ? "Check it again" : "Verify the chain"}
              </button>
-           }>
+           ) : undefined}>
       <input className="in" placeholder="Search the trail" aria-label="Search the audit trail"
              value={aq} onChange={(e) => setAq(e.target.value)} />
       <select className="in" aria-label="Filter by tender" value={f} onChange={(e) => setF(e.target.value)}>
@@ -4584,7 +4842,9 @@ export function AuditPage({ api }) {
               <Row key={x.key} tone="brass" title={x.title}
                    meta={<span>{x.why}</span>}
                    onOpen={x.tenderId ? () => go({ page: "tender", id: x.tenderId }) : undefined}
-                   right={x.tenderId ? <button className="btn sm">Open it</button> : null} />
+                   right={x.tenderId
+                     ? <button className="btn sm" onClick={() => go({ page: "tender", id: x.tenderId })}>Open it</button>
+                     : null} />
             ))}
           </Rows>
         </div>
@@ -4605,7 +4865,7 @@ export function AuditPage({ api }) {
                    meta={<>
                      <span>{e.actor}</span>
                      {t && <span className="mono">{t.ref}</span>}
-                     {e.detail && <span>{e.detail}</span>}
+                     {e.detail && <span>{eventDetail(e, api.user, state.tenders)}</span>}
                    </>}
                    right={<span className="mono faint">{fmtDateTime(e.at)}</span>} />
             );
@@ -4657,8 +4917,48 @@ export function TeamPage({ api }) {
     setMsg(""); setLink(""); setSending(personaIds ? personaIds[0] : "all");
     try {
       const r = await raw("/team/send_invites/", { method: "POST", body: personaIds ? { personaIds } : {} });
-      api.toast.ok(`${r.sent} invitation${r.sent === 1 ? "" : "s"} sent`,
-                   "Each person sets their own password from the link in their email.");
+      const failed = r.failed || [];
+      if (failed.length) {
+        api.toast.warn(`${r.sent} sent, ${failed.length} couldn't be sent`,
+                      "Not sent: " + failed.map((x) => x.name || x.email).join(", ")
+                      + ". They stay on the list below. Check the address and send again.");
+      } else {
+        api.toast.ok(`${r.sent} invitation${r.sent === 1 ? "" : "s"} sent`,
+                     "Each person sets their own password from the link in their email.");
+      }
+      load();
+    } catch (e) { setMsg(e.message); }
+    setSending("");
+  };
+  /* A sent invitation: send it again with a fresh link, or withdraw it. */
+  const inviteAct = async (path, i, done) => {
+    setMsg(""); setLink(""); setSending(i.email);
+    try {
+      const r = await raw(path, { method: "POST", body: { email: i.email } });
+      if (r.inviteLink) setLink(r.inviteLink);
+      api.toast.ok(done, i.email);
+      load();
+    } catch (e) { setMsg(e.message); }
+    setSending("");
+  };
+  /* A held invitation being corrected before it goes out. */
+  const [heldEdit, setHeldEdit] = useState(null);
+  const saveHeld = async () => {
+    setMsg(""); setSending(heldEdit.personaId);
+    try {
+      await raw("/team/held/edit/", { method: "POST", body: heldEdit });
+      setHeldEdit(null);
+      api.toast.ok("Invitation updated", "Not sent yet.");
+      load();
+    } catch (e) { setMsg(e.message); }
+    setSending("");
+  };
+  const removeHeld = async (h) => {
+    if (!window.confirm(`Remove ${h.name || h.email}? They come off the org chart and are not invited.`)) return;
+    setMsg(""); setSending(h.personaId);
+    try {
+      await raw("/team/held/remove/", { method: "POST", body: { personaId: h.personaId } });
+      api.toast.ok("Removed", `${h.name || h.email} will not be invited.`);
       load();
     } catch (e) { setMsg(e.message); }
     setSending("");
@@ -4669,7 +4969,8 @@ export function TeamPage({ api }) {
              ? `${members.length} ${members.length === 1 ? "person" : "people"} in this workspace`
              : "Nobody here yet"}
            why={invites.length
-             ? `${invites.length} ${invites.length === 1 ? "invitation is" : "invitations are"} waiting to be accepted.`
+             ? `${invites.length} ${invites.length === 1 ? "invitation has" : "invitations have"} not been accepted yet`
+               + (invites.some((i) => i.expired) ? `, ${invites.filter((i) => i.expired).length} expired.` : ".")
              : "Invite a colleague and they set their own password from a single-use link."}
            action={
              <div className="gaterow" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
@@ -4714,18 +5015,40 @@ export function TeamPage({ api }) {
               These people are on the org chart from setup, and nobody has emailed them yet. Send
               when you are ready. Each link lasts three days from when it is sent.
             </div>
-            {held.map((h) => (
+            {held.map((h) => (heldEdit && heldEdit.personaId === h.personaId ? (
+              <div key={h.personaId} className="docrow" style={{ flexWrap: "wrap", gap: 6 }}>
+                <input className="in" aria-label="Name" value={heldEdit.name} style={{ flex: "1 1 140px" }}
+                       onChange={(e) => setHeldEdit({ ...heldEdit, name: e.target.value })} />
+                <input className="in" type="email" aria-label="Work email" value={heldEdit.email} style={{ flex: "1 1 180px" }}
+                       onChange={(e) => setHeldEdit({ ...heldEdit, email: e.target.value })} />
+                <select className="in" aria-label="Role" value={heldEdit.role} style={{ flex: "1 1 140px" }}
+                        onChange={(e) => setHeldEdit({ ...heldEdit, role: e.target.value })}>
+                  {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+                <button className="btn sm pri" disabled={!!sending} onClick={saveHeld}>
+                  {sending === h.personaId ? "Saving…" : "Save"}
+                </button>
+                <button className="btn sm" onClick={() => setHeldEdit(null)}>Cancel</button>
+              </div>
+            ) : (
               <div key={h.personaId || h.email} className="docrow">
                 <span>{h.name || h.email}</span>
                 <span className="mono faint" style={{ fontSize: 12 }}>{h.email}</span>
                 <span className="chip">{h.roleLabel || h.role}</span>
                 <span style={{ flex: 1 }} />
                 <button className="btn sm" disabled={!!sending || !h.personaId}
+                        onClick={() => setHeldEdit({ personaId: h.personaId, name: h.name || "", email: h.email, role: h.role })}>
+                  Edit
+                </button>
+                <button className="btn sm" disabled={!!sending || !h.personaId} onClick={() => removeHeld(h)}>
+                  Remove
+                </button>
+                <button className="btn sm" disabled={!!sending || !h.personaId}
                         onClick={() => sendHeld([h.personaId])}>
                   {sending === h.personaId ? "Sending…" : "Send"}
                 </button>
               </div>
-            ))}
+            )))}
           </div>
         </div>
       )}
@@ -4747,9 +5070,29 @@ export function TeamPage({ api }) {
         </Rows>
         {invites.length > 0 && (
           <div className="cbody" style={{ borderTop: "1px solid var(--line)" }}>
-            <div className="lbl" style={{ marginBottom: 6 }}>Invitations waiting to be accepted</div>
+            <div className="lbl" style={{ marginBottom: 6 }}>Invitations sent</div>
             {invites.map((i, k) => (
-              <div key={k} className="docrow"><span>{i.email}</span><span className="chip">{i.roleLabel || i.role}</span><span className="mono faint">{fmtDate(i.at)}</span></div>
+              <div key={k} className="docrow" style={{ flexWrap: "wrap" }}>
+                <span>{i.email}</span><span className="chip">{i.roleLabel || i.role}</span>
+                {i.expired
+                  ? <span className="chip warn" title="The link lasts three days. Resend to give them a fresh one.">Expired</span>
+                  : <span className="chip">waiting to be accepted</span>}
+                <span className="mono faint">{fmtDate(i.at)}</span>
+                <span style={{ flex: 1 }} />
+                {can(user, "team.invite") && (
+                  <>
+                    <button className="btn sm" disabled={!!sending}
+                            onClick={() => inviteAct("/team/invite/resend/", i, "Invitation sent again")}>
+                      {sending === i.email ? "Sending…" : "Resend"}
+                    </button>
+                    <button className="btn sm" disabled={!!sending}
+                            onClick={() => window.confirm(`Cancel the invitation to ${i.email}? Their link stops working.`)
+                              && inviteAct("/team/invite/cancel/", i, "Invitation cancelled")}>
+                      Cancel
+                    </button>
+                  </>
+                )}
+              </div>
             ))}
           </div>
         )}
@@ -4905,6 +5248,16 @@ function AuthorityLadder({ api, team, onReload }) {
             <span className="hint" style={{ marginTop: 2 }}>
               {Number(l.limit) > 0 ? "up to " + fmtMoney(Number(l.limit)) : "unlimited authority"}
             </span>
+            {/* The same fallback the setup wizard offers: who signs a level
+                nobody has been put on yet. */}
+            <select className="in" style={{ marginTop: 6 }} value={l.role || ""}
+                    aria-label={`Who signs level ${i + 1} if nobody is on it`}
+                    onChange={(e) => edit(l.id, { role: e.target.value })}>
+              <option value="">If nobody is on it: nobody, it waits</option>
+              {(team?.roles || []).map((r) => (
+                <option key={r.value} value={r.value}>If nobody is on it: anyone who is {r.label}</option>
+              ))}
+            </select>
           </div>
           <button className="btn sm" aria-label={`Remove level ${i + 1}`} onClick={() => drop(l.id)}>
             <Icon n="close" s={13} />

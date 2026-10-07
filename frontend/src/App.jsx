@@ -6,7 +6,7 @@ import {
   adoptBaselines, baselineFor, fetchBaselines,
   fetchFinanceExceptions, financeFeeds, getToken, getUsername, importFinance,
   inDemo, login as apiLogin, logout as apiLogout, raw, setDemo, siteAppearance, storeAuth,
-  uploadFile,
+  uploadFile, DOWNLOAD_FAILED,
 } from "./api";
 import { BP } from "./breakpoints";
 import { GuidePanel, seenKey } from "./guide";
@@ -81,7 +81,7 @@ function PublicLanding({ onScreen }) {
 }
 
 
-function Login({ onLoggedIn, onScreen }) {
+function Login({ onLoggedIn, onScreen, notice }) {
   const [cfg, setCfg] = useState(null);
   const [u, setU] = useState("");
   const [pw, setPw] = useState("");
@@ -89,12 +89,15 @@ function Login({ onLoggedIn, onScreen }) {
   const [busy, setBusy] = useState(false);
   const [mfa, setMfa] = useState(false);
   const [code, setCode] = useState("");
+  const submitting = useRef(false);
 
   useEffect(() => {
     authConfig().then(setCfg).catch(() => setCfg({ demoLogin: false, accounts: [] }));
   }, []);
 
   const submit = async () => {
+    if (submitting.current || !u.trim() || !pw || (mfa && !code.trim())) return;
+    submitting.current = true;
     setBusy(true); setMsg("");
     try {
       const res = await raw("/auth/login/", { method: "POST",
@@ -105,6 +108,7 @@ function Login({ onLoggedIn, onScreen }) {
       setMsg(e.message || "Sign-in failed.");
     }
     setBusy(false);
+    submitting.current = false;
   };
   const quick = async (username) => {
     setBusy(true); setMsg("");
@@ -142,6 +146,7 @@ function Login({ onLoggedIn, onScreen }) {
         <div className="card">
           <div className="chead"><h3>Sign in</h3><span className="mono faint" style={{ marginLeft: "auto" }}>sealed-bid tendering</span></div>
           <div className="cbody">
+            {notice && !msg && <div className="notice" role="status" style={{ marginBottom: 12 }}>{notice}</div>}
             <div className="frow"><label className="lbl" htmlFor="li-u">Username</label>
               <input id="li-u" className="in" autoComplete="username" value={u} onChange={(e) => setU(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} /></div>
             <div className="frow"><label className="lbl" htmlFor="li-p">Password</label>
@@ -152,7 +157,7 @@ function Login({ onLoggedIn, onScreen }) {
                        value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} /></div>
             )}
             {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 12 }}>{msg}</div>}
-            <button className="btn pri" style={{ width: "100%" }} onClick={submit} disabled={busy || !u.trim() || !pw}>Sign in</button>
+            <button className="btn pri" style={{ width: "100%" }} onClick={submit} disabled={busy || !u.trim() || !pw || (mfa && !code.trim())}>{busy ? "Signing in..." : "Sign in"}</button>
             {/* Signing in is for people who already have an account. Vendor
                 registration and starting a workspace are reached from the front
                 page, and vendors are also sent a registration link by email. */}
@@ -300,10 +305,88 @@ function DemoDoor({ onBack, onScreen, onLoggedIn }) {
      /demo     the personas
      /setup    the wizard (?setup=1 still works: it is in circulation) */
 const PATHS = { "/signin": "signin", "/sign-in": "signin", "/login": "signin",
-                "/demo": "demo", "/setup": "setup" };
+                "/demo": "demo", "/setup": "setup", "/forgot": "forgot",
+                "/forgot-password": "forgot", "/register": "register" };
+
+/* The signed-in surface has addresses too, under /app, so the back button,
+   a refresh and a link in an email all land on the same tender and tab:
+
+     /app/tenders                 a section
+     /app/tender/42/eval          a tender, on a tab
+     /app/auction/7               an auction room
+     /app/new?editId=42           anything else rides in the query
+
+   /app is clear of /signin, /demo, /setup and /superadmin, and Django's
+   catch-all serves the page for it (docket/urls.py). The server builds the
+   same addresses for notification emails (core/notify.py). */
+const APP = "/app";
+const ID_PAGES = ["tender", "auction", "bidroom"];
+const NEXT_KEY = "docket_next";
+
+function routeToPath(r) {
+  if (!r || !r.page) return APP;
+  let path = `${APP}/${r.page}`;
+  if (ID_PAGES.includes(r.page) && r.id != null) path += `/${encodeURIComponent(r.id)}`;
+  if (r.tab) path += `/${encodeURIComponent(r.tab)}`;
+  const q = new URLSearchParams();
+  Object.entries(r).forEach(([k, v]) => {
+    if (!["page", "id", "tab"].includes(k) && v != null && v !== "") q.set(k, v);
+  });
+  return path + (q.toString() ? `?${q}` : "");
+}
+
+function routeFromPath(where) {
+  const url = new URL(where || window.location.href, window.location.origin);
+  const path = url.pathname.replace(/\/+$/, "");
+  if (!path.startsWith(APP + "/")) return null;
+  const num = (v) => (/^\d+$/.test(v) ? Number(v) : v);
+  const [page, a, b] = path.slice(APP.length + 1).split("/").map(decodeURIComponent);
+  if (!page) return null;
+  const r = { page };
+  if (ID_PAGES.includes(page)) { if (a) r.id = num(a); if (b) r.tab = b; }
+  else if (a) r.tab = a;
+  url.searchParams.forEach((v, k) => { r[k] = /id$/i.test(k) ? num(v) : v; });
+  return r;
+}
+
+/* Where to go back to after signing in: the page somebody was on when their
+   session ran out, or the one an emailed link pointed at. One use only. */
+const keepNext = (where) => { try { sessionStorage.setItem(NEXT_KEY, where); } catch (e) { /* private mode */ } };
+const takeNext = () => {
+  try { const v = sessionStorage.getItem(NEXT_KEY); sessionStorage.removeItem(NEXT_KEY); return v; }
+  catch (e) { return null; }
+};
+const dropNext = () => { try { sessionStorage.removeItem(NEXT_KEY); } catch (e) { /* private mode */ } };
+
+/** The page the address bar asks for, when this person may open it; else home.
+    Home is null for somebody who may open nothing yet. */
+function landingRoute(me) {
+  const asked = routeFromPath();
+  return asked && allowedPages(me).includes(asked.page) ? asked : { page: homePage(me) };
+}
+
+const PAGE_TITLES = {
+  dashboard: "Dashboard", approvals: "Approvals", evals: "Evaluations", tenders: "Tenders",
+  auctions: "Auctions", suppliers: "Suppliers", scorecards: "Scorecards", team: "Team",
+  analytics: "Analytics", finance: "Finance", audit: "Audit trail", portal: "Your tenders",
+  tender: "Tender", auction: "Auction", new: "New tender", bidroom: "Bid room",
+};
+const SCREEN_TITLES = {
+  signin: "Sign in", demo: "Demo", setup: "Set up your workspace", forgot: "Reset your password",
+  register: "Vendor registration", claim: "Claim your account", verify: "Verify your email",
+  invite: "Accept your invitation", reset: "Choose a new password",
+};
 
 function publicScreenFromUrl() {
   const path = window.location.pathname.replace(/\/+$/, "").toLowerCase();
+  /* A workspace address with nobody signed in - usually a link in an email.
+     Sign in first, then carry on to it. */
+  if (!getToken() && path.startsWith(APP + "/")) {
+    keepNext(window.location.pathname + window.location.search);
+    window.history.replaceState({}, "", "/signin");
+    setDemo(false);
+    return { name: "signin" };
+  }
   /* Opening /demo points this browser at the demo backend, and it has to happen
      HERE rather than inside DemoDoor: this runs during useState's initialiser,
      before any component has mounted and therefore before the first fetch. Set
@@ -362,6 +445,14 @@ export default function App() {
      `toLogin` when the root WAS the sign-in form; it goes to the landing page
      now, which is what every one of its call sites meant by "out of here". */
   const toLogin = () => { window.history.replaceState({}, "", "/"); setScreen(null); };
+  /* "Sign in" and "Back to sign in" on the onboarding screens mean the form,
+     not the front page. Replace rather than push: several of these addresses
+     carry a single-use token that should not stay one Back press away. */
+  const toSignin = () => {
+    window.history.replaceState({}, "", "/signin");
+    if (!getToken()) setDemo(false);
+    setScreen({ name: "signin" });
+  };
   /* Moving between the public screens writes the path, so the back button and
      a copied URL both behave. The token-carrying screens are excluded: their
      address holds a single-use secret and pushing it into history is how it
@@ -377,6 +468,7 @@ export default function App() {
     setScreen(name ? { name } : null);
   };
   const [data, setData] = useState(null);
+  const [bootError, setBootError] = useState("");
   const [route, setRoute] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [guide, setGuide] = useState(false);
@@ -394,9 +486,23 @@ export default function App() {
   const boot = useRef({ started: 0, landed: 0 });
   const pullRef = useRef(null);
 
-  const signOut = (serverSide) => {
+  /* `expired` is the server saying the session is over (a 401), as opposed to
+     somebody pressing Sign out. Then the page they were on is kept, the form
+     says why it is there, and signing in goes straight back to that page. The
+     demo is left out: its sessions end when it is reset, and a demo address
+     means nothing on the real workspace. */
+  const signOut = (serverSide, expired = false) => {
+    const resume = expired && !inDemo() && window.location.pathname.startsWith(APP + "/")
+      ? window.location.pathname + window.location.search : null;
+    if (resume) keepNext(resume); else dropNext();
     if (serverSide) apiLogout().catch(() => {});
     clearAuth();
+    ++boot.current.started;
+    boot.current.landed = boot.current.started;
+    setBootError("");
+    setGuide(false); setSecurity(false); setNav(false);
+    window.history.replaceState({}, "", "/signin");
+    setScreen({ name: "signin", expired });
     setToken(null);
     setData(null);
     setRoute(null);
@@ -410,17 +516,45 @@ export default function App() {
     const mine = ++boot.current.started;
     try {
       const d = await fetchBootstrap();
-      if (mine < boot.current.landed) return d;   // a newer answer is already on screen
+      if (mine !== boot.current.started) return null;
       boot.current.landed = mine;
+      setBootError("");
       setData(d);
+      setRoute((current) => current || landingRoute(d.me));
       return d;
     } catch (e) {
-      if (e.status === 401) signOut(false);
+      if (mine !== boot.current.started) return null;
+      setBootError(e.message || "Check your connection and try again.");
+      if (e.status === 401) signOut(false, true);
       else if (!quiet) toast.warn("Could not reach the server", e.message || "Check your connection and try again.");
       return null;
     }
   };
   pullRef.current = refresh;
+
+  /* Back and Forward. Inside the workspace the address is the route, so it is
+     read back without pushing a new entry; outside it, the path names the
+     public screen. */
+  useEffect(() => {
+    const back = () => {
+      setNav(false);
+      const r = getToken() ? routeFromPath() : null;
+      if (r) {
+        setScreen(null);
+        withViewTransition(() => flushSync(() => setRoute(r)));
+      } else setScreen(publicScreenFromUrl());
+    };
+    window.addEventListener("popstate", back);
+    return () => window.removeEventListener("popstate", back);
+  }, []);
+
+  /* A download that failed used to do nothing at all; api.js reports it here. */
+  useEffect(() => {
+    const failed = (e) => toast.warn("Download failed",
+      (e.detail && e.detail.message) || "That file could not be downloaded. Please try again.");
+    window.addEventListener(DOWNLOAD_FAILED, failed);
+    return () => window.removeEventListener(DOWNLOAD_FAILED, failed);
+  }, [toast]);
 
   /* Other people's work arrives without a reload. Every thirty seconds while
      the tab is in front, and straight away when somebody comes back to it, so
@@ -447,10 +581,18 @@ export default function App() {
 
   useEffect(() => {
     if (!token) return;
+    /* A lapsed session or an emailed link left the page it was headed for;
+       put it back in the address bar so landingRoute reads it. */
+    const next = takeNext();
+    if (next) window.history.replaceState({}, "", next);
+    setData(null); setRoute(null); setBootError("");
     (async () => {
       const d = await refresh();
       if (d) {
-        setRoute({ page: homePage(d.me) });
+        const destination = landingRoute(d.me);
+        setRoute(destination);
+        window.history.replaceState({}, "", routeToPath(destination));
+        setScreen(null);
         if (!localStorage.getItem(seenKey(getUsername()))) {
           localStorage.setItem(seenKey(getUsername()), "1");
           setGuide(true);
@@ -482,17 +624,28 @@ export default function App() {
      #310. route is null until the bootstrap lands, hence the optional read. */
   useReveal([route?.page, data]);
 
+  /* A new page starts at its top, and the tab says where you are. */
+  useEffect(() => { window.scrollTo(0, 0); }, [route?.page, route?.id, screen?.name]);
+  const tenderTitle = route?.page === "tender"
+    ? (data?.tenders || []).find((t) => t.id === route.id)?.title : null;
+  useEffect(() => {
+    const name = (!token || screen)
+      ? SCREEN_TITLES[screen?.name]
+      : tenderTitle || PAGE_TITLES[route?.page];
+    document.title = name ? `${name} · DOCKET` : "DOCKET";
+  }, [token, screen?.name, route?.page, tenderTitle]);
+
   if (screen) {
-    if (screen.name === "register") return <RegisterVendor onDone={toLogin} />;
-    if (screen.name === "claim") return <ClaimVendor token={screen.token} onDone={toLogin}
+    if (screen.name === "register") return <RegisterVendor onDone={toSignin} />;
+    if (screen.name === "claim") return <ClaimVendor token={screen.token} onDone={toSignin}
         onLoggedIn={(res, username) => { storeAuth(res.token, username); toLogin(); setToken(res.token); }} />;
-    if (screen.name === "verify") return <VerifyVendor token={screen.token} onDone={toLogin} />;
-    if (screen.name === "invite") return <AcceptInvite token={screen.token} onDone={toLogin} />;
-    if (screen.name === "reset") return <ResetPassword token={screen.token} onDone={toLogin} />;
-    if (screen.name === "forgot") return <ForgotPassword onDone={toLogin} />;
+    if (screen.name === "verify") return <VerifyVendor token={screen.token} onDone={toSignin} />;
+    if (screen.name === "invite") return <AcceptInvite token={screen.token} onDone={toSignin} />;
+    if (screen.name === "reset") return <ResetPassword token={screen.token} onDone={toSignin} />;
+    if (screen.name === "forgot") return <ForgotPassword onDone={toSignin} />;
     if (screen.name === "demo") return <DemoDoor onBack={toLogin} onScreen={goScreen}
         onLoggedIn={(res, username) => { storeAuth(res.token, username); toLogin(); setToken(res.token); }} />;
-    if (screen.name === "setup") return <SetupWorkspace onDone={toLogin}
+    if (screen.name === "setup") return <SetupWorkspace onDone={toSignin}
         onLoggedIn={(res, username) => { storeAuth(res.token, username); toLogin(); setToken(res.token); }} />;
   }
   if (!token) {
@@ -500,7 +653,8 @@ export default function App() {
     /* The form only when it was asked for. Everybody else gets the front door,
        set up or not - see PATHS. */
     if (screen && screen.name === "signin") {
-      return <Login onScreen={goScreen} onLoggedIn={signedIn} />;
+      return <Login onScreen={goScreen} onLoggedIn={signedIn}
+                    notice={screen.expired ? "You've been signed out. Sign in to continue." : ""} />;
     }
     return <PublicLanding onScreen={goScreen} />;
   }
@@ -508,7 +662,12 @@ export default function App() {
     return (
       <>
         <style>{ALL_CSS}</style>
-        <BootSkeleton />
+        {bootError ? <div className="loginwrap"><div className="logincard card"><div className="cbody">
+          <h2>Workspace could not load</h2>
+          <p role="alert">{bootError}</p>
+          <button className="btn pri" onClick={() => { setBootError(""); refresh(); }}>Try again</button>
+          <button className="btn" onClick={() => signOut(false)}>Back to sign in</button>
+        </div></div></div> : <BootSkeleton />}
       </>
     );
   }
@@ -525,7 +684,7 @@ export default function App() {
       if (refreshAfter) await refresh();
       return true;
     } catch (e) {
-      if (e.status === 401) { signOut(false); return false; }
+      if (e.status === 401) { signOut(false, true); return false; }
       toast.warn("That didn't go through", e.message || "Something went wrong.");
       /* A refusal usually means this screen was behind the server: an addendum
          the vendor has not seen, a tender somebody else already moved on. Catch
@@ -629,6 +788,8 @@ export default function App() {
   };
 
   const go = (r) => {
+    const path = routeToPath(r);
+    if (path !== window.location.pathname + window.location.search) window.history.pushState({}, "", path);
     /* flushSync so the browser captures the new DOM inside the transition; the
        refresh stays outside it, because a transition must not wait on a fetch. */
     withViewTransition(() => flushSync(() => {
@@ -642,6 +803,8 @@ export default function App() {
     try {
       const res = await demoLogin(username);
       storeAuth(res.token, username);
+      window.history.replaceState({}, "", "/demo");
+      setGuide(false); setSecurity(false);
       setToken(res.token); // effect reloads bootstrap and routes home
     } catch (e) {
       toast.warn("Could not switch account", e.message || "");
@@ -663,7 +826,12 @@ export default function App() {
     }
   };
 
-  const api = { state: data, user, go, route, act, ai, finance, toast, refresh };
+  /* A tab switched inside a page: rewrite the address so a refresh keeps it,
+     without a new history entry and without remounting the page. */
+  const setTab = (tab) => {
+    window.history.replaceState({}, "", routeToPath({ ...route, tab: tab || undefined }));
+  };
+  const api = { state: data, user, go, route, act, ai, finance, toast, refresh, setTab };
   /* Re-armed on every page: anything marked data-reveal below the fold arrives
      as you reach it, once, then the observer lets it go. The call itself is
      hoisted above the early returns, where hooks have to live. */
@@ -714,7 +882,13 @@ export default function App() {
         {guide && <GuidePanel role={user.role} user={user} onClose={() => setGuide(false)} />}
         {security && <SecurityPanel me={user} onRenamed={refresh} onClose={() => setSecurity(false)}
           onLogoutAll={async () => { try { await raw("/auth/logout_all/", { method: "POST", body: {} }); } catch (e) {} signOut(false); }} />}
-        <main className={"content" + (hasViewTransitions() ? "" : " pageenter")} key={page}>
+        <main className={"content" + (hasViewTransitions() ? "" : " pageenter")} key={page || "none"}>
+          {!page && (
+            <div className="card"><div className="cbody">
+              <h3>You don't have access to anything yet</h3>
+              <p className="muted">Ask your DOCKET administrator to give your account access to the parts of the workspace you need.</p>
+            </div></div>
+          )}
           {page === "dashboard" && <Dashboard api={api} />}
           {page === "tenders" && <TendersPage api={api} />}
           {page === "tender" && <TenderDetail key={route.id + (route.tab || "")} api={api} id={route.id} initialTab={route.tab} />}

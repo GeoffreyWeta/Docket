@@ -3,8 +3,8 @@
 import React, { useEffect, useState } from "react";
 
 import {
-  acceptInvite, claimVendor, demoLogin, forgotPassword, inDemo, lookupClaim, registerVendor,
-  resetPassword, verifyVendor,
+  acceptInvite, claimVendor, demoLogin, forgotPassword, inDemo, lookupClaim, raw, registerVendor,
+  resetPassword, storeAuth, verifyVendor,
 } from "./api";
 import { CategorySelect, LocationSelect } from "./fields";
 import { ICON_CSS } from "./icons";
@@ -43,8 +43,8 @@ function Shell({ title, sub, children }) {
   );
 }
 
-const Field = ({ label, children }) => (
-  <div className="frow"><label className="lbl">{label}</label>{children}</div>
+const Field = ({ id, label, children }) => (
+  <div className="frow"><label className="lbl" htmlFor={id}>{label}</label>{children}</div>
 );
 
 export function RegisterVendor({ onDone }) {
@@ -58,13 +58,25 @@ export function RegisterVendor({ onDone }) {
     setBusy(true); setMsg("");
     try {
       const r = await registerVendor(f);
-      setState(r.verified ? "verified" : "sent");
+      setState(r.verified ? "verified" : r.claim ? "claim" : "sent");
     } catch (e) { setMsg(e.message); }
     setBusy(false);
   };
   if (state === "sent") return (
     <Shell title="Check your email" sub="vendor registration">
       <p style={{ fontSize: 13.5, lineHeight: 1.6 }}>We sent a confirmation link to <b>{f.email}</b>. Click it to activate your account, then sign in and upload your compliance documents for prequalification.</p>
+      <button className="btn" onClick={onDone}>Back to sign in</button>
+    </Shell>
+  );
+  /* The address is already on the buyer's vendor list. A second record would
+     split the company's history in two, so the server emailed the claim link
+     for the one that exists instead. */
+  if (state === "claim") return (
+    <Shell title="Check your email" sub="vendor registration">
+      <p style={{ fontSize: 13.5, lineHeight: 1.6 }}>
+        Your company is already on the vendor list. We sent a link to <b>{f.email}</b>. Open it to
+        set your password and sign in. There is no need to register again.
+      </p>
       <button className="btn" onClick={onDone}>Back to sign in</button>
     </Shell>
   );
@@ -80,18 +92,22 @@ export function RegisterVendor({ onDone }) {
   );
   return (
     <Shell title="Register your company" sub="vendor onboarding">
-      <Field label="Registered company name"><input className="in" value={f.company} onChange={set("company")} /></Field>
-      <Field label="Work email (this becomes your username)"><input className="in" value={f.email} onChange={set("email")} /></Field>
-      <Field label="Password (8+ characters)"><input className="in" type="password" value={f.password} onChange={set("password")} /></Field>
-      <Field label="What you supply"><CategorySelect value={f.category} onChange={pick("category")} required /></Field>
-      <Field label="Location"><LocationSelect value={f.location} onChange={pick("location")} required /></Field>
+      <Field id="rv-company" label="Registered company name">
+        <input id="rv-company" className="in" autoComplete="organization" value={f.company} onChange={set("company")} /></Field>
+      <Field id="rv-email" label="Work email (this becomes your username)">
+        <input id="rv-email" className="in" type="email" inputMode="email" autoComplete="email"
+               value={f.email} onChange={set("email")} /></Field>
+      <Field id="rv-pw" label="Password (8+ characters)">
+        <input id="rv-pw" className="in" type="password" autoComplete="new-password" value={f.password} onChange={set("password")} /></Field>
+      <Field id="rv-cat" label="What you supply"><CategorySelect id="rv-cat" value={f.category} onChange={pick("category")} required /></Field>
+      <Field id="rv-loc" label="Location"><LocationSelect id="rv-loc" value={f.location} onChange={pick("location")} required /></Field>
       {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 12 }}>{msg}</div>}
       <div style={{ display: "flex", gap: 8 }}>
         <button className="btn pri" style={{ flex: 1 }} disabled={busy} onClick={submit}>Register</button>
         <button className="btn" onClick={onDone}>Cancel</button>
       </div>
       <div className="muted" style={{ fontSize: 11.5, marginTop: 10 }}>
-        After registering you'll upload compliance documents; the buyer's procurement team reviews them before you can be invited to tenders.
+        After registering you'll upload compliance documents for the buyer's procurement team to review. You can bid on tenders you're invited to while they are reviewed.
       </div>
     </Shell>
   );
@@ -174,8 +190,8 @@ export function ClaimVendor({ token, onDone, onLoggedIn }) {
         <p style={{ fontSize: 13.5, lineHeight: 1.6 }}>
           <b>{sup.name}</b> now has a DOCKET account. Sign in with <b>{sup.email}</b>, then
           upload your compliance documents from your company profile - tax clearance,
-          certifications, anything the buyer asks for. Once those are reviewed you can be
-          invited to tenders.
+          certifications, anything the buyer asks for. You can bid on tenders you're invited
+          to while your documents are reviewed.
         </p>
         <button className="btn pri" onClick={onDone}>Sign in</button>
       </Shell>
@@ -200,19 +216,19 @@ export function ClaimVendor({ token, onDone, onLoggedIn }) {
         </div>
       </div>
 
-      <Field label="Your sign-in email">
-        <input className="in" value={sup.email} disabled readOnly />
+      <Field id="cv-email" label="Your sign-in email">
+        <input id="cv-email" className="in" type="email" autoComplete="username" value={sup.email} disabled readOnly />
       </Field>
       <div className="hint" style={{ marginTop: -8, marginBottom: 12 }}>
         This is the address the register holds for you. If it's wrong, reply to the
         invitation and ask the buyer to correct it before you register.
       </div>
-      <Field label="Choose a password">
-        <input className="in" type="password" autoComplete="new-password" value={pw}
+      <Field id="cv-pw" label="Choose a password">
+        <input id="cv-pw" className="in" type="password" autoComplete="new-password" value={pw}
                placeholder="At least 8 characters" onChange={(e) => setPw(e.target.value)} />
       </Field>
-      <Field label="Confirm it">
-        <input className="in" type="password" autoComplete="new-password" value={pw2}
+      <Field id="cv-pw2" label="Confirm it">
+        <input id="cv-pw2" className="in" type="password" autoComplete="new-password" value={pw2}
                onChange={(e) => setPw2(e.target.value)}
                onKeyDown={(e) => { if (e.key === "Enter" && pw.length >= 8) submit(); }} />
       </Field>
@@ -225,26 +241,83 @@ export function ClaimVendor({ token, onDone, onLoggedIn }) {
   );
 }
 
-export function AcceptInvite({ token, onDone }) {
-  const [f, setF] = useState({ name: "", password: "" });
+/* The link is checked before the form is shown, so somebody with an expired
+   or already-used link is told so before typing a password. Accepting signs
+   the person straight in: they have just chosen the password. */
+export function AcceptInvite({ token, onDone, onSignedIn, onForgot }) {
+  const [info, setInfo] = useState(null);
+  const [f, setF] = useState({ name: "", password: "", password2: "" });
   const [msg, setMsg] = useState("");
-  const [ok, setOk] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    raw(`/register/invite_info/?token=${encodeURIComponent(token || "")}`)
+      .then((r) => { setInfo(r); if (r.name) setF((x) => ({ ...x, name: x.name || r.name })); })
+      .catch(() => setInfo({ state: "ok" }));   // could not check: let the form try
+  }, [token]);
   const submit = async () => {
-    setMsg("");
-    try { await acceptInvite({ token, ...f }); setOk(true); } catch (e) { setMsg(e.message); }
+    setMsg(""); setBusy(true);
+    try {
+      const r = await acceptInvite({ token, name: f.name, password: f.password });
+      if (r.token) {
+        if (onSignedIn) { onSignedIn(r, info && info.email); return; }
+        storeAuth(r.token, info && info.email);
+        window.location.replace(window.location.pathname);   // drop ?itoken and boot signed in
+        return;
+      }
+      onDone && onDone();
+    } catch (e) { setMsg(e.message); }
+    setBusy(false);
   };
-  if (ok) return (
-    <Shell title="Welcome aboard" sub="team invitation">
-      <p style={{ fontSize: 13.5, lineHeight: 1.6 }}>Your account is ready. Sign in with your email address and the password you just set.</p>
-      <button className="btn pri" onClick={onDone}>Sign in</button>
+  if (!info) return <Shell title="Join the workspace" sub="team invitation"><p className="muted">Checking your invitation...</p></Shell>;
+  const who = info.invitedBy || "the person who invited you";
+  if (info.state === "used") return (
+    <Shell title="You already have an account" sub="team invitation">
+      <p style={{ fontSize: 13.5, lineHeight: 1.6 }}>
+        This invitation has been used{info.email ? <> for <b>{info.email}</b></> : null}. Sign in with that
+        email address. If you have forgotten the password, you can set a new one.
+      </p>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button className="btn pri" onClick={onDone}>Sign in</button>
+        <button className="btn" onClick={() => (onForgot ? onForgot() : window.location.assign("/forgot"))}>
+          Forgot password
+        </button>
+      </div>
     </Shell>
   );
+  if (info.state !== "ok") return (
+    <Shell title="This invitation link no longer works" sub="team invitation">
+      <p style={{ fontSize: 13.5, lineHeight: 1.6 }}>
+        {info.state === "expired"
+          ? <>Invitation links last three days, and this one has run out or was replaced by a newer one. Ask {who}{info.company ? <> at {info.company}</> : null} to send it again from the Team page.</>
+          : <>We could not find this invitation. Check you opened the whole link from the email, or ask the person who invited you to send it again.</>}
+      </p>
+      <button className="btn" onClick={onDone}>Back to sign in</button>
+    </Shell>
+  );
+  const problem = f.name.trim().length < 2 ? "Enter your name."
+    : f.password.length < 8 ? "Choose a password of at least 8 characters."
+    : f.password !== f.password2 ? "The two passwords do not match." : "";
   return (
-    <Shell title="Join the workspace" sub="team invitation">
-      <Field label="Your full name"><input className="in" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
-      <Field label="Choose a password (8+ characters)"><input className="in" type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>
+    <Shell title={info.company ? `Join ${info.company}` : "Join the workspace"} sub="team invitation">
+      {info.company && (
+        <div className="claimcard">
+          <div className="claimname">Joining {info.company}{info.role ? <> as {info.role}</> : null}</div>
+          <div className="claimnote">
+            {info.invitedBy ? <>Invited by {info.invitedBy}. </> : null}
+            {info.email ? <>Your sign-in will be <b>{info.email}</b>.</> : null}
+          </div>
+        </div>
+      )}
+      <Field id="ai-name" label="Your full name"><input id="ai-name" className="in" autoComplete="name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+      <Field id="ai-pw" label="Choose a password (8+ characters)"><input id="ai-pw" className="in" type="password" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>
+      <Field id="ai-pw2" label="Type it again"><input id="ai-pw2" className="in" type="password" autoComplete="new-password" value={f.password2}
+             onChange={(e) => setF({ ...f, password2: e.target.value })}
+             onKeyDown={(e) => { if (e.key === "Enter" && !problem) submit(); }} /></Field>
+      {problem && (f.password || f.password2) && <div className="hint" style={{ marginTop: -6, marginBottom: 10 }}>{problem}</div>}
       {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 12 }}>{msg}</div>}
-      <button className="btn pri" style={{ width: "100%" }} onClick={submit}>Create my account</button>
+      <button className="btn pri" style={{ width: "100%" }} onClick={submit} disabled={!!problem || busy}>
+        {busy ? "Creating your account..." : "Create my account"}
+      </button>
     </Shell>
   );
 }

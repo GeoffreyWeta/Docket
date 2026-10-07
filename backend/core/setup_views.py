@@ -425,7 +425,9 @@ def setup_workspace(request):
         data["profile"] = profile
         if logo:
             data["logo"] = logo
-        if threshold:
+        # 0 is a real answer ("nothing needs sign-off"), so it is saved when it
+        # was given. A ladder replaces the single threshold, so it is not.
+        if not levels and b.get("approvalThreshold") not in (None, ""):
             data["approvalThreshold"] = threshold
         row.data = data
         row.save()
@@ -445,6 +447,8 @@ def setup_workspace(request):
                 f"raiser's reporting line upward until a manager whose limit covers the amount.")
     elif threshold:
         rule = f"Publication at or above {threshold:,} needs sign-off."
+    elif b.get("approvalThreshold") not in (None, ""):
+        rule = "Nothing needs sign-off before it publishes."
     else:
         rule = "The default sign-off threshold applies."
     record_event(actor=name, role="procurement", action="Workspace set up",

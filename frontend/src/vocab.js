@@ -17,6 +17,7 @@ export const CURRENCIES = V.currencies;          // [[code, label]]
 export const NIGERIAN_STATES = V.nigerianStates;
 export const TIMEZONES = V.timezones;            // [[zone, label]]
 export const COUNTRIES = V.countries;            // [[name, iso2, dialling code]]
+export const RETURN_REASONS = V.returnReasons;   // why a signer sends something back
 
 /* Financial year starts on the first of a month, stored "01-MM". */
 export const FY_STARTS = ["January", "February", "March", "April", "May", "June", "July",
