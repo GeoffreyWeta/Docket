@@ -4923,6 +4923,7 @@ export function TeamPage({ api }) {
   // render and unmounted the whole application - a blank page, not a broken card.
   const { act, user } = api;
   const [team, setTeam] = useState(null);
+  const canInvite = can(user, "team.invite");
   const [f, setF] = useState({ email: "", role: "", name: "", title: "" });
   const [msg, setMsg] = useState("");
   const [link, setLink] = useState("");
@@ -4933,6 +4934,7 @@ export function TeamPage({ api }) {
   useEffect(() => { load(); }, [api.state]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const invite = async () => {
+    if (!canInvite) return;
     setMsg(""); setLink("");
     try {
       const r = await raw("/team/invite/", { method: "POST", body: { ...f, role: inviteRole } });
@@ -5008,11 +5010,13 @@ export function TeamPage({ api }) {
            headline={members.length
              ? `${members.length} ${members.length === 1 ? "person" : "people"} in this workspace`
              : "Nobody here yet"}
-           why={invites.length
+           why={!canInvite
+             ? "You can view the team. Inviting colleagues requires the Invite team members permission; ask a workspace administrator for access."
+             : invites.length
              ? `${invites.length} ${invites.length === 1 ? "invitation has" : "invitations have"} not been accepted yet`
                + (invites.some((i) => i.expired) ? `, ${invites.filter((i) => i.expired).length} expired.` : ".")
              : "Invite a colleague and they set their own password from a single-use link."}
-           action={
+           action={canInvite ?
              <div className="gaterow" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
                <input className="in" placeholder="Their work email" aria-label="Work email"
                       value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
@@ -5033,12 +5037,12 @@ export function TeamPage({ api }) {
                    <span className="mono" style={{ fontSize: 11, wordBreak: "break-all" }}>{link}</span>
                  </div>
                )}
-             </div>
+             </div> : null
            } />
   );
   return (
     <Page guide={guide}>
-      {bulk && <StaffCsvDialog api={api} roles={team?.roles || []} onClose={() => setBulk(false)} onSent={load} />}
+      {bulk && canInvite && <StaffCsvDialog api={api} roles={team?.roles || []} onClose={() => setBulk(false)} onSent={load} />}
       <div className="pagehead">
         <h1>Team</h1>
         <span className="sub">Who is here, and what each person can do.</span>
