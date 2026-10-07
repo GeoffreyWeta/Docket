@@ -251,7 +251,7 @@ export function AdminLogin({ onIn }) {
     answer comes from - the role, or a decision somebody made about this person -
     because "why can they do that?" is the question this console exists to
     answer. */
-export function PermGrid({ catalogue, held, defaults = [], allowed, onToggle, readOnly }) {
+export function PermGrid({ catalogue, held, defaults = [], allowed, onToggle, readOnly, search = "", selectedOnly = false }) {
   const heldSet = useMemo(() => new Set(held), [held]);
   const defSet = useMemo(() => new Set(defaults), [defaults]);
   const okSet = useMemo(() => (allowed ? new Set(allowed) : null), [allowed]);
@@ -259,7 +259,9 @@ export function PermGrid({ catalogue, held, defaults = [], allowed, onToggle, re
   return (
     <div className="permgrid">
       {catalogue.groups.map((g) => {
-        const rows = catalogue.permissions.filter((p) => p.group === g.id && (!okSet || okSet.has(p.key)));
+        const rows = catalogue.permissions.filter((p) => p.group === g.id && (!okSet || okSet.has(p.key))
+          && (!selectedOnly || heldSet.has(p.key))
+          && (!search.trim() || [p.label, p.help, g.title].join(" ").toLowerCase().includes(search.trim().toLowerCase())));
         if (!rows.length) return null;
         const on = rows.filter((p) => heldSet.has(p.key)).length;
         return (
@@ -760,6 +762,8 @@ export function PeopleTab({ state, reload, toast }) {
 
 export function RoleDialog({ state, role, onClose, onSaved, toast }) {
   const creating = !role;
+  const [permissionSearch, setPermissionSearch] = useState("");
+  const [selectedOnly, setSelectedOnly] = useState(false);
   const [f, setF] = useState({
     key: role?.key || "", label: role?.label || "", title: role?.title || "", note: role?.note || "",
   });
@@ -800,12 +804,12 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
     }>
       <div className="admincols">
         <div>
-          <div className="frow"><label className="lbl">Name</label>
-            <input className="in" value={f.label} disabled={readOnly}
+          <div className="frow"><label className="lbl" htmlFor="role-name">Role name</label>
+            <input id="role-name" className="in" value={f.label} disabled={readOnly}
                    onChange={(e) => setF({ ...f, label: e.target.value })} placeholder="CEO" /></div>
           {creating && (
-            <div className="frow"><label className="lbl">Id (used in the audit trail)</label>
-              <input className="in mono" value={f.key} placeholder={slug(f.label) || "ceo"}
+            <div className="frow"><label className="lbl" htmlFor="role-id">Id (used in the audit trail)</label>
+              <input id="role-id" className="in mono" value={f.key} placeholder={slug(f.label) || "ceo"}
                      onChange={(e) => setF({ ...f, key: slug(e.target.value) })} />
               <div className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
                 Lowercase, no spaces. It cannot be changed later, because events already recorded
@@ -814,12 +818,12 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
             </div>
           )}
           {!starter && (
-            <div className="frow"><label className="lbl">Default job title</label>
-              <input className="in" value={f.title} disabled={readOnly}
+            <div className="frow"><label className="lbl" htmlFor="role-title">Default job title</label>
+              <input id="role-title" className="in" value={f.title} disabled={readOnly}
                      onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="Chief Executive" /></div>
           )}
-          <div className="frow"><label className="lbl">Note (optional)</label>
-            <input className="in" value={f.note} disabled={readOnly}
+          <div className="frow"><label className="lbl" htmlFor="role-note">Description (optional)</label>
+            <textarea id="role-note" className="in" value={f.note} disabled={readOnly} rows={3}
                    onChange={(e) => setF({ ...f, note: e.target.value })}
                    placeholder="What this role is for" /></div>
           {!creating && (
@@ -839,7 +843,18 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
               <div className="muted" style={{ fontSize: 11.5 }}>What everyone on this role can do by default.</div></div>
             <span className="mono faint">{perms.size} selected</span>
           </div>
+          <div className="role-permtools">
+            <input className="in" type="search" aria-label="Search permissions" placeholder="Search permissions..."
+                   value={permissionSearch} onChange={(e) => setPermissionSearch(e.target.value)} />
+            <button className={"btn sm" + (selectedOnly ? " pri" : "")} aria-pressed={selectedOnly}
+                    onClick={() => setSelectedOnly(!selectedOnly)}>Selected only</button>
+          </div>
+          {!state.catalogue.permissions.some((p) => state.catalogue.customGrantable.includes(p.key)
+            && (!selectedOnly || perms.has(p.key))
+            && [p.label, p.help, state.catalogue.groups.find((g) => g.id === p.group)?.title].join(" ").toLowerCase().includes(permissionSearch.trim().toLowerCase()))
+            && <p className="muted" role="status">No permissions match these filters.</p>}
           <PermGrid catalogue={state.catalogue} held={[...perms]} defaults={[]}
+                    search={permissionSearch} selectedOnly={selectedOnly}
                     allowed={readOnly ? undefined : state.catalogue.customGrantable}
                     readOnly={readOnly || busy}
                     onToggle={(key, want) => {
@@ -857,6 +872,10 @@ export function RolesTab({ state, reload, toast }) {
   const [open, setOpen] = useState(null);       // role object
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const visible = state.roles.filter((r) => (filter === "all" || (filter === "starter" ? r.builtin : !r.builtin))
+    && [r.label, r.note, r.title].join(" ").toLowerCase().includes(query.trim().toLowerCase()));
 
   const remove = async (r) => {
     if (!window.confirm(`${r.builtin ? "Remove" : "Delete"} the role "${r.label}"? This cannot be undone.`)) return;
@@ -872,33 +891,47 @@ export function RolesTab({ state, reload, toast }) {
   return (
     <>
       <div className="toolrow">
-        <div className="muted" style={{ fontSize: 12.5, flex: 1 }}>
-          Every company names its own roles. The four starters can be renamed, reshaped or removed
-          once nobody is on them, and anything else you need - a CEO, a legal reviewer, a board
-          observer - you add here. The workspace's Team page edits the same list.
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h2 style={{ margin: "0 0 4px", fontSize: 20 }}>Roles &amp; access</h2>
+          <div className="muted" style={{ fontSize: 13 }}>Define what each role can do. Individual account adjustments remain in People.</div>
         </div>
         <button className="btn pri sm" onClick={() => setCreating(true)}><Icon n="plus" s={14} /> New role</button>
       </div>
+      <div className="role-toolbar">
+        <input className="in" type="search" aria-label="Search roles" placeholder="Search roles or descriptions..."
+               value={query} onChange={(e) => setQuery(e.target.value)} />
+        <div className="filterchips" role="group" aria-label="Filter roles">
+          {[["all", "All roles"], ["starter", "Starter"], ["custom", "Custom"]].map(([key, label]) =>
+            <button key={key} className={"fchip" + (filter === key ? " on" : "")} aria-pressed={filter === key}
+                    onClick={() => setFilter(key)}>{label}<span className="n">{state.roles.filter((r) => key === "all" || (key === "starter" ? r.builtin : !r.builtin)).length}</span></button>)}
+        </div>
+      </div>
 
       <div className="rolegrid">
-        {state.roles.map((r) => (
+        {visible.map((r) => (
           <div className="card rolecard" key={r.key}>
             <div className="chead">
+              <Avatar name={r.label} seed={r.key} size={36} />
               <h3>{r.label.split(/\s-\s/)[0].trim()}</h3>
               {r.builtin
                 ? <span className="chip" style={{ marginLeft: "auto" }}>starter</span>
-                : <span className="chip gold" style={{ marginLeft: "auto" }}>added</span>}
+                : <span className="chip gold" style={{ marginLeft: "auto" }}>custom</span>}
             </div>
             <div className="cbody">
-              <div className="muted" style={{ fontSize: 12.5, minHeight: 34 }}>
-                {r.note || "No note."}
+              <div className="role-description muted">
+                {r.note || r.title || "Add a description to explain this role's responsibilities."}
               </div>
-              <div className="kv"><span>Can do</span><b>{r.perms.length} thing{r.perms.length === 1 ? "" : "s"}</b></div>
-              <div className="kv"><span>People on it</span><b>{r.people === 0 ? "nobody yet" : r.people}</b></div>
-              <div className="kv"><span>Id</span><b className="mono">{r.key}</b></div>
-              <div className="btnrow" style={{ marginTop: 10 }}>
-                <button className="btn sm" onClick={() => setOpen(r)}>Edit</button>
+              <div className="role-metrics"><span><b>{r.people}</b> {r.people === 1 ? "member" : "members"}</span>
+                <span><b>{r.perms.length}</b> {r.perms.length === 1 ? "permission" : "permissions"}</span></div>
+              <div className="role-areas" aria-label="Permission areas">
+                {state.catalogue.groups.filter((g) => state.catalogue.permissions.some((p) => p.group === g.id && r.perms.includes(p.key)))
+                  .map((g) => <span className="chip soft" key={g.id}>{g.title}</span>)}
+                {!r.perms.length && <span className="muted">No permissions assigned</span>}
+              </div>
+              <div className="btnrow role-actions">
+                <button className="btn sm" aria-label={`Manage ${r.label}`} onClick={() => setOpen(r)}>Manage role</button>
                 <button className="btn sm" disabled={busy || r.people > 0}
+                        aria-label={`Delete ${r.label}`}
                         title={r.people ? "Move the people on it to another role first" : ""}
                         onClick={() => remove(r)}>{r.builtin ? "Remove" : "Delete"}</button>
               </div>
@@ -906,6 +939,8 @@ export function RolesTab({ state, reload, toast }) {
           </div>
         ))}
       </div>
+      {!visible.length && <div className="emptyfriendly" role="status"><b>No roles match</b>
+        <span>Try another search or filter.</span><button className="btn sm" onClick={() => {setQuery("");setFilter("all");}}>Clear filters</button></div>}
 
       {open && <RoleDialog state={state} role={open} toast={toast}
                            onClose={() => setOpen(null)} onSaved={reload} />}
@@ -1858,6 +1893,19 @@ export const ADMIN_CSS = `
 .ptag.revoke{color:var(--wax);border-color:var(--chip-warn-line);background:var(--wax-tint)}
 .rolegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
 .rolecard .cbody{display:flex;flex-direction:column}
+.rolecard{min-width:0}
+.rolecard .chead h3{flex:1;min-width:0;overflow-wrap:anywhere}
+.role-description{font-size:13px;line-height:1.6;min-height:62px;overflow-wrap:anywhere}
+.role-metrics{display:flex;gap:20px;padding:12px 0;border-bottom:1px solid var(--hair);font-size:12px;color:var(--muted)}
+.role-metrics b{font-size:18px;color:var(--ink);margin-right:3px}
+.role-areas{display:flex;flex-wrap:wrap;gap:6px;padding:14px 0;align-content:flex-start;flex:1}
+.role-areas .chip{white-space:normal;font-size:11px}
+.role-actions{margin-top:auto;padding-top:12px;border-top:1px solid var(--hair);justify-content:space-between}
+.role-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:18px}
+.role-toolbar>.in{flex:1 1 220px;min-width:0}
+.role-toolbar .filterchips{margin:0!important}
+.role-permtools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.role-permtools>.in{flex:1 1 180px;min-width:0}
 @media (min-width:700px){
   .pmanage{display:inline-flex}
   .person{padding:13px 16px}
