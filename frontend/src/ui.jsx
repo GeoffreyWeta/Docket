@@ -16,6 +16,20 @@ import { fmtDateTime, fmtMoney } from "./helpers";
 import { Icon } from "./icons";
 import { THEMES, getTheme, otherTheme, setTheme } from "./theme";
 
+export class PageBoundary extends React.Component {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(error) { console.error("DOCKET page could not render", error); }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return <div className="card"><div className="cbody">
+      <h1>This page could not open</h1>
+      <p role="alert">Reload to try again, or choose another section. Recoverable drafts remain on this device.</p>
+      <button className="btn pri" onClick={() => window.location.reload()}>Reload page</button>
+    </div></div>;
+  }
+}
+
 /* ---------------- viewport ----------------
    The stylesheet handles every *appearance* difference between a phone and a
    desktop on its own. These hooks exist for the one thing CSS cannot do:
@@ -170,6 +184,7 @@ export function ConfirmDialog({ title, children, confirmLabel = "Confirm", tone 
                                hold = false, holdHint, disabled = false, onConfirm, onClose }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [standard, setStandard] = useState(false);
   const pending = useRef(false);
   const run = async () => {
     if (pending.current || disabled) return;
@@ -183,9 +198,10 @@ export function ConfirmDialog({ title, children, confirmLabel = "Confirm", tone 
   return (
     <Dialog title={title} onClose={() => { if (!pending.current) onClose(); }} footer={
       <>
-        {hold && <span className="holdhint" style={{ marginRight: "auto" }}>{holdHint || "Press and hold to confirm"}</span>}
+        {hold && !standard && <span className="holdhint" style={{ marginRight: "auto" }}>{holdHint || "Press and hold to confirm"}</span>}
         <button className="btn" onClick={onClose} disabled={busy}>Cancel</button>
-        {hold
+        {hold && !standard && <button className="btn" onClick={() => setStandard(true)}>Use standard confirmation</button>}
+        {hold && !standard
           ? <HoldButton tone={tone} label={confirmLabel} busyLabel="Working…" busy={busy}
                         disabled={disabled} onDone={run} />
           : <button className={"btn " + tone} onClick={run} disabled={busy || disabled}>{busy ? "Working…" : confirmLabel}</button>}
@@ -195,6 +211,22 @@ export function ConfirmDialog({ title, children, confirmLabel = "Confirm", tone 
       {error && <p className="notice" role="alert">{error}</p>}
     </Dialog>
   );
+}
+
+/** Standard arrow-key navigation; each selected tab is the group's tab stop. */
+export function tabKeys(event) {
+  const tabs = [...event.currentTarget.querySelectorAll('[role="tab"]')].filter((tab) => !tab.disabled);
+  const index = tabs.indexOf(document.activeElement);
+  if (index < 0) return;
+  let next;
+  if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+  else if (event.key === "ArrowLeft") next = (index - 1 + tabs.length) % tabs.length;
+  else if (event.key === "Home") next = 0;
+  else if (event.key === "End") next = tabs.length - 1;
+  else return;
+  event.preventDefault();
+  tabs[next].click();
+  tabs[next].focus();
 }
 
 /* ---------------- press and hold ---------------- */

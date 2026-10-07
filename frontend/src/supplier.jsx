@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 import { downloadDoc, raw } from "./api";
+import { draftKeyFor, readDraft, useDraftStorage } from "./drafts";
 import { AuctionGallery } from "./auctions";
 import { Countdown, Empty, Money, Stat } from "./atoms";
 import { Meter } from "./charts";
@@ -8,11 +9,11 @@ import { CategorySelect, DocTypeSelect, LocationSelect, PhoneInput } from "./fie
 import { Figures, Guide, More, Page, Quiet, Row, Rows } from "./page";
 import {
   REG_STATUS, VERIFY_STATUS, activeRound, daysLeft, effStatus, fmtCompact, fmtDate,
-  fmtDateTime, fmtMoney, nowMs, regStatusOf, roundsOf, verifyStatusOf,
+  fmtDateTime, fmtMoney, nowMs, regStatusOf, roundsOf, verifyStatusOf, wholeAmount,
 } from "./helpers";
 import { Icon, SealMark } from "./icons";
 import { DUR, cue, useCountUp, useFlip, usePrev } from "./motion";
-import { ConfirmDialog, CountUp, LiveCountdown, RollNumber, Sparkline, TypeOut } from "./ui";
+import { ConfirmDialog, CountUp, LiveCountdown, RollNumber, Sparkline, TypeOut, tabKeys } from "./ui";
 
 /* ---------------- supplier portal ---------------- */
 
@@ -37,7 +38,8 @@ export function PortalHome({ api }) {
   const { state, user, go, act } = api;
   const me = user.supplierId;
   const supplier = state.suppliers.find((s) => s.id === me);
-  const [tab, setTab] = useState(api.route.tab || "overview");
+  const tab = api.route.tab || "overview";
+  const setTab = (next) => api.setView({ tab: next });
   const [docForm, setDocForm] = useState({ type: "", label: "", expiry: "" });
   const [profileForm, setProfileForm] = useState({
     name: supplier.name, category: supplier.category, location: supplier.location,
@@ -196,13 +198,13 @@ export function PortalHome({ api }) {
           completely blank. Reveal-on-scroll is the wrong idea for tab content
           regardless: it arrives because somebody clicked, not because they
           scrolled to it. */}
-      <div className="segmented portaltabs" role="tablist" aria-label="Your portal">
+      <div className="segmented portaltabs" role="tablist" aria-label="Your portal" onKeyDown={tabKeys}>
         {TABS.map(([key, label]) => (
-          <button key={key} role="tab" aria-selected={tab === key} className={tab === key ? "on" : ""}
+          <button key={key} id={`portal-tab-${key}`} role="tab" aria-controls="portal-panel" tabIndex={tab === key ? 0 : -1} aria-selected={tab === key} className={tab === key ? "on" : ""}
                   onClick={() => setTab(key)}>{label}</button>
         ))}
       </div>
-
+      <section id="portal-panel" role="tabpanel" aria-labelledby={`portal-tab-${tab}`}>
       {!supplier.prequalified && (
         <div className="notice" style={{ marginBottom: 16, borderLeft: supplier.rejectedReason ? "3px solid var(--wax)" : undefined }}>
           {supplier.rejectedReason
@@ -482,17 +484,12 @@ export function PortalHome({ api }) {
           )}
         </>
       )}
+      </section>
     </Page>
   );
 }
 
-export const PORTAL_CSS = `
-.portaltabs{margin-bottom:16px;overflow-x:auto;max-width:100%}
-.portaltabs button{white-space:nowrap}
-/* An expiry that has passed, or is about to, stops being a quiet grey note.
-   It is the commonest way a vendor loses a prequalification they had. */
-.docwarn{color:var(--wax);font-weight:600}
-`;
+
 
 /* "Closes Fri 14 Oct 2026, 12:00 WAT". A date alone left a vendor guessing
    whether noon or midnight, and the zone matters to anyone bidding from
@@ -530,9 +527,9 @@ function BidRoomFor({ api, t }) {
   /* TYPED PRICES SURVIVE A DROPPED CONNECTION. A vendor pricing forty lines on
      a phone loses all of it to a reload or a dead battery, so the draft is
      kept on this device per tender and round, and cleared once it is sealed. */
-  const draftKey = `docket.bidDraft.${t.id}.${(rnd && rnd.id) || "r1"}`;
+  const draftKey = draftKeyFor(user, "bid", `${t.id}.${rnd?.id || rounds.at(-1)?.id || "r1"}`);
   const [draft0] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(draftKey) || "null"); } catch (e) { return null; }
+    return readDraft(draftKey);
   });
   const [form, setForm] = useState({ amount: (draft0 && draft0.amount) || "", decl: false });
   const [prices, setPrices] = useState((draft0 && draft0.prices) || {});
@@ -545,12 +542,7 @@ function BidRoomFor({ api, t }) {
   const [askSeal, setAskSeal] = useState(false);
   const [sealing, setSealing] = useState(false);
   const typed = !!String(form.amount).trim() || Object.values(prices).some((v) => String(v).trim());
-  useEffect(() => {
-    try {
-      if (typed) localStorage.setItem(draftKey, JSON.stringify({ amount: form.amount, prices }));
-      else localStorage.removeItem(draftKey);
-    } catch (e) { /* private mode: the draft just is not kept */ }
-  }, [draftKey, typed, form.amount, prices]);
+  const draft = useDraftStorage(draftKey, { amount: form.amount, prices }, typed);
   /* The clock by the submit button, refreshed so "closes in 12 min" counts. */
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -569,9 +561,9 @@ function BidRoomFor({ api, t }) {
   const addenda = t.addenda || [];
 
   /* "540,000,000" is how people write money, so commas and spaces are fine. */
-  const num = (v) => Number(String(v ?? "").replace(/[,\s₦]/g, ""));
+  const num = wholeAmount;
   const linesTotal = hasLines ? t.lines.reduce((s, l) => s + (num(prices[l.id]) || 0) * l.qty, 0) : 0;
-  const amountValid = hasLines ? t.lines.every((l) => num(prices[l.id]) > 0) : num(form.amount) > 0;
+  const amountValid = hasLines ? t.lines.every((l) => num(prices[l.id]) > 0) && Number.isSafeInteger(linesTotal) : num(form.amount) > 0;
   const sealTotal = hasLines ? linesTotal : num(form.amount) || 0;
   const notShortlisted = !myBid && rnd && rnd.mine === false;
   const myDocs = (state.documents || []).filter((x) => x.kind === "bid" && x.tenderId === t.id);
@@ -600,7 +592,7 @@ function BidRoomFor({ api, t }) {
   const pct = Math.round(((steps.length - outstanding.length) / steps.length) * 100);
   /* Same reordering as the buyer's draft panel: what is left rises, what is
      done sinks, and the rows travel rather than blink. */
-  const orderedSteps = [...outstanding, ...steps.filter((x) => x.ok)];
+  const orderedSteps = steps;
   const stepsRef = useRef(null);
   useFlip(stepsRef, orderedSteps.map((x) => x.to).join("|"));
   const shownPct = useCountUp(pct, DUR.ceremony, pct);
@@ -632,7 +624,7 @@ function BidRoomFor({ api, t }) {
   /* Locked from the first tap until the server answers: a double tap used to
      seal once and then report the second attempt as an error. */
   const submit = async () => {
-    if (sealing) return;
+    if (sealing || !amountValid || pct < 100) return false;
     setSealing(true);
     let ok = false;
     try {
@@ -646,7 +638,7 @@ function BidRoomFor({ api, t }) {
       setSealing(false);
     }
     if (ok) {
-      try { localStorage.removeItem(draftKey); } catch (e) { /* nothing kept */ }
+      draft.clear();
       setPrices({});
       setForm({ amount: "", decl: false });
       setRestored(false);
@@ -861,6 +853,7 @@ function BidRoomFor({ api, t }) {
             </span>
           </div>
           <div className="cbody">
+            {typed && <p className="hint" role="status">{draft.status || "Saving on this device..."}</p>}
             {restored && typed && (
               <div className="notice" role="status" style={{ marginBottom: 12 }}>
                 Draft restored. These are the prices you typed last time on this device. Nothing is sent until you seal.
@@ -878,8 +871,13 @@ function BidRoomFor({ api, t }) {
                      on a phone, and lays all three out in a row from 600px up */
                   <div key={l.id} className="priceline">
                     <div className="pdesc">{l.desc}<div className="mono faint" style={{ fontSize: 11 }}>{l.qty.toLocaleString()} × {l.unit}</div></div>
-                    <input className="in" type="text" inputMode="decimal" placeholder={"per " + l.unit} aria-label={"Unit rate for " + l.desc} value={prices[l.id] ?? ""} onChange={(e) => setPrices((p) => ({ ...p, [l.id]: e.target.value.replace(/[^\d.,\s]/g, "") }))} />
+                    <input className="in" type="text" inputMode="numeric" placeholder={"per " + l.unit} aria-label={"Unit rate for " + l.desc}
+                           aria-invalid={!!String(prices[l.id] || "").trim() && !Number.isFinite(num(prices[l.id]))}
+                           aria-describedby={`rate-help-${l.id}`} value={prices[l.id] ?? ""} onChange={(e) => setPrices((p) => ({ ...p, [l.id]: e.target.value }))} />
                     <div className="money ptotal">{num(prices[l.id]) > 0 ? fmtMoney(num(prices[l.id]) * l.qty) : "-"}</div>
+                    <div id={`rate-help-${l.id}`} className="hint" style={{ gridColumn: "1 / -1" }}>
+                      {String(prices[l.id] || "").trim() && !Number.isFinite(num(prices[l.id])) ? "Enter a positive whole amount, for example 1,250. Fractions and negative amounts are not supported." : "Whole naira only. Commas are optional."}
+                    </div>
                   </div>
                 ))}
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, borderTop: "1px solid var(--line)", paddingTop: 10, alignItems: "baseline" }}>
@@ -893,10 +891,11 @@ function BidRoomFor({ api, t }) {
                 <div className="hint" style={{ marginTop: 0, marginBottom: 6 }}>In naira. This is the figure that gets sealed.</div>
                 <input id="bid-amt" className="in" type="text" inputMode="numeric" placeholder="e.g. 540,000,000"
                        aria-describedby="bid-amt-says" value={form.amount}
-                       onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/[^\d,\s]/g, "") })} />
+                       aria-invalid={!!form.amount.trim() && !Number.isFinite(num(form.amount))}
+                       onChange={(e) => setForm({ ...form, amount: e.target.value })} />
                 {/* Read back as money, so a missing zero shows before it is sealed. */}
                 <div id="bid-amt-says" className="money" style={{ marginTop: 6, fontWeight: 600 }} aria-live="polite">
-                  {num(form.amount) > 0 ? fmtMoney(num(form.amount)) : ""}
+                  {num(form.amount) > 0 ? fmtMoney(num(form.amount)) : form.amount.trim() ? "Enter a positive whole amount. Fractions and negative amounts are not supported." : "Whole naira only. Commas are optional."}
                 </div>
               </div>
             )}

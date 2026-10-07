@@ -14,6 +14,7 @@ enforced HERE, at serialization time - not in the client:
     includes the buyer's budget ceiling.
 """
 import json
+from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
 from django.http import JsonResponse
@@ -846,6 +847,18 @@ def _route_submission_legacy(t, p):
 
 # ---------------- tenders ----------------
 
+def _bid_whole(value):
+    """Reject fractional bids rather than silently changing their amount."""
+    if isinstance(value, bool):
+        return 0
+    try:
+        amount = Decimal(str(value))
+        if not amount.is_finite() or amount <= 0 or amount != amount.to_integral_value() or amount > 9007199254740991:
+            return 0
+        return int(amount)
+    except (InvalidOperation, ValueError, TypeError):
+        return 0
+
 def _whole(v):
     """A naira amount from a form field: a whole number, never below zero."""
     try:
@@ -1485,22 +1498,19 @@ def bid_collection(request, p, body, tid):
         amount = 0
         clean_lines = {}
         for l in t.lines:
-            try:
-                price = int(prices.get(l["id"]))
-            except (TypeError, ValueError):
-                price = 0
+            price = _bid_whole(prices.get(l["id"]))
             if price <= 0:
-                return err(f'Every line needs a unit rate above zero ("{l["desc"]}").')
+                return err(f'Every line needs a positive whole unit rate ("{l["desc"]}"). Fractions are not supported.')
             amount += price * l["qty"]
             clean_lines[l["id"]] = price
     else:
-        try:
-            amount = int(body.get("amount", 0))
-        except (TypeError, ValueError):
-            amount = 0
+        amount = _bid_whole(body.get("amount", 0))
         if amount <= 0:
-            return err("The bid amount must be above zero.")
+            return err("The bid amount must be a positive whole amount. Fractions are not supported.")
         clean_lines = {}
+    if amount > 9007199254740991:
+        return err("The bid total is too large. Check the quantities and unit rates.")
+
     # The technical proposal is required to enter a competition, not to revise a
     # price inside one. A best-and-final round re-prices an already-accepted
     # technical proposal, so demanding a fresh upload there would be asking for

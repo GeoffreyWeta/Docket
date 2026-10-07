@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 
 /* Self-hosted typefaces, bundled with the app: no webfont CDN at runtime.
@@ -21,7 +21,7 @@ import "@fontsource-variable/inter/opsz.css";
    under the one above it. A third was decoration. */
 
 import App from "./App";
-import SuperAdmin from "./superadmin";
+const SuperAdmin = lazy(() => import("./superadmin"));
 
 /* /superadmin is the administration console: accounts, roles and permissions.
    It is a separate application with a separate sign-in and a separate token, and
@@ -29,4 +29,8 @@ import SuperAdmin from "./superadmin";
    every endpoint behind it re-checks that the caller is an administrator. */
 const admin = /^\/superadmin\/?$/i.test(window.location.pathname);
 
-createRoot(document.getElementById("root")).render(admin ? <SuperAdmin /> : <App />);
+createRoot(document.getElementById("root")).render(
+  <Suspense fallback={<p role="status">Opening DOCKET...</p>}>
+    {admin ? <SuperAdmin /> : <App />}
+  </Suspense>
+);

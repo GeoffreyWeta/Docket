@@ -39,14 +39,31 @@ export const setDemo = (on) => {
 /** The API root for this browser. `/api` normally, `/demo-api` in the demo. */
 export const apiBase = () => (inDemo() ? "/demo-api" : "/api");
 
-export const getToken = () => localStorage.getItem(TKEY);
-export const getUsername = () => localStorage.getItem(UKEY) || "";
+export const authStorageKey = () => `docket.auth.${inDemo() ? "demo" : "main"}`;
+function readAuth() {
+  try {
+    const saved = localStorage.getItem(authStorageKey());
+    if (saved) return JSON.parse(saved);
+    const token = localStorage.getItem(TKEY);
+    if (token) {
+      const auth = { token, username: localStorage.getItem(UKEY) || "" };
+      localStorage.setItem(authStorageKey(), JSON.stringify(auth));
+      localStorage.removeItem(TKEY);
+      localStorage.removeItem(UKEY);
+      return auth;
+    }
+  } catch { /* unavailable storage is a signed-out visit */ }
+  return {};
+}
+export const getToken = () => readAuth().token || null;
+export const getUsername = () => readAuth().username || "";
 export const storeAuth = (token, username) => {
-  localStorage.setItem(TKEY, token);
-  if (username) localStorage.setItem(UKEY, username);
+  localStorage.setItem(authStorageKey(), JSON.stringify({ token, username: username || "" }));
 };
 export const clearAuth = () => {
+  localStorage.removeItem(authStorageKey());
   localStorage.removeItem(TKEY);
+  localStorage.removeItem(UKEY);
   setDemo(false);   // signing out of the demo leaves the demo
 };
 
@@ -69,12 +86,15 @@ function plainError(status, said) {
 
 /** fetch, with a network failure turned into a sentence. */
 async function send(url, init) {
-  try { return await fetch(url, init); }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), url.includes("/ai/") ? 90000 : 60000);
+  try { return await fetch(url, { ...init, signal: controller.signal }); }
   catch (e) {
-    const err = new Error(OFFLINE);
+    const err = new Error(e.name === "AbortError"
+      ? "This request took too long. Check whether it completed before trying again." : OFFLINE);
     err.status = 0;
     throw err;
-  }
+  } finally { clearTimeout(timer); }
 }
 
 async function handle(r) {

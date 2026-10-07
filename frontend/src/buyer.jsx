@@ -12,11 +12,12 @@ import {
 import { Illus } from "./illus";
 import { CampaignDialog } from "./campaign";
 import { CsvGuide, VENDOR_IMPORT_CSV, staffCsv } from "./csvguide";
+import { draftKeyFor, readDraft, useDraftStorage } from "./drafts";
 import { MyDesk } from "./mydesk";
 import { StaffCsvDialog } from "./staffimport";
 import { Figures, Guide, More, Page, Quiet, Row, Rows } from "./page";
 import {
-  DAY, REG_STATUS, VERIFY_STATUS, abnormallyLow, commScore, daysLeft, displayStatus,
+  DAY, REG_STATUS, VERIFY_STATUS, abnormallyLow, closingTime, commScore, dateInZone, daysLeft, displayStatus,
   effStatus, fmtCompact, fmtDate, fmtDateTime, fmtMoney, lineMaxima, linesCeiling,
   linesOverMax, mean, median, regStatusOf, roundsOf, savingsAgainst, stdev, techScore,
   totalScore, uid, varianceFlags, verifyStatusOf,
@@ -30,7 +31,7 @@ import { RETURN_REASONS, fmtPhone, phoneProblem, unitFor } from "./vocab";
 import { Choice } from "./fields";
 import { can, homePage, navPages } from "./perms";
 import { DUR, cue, reducedMotion, useCountUp, useFlip } from "./motion";
-import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwitch, TopProgress } from "./ui";
+import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwitch, TopProgress, tabKeys } from "./ui";
 
 /* How many register rows reach the DOM before the reader asks for more. The
    register runs to about 1,400 vendors and nobody reads that in one scroll. */
@@ -1144,12 +1145,14 @@ export function TenderDetail({ api, id, initialTab }) {
       </div>
       <StageTracker t={t} />
       <LifecycleBar api={api} t={t} />
-      <div className="tabs" role="tablist">
+      <div className="tabtoolbar">
+      <div className="tabs" role="tablist" aria-label="Tender sections" onKeyDown={tabKeys}>
         {tabs.map((k) => (
-          <button key={k} role="tab" aria-selected={tab === k} className={"tab" + (tab === k ? " on" : "")} onClick={() => { setTab(k); api.setTab?.(k); }}>
+          <button key={k} id={`tender-tab-${k}`} role="tab" aria-controls="tender-panel" tabIndex={tab === k ? 0 : -1} aria-selected={tab === k} className={"tab" + (tab === k ? " on" : "")} onClick={() => { setTab(k); api.setTab?.(k); }}>
             {labels[k]}{k === "clar" && unansweredN ? ` (${unansweredN})` : ""}
           </button>
         ))}
+      </div>
         {oversight && (
           <button className="btn sm" style={{ marginLeft: "auto", alignSelf: "center" }}
                   title="One PDF proving this tender followed procedure: invitations, sealing, COI, scores, award, trail"
@@ -1158,6 +1161,7 @@ export function TenderDetail({ api, id, initialTab }) {
           </button>
         )}
       </div>
+      <section id="tender-panel" role="tabpanel" aria-labelledby={`tender-tab-${tab}`}>
       {tab === "overview" && <OverviewTab api={api} t={t} />}
       {tab === "vendors" && <VendorsTab api={api} t={t} />}
       {tab === "rounds" && <RoundsTab api={api} t={t} />}
@@ -1165,6 +1169,7 @@ export function TenderDetail({ api, id, initialTab }) {
       {tab === "bids" && <BidsTab api={api} t={t} />}
       {tab === "eval" && <EvalTab api={api} t={t} />}
       {tab === "audit" && <AuditTab api={api} t={t} />}
+      </section>
     </div>
   );
 }
@@ -1782,8 +1787,29 @@ export function EvalTab({ api, t }) {
   const [myNotes, setMyNotes] = useState(() => {
     const m = {};
     bids.forEach((b) => { m[b.id] = ((b.notes || {})[user.id]) || ""; });
-    return m;
+    const recovered = readDraft(draftKeyFor(user, "evaluation-notes", t.id));
+    return { ...m, ...(recovered && typeof recovered === "object" ? recovered : {}) };
   });
+  const [noteStatus, setNoteStatus] = useState({});
+  const notesRef = useRef(myNotes);
+  notesRef.current = myNotes;
+  const noteDraft = useDraftStorage(draftKeyFor(user, "evaluation-notes", t.id), myNotes,
+    bids.some((b) => (myNotes[b.id] || "") !== (((b.notes || {})[user.id]) || "")));
+  const saveQueues = useRef({});
+  const queueSave = (bidId, scores, note) => {
+    const previous = saveQueues.current[bidId] || Promise.resolve();
+    const next = previous.catch(() => {}).then(() => act.saveScores(bidId, scores, note));
+    saveQueues.current[bidId] = next;
+    return track(next);
+  };
+  const saveNote = async (bidId) => {
+    const note = myNotes[bidId] || "";
+    setNoteStatus((s) => ({ ...s, [bidId]: "Saving..." }));
+    const ok = await queueSave(bidId, {}, note);
+    if (notesRef.current[bidId] === note) {
+      setNoteStatus((s) => ({ ...s, [bidId]: ok ? "Saved" : "Could not save. Your draft is kept on this device." }));
+    }
+  };
   /* Whoever can score, whatever the company calls the role, plus anyone who
      already has, so a scorer later moved off the panel keeps their column. */
   const scorerIds = new Set((state.capHolders || {})["bid.score"] || []);
@@ -1832,7 +1858,7 @@ export function EvalTab({ api, t }) {
     const num = v === "" ? "" : Math.max(0, Math.min(10, Number(v)));
     const before = (myScores[bidId] || {})[cid];
     setMyScores((s) => ({ ...s, [bidId]: { ...s[bidId], [cid]: num } }));
-    if (!(await track(act.saveScores(bidId, { [cid]: num })))) {
+    if (!(await queueSave(bidId, { [cid]: num }))) {
       /* The toast says it failed; the dial must not go on showing it saved.
          Unless it has moved again since, in which case that newer save stands. */
       setMyScores((s) => ((s[bidId] || {})[cid] === num
@@ -1941,8 +1967,12 @@ export function EvalTab({ api, t }) {
                   <textarea id={"note-" + b.id} className="in" style={{ minHeight: 60 }}
                     placeholder="Why these scores? Auditors will ask."
                     value={myNotes[b.id] ?? ""} readOnly={locked}
-                    onChange={(e) => setMyNotes((m) => ({ ...m, [b.id]: e.target.value }))}
-                    onBlur={() => { if (!locked) track(act.saveScores(b.id, {}, myNotes[b.id] ?? "")); }} />
+                    onChange={(e) => { setMyNotes((m) => ({ ...m, [b.id]: e.target.value })); setNoteStatus((s) => ({ ...s, [b.id]: "Not saved yet. Saves when you leave this field." })); }}
+                    onBlur={() => { if (!locked) saveNote(b.id); }} />
+                  {noteStatus[b.id] && <div className="hint" role="status">{noteStatus[b.id]}
+                    {noteStatus[b.id].startsWith("Could not") && !locked && <button className="btn sm" onClick={() => saveNote(b.id)}>Retry save</button>}
+                  </div>}
+                  {noteDraft.status && <div className="hint">{noteDraft.status}</div>}
                 </div>
               </div>
             </div>
@@ -1995,7 +2025,7 @@ export function EvalTab({ api, t }) {
         <div className="chead"><h3>Where the panel agrees, and where it does not</h3><span className="mono faint" style={{ marginLeft: "auto" }}>{t.techWeight}% technical · {t.commWeight}% commercial</span></div>
         <div className="tscroll">
           <table className="tbl wide">
-            <thead><tr><th>Supplier</th><th className="num">Amount</th><th className="num">Saving</th><th className="num">Technical</th><th className="num">Commercial</th><th className="num">Total</th><th>Flags</th><th></th></tr></thead>
+            <thead><tr><th>Supplier</th><th className="num">Amount</th><th className="num">Saving</th><th className="num">Technical</th><th className="num">Commercial</th><th className="num">Total</th><th>Flags</th><th>Actions</th></tr></thead>
             <tbody>
               {bids
                 .map((b) => ({ b, total: totalScore(t, b, bids) }))
@@ -3191,10 +3221,13 @@ const blankLine = () => ({ id: uid(), desc: "", qty: "", unit: "unit", price: ""
 export function NewTender({ api, editId }) {
   const { state, act, ai, go } = api;
   const editing = editId ? state.tenders.find((t) => t.id === editId) : null;
-  const [f, setF] = useState(() => editing ? {
+  const timeZone = state.org.profile?.timezone || "Africa/Lagos";
+  const draftKey = draftKeyFor(api.user, "tender", editId || "new");
+  const [recovered] = useState(() => readDraft(draftKey));
+  const [f, setF] = useState(() => recovered && Array.isArray(recovered.lines) && Array.isArray(recovered.criteria) && Array.isArray(recovered.invited) ? recovered : editing ? {
     title: editing.title, type: editing.type, category: editing.category,
     /* A draft saved without a date stores 0, which is "no date", not 1970. */
-    deadline: editing.deadline > 0 ? new Date(editing.deadline).toISOString().slice(0, 10) : "",
+    deadline: editing.deadline > 0 ? dateInZone(editing.deadline, timeZone) : "",
     techWeight: editing.techWeight, scope: editing.scope,
     criteria: editing.criteria.map((c) => ({ ...c })), invited: [...editing.invited],
     /* A draft from before lines carried a maximum was a single lump sum. It
@@ -3217,6 +3250,9 @@ export function NewTender({ api, editId }) {
     twoStage: false, techThreshold: 70, minDecrement: "",
     baseline: "", baselineSource: "", projectedCost: "",
   });
+  const [initial] = useState(() => JSON.stringify(f));
+  const dirty = !!recovered || JSON.stringify(f) !== initial;
+  const draft = useDraftStorage(draftKey, f, dirty);
   const [busy, setBusy] = useState(false);
   const [busyC, setBusyC] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -3226,7 +3262,8 @@ export function NewTender({ api, editId }) {
   const isAuction = f.type === "AUC";
   /* Bids close at 17:00 on the chosen day, so a date earlier than that is
      already over and is caught here rather than by the server at the end. */
-  const deadlineMs = f.deadline ? new Date(f.deadline + "T17:00:00").getTime() : 0;
+  const deadlineMs = editing?.deadline > 0 && f.deadline === dateInZone(editing.deadline, timeZone)
+    ? editing.deadline : closingTime(f.deadline, timeZone);
   const deadlineOk = deadlineMs > Date.now();
   const namesOk = isAuction || f.criteria.every((c) => String(c.name || "").trim());
   /* There is no "most you can spend" box any more. The ceiling is each line's
@@ -3319,7 +3356,7 @@ export function NewTender({ api, editId }) {
      the eye already is. The rows animate to their new places rather than
      jumping, which is what makes a line visibly LEAVE the list when you
      satisfy it instead of just changing colour in place. */
-  const ordered = [...outstanding, ...checks.filter((c) => c.ok)];
+  const ordered = checks.filter((c) => !c.quiet);
   const listRef = useRef(null);
   useFlip(listRef, ordered.map((c) => c.key).join("|"));
   const shownPct = useCountUp(pct, DUR.ceremony, pct);
@@ -3371,7 +3408,7 @@ export function NewTender({ api, editId }) {
     setSaving(true);
     try {
       const ok = editing ? await act.updateTender(editId, payload) : await act.createTender(payload);
-      if (ok) go({ page: "tenders" });
+      if (ok) { draft.clear(); go({ page: "tenders" }); }
       return ok;
     } finally { setSaving(false); }
   };
@@ -3385,6 +3422,8 @@ export function NewTender({ api, editId }) {
         <h1>{editing ? "Edit draft" : "New tender"}</h1>
         <span className="sub">Draft it here. Nothing goes out until you send it on.</span>
       </div>
+      {recovered && <div className="notice" role="status" style={{ marginBottom: 12 }}>Your unfinished draft was restored on this device.</div>}
+      {dirty && <p className="hint" role="status">{draft.status || "Saving on this device..."}</p>}
 
       <div className="ntcols">
         <div>
@@ -3412,9 +3451,9 @@ export function NewTender({ api, editId }) {
 
               <div className="grid g2">
                 <div className="frow"><label className="lbl" htmlFor="nt-deadline">Bids close on</label>
-                  <input id="nt-deadline" className="in" type="date" min={new Date().toISOString().slice(0, 10)}
+                  <input id="nt-deadline" className="in" type="date" min={dateInZone(Date.now(), timeZone)}
                          value={f.deadline} onChange={(e) => set("deadline", e.target.value)} />
-                  <div className="hint">Vendors can bid until 5pm on this date. Nobody sees a price before then, including you.</div></div>
+                  <div className="hint">Closes at {new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit" }).format(new Date(deadlineMs || closingTime(dateInZone(Date.now(), timeZone), timeZone)))} ({timeZone}). Nobody sees a price before the recorded opening.</div></div>
 
                 <div className="frow"><label className="lbl" htmlFor="nt-type">Kind of tender</label>
                   <select id="nt-type" className="in" value={f.type} onChange={(e) => set("type", e.target.value)}>
@@ -3693,7 +3732,7 @@ export function NewTender({ api, editId }) {
 const TYPE_HINT = {
   RFQ: "Sealed quotations for something you can specify precisely.",
   RFP: "Sealed proposals, scored on approach as well as price.",
-  RFI: "Information only. No award, no prices compared.",
+  RFI: "Gather information using the standard sealed submission process. This workspace currently requires priced lines for all tender types.",
   AUC: "Live price competition. Bidders see their rank, never a rival's price.",
 };
 
@@ -3859,8 +3898,9 @@ export const DRAFT_CSS = `
 /* ---- vendor chips ---- */
 .chiprow{display:flex;flex-wrap:wrap;gap:7px}
 .chiprow .chip{cursor:pointer;text-align:left;gap:6px;
+  max-width:100%;min-width:0;white-space:normal;flex-wrap:wrap;overflow-wrap:anywhere;
   transition:background var(--t) var(--ease),border-color var(--t) var(--ease),color var(--t) var(--ease)}
-.chiprow .chip small{color:var(--faint);font-size:11px;font-weight:400}
+.chiprow .chip small{color:var(--muted);font-size:12px;font-weight:400;min-width:0;white-space:normal;overflow-wrap:anywhere}
 .chiprow .chip.on{background:var(--green-tint);border-color:var(--green-2);color:var(--green);font-weight:600}
 .chiprow .chip.on small{color:var(--green);opacity:.8}
 

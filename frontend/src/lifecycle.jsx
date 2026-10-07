@@ -380,7 +380,7 @@ export function VendorsTab({ api, t }) {
               <thead>
                 <tr>
                   <th>Vendor</th><th>Registration</th><th>Verification</th>
-                  <th>Invitation</th><th>Bid</th><th>Rounds</th><th>Evaluation</th><th />
+                  <th>Invitation</th><th>Bid</th><th>Rounds</th><th>Evaluation</th><th>Actions</th>
                 </tr>
               </thead>
               <tbody>

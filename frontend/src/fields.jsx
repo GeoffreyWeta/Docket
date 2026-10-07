@@ -32,7 +32,7 @@ export function Choice({ id, value, onChange, options, groups, placeholder = "Ch
   const stray = v && !sets.some((g) => g.options.some(([o]) => o === v));
   const rows = (opts) => opts.map(([o, l]) => <option key={o} value={o}>{l}</option>);
   return (
-    <select id={id} className={"in " + className} value={v} disabled={disabled} aria-label={ariaLabel}
+    <select id={id} className={"in " + className} value={v} required={required} disabled={disabled} aria-label={ariaLabel}
             onChange={(e) => onChange(e.target.value)}>
       <option value="" disabled={required}>{placeholder}</option>
       {stray && <option value={v}>{v} (not on the list)</option>}

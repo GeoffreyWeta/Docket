@@ -102,7 +102,7 @@ export const CSS = `
      That is permitted only where the values are legible by some other route,
      which is why every Figure in charts.jsx carries a table view and why direct
      labels ride the marks. Do not use these as text colours. */
-  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#926000;
   --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
 
   /* primary */
@@ -1119,7 +1119,12 @@ export const EXTRA_CSS = `
 .demogrid .btn{text-align:left;justify-content:flex-start;font-weight:450;font-size:13px;line-height:1.4;padding:10px 12px}
 .linkrow{display:flex;flex-wrap:wrap;gap:4px 16px;justify-content:space-between;margin-top:12px}
 .docrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:9px 0;
-  border-bottom:1px dashed var(--line);font-size:13px}
+  border-bottom:1px dashed var(--line);font-size:13px;min-width:0;overflow-wrap:anywhere}
+.public-title{margin:0;font-size:18px;line-height:1.3;font-weight:600}
+.priceline .money{overflow-wrap:anywhere;white-space:normal}
+.lcell>.ltot{white-space:normal;overflow:visible;overflow-wrap:anywhere}
+.tabtoolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px;min-width:0}
+.tabtoolbar>.tabs{flex:1;min-width:0;margin-bottom:0}
 .docrow:last-child{border-bottom:0}
 /* file names wrap rather than run past the card edge, and the vertical padding
    takes the link past the 24px minimum target size (WCAG 2.5.8) */

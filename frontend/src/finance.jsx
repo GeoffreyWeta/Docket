@@ -42,6 +42,7 @@ import {
 import { fmtCompact, fmtDate, fmtMoney } from "./helpers";
 import { Icon } from "./icons";
 import { useReveal } from "./motion";
+import { tabKeys } from "./ui";
 import { can } from "./perms";
 import { CountUp } from "./ui";
 
@@ -65,11 +66,15 @@ const TABS = [
 
 export function FinancePage({ api }) {
   const { user, toast } = api;
-  const [tab, setTab] = useState("savings");
-  const [year, setYear] = useState(null);        // null = everything on file
+  const tab = api.route.tab || "savings";
+  const setTab = (next) => api.setView({ tab: next });
+  const askedYear = Number(api.route.year);
+  const year = Number.isInteger(askedYear) && askedYear >= 1900 && askedYear <= 2300 ? askedYear : null;
+  const setYear = (next) => api.setView({ year: next ?? undefined });
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(true);
+  const [updatedAt, setUpdatedAt] = useState(null);
   /* Bumped by anything on the page that changes the figures (adopting a
      baseline moves every savings number), so the page re-reads the ledger
      instead of showing the totals from before. */
@@ -81,11 +86,11 @@ export function FinancePage({ api }) {
     let live = true;
     setBusy(true);
     api.finance.state(year)
-      .then((d) => { if (live) { setData(d); setErr(""); } })
+      .then((d) => { if (live) { setData(d); setErr(""); setUpdatedAt(Date.now()); } })
       .catch((e) => { if (live) setErr(e.message || "The finance service is unreachable."); })
       .finally(() => { if (live) setBusy(false); });
     return () => { live = false; };
-  }, [year, nonce]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [year, nonce, api.state]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   /* This page arms its own reveal observer. App.jsx arms one per route change
      against the bootstrap payload, which is already in hand when every other
@@ -105,12 +110,13 @@ export function FinancePage({ api }) {
   const tabs = TABS.filter((t) => !t.perm || can(user, t.perm));
   const shown = tabs.some((t) => t.key === tab) ? tab : tabs[0].key;
 
-  if (err) {
+  if (err && !data) {
     return (
       <div>
         <div className="pagehead"><h1>Finance</h1></div>
         <div className="card"><div className="cbody">
           <Empty icon="alert">{err}</Empty>
+          <button className="btn pri" onClick={reload}>Try again</button>
         </div></div>
       </div>
     );
@@ -128,19 +134,23 @@ export function FinancePage({ api }) {
   const ex = exceptionTotals(data.exceptions);
 
   return (
-    <div className={busy ? "refreshing" : ""}>
+    <div>
       <div className="pagehead">
         <h1>Finance</h1>
         <span className="sub">What procurement cost, what is still owed, and what is about to go wrong.</span>
       </div>
+      {err && <div className="notice" role="alert" style={{ marginBottom: 12 }}>
+        Could not update these figures. Showing the last successful view{updatedAt ? ` from ${new Date(updatedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}` : ""}. {err}
+        <button className="btn sm" onClick={reload} disabled={busy}>Try again</button>
+      </div>}
 
       <LedgerBanner ledger={data.ledger} restricted={data.restricted} canLoad={can(user, "finance.sync")} />
       {can(user, "finance.sync") && <LedgerLoader api={api} onLoaded={reload} />}
 
       <div className="anbar">
-        <div className="antabs" role="tablist">
+        <div className="antabs" role="tablist" aria-label="Finance sections" onKeyDown={tabKeys}>
           {tabs.map((t) => (
-            <button key={t.key} role="tab" aria-selected={shown === t.key}
+            <button key={t.key} id={`finance-tab-${t.key}`} role="tab" aria-controls="finance-panel" tabIndex={shown === t.key ? 0 : -1} aria-selected={shown === t.key}
                     className={"antab" + (shown === t.key ? " on" : "")}
                     onClick={() => setTab(t.key)}>
               <Icon n={t.icon} s={14} />{t.label}
@@ -153,6 +163,7 @@ export function FinancePage({ api }) {
         <YearPicker value={year} onChange={setYear} years={data.years} savings={data.savings} />
       </div>
 
+      <section id="finance-panel" role="tabpanel" aria-labelledby={`finance-tab-${shown}`}>
       {shown === "savings" && <SavingsTab d={data} api={api} onChanged={reload} />}
       {year != null && (data.allTime || []).length > 0 && ["payments", "risk", "exceptions"].includes(shown) && (
         <div className="muted" style={{ fontSize: 12.5, margin: "-4px 0 12px" }}>
@@ -166,6 +177,7 @@ export function FinancePage({ api }) {
       {shown === "compliance" && <ComplianceTab d={data} api={api} />}
       {shown === "risk" && <RiskTab d={data} api={api} openKind={openKind} />}
       {shown === "exceptions" && <ExceptionsTab d={data} api={api} kind={exKind} setKind={setExKind} openTab={setTab} />}
+      </section>
     </div>
   );
 }
@@ -575,7 +587,8 @@ function SavingsTab({ d, api, onChanged }) {
 /* ================================================================== spend */
 
 function SpendTab({ d, api }) {
-  const [dim, setDim] = useState("department");
+  const dim = (d.dimensions || []).some((d) => d.key === api.route.dimension) ? api.route.dimension : "department";
+  const setDim = (next) => api.setView({ dimension: next });
   const spend = d.spend;
   const slice = spend[dim] || { rows: [], label: "" };
   const t = d.trends;
@@ -605,10 +618,10 @@ function SpendTab({ d, api }) {
               d={thisQuarter()} />
       </div>
 
-      <div className="dimbar" role="tablist" aria-label="Break spend down by">
+      <div className="dimbar" role="group" aria-label="Break spend down by">
         <span className="dimlbl">Spend by</span>
         {(d.dimensions || []).map((x) => (
-          <button key={x.key} role="tab" aria-selected={dim === x.key}
+          <button key={x.key} aria-pressed={dim === x.key}
                   className={"deskchip" + (dim === x.key ? " on" : "")}
                   onClick={() => setDim(x.key)}>{x.label}</button>
         ))}
@@ -1447,82 +1460,3 @@ function ExceptionsTab({ d, api, kind: open, setKind: setOpen, openTab }) {
 }
 
 /* ---------------- styles ---------------- */
-
-export const FINANCE_CSS = `
-.ledgerbar{display:flex;align-items:flex-start;gap:11px;padding:12px 15px;margin-bottom:16px;
-  background:var(--card);border:1px solid var(--line);border-left-width:3px;border-radius:10px;
-  font-size:12.5px;line-height:1.55}
-.ldform{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:end}
-.ldform .lbl{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted)}
-.ldpreview{margin-top:12px;padding:10px 12px;border-radius:8px;background:color-mix(in srgb,var(--muted) 8%,transparent);font-size:13px}
-.lvl-withheld,.lvl-unknown{background:color-mix(in srgb,var(--muted) 12%,transparent);color:var(--muted)}
-.ledgerbar>svg{flex:0 0 auto;margin-top:1px;color:var(--muted)}
-.lbmain{flex:1;min-width:0}
-.lbcount{flex:0 0 auto;font-size:11px;white-space:nowrap}
-
-.tabcount{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;
-  padding:0 4px;border-radius:8px;background:var(--wax);color:#fff;font-size:10px;font-weight:700;
-  font-variant-numeric:tabular-nums;margin-left:2px}
-
-.dimbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:14px}
-.dimlbl{font-size:11px;color:var(--faint);letter-spacing:.04em;text-transform:uppercase;
-  margin-right:2px}
-
-/* A headline that is a sentence, for the places where one number needs a clause
-   after it to mean anything - an FX movement, an avoidance total. */
-.bigfig{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:2px 0 14px}
-.bigfig b{font-size:26px;font-weight:600;letter-spacing:-.01em}
-.bigfig span{font-size:12.5px;color:var(--muted);flex:1;min-width:180px;line-height:1.5}
-
-/* ---- risk register ---- */
-.risktab{width:100%;border-collapse:collapse;font-size:13px}
-.risktab th{text-align:left;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
-  color:var(--faint);font-weight:500;padding:0 10px 8px 0;border-bottom:1px solid var(--hair)}
-.risktab th.num,.risktab td.num{text-align:right;padding-right:0}
-.risktab td{padding:11px 10px 11px 0;border-bottom:1px solid var(--hair);vertical-align:top}
-.risktab tr:last-child td{border-bottom:0}
-.risktab td.muted{font-size:12.5px;line-height:1.5}
-/* Icon + word, so the level never depends on colour alone. */
-.lvl{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;
-  font-size:11.5px;font-weight:600;white-space:nowrap}
-.lvl-high{background:var(--wax-tint);color:var(--wax)}
-.lvl-medium{background:color-mix(in srgb,var(--s4) 14%,transparent);color:var(--s4)}
-.lvl-low{background:color-mix(in srgb,var(--green) 12%,transparent);color:var(--green)}
-
-/* ---- fraud indicators ---- */
-.fraudgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
-.fraudcell{display:flex;flex-direction:column;align-items:flex-start;gap:2px;
-  padding:12px 13px;border:1px solid var(--line);border-radius:10px;background:var(--sunk);
-  font:inherit;text-align:left;cursor:pointer;transition:border-color .15s,background .15s}
-.fraudcell:hover{border-color:var(--line2);background:var(--card)}
-.fraudcell:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
-.fraudcell>svg{color:var(--muted);margin-bottom:2px}
-.fraudcell b{font-size:21px;font-weight:600;line-height:1.1}
-.fraudcell span{font-size:11.5px;color:var(--muted);line-height:1.35}
-
-.exrow{display:flex;align-items:flex-start;gap:11px;padding:11px 4px;
-  border-bottom:1px solid var(--hair)}
-.exrow:last-child{border-bottom:0}
-.exdot{flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:var(--s4);margin-top:5px}
-.exrow.warn .exdot{background:var(--wax)}
-.exright{display:flex;align-items:center;gap:8px;flex:0 0 auto;flex-wrap:wrap;justify-content:flex-end}
-
-.refreshing{opacity:.72;transition:opacity .2s}
-.stat.skel{height:86px;background:var(--sunk);border-radius:10px;animation:skelpulse 1.4s ease-in-out infinite}
-@keyframes skelpulse{0%,100%{opacity:.55}50%{opacity:.85}}
-
-@media(max-width:720px){
-  .ledgerbar{flex-wrap:wrap}
-  .lbcount{width:100%}
-  .exright{width:100%;justify-content:flex-start;padding-left:18px}
-  .bigfig b{font-size:22px}
-  /* The register drops its basis column rather than scrolling sideways: the
-     level and the risk are what a phone is being asked, and the reasoning is
-     one tap away in the table views. */
-  .risktab th:nth-child(3),.risktab td:nth-child(3){display:none}
-  .fraudgrid{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
-}
-@media(prefers-reduced-motion:reduce){
-  .stat.skel{animation:none}
-}
-`;

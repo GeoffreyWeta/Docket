@@ -1,14 +1,15 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 import {
-  authConfig, clearAuth, demoLogin, fetchBootstrap, fetchFinance,
+  authConfig, authStorageKey, clearAuth, demoLogin, fetchBootstrap, fetchFinance,
   adoptBaselines, baselineFor, fetchBaselines,
   fetchFinanceExceptions, financeFeeds, getToken, getUsername, importFinance,
   inDemo, login as apiLogin, logout as apiLogout, raw, setDemo, siteAppearance, storeAuth,
   uploadFile, DOWNLOAD_FAILED,
 } from "./api";
 import { BP } from "./breakpoints";
+import { activeRound, roundsOf } from "./helpers";
 import { GuidePanel, seenKey } from "./guide";
 import { SecurityPanel } from "./security";
 import {
@@ -32,17 +33,22 @@ import { LOGO_CSS, Wordmark } from "./logo";
 import { LPART_CSS } from "./lpart";
 import { CAMPAIGN_CSS } from "./campaign";
 import { CHART_CSS } from "./charts-css";
-import { FINANCE_CSS, FinancePage } from "./finance.jsx";
+import { FINANCE_CSS } from "./finance-css";
 import { ILLUS_CSS } from "./illus";
 import { PAGE_CSS } from "./page";
 import { CSS, EXTRA_CSS, THEME_CSS } from "./styles";
 import { LIFECYCLE_CSS } from "./lifecycle";
 import { Keys, PALETTE_CSS, Palette, ShortcutSheet } from "./palette.jsx";
 import { SCORECARD_CSS, ScorecardsPage } from "./scorecards.jsx";
-import { AuctionRoom, BidRoom, PORTAL_CSS, PortalHome } from "./supplier";
+import { PORTAL_CSS } from "./supplier-css";
 import {
-  BOOT_CSS, BootSkeleton, ConfirmDialog, RADAR_CSS, Toasts, useIsDesktop, useToasts,
+  BOOT_CSS, BootSkeleton, ConfirmDialog, PageBoundary, RADAR_CSS, Toasts, useIsDesktop, useToasts,
 } from "./ui";
+
+const FinancePage = lazy(() => import("./finance.jsx").then((m) => ({ default: m.FinancePage })));
+const PortalHome = lazy(() => import("./supplier").then((m) => ({ default: m.PortalHome })));
+const BidRoom = lazy(() => import("./supplier").then((m) => ({ default: m.BidRoom })));
+const AuctionRoom = lazy(() => import("./supplier").then((m) => ({ default: m.AuctionRoom })));
 
 const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS
   + SCORECARD_CSS + MENU_CSS + BOOT_CSS + PALETTE_CSS + CHART_CSS + CAMPAIGN_CSS
@@ -122,7 +128,7 @@ function Login({ onLoggedIn, onScreen, notice }) {
   };
 
   return (
-    <div className="loginwrap">
+    <div className="loginwrap" role="main">
       <style>{ALL_CSS}</style>
       <div className="logincard">
         <div className="loginlogo"><Wordmark s={26} animate /></div>
@@ -144,7 +150,7 @@ function Login({ onLoggedIn, onScreen, notice }) {
           </div>
         )}
         <div className="card">
-          <div className="chead"><h3>Sign in</h3><span className="mono faint" style={{ marginLeft: "auto" }}>sealed-bid tendering</span></div>
+          <div className="chead"><h1 className="public-title">Sign in</h1><span className="mono faint" style={{ marginLeft: "auto" }}>sealed-bid tendering</span></div>
           <div className="cbody">
             {notice && !msg && <div className="notice" role="status" style={{ marginBottom: 12 }}>{notice}</div>}
             <div className="frow"><label className="lbl" htmlFor="li-u">Username</label>
@@ -417,8 +423,8 @@ function publicScreenFromUrl() {
 }
 
 export default function App() {
-  const [token, setToken] = useState(getToken());
   const [screen, setScreen] = useState(publicScreenFromUrl);
+  const [token, setToken] = useState(getToken);
   /* The site's look, chosen once in the administration console, applies to
      every screen: the front page, sign-in, setup, the workspace and the demo.
      Read from the main site even inside the demo, whose own backend never sees
@@ -485,6 +491,20 @@ export default function App() {
      left before a change can arrive after it and put the old state back. */
   const boot = useRef({ started: 0, landed: 0 });
   const pullRef = useRef(null);
+  const scrollPositions = useRef(new Map());
+  const currentPath = useRef(window.location.pathname + window.location.search);
+  const restoreScroll = useRef(false);
+  const rememberScroll = () => {
+    scrollPositions.current.set(currentPath.current, {
+      window: window.scrollY,
+      panes: [...document.querySelectorAll(".dk > .main, .dk > .main > .content")].map((pane) => pane.scrollTop),
+    });
+  };
+  useEffect(() => {
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
+    return () => { window.history.scrollRestoration = previous; };
+  }, []);
 
   /* `expired` is the server saying the session is over (a 401), as opposed to
      somebody pressing Sign out. Then the page they were on is kept, the form
@@ -532,11 +552,28 @@ export default function App() {
   };
   pullRef.current = refresh;
 
+  useEffect(() => {
+    const changed = (event) => {
+      if (event.key !== authStorageKey() && event.key !== null) return;
+      const next = getToken();
+      if (next === token) return;
+      if (!next) { signOut(false, true); return; }
+      ++boot.current.started;
+      setData(null); setRoute(null); setGuide(false); setSecurity(false);
+      setToken(next);
+    };
+    window.addEventListener("storage", changed);
+    return () => window.removeEventListener("storage", changed);
+  }, [token]);
+
   /* Back and Forward. Inside the workspace the address is the route, so it is
      read back without pushing a new entry; outside it, the path names the
      public screen. */
   useEffect(() => {
     const back = () => {
+      rememberScroll();
+      currentPath.current = window.location.pathname + window.location.search;
+      restoreScroll.current = true;
       setNav(false);
       const r = getToken() ? routeFromPath() : null;
       if (r) {
@@ -625,7 +662,13 @@ export default function App() {
   useReveal([route?.page, data]);
 
   /* A new page starts at its top, and the tab says where you are. */
-  useEffect(() => { window.scrollTo(0, 0); }, [route?.page, route?.id, screen?.name]);
+  useEffect(() => {
+    const position = restoreScroll.current ? scrollPositions.current.get(currentPath.current) : null;
+    restoreScroll.current = false;
+    window.scrollTo(0, position?.window || 0);
+    document.querySelectorAll(".dk > .main, .dk > .main > .content").forEach((pane, i) => { pane.scrollTop = position?.panes[i] || 0; });
+    currentPath.current = window.location.pathname + window.location.search;
+  }, [route?.page, route?.id, screen?.name]);
   const tenderTitle = route?.page === "tender"
     ? (data?.tenders || []).find((t) => t.id === route.id)?.title : null;
   useEffect(() => {
@@ -788,8 +831,10 @@ export default function App() {
   };
 
   const go = (r) => {
+    rememberScroll();
     const path = routeToPath(r);
     if (path !== window.location.pathname + window.location.search) window.history.pushState({}, "", path);
+    currentPath.current = path;
     /* flushSync so the browser captures the new DOM inside the transition; the
        refresh stays outside it, because a transition must not wait on a fetch. */
     withViewTransition(() => flushSync(() => {
@@ -829,14 +874,24 @@ export default function App() {
   /* A tab switched inside a page: rewrite the address so a refresh keeps it,
      without a new history entry and without remounting the page. */
   const setTab = (tab) => {
-    window.history.replaceState({}, "", routeToPath({ ...route, tab: tab || undefined }));
+    const path = routeToPath({ ...route, tab: tab || undefined });
+    window.history.replaceState({}, "", path);
+    currentPath.current = path;
   };
-  const api = { state: data, user, go, route, act, ai, finance, toast, refresh, setTab };
+  const setView = (patch) => {
+    const next = { ...route, ...patch };
+    window.history.replaceState({}, "", routeToPath(next));
+    currentPath.current = routeToPath(next);
+    setRoute(next);
+  };
+  const api = { state: data, user, go, route, act, ai, finance, toast, refresh, setTab, setView };
   /* Re-armed on every page: anything marked data-reveal below the fold arrives
      as you reach it, once, then the observer lets it go. The call itself is
      hoisted above the early returns, where hooks have to live. */
   const allowed = allowedPages(user);
   const page = allowed.includes(route.page) ? route.page : homePage(user);
+  const currentTender = data.tenders.find((t) => t.id === route.id);
+  const bidRoomRound = currentTender ? activeRound(currentTender)?.id || roundsOf(currentTender).at(-1)?.id || "r1" : "missing";
 
   /* The secondary chrome, handed to whichever of the two can house it: the top
      bar on a desktop, the drawer foot on a phone. Anything that opens a panel
@@ -883,6 +938,12 @@ export default function App() {
         {security && <SecurityPanel me={user} onRenamed={refresh} onClose={() => setSecurity(false)}
           onLogoutAll={async () => { try { await raw("/auth/logout_all/", { method: "POST", body: {} }); } catch (e) {} signOut(false); }} />}
         <main className={"content" + (hasViewTransitions() ? "" : " pageenter")} key={page || "none"}>
+          {bootError && <div className="notice" role="status" style={{ marginBottom: 12 }}>
+            Updates are paused. Showing the last loaded data. {bootError}
+            <button className="btn sm" onClick={() => refresh({ quiet: true })}>Try again</button>
+          </div>}
+          <PageBoundary key={`${user.id}:${page}:${route.id || ""}`}>
+          <Suspense fallback={<div className="card"><div className="cbody" role="status">Opening this page...</div></div>}>
           {!page && (
             <div className="card"><div className="cbody">
               <h3>You don't have access to anything yet</h3>
@@ -910,8 +971,10 @@ export default function App() {
           {page === "audit" && <AuditPage api={api} />}
           {page === "approvals" && <ApprovalsPage api={api} />}
           {page === "evals" && <EvalsPage api={api} />}
-          {page === "portal" && <PortalHome key={route.tab || "overview"} api={api} />}
-          {page === "bidroom" && <BidRoom key={route.id} api={api} id={route.id} />}
+          {page === "portal" && <PortalHome key={user.id} api={api} />}
+          {page === "bidroom" && <BidRoom key={`${user.supplierId}:${route.id}:${bidRoomRound}`} api={api} id={route.id} />}
+          </Suspense>
+          </PageBoundary>
         </main>
       </div>
       <Toasts items={toasts} onDismiss={dropToast} />

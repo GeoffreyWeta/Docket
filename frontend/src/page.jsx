@@ -120,12 +120,11 @@ export function Rows({ children, empty }) {
 /** One record. `meta` is one line under the title; `right` is status and at
     most one action; `onOpen` makes the whole row the way in. */
 export function Row({ title, meta, right, onOpen, tone, children }) {
-  const open = onOpen ? { onClick: onOpen, tabIndex: 0, role: "button",
-                          onKeyDown: (e) => e.key === "Enter" && onOpen() } : {};
+  const open = onOpen ? { onClick: onOpen } : {};
   return (
     <div className={"lrow" + (onOpen ? " click" : "") + (tone ? " " + tone : "")} {...open}>
       <div className="lrmain">
-        <div className="lrtitle">{title}</div>
+        <div className="lrtitle">{onOpen ? <button className="lrtitlebutton" type="button" onClick={(e) => { e.stopPropagation(); onOpen(); }}>{title}</button> : title}</div>
         {meta && <div className="lrmeta">{meta}</div>}
         {children}
       </div>
@@ -205,6 +204,8 @@ export const PAGE_CSS = `
 .lrow.brass{box-shadow:inset 3px 0 0 var(--brass)}
 .lrmain{flex:1;min-width:0}
 .lrtitle{font-weight:600;font-size:14px;line-height:1.35;overflow-wrap:break-word}
+.lrtitlebutton{display:block;max-width:100%;border:0;background:none;padding:0;color:inherit;text-align:left;font:inherit;white-space:normal;overflow-wrap:anywhere;cursor:pointer}
+.lrtitlebutton:hover{text-decoration:underline}
 .lrmeta{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.45;display:flex;flex-wrap:wrap;gap:2px 8px}
 .lrmeta .mono{font-size:12px}
 .lrright{display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}

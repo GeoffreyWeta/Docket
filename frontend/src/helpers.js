@@ -4,6 +4,37 @@ export const DAY = 86400000;
 export const nowMs = () => Date.now();
 export const uid = () => Math.random().toString(36).slice(2, 9);
 
+// The API stores whole currency units. Preserve what was typed and reject
+// fractions, signs and ambiguous grouping rather than turning them into money.
+export function wholeAmount(value) {
+  const text = String(value ?? "").trim();
+  if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)$/.test(text)) return NaN;
+  const amount = Number(text.replace(/,/g, ""));
+  return Number.isSafeInteger(amount) && amount > 0 ? amount : NaN;
+}
+
+export function dateInZone(timestamp, timeZone = "Africa/Lagos") {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(timestamp));
+  const part = (type) => parts.find((p) => p.type === type).value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+export function closingTime(date, timeZone = "Africa/Lagos") {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return 0;
+  const wanted = Date.parse(`${date}T17:00:00Z`);
+  let instant = wanted;
+  const fmt = new Intl.DateTimeFormat("en-GB", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+  for (let i = 0; i < 3; i++) {
+    const parts = fmt.formatToParts(new Date(instant));
+    const part = (type) => parts.find((p) => p.type === type).value;
+    const wall = Date.parse(`${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}:${part("second")}Z`);
+    const correction = wanted - wall;
+    instant += correction;
+    if (!correction) break;
+  }
+  return instant;
+}
+
 /* The minus goes in front of the currency sign ("-₦12,000,000"), never between
    the sign and the digits. */
 export const fmtMoney = (n, cur = "NGN") => {

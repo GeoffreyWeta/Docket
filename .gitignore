@@ -20,3 +20,6 @@ deploy/*.env
 # Its own header says it is deleted after the screenshots, so it is not a
 # build input and should not arrive in a clone.
 __harness.*
+
+# Local UX audit databases, browser artifacts, and logs.
+.audit/

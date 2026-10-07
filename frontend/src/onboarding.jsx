@@ -1,6 +1,6 @@
 /* Public screens reached from the login page or emailed links:
    vendor registration, invite acceptance, password reset. */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import {
   acceptInvite, claimVendor, demoLogin, forgotPassword, inDemo, lookupClaim, raw, registerVendor,
@@ -30,16 +30,16 @@ const CLAIM_CSS = `
    set by App before any of these early returns; only the rules were missing. */
 function Shell({ title, sub, children }) {
   return (
-    <div className="loginwrap">
+    <main className="loginwrap">
       <style>{CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + CLAIM_CSS + STUDIO_CSS}</style>
       <div className="logincard">
         <div className="loginlogo"><span className="seal" aria-hidden="true" /><b>DOCKET</b></div>
         <div className="card">
-          <div className="chead"><h3>{title}</h3>{sub && <span className="mono faint" style={{ marginLeft: "auto" }}>{sub}</span>}</div>
+          <div className="chead"><h1 className="public-title">{title}</h1>{sub && <span className="mono faint" style={{ marginLeft: "auto" }}>{sub}</span>}</div>
           <div className="cbody">{children}</div>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
 
@@ -325,7 +325,16 @@ export function AcceptInvite({ token, onDone, onSignedIn, onForgot }) {
 export function ForgotPassword({ onDone }) {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
-  const submit = async () => { try { await forgotPassword(email); } catch (e) { /* same response either way */ } setSent(true); };
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const pending = useRef(false);
+  const submit = async () => {
+    if (pending.current || !email.trim()) return;
+    pending.current = true; setBusy(true); setError("");
+    try { await forgotPassword(email.trim()); setSent(true); }
+    catch (e) { setError(e.message || "Could not send the request. Please try again."); }
+    finally { pending.current = false; setBusy(false); }
+  };
   return (
     <Shell title="Reset your password" sub="account recovery">
       {sent ? (
@@ -335,9 +344,10 @@ export function ForgotPassword({ onDone }) {
         </>
       ) : (
         <>
-          <Field label="Your account email"><input className="in" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
+          <Field id="recovery-email" label="Your account email"><input id="recovery-email" className="in" type="email" autoComplete="email" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
+          {error && <div className="notice" role="alert" style={{ marginBottom: 12 }}>{error}</div>}
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn pri" style={{ flex: 1 }} onClick={submit} disabled={!email.trim()}>Send reset link</button>
+            <button className="btn pri" style={{ flex: 1 }} onClick={submit} disabled={busy || !email.trim()}>{busy ? "Sending..." : "Send reset link"}</button>
             <button className="btn" onClick={onDone}>Cancel</button>
           </div>
         </>

@@ -1,6 +1,6 @@
 /* Role-aware Getting Started guide. Auto-opens on a user's first sign-in,
    always reachable from the "Guide" button in the top bar. */
-import React from "react";
+import React, { useEffect, useRef } from "react";
 
 const G = {
   procurement: {
@@ -106,10 +106,26 @@ const NEEDS = {
 };
 
 export function GuidePanel({ role, user, onClose }) {
+  const panel = useRef(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const previous = document.activeElement;
+    panel.current?.querySelector("button")?.focus();
+    const key = (event) => {
+      if (event.key === "Escape") { event.preventDefault(); close.current(); }
+      if (event.key === "Tab") {
+        const controls = [...(panel.current?.querySelectorAll("button,a[href]") || [])];
+        if (controls.length === 1) { event.preventDefault(); controls[0].focus(); }
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => { window.removeEventListener("keydown", key); if (previous?.isConnected) previous.focus(); };
+  }, []);
   const written = G[role] && (user?.perms || []).includes(NEEDS[role]) ? G[role] : null;
   const g = written || fromCapabilities(user);
   return (
-    <div className="panelwrap" onClick={onClose} role="dialog" aria-label="Getting started guide">
+    <div className="panelwrap" ref={panel} onClick={onClose} role="dialog" aria-modal="true" aria-label="Getting started guide">
       {/* .panel is a bottom sheet on a phone and a centred card above that,
           with the head (and its close button) pinned while the steps scroll */}
       <div className="card panel" onClick={(e) => e.stopPropagation()}>
