@@ -251,7 +251,7 @@ export function AdminLogin({ onIn }) {
     answer comes from - the role, or a decision somebody made about this person -
     because "why can they do that?" is the question this console exists to
     answer. */
-export function PermGrid({ catalogue, held, defaults = [], allowed, onToggle, readOnly, search = "", selectedOnly = false }) {
+export function PermGrid({ catalogue, held, defaults = [], allowed, onToggle, readOnly, search = "", selectedOnly = false, group = "all" }) {
   const heldSet = useMemo(() => new Set(held), [held]);
   const defSet = useMemo(() => new Set(defaults), [defaults]);
   const okSet = useMemo(() => (allowed ? new Set(allowed) : null), [allowed]);
@@ -259,6 +259,7 @@ export function PermGrid({ catalogue, held, defaults = [], allowed, onToggle, re
   return (
     <div className="permgrid">
       {catalogue.groups.map((g) => {
+        if (group !== "all" && group !== g.id) return null;
         const rows = catalogue.permissions.filter((p) => p.group === g.id && (!okSet || okSet.has(p.key))
           && (!selectedOnly || heldSet.has(p.key))
           && (!search.trim() || [p.label, p.help, g.title].join(" ").toLowerCase().includes(search.trim().toLowerCase())));
@@ -764,6 +765,8 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
   const creating = !role;
   const [permissionSearch, setPermissionSearch] = useState("");
   const [selectedOnly, setSelectedOnly] = useState(false);
+  const [permissionGroup, setPermissionGroup] = useState("all");
+  const [template, setTemplate] = useState("");
   const [f, setF] = useState({
     key: role?.key || "", label: role?.label || "", title: role?.title || "", note: role?.note || "",
   });
@@ -791,7 +794,7 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
   };
 
   return (
-    <Dialog title={creating ? "New role" : role.label} onClose={onClose} wide footer={
+    <Dialog title={creating ? "Create a role" : role.label} onClose={onClose} wide footer={
       <>
         {starter && <span className="mono faint" style={{ marginRight: "auto", fontSize: 11 }}>starter role - its id stays {role.key}</span>}
         <button className="btn" onClick={onClose} disabled={busy}>{readOnly ? "Close" : "Cancel"}</button>
@@ -802,20 +805,36 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
         )}
       </>
     }>
+      {creating && <div className="role-start">
+        <b>Start with an existing role or build your own</b>
+        <p className="muted">Copy permissions as a starting point, then adjust them below. The original role stays unchanged.</p>
+        <div className="role-permtools">
+          <select className="in" aria-label="Starting role" value={template} onChange={(e) => setTemplate(e.target.value)} disabled={busy}>
+            <option value="">Choose a starting role</option>
+            {state.roles.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+          </select>
+          <button className="btn sm" disabled={!template || busy} onClick={() => {
+            const source = state.roles.find((r) => r.key === template);
+            if (source) setPerms(new Set(source.perms.filter((p) => state.catalogue.customGrantable.includes(p))));
+          }}>Copy permissions</button>
+        </div>
+        <span className="muted">Skip this to start with no permissions.</span>
+      </div>}
       <div className="admincols">
         <div>
+          {creating && <h3 className="role-step">1. Name and purpose</h3>}
           <div className="frow"><label className="lbl" htmlFor="role-name">Role name</label>
             <input id="role-name" className="in" value={f.label} disabled={readOnly}
                    onChange={(e) => setF({ ...f, label: e.target.value })} placeholder="CEO" /></div>
           {creating && (
+            <details className="role-advanced"><summary>Advanced: internal role ID</summary>
             <div className="frow"><label className="lbl" htmlFor="role-id">Id (used in the audit trail)</label>
               <input id="role-id" className="in mono" value={f.key} placeholder={slug(f.label) || "ceo"}
                      onChange={(e) => setF({ ...f, key: slug(e.target.value) })} />
               <div className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
-                Lowercase, no spaces. It cannot be changed later, because events already recorded
-                refer to it.
+                Generated from the role name if left blank. Lowercase, no spaces; fixed after creation.
               </div>
-            </div>
+            </div></details>
           )}
           {!starter && (
             <div className="frow"><label className="lbl" htmlFor="role-title">Default job title</label>
@@ -838,6 +857,7 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
           )}
         </div>
         <div>
+          {creating && <h3 className="role-step">2. Choose permissions</h3>}
           <div className="permtop">
             <div><div className="lbl" style={{ margin: 0 }}>Capabilities</div>
               <div className="muted" style={{ fontSize: 11.5 }}>What everyone on this role can do by default.</div></div>
@@ -849,12 +869,19 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
             <button className={"btn sm" + (selectedOnly ? " pri" : "")} aria-pressed={selectedOnly}
                     onClick={() => setSelectedOnly(!selectedOnly)}>Selected only</button>
           </div>
+          <div className="role-permtools">
+            <select className="in" aria-label="Permission category" value={permissionGroup} onChange={(e) => setPermissionGroup(e.target.value)}>
+              <option value="all">All permission categories</option>
+              {state.catalogue.groups.map((g) => <option key={g.id} value={g.id}>{g.title}</option>)}
+            </select>
+          </div>
           {!state.catalogue.permissions.some((p) => state.catalogue.customGrantable.includes(p.key)
+            && (permissionGroup === "all" || p.group === permissionGroup)
             && (!selectedOnly || perms.has(p.key))
             && [p.label, p.help, state.catalogue.groups.find((g) => g.id === p.group)?.title].join(" ").toLowerCase().includes(permissionSearch.trim().toLowerCase()))
             && <p className="muted" role="status">No permissions match these filters.</p>}
           <PermGrid catalogue={state.catalogue} held={[...perms]} defaults={[]}
-                    search={permissionSearch} selectedOnly={selectedOnly}
+                    search={permissionSearch} selectedOnly={selectedOnly} group={permissionGroup}
                     allowed={readOnly ? undefined : state.catalogue.customGrantable}
                     readOnly={readOnly || busy}
                     onToggle={(key, want) => {
@@ -1906,6 +1933,14 @@ export const ADMIN_CSS = `
 .role-toolbar .filterchips{margin:0!important}
 .role-permtools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .role-permtools>.in{flex:1 1 180px;min-width:0}
+.role-start{padding:14px 16px;background:var(--sunk);border:1px solid var(--line);border-radius:var(--r-sm);margin-bottom:20px;font-size:13px}
+.role-start p{margin:6px 0 12px;line-height:1.5}
+.role-start>span{font-size:12px}
+.role-step{font-size:14px;margin:0 0 14px}
+.role-advanced{margin-bottom:16px;font-size:12px;color:var(--muted)}
+.role-advanced summary{cursor:pointer;padding:8px 0}
+.role-advanced .frow{margin:8px 0}
+.role-permtools .btn[aria-pressed="true"]{background:var(--brand);color:#fff}
 @media (min-width:700px){
   .pmanage{display:inline-flex}
   .person{padding:13px 16px}
