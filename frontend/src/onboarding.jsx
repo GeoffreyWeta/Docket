@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 import {
-  acceptInvite, claimVendor, demoLogin, forgotPassword, inDemo, lookupClaim, raw, registerVendor,
+  acceptInvite, claimVendor, forgotPassword, inDemo, lookupClaim, raw, registerVendor,
   resetPassword, storeAuth, verifyVendor,
 } from "./api";
 import { CategorySelect, LocationSelect } from "./fields";
@@ -157,13 +157,11 @@ export function ClaimVendor({ token, onDone, onLoggedIn }) {
     setBusy(true); setMsg("");
     try {
       await claimVendor(token, pw);
-      /* In the demo the visitor is walking through somebody else's shoes, not
-         keeping a password, so they go straight in as the vendor they just
-         became - onto the portal with the invitation waiting. Everywhere else
-         the done screen sends them to sign in, as it always has. */
+      /* A newly claimed account uses its password, including in the demo.
+         Passwordless access is reserved for the prepared demo personas. */
       if (inDemo() && onLoggedIn && sup && sup.email) {
         try {
-          const res = await demoLogin(sup.email, true);
+          const res = await raw("/auth/login/", {method:"POST", body:{username:sup.email,password:pw,asBidder:true}});
           onLoggedIn(res, sup.email);
           return;
         } catch (e) { /* fall through to the done screen */ }

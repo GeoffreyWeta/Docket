@@ -46,6 +46,11 @@ def _body(request):
         return {}
 
 
+def _demo_usernames():
+    from .seed import DEMO_USERS
+    return {username for username, _, _ in DEMO_USERS} | {"auctionhost", "staffbidder"}
+
+
 def _demo_accounts():
     """One-click demo logins, in reading order down the org chart.
 
@@ -59,7 +64,7 @@ def _demo_accounts():
     put the Procurement Officer three rows below an unrelated evaluator and
     broke the one chain the list exists to show.
     """
-    users = list(User.objects.filter(profile__persona__isnull=False, is_active=True)
+    users = list(User.objects.filter(username__in=_demo_usernames(), profile__persona__isnull=False, is_active=True)
                  .exclude(is_superuser=True).select_related("profile__persona"))
     reports = {}
     for u in users:
@@ -93,7 +98,7 @@ def _demo_accounts():
     for u in sorted(users, key=lambda u: u.profile.persona_id):
         if u.profile.persona_id not in seen:
             out.append(row(u))
-    for u in (User.objects.filter(profile__supplier__isnull=False, is_active=True)
+    for u in (User.objects.filter(username__in=_demo_usernames(), profile__supplier__isnull=False, is_active=True)
               .exclude(is_superuser=True)
               .select_related("profile__supplier").order_by("profile__supplier__id")):
         s = u.profile.supplier
@@ -189,6 +194,8 @@ def demo_login(request):
     if not settings.DEMO_LOGIN:
         return _err("Demo logins are disabled on this deployment.", 403)
     body = _body(request)
+    if str(body.get("username", "")).strip().lower() not in _demo_usernames():
+        return _err("Unknown demo account.", 404)
     user = (User.objects.filter(username=str(body.get("username", "")).strip().lower(),
                                 profile__isnull=False, is_active=True)
             .exclude(is_superuser=True).first())
