@@ -430,9 +430,42 @@ function publicScreenFromUrl() {
   return null;
 }
 
+function RequiredPasswordChange({onDone, onLogout}) {
+  const [current,setCurrent] = useState("");
+  const [password,setPassword] = useState("");
+  const [confirmation,setConfirmation] = useState("");
+  const [busy,setBusy] = useState(false);
+  const [error,setError] = useState("");
+  const submit = async (event) => {
+    event.preventDefault();setError("");setBusy(true);
+    try {
+      await raw("/auth/change_password/",{method:"POST",body:{current,password}});
+      onDone();
+    } catch(e) {setError(e.message || "Could not change the password.");}
+    finally {setBusy(false);}
+  };
+  return <><style>{ALL_CSS}</style><div className="loginwrap"><div className="logincard card"><div className="cbody">
+    <h2>Change your temporary password</h2>
+    <p>Your first sign-in requires a new password before you can open the workspace.</p>
+    <form onSubmit={submit}>
+      <label className="lbl" htmlFor="required-current">Temporary password</label>
+      <input id="required-current" className="in" type="password" autoComplete="current-password" value={current} onChange={(e)=>setCurrent(e.target.value)} required />
+      <label className="lbl" htmlFor="required-new" style={{marginTop:12}}>New password (8+ characters)</label>
+      <input id="required-new" className="in" type="password" autoComplete="new-password" value={password} onChange={(e)=>setPassword(e.target.value)} minLength={8} required />
+      <label className="lbl" htmlFor="required-confirm" style={{marginTop:12}}>Confirm new password</label>
+      <input id="required-confirm" className="in" type="password" autoComplete="new-password" value={confirmation} onChange={(e)=>setConfirmation(e.target.value)} required />
+      {confirmation && password !== confirmation && <p role="status">The new passwords do not match.</p>}
+      {error && <p role="alert">{error}</p>}
+      <div className="btnrow" style={{marginTop:16}}><button className="btn pri" disabled={busy || !current || password.length<8 || password!==confirmation || password===current}>{busy ? "Saving..." : "Change password and continue"}</button>
+        <button className="btn" type="button" disabled={busy} onClick={onLogout}>Sign out</button></div>
+    </form>
+  </div></div></div></>;
+}
+
 export default function App() {
   const [screen, setScreen] = useState(publicScreenFromUrl);
   const [token, setToken] = useState(getToken);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
   /* The site's look, chosen once in the administration console, applies to
      every screen: the front page, sign-in, setup, the workspace and the demo.
      Read from the main site even inside the demo, whose own backend never sees
@@ -525,6 +558,7 @@ export default function App() {
     if (resume) keepNext(resume); else dropNext();
     if (serverSide) apiLogout().catch(() => {});
     clearAuth();
+    setMustChangePassword(false);
     ++boot.current.started;
     boot.current.landed = boot.current.started;
     setBootError("");
@@ -547,11 +581,17 @@ export default function App() {
       if (mine !== boot.current.started) return null;
       boot.current.landed = mine;
       setBootError("");
+      setMustChangePassword(false);
       setData(d);
       setRoute((current) => current || landingRoute(d.me));
       return d;
     } catch (e) {
       if (mine !== boot.current.started) return null;
+      if (e.data?.passwordChangeRequired) {
+        setMustChangePassword(true);
+        setData(null);
+        return null;
+      }
       setBootError(e.message || "Check your connection and try again.");
       if (e.status === 401) signOut(false, true);
       else if (!quiet) toast.warn("Could not reach the server", e.message || "Check your connection and try again.");
@@ -709,6 +749,7 @@ export default function App() {
     }
     return <PublicLanding onScreen={goScreen} />;
   }
+  if (mustChangePassword) return <RequiredPasswordChange onDone={() => {setMustChangePassword(false);refresh();}} onLogout={() => signOut(true)} />;
   if (!data || !route) {
     return (
       <>
@@ -898,6 +939,10 @@ export default function App() {
      as you reach it, once, then the observer lets it go. The call itself is
      hoisted above the early returns, where hooks have to live. */
   const allowed = allowedPages(user);
+  if (!allowed.length) return <><style>{ALL_CSS}</style><div className="loginwrap"><div className="logincard card"><div className="cbody">
+    <h2>Your account is ready</h2><p>Your role and reporting line are awaiting assignment. You can sign in again once your administrator gives you access.</p>
+    <button className="btn" onClick={() => signOut(true)}>Sign out</button>
+  </div></div></div></>;
   const page = allowed.includes(route.page) ? route.page : homePage(user);
   const currentTender = data.tenders.find((t) => t.id === route.id);
   const bidRoomRound = currentTender ? activeRound(currentTender)?.id || roundsOf(currentTender).at(-1)?.id || "r1" : "missing";

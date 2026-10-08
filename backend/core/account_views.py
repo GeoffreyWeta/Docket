@@ -387,6 +387,7 @@ def forgot_password(request):
 
 
 @csrf_exempt
+@transaction.atomic
 def reset_password(request):
     if request.method != "POST":
         return _err("Method not allowed", 405)
@@ -400,7 +401,13 @@ def reset_password(request):
     user = User.objects.filter(username=t.email).first()
     if not user:
         return _err("Account no longer exists.", 410)
+    if hasattr(user, "profile") and user.profile.must_change_password and user.check_password(pw):
+        transaction.set_rollback(True)
+        return _err("Choose a different password from the temporary password.")
     user.set_password(pw)
     user.save()
+    if hasattr(user, "profile"):
+        user.profile.must_change_password = False
+        user.profile.save(update_fields=["must_change_password"])
     user.tokens.all().delete()  # revoke every session
     return JsonResponse({"ok": True})

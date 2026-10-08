@@ -36,7 +36,8 @@ def _err(msg, status=400):
 
 def _issue(user, bidder=False):
     tok = AuthToken.objects.create(key=secrets.token_hex(32), user=user, created=now_ms(), bidder_mode=bidder)
-    return {"token": tok.key, "me": user.profile.bidder_identity if bidder else user.profile.identity}
+    return {"token": tok.key, "me": user.profile.bidder_identity if bidder else user.profile.identity,
+            "passwordChangeRequired":user.profile.must_change_password}
 
 
 def _body(request):
@@ -342,6 +343,8 @@ def change_password(request):
         return _err("The new password is the same as the current one.")
     user.set_password(new)
     user.save()
+    user.profile.must_change_password = False
+    user.profile.save(update_fields=["must_change_password"])
     key = request.headers.get("Authorization", "")[7:]
     n = user.tokens.exclude(key=key).count()
     user.tokens.exclude(key=key).delete()

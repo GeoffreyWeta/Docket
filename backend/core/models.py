@@ -549,6 +549,7 @@ class Profile(models.Model):
     supplier = models.ForeignKey(Supplier, null=True, blank=True, on_delete=models.CASCADE)
     totp_secret = models.CharField(max_length=64, blank=True, default="")
     totp_confirmed = models.BooleanField(default=False)
+    must_change_password = models.BooleanField(default=False)
     # Deviations from this person's role defaults - see permissions.py. Empty on
     # every account until an administrator moves someone off their role.
     perm_extra = models.JSONField(default=list, blank=True)     # granted on top of the role

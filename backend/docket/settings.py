@@ -59,6 +59,7 @@ MIDDLEWARE = [
     # after every action. Compression is the difference between an app that
     # feels instant and one that does not.
     "django.middleware.gzip.GZipMiddleware",
+    "core.password_gate.PasswordChangeGate",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.middleware.common.CommonMiddleware",
     # The admin's three. Session must precede Authentication, which reads it,
