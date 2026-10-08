@@ -173,7 +173,20 @@ class Persona(Syncable):
         return out
 
 
+class SupplierManager(models.Manager.from_queryset(SyncableQuerySet)):
+    def get_queryset(self):
+        from django.conf import settings
+        queryset = super().get_queryset()
+        if settings.DEMO_LOGIN:
+            queryset = queryset.filter(
+                models.Q(registry__referenceSource__isnull=True)
+                | ~models.Q(registry__referenceSource="vendors_import.csv")
+            )
+        return queryset
+
+
 class Supplier(Syncable):
+    objects = SupplierManager()
     id = models.CharField(primary_key=True, max_length=16)
     name = models.CharField(max_length=120)
     contact_email = models.CharField(max_length=200, blank=True, default="")
