@@ -163,7 +163,7 @@ export function ClaimVendor({ token, onDone, onLoggedIn }) {
          the done screen sends them to sign in, as it always has. */
       if (inDemo() && onLoggedIn && sup && sup.email) {
         try {
-          const res = await demoLogin(sup.email);
+          const res = await demoLogin(sup.email, true);
           onLoggedIn(res, sup.email);
           return;
         } catch (e) { /* fall through to the done screen */ }
@@ -186,12 +186,11 @@ export function ClaimVendor({ token, onDone, onLoggedIn }) {
   }
   if (state === "done") {
     return (
-      <Shell title="You're registered" sub="vendor registration">
+      <Shell title="You're registered" sub="bidder account">
         <p style={{ fontSize: 13.5, lineHeight: 1.6 }}>
           <b>{sup.name}</b> now has a DOCKET account. Sign in with <b>{sup.email}</b>, then
-          upload your compliance documents from your company profile - tax clearance,
-          certifications, anything the buyer asks for. You can bid on tenders you're invited
-          to while your documents are reviewed.
+          open your auction invitations. Individuals and companies can bid; read each event's
+          terms before accepting them. Company compliance documents are required only where the organiser asks for them.
         </p>
         <button className="btn pri" onClick={onDone}>Sign in</button>
       </Shell>
@@ -199,7 +198,7 @@ export function ClaimVendor({ token, onDone, onLoggedIn }) {
   }
 
   return (
-    <Shell title="Claim your account" sub="vendor registration">
+    <Shell title="Claim your account" sub="bidder account">
       {/* Naming the record they are claiming, before anything is typed. */}
       <div className="claimcard">
         <div className="claimname">{sup.name}</div>
@@ -223,7 +222,8 @@ export function ClaimVendor({ token, onDone, onLoggedIn }) {
         This is the address the register holds for you. If it's wrong, reply to the
         invitation and ask the buyer to correct it before you register.
       </div>
-      <Field id="cv-pw" label="Choose a password">
+      {sup.existingAccount && <p className="hint">You already have a DOCKET account. Enter your existing password below; it will stay unchanged. After registration, select “Sign in as an invited bidder” to bid separately from your workplace role.</p>}
+      <Field id="cv-pw" label={sup.existingAccount ? "Your existing DOCKET password" : "Choose a password"}>
         <input id="cv-pw" className="in" type="password" autoComplete="new-password" value={pw}
                placeholder="At least 8 characters" onChange={(e) => setPw(e.target.value)} />
       </Field>

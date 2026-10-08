@@ -34,9 +34,9 @@ def _err(msg, status=400):
     return JsonResponse({"error": msg}, status=status)
 
 
-def _issue(user):
-    tok = AuthToken.objects.create(key=secrets.token_hex(32), user=user, created=now_ms())
-    return {"token": tok.key, "me": user.profile.identity}
+def _issue(user, bidder=False):
+    tok = AuthToken.objects.create(key=secrets.token_hex(32), user=user, created=now_ms(), bidder_mode=bidder)
+    return {"token": tok.key, "me": user.profile.bidder_identity if bidder else user.profile.identity}
 
 
 def _body(request):
@@ -176,7 +176,10 @@ def login(request):
             _fail(username)
             return _err("That code isn't right - check your authenticator app.", 401)
     FailedLogin.objects.filter(username=username).delete()
-    return JsonResponse(_issue(user))
+    bidder = body.get("asBidder") is True
+    if bidder and not prof.supplier_id:
+        return _err("This account has no bidder invitation yet. Open the invitation link first.", 403)
+    return JsonResponse(_issue(user, bidder=bidder))
 
 
 @csrf_exempt
@@ -191,7 +194,10 @@ def demo_login(request):
             .exclude(is_superuser=True).first())
     if not user or (not user.profile.persona_id and not user.profile.supplier_id):
         return _err("Unknown demo account.", 404)
-    return JsonResponse(_issue(user))
+    bidder = body.get("asBidder") is True
+    if bidder and not user.profile.supplier_id:
+        return _err("This account has no bidder invitation.", 403)
+    return JsonResponse(_issue(user, bidder=bidder))
 
 
 @csrf_exempt

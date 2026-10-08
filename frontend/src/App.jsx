@@ -88,6 +88,7 @@ function PublicLanding({ onScreen }) {
 
 
 function Login({ onLoggedIn, onScreen, notice }) {
+  const [asBidder, setAsBidder] = useState(false);
   const [cfg, setCfg] = useState(null);
   const [u, setU] = useState("");
   const [pw, setPw] = useState("");
@@ -107,7 +108,7 @@ function Login({ onLoggedIn, onScreen, notice }) {
     setBusy(true); setMsg("");
     try {
       const res = await raw("/auth/login/", { method: "POST",
-        body: { username: u.trim().toLowerCase(), password: pw, ...(mfa ? { code } : {}) } });
+        body: { username: u.trim().toLowerCase(), password: pw, asBidder, ...(mfa ? { code } : {}) } });
       onLoggedIn(res, u.trim().toLowerCase());
     } catch (e) {
       if (e.message && e.message.includes("authenticator")) setMfa(true);
@@ -163,6 +164,7 @@ function Login({ onLoggedIn, onScreen, notice }) {
                        value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} /></div>
             )}
             {msg && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 12 }}>{msg}</div>}
+            <label className="checkline" style={{marginBottom:12}}><input type="checkbox" checked={asBidder} onChange={(e) => setAsBidder(e.target.checked)} />Sign in as an invited bidder (staff or company)</label>
             <button className="btn pri" style={{ width: "100%" }} onClick={submit} disabled={busy || !u.trim() || !pw || (mfa && !code.trim())}>{busy ? "Signing in..." : "Sign in"}</button>
             {/* Signing in is for people who already have an account. Vendor
                 registration and starting a workspace are reached from the front

@@ -954,20 +954,19 @@ export function SuspendDialog({ api, supplier, onClose }) {
     );
   }
   return (
-    <Dialog title={`Suspend ${supplier.name}`} onClose={onClose} footer={
+    <Dialog title={`Blacklist ${supplier.name}`} onClose={onClose} footer={
       <>
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn wax" disabled={!reason.trim()} onClick={async () => {
           onClose();
           if (await act.suspendVendor(supplier.id, true, reason.trim())) {
-            toast.ok(`${supplier.name} suspended`, "They cannot be added to new events. Invitations they already hold stand.");
+            toast.ok(`${supplier.name} blacklisted`, "Invitations, new bids and awards are blocked across tenders and auctions. History is retained.");
           }
-        }}>Suspend & send the reason</button>
+        }}>Blacklist & send the reason</button>
       </>
     }>
-      They can no longer be added to events. Invitations they already hold are <b>not</b> withdrawn -
-      pulling a bidder out of a live competition is a decision for that competition, and its page has
-      the control for it.
+      This blocks new invitations, bids and awards across tenders, buying auctions and selling auctions.
+      Existing records stay in the audit history. Active auction bids stop counting while the bidder is blacklisted.
       {supplier.prequalified && <><br /><br />Their prequalification is untouched: lifting the suspension
         brings them back verified rather than making them start again.</>}
       <textarea className="in" style={{ marginTop: 10 }} autoFocus value={reason}

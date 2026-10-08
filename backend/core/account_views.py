@@ -10,6 +10,7 @@ import secrets
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.mail import EmailMessage
+from django.db import transaction
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -189,6 +190,7 @@ def register_vendor(request):
 
 
 @csrf_exempt
+@transaction.atomic
 def claim_vendor(request):
     """Finish registration against a vendor record that already exists.
 
@@ -209,17 +211,18 @@ def claim_vendor(request):
     form field: `supplierId` is read from the token, never from the body.
     """
     token = str(request.GET.get("token") or _body(request).get("token", ""))
-    t = ActionToken.objects.filter(pk=token, kind="vendor_claim",
+    t = ActionToken.objects.select_for_update().filter(pk=token, kind="vendor_claim",
                                    used_at__isnull=True).first()
     if not t or now_ms() - t.created > CAMPAIGN_TTL_MS:
         return _err("This link is invalid or has expired. Ask your buyer contact "
                     "to send a new invitation.", 410)
-    sup = Supplier.objects.filter(pk=t.payload.get("supplierId")).first()
+    sup = Supplier.objects.select_for_update().filter(pk=t.payload.get("supplierId")).first()
     if not sup:
         return _err("The vendor record this link points at no longer exists.", 410)
 
     if request.method == "GET":
         return JsonResponse({"supplier": {
+            "existingAccount": User.objects.filter(username=(sup.contact_email or t.email).strip().lower()).exists(),
             "name": sup.name, "code": sup.code, "category": sup.category,
             "subcategory": sup.subcategory, "location": sup.location,
             "email": sup.contact_email, "contactPerson": sup.contact_person,
@@ -234,9 +237,16 @@ def claim_vendor(request):
     email = (sup.contact_email or t.email or "").strip().lower()
     if not EMAIL_RE.match(email):
         return _err("The register holds no usable email address for this company.")
-    if User.objects.filter(username=email).exists():
-        return _err("An account with this email already exists. Sign in instead, "
-                    "or use the password-reset link.", 409)
+    existing = User.objects.filter(username=email).select_related("profile").first()
+    if existing:
+        from .auth_views import _locked, _fail
+        if _locked(email):
+            return _err("Too many failed attempts. Try again in 15 minutes.", 429)
+        if not existing.is_active or not existing.check_password(pw):
+            _fail(email)
+            return _err("Enter your existing DOCKET password to join as a bidder.", 401)
+        if not hasattr(existing, "profile") or existing.profile.supplier_id:
+            return _err("This account already has a bidder identity, or cannot join this event.", 409)
     if Profile.objects.filter(supplier=sup).exists():
         return _err("This company already has an account.", 409)
 
@@ -245,10 +255,15 @@ def claim_vendor(request):
     t.used_at = now_ms()
     t.save(update_fields=["used_at"])
 
-    user = User.objects.create_user(username=email, email=email, password=None)
-    user.set_password(pw)
-    user.save()
-    Profile.objects.create(user=user, supplier=sup)
+    if existing:
+        user = existing
+        user.profile.supplier = sup
+        user.profile.save(update_fields=["supplier"])
+    else:
+        user = User.objects.create_user(username=email, email=email, password=None)
+        user.set_password(pw)
+        user.save()
+        Profile.objects.create(user=user, supplier=sup)
     # `registered_at` is when they actually claimed the account. The import may
     # have set it from the register's own NAV date; this is the truer fact.
     Supplier.objects.filter(pk=sup.id).update(registered_at=now_ms(),

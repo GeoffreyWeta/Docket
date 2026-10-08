@@ -353,7 +353,7 @@ export function PortalHome({ api }) {
               const mine = aucWon(a);
               return (
                 <Row key={"a" + a.id} title={a.title}
-                     meta={<span className="mono">{a.ref} &middot; reverse auction</span>}
+                     meta={<span className="mono">{a.ref} &middot; {a.direction === "sale" ? "selling auction" : "reverse auction"}</span>}
                      onOpen={() => go({ page: "auction", id: a.id })}
                      right={a.status === "cancelled" ? <span className="chip">Cancelled</span>
                        : mine.length
@@ -1126,7 +1126,7 @@ export function AuctionRoom({ api, id }) {
       if (is > was) {
         cue.outbid();
         toast.warn(`▼ ${where}Outbid, now position ${is}`,
-                   `You held position ${was}.${s.toLead ? ` Bid ${fmtMoney(s.toLead)} or less to take the lead back.` : ""}`);
+                   `You held position ${was}.${s.toLead ? ` Bid ${fmtMoney(s.toLead)} or ${a.direction === "sale" ? "more" : "less"} to take the lead back.` : ""}`);
       } else {
         cue.lead();
         toast.ok(`▲ ${where}Position ${is}${is === 1 ? ", you lead" : ""}`, `Up from position ${was}.`);
@@ -1149,6 +1149,7 @@ export function AuctionRoom({ api, id }) {
   }
 
   const myBids = st.myBids || [];
+  const selling = a.direction === "sale";
   const myLast = myBids.length ? myBids[myBids.length - 1] : null;
   const leading = !!st.leading;
   /* The server only leaves toLead empty for a vendor who has bid when that
@@ -1168,7 +1169,7 @@ export function AuctionRoom({ api, id }) {
      toLead is the opening price. The leader gets no ladder at all: the server
      refuses a vendor who tries to beat their own leading price. */
   const from = iLead ? null : st.toLead;
-  const quick = (from ? [from, from - stepAt(lot, from), from - stepAt(lot, from) * 3] : [])
+  const quick = (from ? [from, from + (selling ? 1 : -1) * stepAt(lot, from), from + (selling ? 1 : -1) * stepAt(lot, from) * 3] : [])
     .filter((v) => v && v > 0);
 
   /* What the room is doing, in one word, for the header chip and the notice
@@ -1185,7 +1186,7 @@ export function AuctionRoom({ api, id }) {
 
   const typed = Number(amount) || 0;
   // More than a tenth under what would lead is usually a slipped zero, so ask once.
-  const tooLow = !!(st.toLead && typed > 0 && typed < st.toLead * 0.9);
+  const tooLow = !selling && !!(st.toLead && typed > 0 && typed < st.toLead * 0.9);
 
   const place = async () => {
     if (busy.current || !typed || !lot) return;
@@ -1271,7 +1272,7 @@ export function AuctionRoom({ api, id }) {
       <button className="btn sm" onClick={() => go({ page: "portal" })} style={{ marginBottom: 16 }}>&larr; All invitations</button>
       <div className="pagehead">
         <div>
-          <div className="mono muted" style={{ marginBottom: 3 }}>{a.ref} &middot; REVERSE AUCTION, LOWEST PRICE WINS</div>
+          <div className="mono muted" style={{ marginBottom: 3 }}>{a.ref} &middot; {selling ? "SELLING AUCTION, HIGHEST BID WINS" : "REVERSE AUCTION, LOWEST PRICE WINS"}</div>
           <h1>{a.title}</h1>
         </div>
         <div className="grow" />
@@ -1320,7 +1321,7 @@ export function AuctionRoom({ api, id }) {
             <div className="notice" style={{ marginTop: 10 }}>
               {qtyWords ? <>Your price is the total for all {qtyWords}, not the price of one.</>
                         : <>Your price is the total for this lot.</>}
-              {ceiling ? <> The buyer will pay at most <b>{fmtMoney(ceiling)}</b>, so your first bid must be that or less.</> : null}
+              {ceiling ? <> {selling ? "Bidding starts at" : "The buyer will pay at most"} <b>{fmtMoney(ceiling)}</b>, so your first bid must be that or {selling ? "more" : "less"}.</> : null}
             </div>
           </div>
         </div>
@@ -1357,7 +1358,7 @@ export function AuctionRoom({ api, id }) {
                       <RollNumber value={st.myRank} size={54} color={stateColor} />
                     </div>
                     <div style={{ marginTop: 6, fontSize: 13, fontWeight: leading ? 600 : 400, color: leading ? "var(--green)" : "var(--ink)" }}>
-                      {leading ? "You have the lowest price" : "Someone has a lower price"}
+                      {leading ? (selling ? "You have the highest bid" : "You have the lowest price") : (selling ? "Someone has a higher bid" : "Someone has a lower price")}
                     </div>
                     <div className="muted" style={{ fontSize: 12.5, marginTop: 2 }}>
                       {st.bidders ? `of ${st.bidders} vendor${st.bidders === 1 ? "" : "s"} · ` : ""}
@@ -1390,7 +1391,7 @@ export function AuctionRoom({ api, id }) {
                     <div className="frow" style={{ marginBottom: 9 }}>
                       <label className="lbl" htmlFor="auc-amt">Your price{qtyWords ? ` for all ${qtyWords}` : ""}</label>
                       <div className="hint" style={{ marginTop: 0, marginBottom: 6 }}>
-                        In naira.{st.toLead ? <> To take the lead, bid <b>{fmtMoney(st.toLead)}</b> or less.</> : null}
+                        In naira.{st.toLead ? <> To take the lead, bid <b>{fmtMoney(st.toLead)}</b> or {selling ? "more" : "less"}.</> : null}
                       </div>
                       <input id="auc-amt" className="in" type="number" inputMode="numeric" value={amount}
                              onChange={(e) => { setAmount(e.target.value); setConfirmLow(false); }}
@@ -1427,7 +1428,7 @@ export function AuctionRoom({ api, id }) {
                 {!iLead && !(confirmLow && tooLow) && (
                   <button className="btn pri" onClick={place} disabled={!typed || placing}>{placing ? "Placing…" : "Place bid"}</button>
                 )}
-                <div className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>Every bid is binding: if it wins, you must supply at that price.</div>
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>Every bid is binding: if it wins, you must {selling ? "buy" : "supply"} at that price.</div>
               </div>
             </div>
           )}
@@ -1446,9 +1447,9 @@ export function AuctionRoom({ api, id }) {
             <div className="chead"><h3>Rules in plain words</h3></div>
             <div className="cbody" style={{ fontSize: 13, lineHeight: 1.6 }}>
               <ul style={{ margin: 0, paddingLeft: 18 }}>
-                <li>The lowest price leads.</li>
-                <li>{stepWords ? <>Each new bid must be at least {stepWords} lower than the best price.</>
-                               : <>Each new bid just has to be lower than the best price.</>}</li>
+                <li>The {selling ? "highest bid" : "lowest price"} leads.</li>
+                <li>{stepWords ? <>Each new bid must be at least {stepWords} {selling ? "higher" : "lower"} than the best price.</>
+                               : <>Each new bid just has to be {selling ? "higher" : "lower"} than the best price.</>}</li>
                 {ceiling ? <li>The first bid{many ? " on this lot" : ""} can be at most {fmtMoney(ceiling)}.</li> : null}
                 <li>{a.endsAt
                   ? <>Bidding ends {fmtDateTime(a.endsAt)}{a.scheduledEndsAt && a.scheduledEndsAt !== a.endsAt ? ` (it was first set for ${fmtDateTime(a.scheduledEndsAt)})` : ""}.</>

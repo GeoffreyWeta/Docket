@@ -281,7 +281,7 @@ export function AuctionsPage({ api }) {
                 onClick={async () => {
                   setMaking(true);
                   try {
-                    const made = await raw("/auctions/new/", { method: "POST", body: { title: draft.title.trim() } });
+                    const made = await raw("/auctions/new/", { method: "POST", body: { title: draft.title.trim(), direction: draft.direction || "reverse" } });
                     setDraft(null);
                     go({ page: "auction", id: made.id });
                   } catch (e) {
@@ -291,9 +291,15 @@ export function AuctionsPage({ api }) {
       </>
     }>
       <div className="frow">
-        <label className="lbl" htmlFor="ac-new">What is being bought</label>
+        <label className="lbl" htmlFor="ac-direction">Auction purpose</label>
+        <select id="ac-direction" className="in" value={draft.direction || "reverse"} onChange={(e) => setDraft({...draft, direction:e.target.value})}>
+          <option value="reverse">Buying: suppliers lower their prices</option>
+          <option value="sale">Selling: staff or companies raise their bids</option>
+        </select>
+        <div className="hint">{draft.direction === "sale" ? "Highest eligible bid wins. Invite individual staff or companies; no reporting hierarchy is required." : "Lowest eligible supplier price wins."}</div>
+        <label className="lbl" htmlFor="ac-new">{draft.direction === "sale" ? "What is being sold" : "What is being bought"}</label>
         <input id="ac-new" className="in" autoFocus value={draft.title}
-               onChange={(e) => setDraft({ title: e.target.value })}
+               onChange={(e) => setDraft({ ...draft, title: e.target.value })}
                placeholder="e.g. Diesel supply for store generators" />
         <div className="hint">You add the lots, the clock and the vendors next. Nothing is published yet.</div>
       </div>
@@ -309,8 +315,8 @@ export function AuctionsPage({ api }) {
 
   const guide = (
     <Guide art="chart"
-           headline={liveOnes ? "A room is open" : "Reverse auctions"}
-           why={bidder ? "Your reverse auction invitations appear here. Open an auction to review its terms and submit your bid when bidding starts." : monitor
+           headline={liveOnes ? "A room is open" : "Auctions"}
+           why={bidder ? "Your auction invitations appear here. Open an auction to review its terms and submit your bid when bidding starts." : monitor
              ? "Prices move live and every movement is on the record. You see names and amounts; bidders see only their own rank."
              : "You can see that a competition is running. Watching the prices and the names needs the monitor capability."}
            items={can(user, "auction.create")
@@ -333,7 +339,7 @@ export function AuctionsPage({ api }) {
       <Page guide={guide}>
         {newDialog}
         <Empty art="chart">
-          {bidder ? "No reverse auction invitations yet. Invitations appear here once the buyer schedules or opens the auction." : "No reverse auctions yet."}
+          {bidder ? "No auction invitations yet. Invitations appear here once the buyer schedules or opens the auction." : "No auctions yet."}
           {can(user, "auction.create") && " An auction is for a price-only requirement where several vendors can quote the same thing."}
         </Empty>
       </Page>
@@ -344,7 +350,7 @@ export function AuctionsPage({ api }) {
     <Page guide={guide} wide>
       {newDialog}
       <div className="pagehead">
-        <div><h1>{bidder ? "My reverse auctions" : "Auctions"}</h1></div>
+        <div><h1>{bidder ? "My auctions" : "Auctions"}</h1></div>
         <div className="grow" />
         {can(user, "auction.create") &&
           <button className="btn pri" onClick={() => setDraft({ title: "" })}>Draft an auction</button>}
@@ -525,17 +531,25 @@ function InviteFromList({ api, a, onChanged }) {
 
   const confirm = async () => {
     setBusy(true);
+    const r = {added:0, created:0, sent:0, demoLinks:[], notAdded:[]};
     try {
-      const r = await raw(`/auctions/${a.id}/invite_list/`, { method: "POST", body: { rows: pv.rows, send } });
+      for(let offset=0; offset<pv.rows.length; offset+=20) {
+        const batch = await raw(`/auctions/${a.id}/invite_list/`, { method: "POST", body: { rows: pv.rows.slice(offset,offset+20), send } });
+        r.added += batch.added || 0; r.created += batch.created || 0; r.sent += batch.sent || 0;
+        r.demoLinks.push(...(batch.demoLinks || [])); r.notAdded.push(...(batch.notAdded || []));
+      }
       const made = r.created ? `${r.created} new to the register` : "";
       toast.ok(`${r.added} vendor${r.added === 1 ? "" : "s"} on the auction`,
                r.sent ? `${r.sent} invitation${r.sent === 1 ? "" : "s"} sent${made ? `, ${made}` : ""}.`
                       : `Nobody emailed yet${made ? `; ${made}` : ""}.`);
       setPv(null);
       if (r.demoLinks && r.demoLinks.length) setLinks(r.demoLinks);
+      if(r.notAdded.length) toast.warn(`${r.notAdded.length} rows were not added`, "Review the rejected rows before trying them again.");
       if (onChanged) onChanged();
     } catch (e) {
-      toast.warn("That did not go through", e.message || "");
+      toast.warn("Import stopped", `${r.added} bidders added before the interruption. Refresh the list before retrying. ${e.message || ""}`);
+      if (r.demoLinks.length) setLinks(r.demoLinks);
+      if (onChanged) onChanged();
     } finally {
       setBusy(false);
     }
@@ -555,7 +569,7 @@ function InviteFromList({ api, a, onChanged }) {
         <button className="doclink" onClick={download}>Download template</button>
       </div>
       <div className="hint" style={{ marginTop: 8 }}>
-        Excel or CSV: name, email, optional company. Review before sending; new bidders set a password to join.
+        Excel or CSV: name, email, optional company. For individual staff, leave Company blank so each person gets their own bidder record. Company contacts share their company's bidder record. Review before sending; new bidders set a password to join.
       </div>
 
       {pv && (
@@ -664,6 +678,8 @@ function DraftAuction({ api, a, refresh }) {
   const [lot, setLot] = useState({ title: "", qty: 1, uom: "", ceiling: "", reserve: "", minDecrement: "" });
   const [parts, setParts] = useState([]);
   const [pick, setPick] = useState([]);
+  const [inviteCategory, setInviteCategory] = useState("");
+  const [inviteProgress, setInviteProgress] = useState("");
   const [busy, setBusy] = useState("");
   const [askOpen, setAskOpen] = useState(false);
 
@@ -718,7 +734,22 @@ function DraftAuction({ api, a, refresh }) {
     if (ok) setPick([]);
   };
 
-  const sendInvites = () => call("/invite/", {}, "Invitations sent.");
+  const sendInvites = async () => {
+    setBusy("/invite/"); let sent=0, failed=0;
+    try {
+      const latest=await raw(`/auctions/${a.id}/participants/`);
+      const pending=latest.participants.filter((x) => !x.inviteCount && !x.disqualified).map((x) => x.supplierId);
+      for(let offset=0;offset<pending.length;offset+=20) {
+        setInviteProgress(`${Math.min(offset+20,pending.length)} of ${pending.length}`);
+        const ids=pending.slice(offset,offset+20);
+        try { const result=await raw(`/auctions/${a.id}/invite/`,{method:"POST",body:{supplierIds:ids}}); sent+=result.sent || 0; failed+=ids.length-(result.sent || 0); }
+        catch(error) {if(!error.status) throw error; failed+=ids.length;}
+      }
+      if(failed) toast.warn(`${sent} notified; ${failed} still need attention`,"Check invitation errors and contact addresses below, then retry.");
+      else toast.ok(`${sent} bidders notified`,"Existing accounts also receive an in-app invitation.");
+    } catch(error) {toast.warn("Invitation run interrupted",`${sent} notified before the interruption. Review the list before retrying. ${error.message || ""}`);}
+    finally {setBusy("");setInviteProgress("");await loadParts();refresh();}
+  };
 
   const photos = a.images || [];
   const addPhotos = async (e) => {
@@ -797,7 +828,7 @@ function DraftAuction({ api, a, refresh }) {
       )}
 
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="chead"><h3>What is being bought</h3></div>
+        <div className="chead"><h3>{a.direction === "sale" ? "What is being sold" : "What is being bought"}</h3><span className="chip">{a.direction === "sale" ? "Selling: highest bid wins" : "Buying: lowest price wins"}</span></div>
         <div className="cbody">
           <div className="grid g2" style={{ marginBottom: 12 }}>
             <div className="frow"><label className="lbl" htmlFor="ac-title">Title</label>
@@ -860,9 +891,9 @@ function DraftAuction({ api, a, refresh }) {
               </select>
               <div className="hint">
                 {f.visibility === "rank"
-                  ? "The default, and the safest. Rank drives the price down without teaching your vendors each other's cost base."
+                  ? "Shows a bidder's rank while withholding competitors' prices and identities."
                   : f.visibility === "price"
-                    ? "Faster, but every bidder leaves knowing what the winner charges."
+                    ? "Shows the leading amount to bidders, without naming competitors."
                     : "Nobody learns anything, including whether bidding again is worth it."}
               </div></div>
             <div className="frow"><label className="lbl" htmlFor="ac-ends">Closes at</label>
@@ -950,13 +981,13 @@ function DraftAuction({ api, a, refresh }) {
                 <div className="frow"><label className="lbl" htmlFor="ac-lc">Opening price</label>
                   <input id="ac-lc" className="in" type="number" value={lot.ceiling}
                          onChange={(e) => setLot({ ...lot, ceiling: e.target.value })}
-                         placeholder="the most you will pay" /></div>
+                         placeholder={a.direction === "sale" ? "minimum opening bid" : "the most you will pay"} /></div>
               </div>
               <div className="grid g3">
                 <div className="frow"><label className="lbl" htmlFor="ac-lr">Reserve (optional)</label>
                   <input id="ac-lr" className="in" type="number" value={lot.reserve}
                          onChange={(e) => setLot({ ...lot, reserve: e.target.value })} />
-                  <div className="hint">Never shown to bidders.</div></div>
+                  <div className="hint">{a.direction === "sale" ? "Lowest amount you will sell for. " : "Maximum acceptable purchase price. "}Never shown to bidders.</div></div>
                 <div className="frow"><label className="lbl" htmlFor="ac-ld">Minimum step</label>
                   <input id="ac-ld" className="in" type="number" value={lot.minDecrement}
                          onChange={(e) => setLot({ ...lot, minDecrement: e.target.value })} />
@@ -974,7 +1005,7 @@ function DraftAuction({ api, a, refresh }) {
                   {busy === "/lots/" ? "Adding…" : "Add lot"}
                 </button>
                 {!lot.title.trim() ? <span className="hint gatehint">The lot needs a title.</span>
-                  : !(Number(lot.ceiling) > 0) ? <span className="hint gatehint">An opening price above zero. A reverse auction with no ceiling is an invitation to bid anything and negotiate afterwards.</span>
+                  : !(Number(lot.ceiling) > 0) ? <span className="hint gatehint">Set a positive opening price. Buyers compete downwards; bidders in a sale compete upwards.</span>
                   : null}
               </div>
             </>
@@ -1012,12 +1043,20 @@ function DraftAuction({ api, a, refresh }) {
                 ))}
               </div>
             )}
-            {!parts.length && <Empty art="tray">Nobody invited yet. A reverse auction needs enough vendors that the price actually has somewhere to go.</Empty>}
+            {!parts.length && <Empty art="tray">Nobody invited yet. Invite individual bidders or companies from a file, or select vendors from your register.</Empty>}
 
             <label className="lbl" htmlFor="ac-pick" style={{ marginTop: 12 }}>Invite from your register</label>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+              <select className="in" aria-label="Vendor category" value={inviteCategory} onChange={(e) => setInviteCategory(e.target.value)} style={{flex:"1 1 180px"}}>
+                <option value="">All vendor categories</option>
+                {[...new Set(available.map((x) => x.category).filter(Boolean))].sort().map((category) => <option key={category}>{category}</option>)}
+              </select>
+              <button className="btn sm" onClick={() => setPick(available.filter((x) => !inviteCategory || x.category === inviteCategory).map((x) => x.id))}>Select all{inviteCategory ? " in category" : " vendors"}</button>
+              <button className="btn sm" onClick={() => setPick([])}>Clear selection</button>
+            </div>
             <select id="ac-pick" className="in" multiple size={Math.min(8, Math.max(3, available.length))}
                     value={pick} onChange={(e) => setPick([...e.target.selectedOptions].map((o) => o.value))}>
-              {available.map((x) => <option key={x.id} value={x.id}>{x.name}{x.category ? ` - ${x.category}` : ""}</option>)}
+              {available.filter((x) => !inviteCategory || x.category === inviteCategory).map((x) => <option key={x.id} value={x.id}>{x.name}{x.category ? ` - ${x.category}` : ""}</option>)}
             </select>
             <div className="hint">Hold Ctrl or Cmd to pick several. {available.length} vendor(s) not yet invited.</div>
             <div className="formrow" style={{ marginTop: 12 }}>
@@ -1026,7 +1065,7 @@ function DraftAuction({ api, a, refresh }) {
               </button>
               {untold > 0 && (
                 <button className="btn pri" onClick={sendInvites} disabled={!!busy}>
-                  {busy === "/invite/" ? "Sending…" : `Send ${untold} invitation${untold === 1 ? "" : "s"}`}
+                  {busy === "/invite/" ? `Sending ${inviteProgress}...` : `Send ${untold} invitation${untold === 1 ? "" : "s"}`}
                 </button>
               )}
             </div>
@@ -1172,7 +1211,7 @@ export function AuctionPage({ api, id }) {
                  onPick: () => setAsk("award") });
   }
   const missed = nothingWon && lots.length === 1 && lot && lot.reserve && best
-    ? `The best price, ${fmtCompact(best.amount)}, stayed above the ${fmtCompact(lot.reserve)} reserve, so there is no winner to commit to.`
+    ? `The best price, ${fmtCompact(best.amount)}, did not meet the ${fmtCompact(lot.reserve)} reserve, so there is no winner to commit to.`
     : "No lot reached its reserve, so there is no winner to commit to.";
 
   const guide = (
@@ -1214,7 +1253,7 @@ export function AuctionPage({ api, id }) {
       <div className="pagehead" style={{ marginBottom: 12 }}>
         <div>
           <h1>{a.title}</h1>
-          <p className="mono faint">{a.ref} · {a.visibility === "rank" ? "rank visible, prices private"
+          <p className="mono faint">{a.ref} · {a.direction === "sale" ? "selling: highest bid wins" : "buying: lowest price wins"} · {a.visibility === "rank" ? "rank visible, prices private"
             : a.visibility === "price" ? "best price visible" : "blind"}</p>
         </div>
         <div className="aucclock">
@@ -1256,7 +1295,7 @@ export function AuctionPage({ api, id }) {
           <div className="chead">
             <h3>{live ? "Live standings" : "Final standings"}</h3>
             <span className="mono faint" style={{ marginLeft: "auto" }}>
-              {lot.ceiling ? `ceiling ${fmtCompact(lot.ceiling)}` : ""}
+              {lot.ceiling ? `opening ${fmtCompact(lot.ceiling)}` : ""}
               {lot.reserve ? ` · reserve ${fmtCompact(lot.reserve)}` : ""}
               {lot.minDecrement ? ` · step ${fmtCompact(lot.minDecrement)}` : ""}
             </span>

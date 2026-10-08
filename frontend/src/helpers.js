@@ -132,7 +132,7 @@ export const VERIFY_STATUS = {
   unverified: { label: "Unverified", tone: "" },
   verified:   { label: "Verified", tone: "ok" },
   rejected:   { label: "Declined", tone: "warn" },
-  suspended:  { label: "Suspended", tone: "warn" },
+  suspended:  { label: "Blacklisted", tone: "warn" },
 };
 
 /* Derived on the client only as a fallback: the server sends both statuses on

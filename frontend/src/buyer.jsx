@@ -4253,7 +4253,7 @@ export function SuppliersPage({ api }) {
         <Quiet n={counts.unverified.toLocaleString()} label="unverified"
                onClick={() => show({ vstate: "unverified" })} />
         {counts.suspended > 0 && (
-          <Quiet n={counts.suspended.toLocaleString()} label="suspended" tone="var(--wax)"
+          <Quiet n={counts.suspended.toLocaleString()} label="blacklisted" tone="var(--wax)"
                  onClick={() => show({ vstate: "suspended" })} />
         )}
         {counts.paperwork > 0 && (
@@ -4302,8 +4302,8 @@ export function SuppliersPage({ api }) {
                        {canPrequalify && !s.prequalified && !s.suspended && (
                          <button className="btn sm" onClick={() => prequalify(s)}>Verify</button>
                        )}
-                       {canSuspend && (s.suspended || s.prequalified) && (
-                         <button className="btn sm" onClick={() => setSuspending(s)}>{s.suspended ? "Reinstate" : "Suspend"}</button>
+                       {canSuspend && (
+                         <button className="btn sm" onClick={() => setSuspending(s)}>{s.suspended ? "Reinstate" : "Blacklist"}</button>
                        )}
                      </>} />
               );
@@ -5104,7 +5104,7 @@ export function TeamPage({ api }) {
                  meta={<>{m.title && <span>{m.title}</span>}<span>{m.email}</span>
                    <span>{m.managerId
                      ? `Reports to: ${members.find((person) => person.id === m.managerId)?.name || "Manager not available"}`
-                     : "Top of reporting hierarchy"}</span></>}
+                     : "No reporting manager assigned"}</span></>}
                  right={<>
                    <span className="chip">{m.roleLabel || m.role}</span>
                    {m.claimed === false

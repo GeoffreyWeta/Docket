@@ -584,12 +584,21 @@ class Profile(models.Model):
         return base
 
 
+    @property
+    def bidder_identity(self):
+        if not self.supplier_id:
+            return None
+        return {"id": self.supplier_id, "name": self.supplier.name, "role": "supplier", "title": "Bidder",
+                "supplierId": self.supplier_id, "perms": ["page.portal"], "isAdmin": False}
+
+
 class AuthToken(models.Model):
     """Opaque bearer token issued at login. Sent as `Authorization: Bearer <key>`."""
     key = models.CharField(primary_key=True, max_length=64)
     user = models.ForeignKey("auth.User", on_delete=models.CASCADE, related_name="tokens")
     created = models.BigIntegerField()
     last_used = models.BigIntegerField(default=0)
+    bidder_mode = models.BooleanField(default=False)
 
 
 class Document(models.Model):
@@ -1202,6 +1211,7 @@ class Auction(Syncable, SpendDimensions):
     status = models.CharField(max_length=12, default="draft")
     visibility = models.CharField(max_length=8, default="rank")
     currency = models.CharField(max_length=3, default="NGN")
+    direction = models.CharField(max_length=8, default="reverse", choices=(("reverse", "Buying: lowest wins"), ("sale", "Selling: highest wins")))
 
     # --- the clock ---------------------------------------------------------
     # `scheduled_ends_at` is what was published and never moves. `ends_at` is
@@ -1316,11 +1326,13 @@ class AuctionLot(Syncable):
 
     def step_to_beat(self, from_amount):
         """The highest a bid may be and still count as beating `from_amount`."""
-        if self.min_decrement <= 0:
-            return from_amount - 1
+        step = max(1, (from_amount * self.min_decrement + 99) // 100) if self.decrement_is_pct else max(1, self.min_decrement)
+        if self.auction.direction == "sale":
+            return from_amount + step
+        # Keep reverse-auction percentage rounding compatible with existing rules.
         if self.decrement_is_pct:
-            return from_amount - max(1, (from_amount * self.min_decrement) // 100)
-        return from_amount - self.min_decrement
+            step = max(1, (from_amount * self.min_decrement) // 100)
+        return from_amount - step
 
 
 class AuctionParticipant(Syncable):

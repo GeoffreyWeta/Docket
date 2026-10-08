@@ -217,7 +217,7 @@ export async function siteAppearance() {
   return { landing: c.landing, accent: c.accent };
 }
 export const login = (username, password) => raw("/auth/login/", { method: "POST", body: { username, password } });
-export const demoLogin = (username) => raw("/auth/demo/", { method: "POST", body: { username } });
+export const demoLogin = (username, asBidder = false) => raw("/auth/demo/", { method: "POST", body: { username, asBidder } });
 export const logout = () => raw("/auth/logout/", { method: "POST", body: {} });
 
 export const registerVendor = (b) => raw("/register/vendor/", { method: "POST", body: b });

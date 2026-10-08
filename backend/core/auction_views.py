@@ -31,7 +31,7 @@ from .permissions import has
 from .taxonomy import canonical
 from .util import now_ms, record_event, rid
 from .notify import notify_supplier
-from .views import _read_upload, err, log, org_name, route
+from .views import _read_upload, _bid_whole, err, log, org_name, route
 
 
 # ---------------- serialization ----------------
@@ -58,6 +58,7 @@ def _auction_view(a, p, *, monitor=False):
     out = {
         "id": a.id, "ref": a.ref, "title": a.title, "scope": a.scope,
         "terms": a.terms, "status": a.status, "currency": a.currency,
+        "direction": a.direction,
         "visibility": a.visibility,
         "startsAt": a.starts_at, "endsAt": a.ends_at,
         "scheduledEndsAt": a.scheduled_ends_at, "closedAt": a.closed_at,
@@ -134,6 +135,9 @@ def my_auctions(request, p, body):
 
 @route(["POST"], perm="auction.create")
 def auction_create(request, p, body):
+    direction = body.get("direction", "reverse")
+    if direction not in ("reverse", "sale"):
+        return err("Choose buying or selling auction.")
     title = str(body.get("title", "")).strip()[:200]
     if not title:
         return err("Give the auction a title.")
@@ -144,6 +148,7 @@ def auction_create(request, p, body):
         terms=str(body.get("terms", "")).strip(),
         created_at=now_ms(), created_by=p["name"], owner_id=p.get("id"),
         currency=str(body.get("currency", "NGN")).strip()[:3] or "NGN",
+        direction=direction,
     )
     log(p, "Auction created", f"{a.ref} - {a.title}")
     return JsonResponse(_auction_view(a, p, monitor=True))
@@ -157,6 +162,8 @@ def auction_update(request, p, body, aid):
     if a.status not in ("draft", "scheduled"):
         return err("A live auction's rules cannot be changed. Pause it and cancel "
                    "if the terms were wrong - bidders priced against what was published.", 409)
+    if "direction" in body and body["direction"] != a.direction:
+        return err("Buying or selling is fixed when the auction is created. Create a new auction to change its purpose.", 409)
 
     # Capped to each column's length. Scope and terms are text columns and are
     # not cut: a bidder prices against the whole of them.
@@ -194,7 +201,7 @@ def lot_create(request, p, body, aid):
     if a.status not in ("draft", "scheduled"):
         return err("Lots cannot be added once the room is open.", 409)
     try:
-        ceiling = int(body.get("ceiling", 0) or 0)
+        ceiling = _bid_whole(body.get("ceiling", 0) or 0)
     except (TypeError, ValueError):
         return err("The opening price must be a number.")
     if ceiling <= 0:
@@ -207,21 +214,28 @@ def lot_create(request, p, body, aid):
     reserve = body.get("reserve")
     if reserve not in (None, ""):
         try:
-            reserve = int(reserve)
+            reserve = _bid_whole(reserve)
         except (TypeError, ValueError):
             return err("The reserve must be a number.")
-        if reserve > ceiling:
+        if a.direction != "sale" and reserve > ceiling:
             return err("A reserve above the opening price would make every bid fail it.")
     else:
         reserve = None
 
+    try:
+        step = _bid_whole(body.get("minDecrement", 0) or 0)
+        qty = _bid_whole(body.get("qty", 1) or 1)
+    except (TypeError, ValueError):
+        return err("Quantity and minimum step must be whole non-negative amounts.")
+    if qty <= 0:
+        return err("Quantity must be positive.")
     lot = AuctionLot.objects.create(
         id=rid("l"), auction=a,
         number=(a.lots.count() + 1),
         title=title, description=str(body.get("description", "")).strip(),
-        qty=int(body.get("qty", 1) or 1), uom=vocab.unit(body.get("uom"), blank="")[:24],
+        qty=qty, uom=vocab.unit(body.get("uom"), blank="")[:24],
         ceiling=ceiling, reserve=reserve,
-        min_decrement=int(body.get("minDecrement", 0) or 0),
+        min_decrement=step,
         decrement_is_pct=bool(body.get("decrementIsPct")),
     )
     return JsonResponse(_lot_view(lot, for_buyer=True, monitor=True))
@@ -371,9 +385,13 @@ def _send_invites(a, p, only=None):
     lot = a.lots.order_by("number").first()
     sent = 0
     for part in list(rows):
+        if Supplier.objects.filter(pk=part.supplier_id, suspended=True).exists():
+            part.invite_error = "Blacklisted vendor cannot be invited."
+            part.save(update_fields=["invite_error"])
+            continue
         try:
             reached = notify_supplier(
-                part.supplier_id, f"Invitation to a reverse auction: {a.title}",
+                part.supplier_id, f"Invitation to a {'selling' if a.direction == 'sale' else 'reverse'} auction: {a.title}",
                 f"{org_name()} invites you to bid in {a.ref} - {a.title}. "
                 + ("Prices move live and you will see your own rank, never a "
                    "competitor's price. " if a.visibility == "rank" else "")
@@ -442,6 +460,9 @@ def participants(request, p, body, aid):
     if not isinstance(ids, list) or not ids:
         return err("Pick at least one vendor.")
     known = set(Supplier.objects.filter(pk__in=ids).values_list("id", flat=True))
+    blocked = list(Supplier.objects.filter(pk__in=ids, suspended=True).values_list("name", flat=True))
+    if blocked:
+        return err("Blacklisted vendors cannot be invited: " + ", ".join(blocked), 409)
     added = 0
     for sid in ids:
         if sid not in known:
@@ -552,6 +573,9 @@ def _list_rows(a, candidates):
         company = (r.get("company") or "").strip()
         if not s and company:
             s, how = by_name.get(company.lower()), "name"
+        if s and s.suspended:
+            rejected.append({**r, "reason": "Blacklisted vendor cannot be invited."})
+            continue
         note = ""
         if s:
             sends_to = logins.get(s.id) or s.contact_email or r["email"]
@@ -818,6 +842,8 @@ def auction_award(request, p, body, aid):
     if a.status != "closed":
         return err("An auction is awarded after it closes, not before.", 409)
     won = [l for l in a.lots.all() if l.awarded_to]
+    if Supplier.objects.filter(pk__in=[l.awarded_to for l in won], suspended=True).exists():
+        return err("A selected winner is blacklisted. Review the lot before awarding; no award has been issued.", 409)
     if not won:
         return err("No lot has a winner - every lot was either unbid or failed its reserve.", 409)
     a.status = "awarded"
@@ -953,9 +979,9 @@ def place_bid(request, p, body, aid, lid):
     if not lot:
         return err("Lot not found.", 404)
     try:
-        amount = int(body.get("amount"))
+        amount = _bid_whole(body.get("amount"))
     except (TypeError, ValueError):
-        return err("Enter a price.")
+        return err("Enter a positive whole amount; fractions and negative prices are not accepted.")
 
     bid, bad = engine.place_bid(lot, p["supplierId"], amount)
     if bad:

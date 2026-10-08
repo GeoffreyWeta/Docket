@@ -761,6 +761,7 @@ export function PeopleTab({ state, reload, toast }) {
 
 /* ---------------- roles ---------------- */
 const ROLE_JOBS = [
+  ["auction", "Auction organiser", "Creates auctions, invites bidders and runs the room. Award approval is separate.", "procurement", []],
   ["officer", "Procurement officer", "Drafts and runs tenders; does not manage team access.", "procurement", ["team.invite", "team.org", "settings.rename", "supplier.import", "finance.sync", "finance.dimensions", "tender.lifecycle", "supplier.suspend", "supplier.prequalify", "desk.see_reports"]],
   ["manager", "Procurement manager", "Runs procurement and views the workload below them.", "procurement", ["team.invite", "team.org", "settings.rename", "supplier.import", "finance.sync", "finance.dimensions"]],
   ["head", "Head of procurement", "Runs the department, its team and reporting lines.", "procurement", []],
@@ -770,6 +771,9 @@ const ROLE_JOBS = [
   ["executive", "Executive", "Reviews activity and reports; does not approve by default.", "auditor", []],
 ];
 const ROLE_CHOICES = [
+  {label:"Create and run auctions", help:"Create buying or selling auctions, invite bidders and run the room. Does not grant award authority.", keys:["auction.create","auction.edit","auction.invite","auction.open","auction.lifecycle","auction.monitor"], needs:["page.auctions"]},
+  {label:"Approve auction awards", help:"Confirm auction winners and commit the award after closing.", keys:["auction.award"], needs:["page.auctions","auction.monitor"]},
+  {label:"Blacklist vendors", help:"Block invitations, new bids and awards across tenders and auctions. A recorded reason is required.", keys:["supplier.suspend"], needs:["page.suppliers"]},
   {label:"View the team", help:"See colleagues and who reports to whom.", keys:["page.team", "team.view"]},
   {label:"Invite colleagues", help:"Issue invitations that give new people workspace access.", keys:["team.invite"], needs:["page.team", "team.view"]},
   {label:"Change reporting lines", help:"Move people between managers; this changes whose work rolls up to them.", keys:["team.org"], needs:["page.team", "team.view"]},
@@ -801,6 +805,10 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
     const job = ROLE_JOBS.find(([key]) => key === value);
     const source = job ? state.roles.find((r) => r.key === job[3]) : state.roles.find((r) => "existing:" + r.key === value);
     const next = new Set((source?.perms || []).filter((key) => available.has(key) && (!job || !job[4].includes(key))));
+    if (value === "auction") {
+      next.clear();
+      ["page.auctions", "auction.create", "auction.edit", "auction.invite", "auction.open", "auction.lifecycle", "auction.monitor"].filter((key) => available.has(key)).forEach((key) => next.add(key));
+    }
     if (job?.[0] === "executive") {
       [...next].filter((key) => ["award.decide", "tender.publish_decision", "auction.award"].includes(key)).forEach((key) => next.delete(key));
     }

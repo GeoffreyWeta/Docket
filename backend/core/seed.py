@@ -564,6 +564,9 @@ def seed_all():
     OrgSetting.objects.update_or_create(
         pk=1, defaults={"data": {"dimensions": DIMENSIONS, **look}})
     seed_finance(T)
+    if settings.DEMO_LOGIN:
+        from django.core.management import call_command
+        call_command("seed_sale_demo", verbosity=0)
 
     # Write down what was just made, so an administrator can take it away again
     # without touching anything real that arrives later.
@@ -638,6 +641,7 @@ def record_fixture(at=None):
     # The demo logins, by username. Administrators are never in here - they are
     # not part of the fixture and survive both the reset and the clear.
     manifest["auth.User"] = [u for u, _, _ in DEMO_USERS]
+    manifest["auth.User"] += list(User.objects.filter(username__in=["auctionhost", "staffbidder"], is_superuser=False).values_list("username", flat=True))
     DemoFixture.objects.update_or_create(
         pk=1, defaults={"at": at or now_ms(), "manifest": manifest})
     return manifest

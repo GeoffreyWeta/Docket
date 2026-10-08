@@ -69,7 +69,9 @@ def get_persona(request):
     if now_ms() - tok.last_used > 60_000:
         tok.last_used = now_ms()
         tok.save(update_fields=["last_used"])
-    identity = tok.user.profile.identity
+    identity = tok.user.profile.bidder_identity if tok.bidder_mode else tok.user.profile.identity
+    if identity is None:
+        return None
     identity["userId"] = tok.user_id
     return identity
 
@@ -1300,6 +1302,8 @@ def recommend_award(request, p, body, tid):
     if bid.amount is None:
         return err("That bid's commercial envelope is still sealed.", 409)
     s = Supplier.objects.get(pk=bid.supplier_id)
+    if s.suspended:
+        return err("This vendor is blacklisted (suspended) and cannot receive an award.", 409)
     ts = tech_score(t, bid)
     cs = comm_score(bid, bids, t)
     tot = total_score(t, bid, bids)
@@ -1372,6 +1376,8 @@ def award_decision(request, p, body, tid):
     rec = t.award_rec
     if not rec or t.status != "evaluation":
         return err("No award recommendation is awaiting approval on this tender.", 409)
+    if body.get("ok") and Supplier.objects.filter(pk=rec.get("supplierId"), suspended=True).exists():
+        return err("The recommended vendor is blacklisted (suspended). Return the recommendation for review.", 409)
 
     reason = "" if body.get("ok") else _return_reason(body)
     step = approvals.current_step(t, approvals.AWARD)
@@ -1453,6 +1459,8 @@ def award_decision(request, p, body, tid):
 
 @route(["POST", "DELETE"], roles={"supplier"})
 def bid_collection(request, p, body, tid):
+    if request.method == "POST" and p["role"] == "supplier" and Supplier.objects.filter(pk=p["supplierId"], suspended=True).exists():
+        return err("This vendor is blacklisted (suspended) and cannot submit bids. Contact procurement.", 403)
     t = Tender.objects.filter(pk=tid).first()
     if not t:
         return err("Tender not found.", 404)

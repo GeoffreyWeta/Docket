@@ -530,6 +530,150 @@ ok("a removed bidder no longer leads", engine.best_bid(lot).supplier_id == V2.id
    engine.best_bid(lot).supplier_id)
 
 
+# ---------------------------------------------------------------- invitation-to-bid journey
+print("\n=== invitation, account claim, bidding and award journey ===")
+from django.test import override_settings
+from django.core import mail
+from core.models import ActionToken
+from unittest.mock import patch
+
+with override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend"):
+    organiser, organiser_token = buyer("Independent auction organiser", "evaluator")
+    organiser_profile = Profile.objects.get(persona=organiser)
+    organiser_profile.perm_extra = ["page.auctions", "auction.create", "auction.edit",
+                                   "auction.invite", "auction.open", "auction.lifecycle", "auction.monitor"]
+    organiser_profile.save(update_fields=["perm_extra"])
+    ok("organiser need not have a reporting manager", organiser.manager_id is None)
+    event = call("POST", "/api/auctions/new/", organiser_token,
+                 {"title": "Invitation journey", "terms": "Accept before bidding"})
+    aid = event["id"]
+    lot_data = call("POST", f"/api/auctions/{aid}/lots/", organiser_token,
+                    {"title": "Equipment", "ceiling": 10000, "minDecrement": 100})
+    lid = lot_data["id"]
+    call("POST", f"/api/auctions/{aid}/", organiser_token,
+         {"endsAt": now_ms() + 60 * MIN, "requireAcceptance": True})
+    response = call("POST", f"/api/auctions/{aid}/invite_list/", organiser_token,
+                    {"rows": [{"name": "Staff One", "email": "staff.one@eng.test"},
+                              {"name": "Staff Two", "email": "staff.two@eng.test"}], "send": True})
+    ok("two new invitees are added and emailed", response["added"] == 2 and response["sent"] == 2)
+    tokens = list(ActionToken.objects.filter(kind="vendor_claim", used_at__isnull=True,
+                                             email__in=["staff.one@eng.test", "staff.two@eng.test"]))
+    ok("new invitees receive account-claim links", len(tokens) == 2 and all(any(t.token in m.body for m in mail.outbox) for t in tokens))
+    response2 = call("POST", f"/api/auctions/{aid}/invite_list/", organiser_token,
+                     {"rows": [{"name": "Staff One", "email": "staff.one@eng.test"}], "send": True})
+    ok("repeat import does not duplicate participation", AuctionParticipant.objects.filter(auction_id=aid).count() == 2)
+    bidder_tokens = []
+    for token in tokens:
+        call("GET", f"/api/register/claim/?token={token.token}")
+        st, _ = maybe("POST", "/api/register/claim/", body={"token": token.token, "password": "short"})
+        token.refresh_from_db()
+        ok("invalid password preserves the invitation link", st == 400 and token.used_at is None)
+        call("POST", "/api/register/claim/", body={"token": token.token, "password": "JourneyPassword123!", "supplierId": OUT.id})
+        user = User.objects.get(username=token.email)
+        ok("claim attaches only to the supplier in the invitation", user.profile.supplier_id == token.payload["supplierId"])
+        st, _ = maybe("POST", "/api/register/claim/", body={"token": token.token, "password": "JourneyPassword123!"})
+        ok("claimed link cannot be reused", st == 410)
+        login = call("POST", "/api/auth/login/", body={"username": token.email, "password": "JourneyPassword123!"})
+        bidder_tokens.append(login["token"])
+        ok("invitee does not become a procurement team member", user.profile.persona_id is None)
+    call("POST", f"/api/auctions/{aid}/open/", organiser_token)
+    ok("claimed invitee finds the auction in their portal", aid in [x["id"] for x in call("GET", "/api/auctions/mine/", bidder_tokens[0])["auctions"]])
+    st, _ = maybe("POST", f"/api/auctions/{aid}/lots/{lid}/bid/", bidder_tokens[0], {"amount": 9900})
+    ok("invitation journey requires acceptance before bidding", st == 409)
+    for bt in bidder_tokens:
+        call("POST", f"/api/auctions/{aid}/accept/", bt)
+    call("POST", f"/api/auctions/{aid}/lots/{lid}/bid/", bidder_tokens[0], {"amount": 9900})
+    st, _ = maybe("POST", f"/api/auctions/{aid}/lots/{lid}/bid/", bidder_tokens[1], {"amount": 10100})
+    ok("current engine refuses the higher bid a staff sale needs", st == 409)
+    call("POST", f"/api/auctions/{aid}/lots/{lid}/bid/", bidder_tokens[1], {"amount": 9800})
+    call("POST", f"/api/auctions/{aid}/close/", organiser_token)
+    st, _ = maybe("POST", f"/api/auctions/{aid}/award/", organiser_token)
+    ok("organising an auction does not grant award authority", st == 403)
+    call("POST", f"/api/auctions/{aid}/award/", APPR_T)
+    settled = AuctionLot.objects.get(pk=lid)
+    ok("reverse journey awards the lowest bidder", settled.awarded_to == User.objects.get(username=tokens[1].email).profile.supplier_id)
+
+# ---------------------------------------------------------------- selling and blacklist boundaries
+print("\n=== selling auction and global blacklist ===")
+sale, sale_lot = make(ceiling=10000, decrement=500, reserve=15000, vendors=(V1, V2))
+sale.direction = "sale"
+sale.save(update_fields=["direction"])
+st, _ = bid(sale, sale_lot, V1_T, 9999)
+ok("sale refuses a bid below its opening price", st == 409)
+st, _ = bid(sale, sale_lot, V1_T, 10000)
+ok("sale accepts its opening price", st == 200)
+st, _ = bid(sale, sale_lot, V2_T, 10499)
+ok("sale enforces minimum increments", st == 409)
+st, _ = bid(sale, sale_lot, V2_T, 11000)
+ok("sale accepts a higher eligible bid", st == 200)
+ok("sale ranks the highest bidder first", engine.standings(sale_lot)[0]["supplierId"] == V2.id)
+st, _ = bid(sale, sale_lot, V2_T, 12000)
+ok("sale refuses a leader bidding against themselves", st == 409)
+st, _ = maybe("POST", f"/api/auctions/{sale.id}/lots/{sale_lot.id}/limit/", V1_T, {"floor": 20000})
+ok("sale does not run reverse proxy instructions", st == 409)
+call("POST", f"/api/auctions/{sale.id}/close/", PROC_T)
+sale_lot.refresh_from_db()
+ok("sale below reserve has no winner", not sale_lot.awarded_to)
+sale2, sale2_lot = make(ceiling=10000, decrement=500, reserve=15000, vendors=(V1, V2))
+sale2.direction = "sale"; sale2.save(update_fields=["direction"])
+bid(sale2, sale2_lot, V1_T, 15000)
+bid(sale2, sale2_lot, V2_T, 16000)
+call("POST", f"/api/suppliers/{V2.id}/suspend/", PROC_T, {"reason":"Blacklist journey verification"})
+st, _ = bid(sale2, sale2_lot, V2_T, 17000)
+ok("blacklisted bidder cannot bid in a sale", st == 409)
+ok("blacklisted sale bid stops ranking without deleting history", engine.best_bid(sale2_lot).supplier_id == V1.id and sale2_lot.bids.filter(supplier_id=V2.id).exists())
+rev, rev_lot = make(vendors=(V2,))
+st, _ = bid(rev, rev_lot, V2_T, 88000000)
+ok("blacklisted bidder cannot bid in a reverse auction", st == 409)
+st, _ = maybe("POST", f"/api/auctions/{sale2.id}/participants/", PROC_T, {"supplierIds":[V2.id]})
+ok("blacklist blocks direct auction invitations", st == 409)
+call("POST", f"/api/suppliers/{V2.id}/suspend/", PROC_T, {"ok":False})
+ok("reinstatement restores eligibility", engine.best_bid(sale2_lot).supplier_id == V2.id)
+call("POST", f"/api/auctions/{sale2.id}/close/", PROC_T)
+call("POST", f"/api/suppliers/{V2.id}/suspend/", PROC_T, {"reason":"Changed after closing"})
+st, _ = maybe("POST", f"/api/auctions/{sale2.id}/award/", APPR_T)
+ok("blacklisting after closing prevents award", st == 409)
+call("POST", f"/api/suppliers/{V2.id}/suspend/", PROC_T, {"ok":False})
+call("POST", f"/api/auctions/{sale2.id}/award/", APPR_T)
+sale2_lot.refresh_from_db()
+ok("sale award goes to the highest eligible bidder", sale2_lot.awarded_to == V2.id and sale2_lot.awarded_amount == 16000)
+ok("sale proceeds are not reported as procurement savings", engine.savings(sale2)["saved"] == 0 and engine.savings(sale2)["revenue"] == 16000)
+
+# ---------------------------------------------------------------- existing staff and bulk audience boundaries
+with override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend"):
+    staff_persona, staff_work_token = buyer("Existing ENG Staff", "procurement")
+    staff_user = staff_persona.profile_set.first().user
+    staff_user.username = "existing.staff@eng.test"; staff_user.email = staff_user.username
+    staff_user.set_password("ExistingPassword123!"); staff_user.save()
+    invitation = call("POST", f"/api/auctions/{aid}/invite_list/", organiser_token,
+                      {"rows":[{"name":"Existing ENG Staff", "email":staff_user.username}], "send":True}, expect=409)
+    fresh = call("POST", "/api/auctions/new/", organiser_token, {"title":"Staff and company sale", "direction":"sale"})
+    fid = fresh["id"]
+    response = call("POST", f"/api/auctions/{fid}/invite_list/", organiser_token,
+                    {"rows":[{"name":"Existing ENG Staff", "email":staff_user.username},
+                             {"name":"Company Contact", "email":"buyer@company.test", "company":"Example Company"}], "send":True})
+    ok("staff and companies can join the same selling auction", response["created"] == 2 and response["sent"] == 2)
+    link = ActionToken.objects.filter(kind="vendor_claim", email=staff_user.username, used_at__isnull=True).latest("created")
+    info = call("GET", f"/api/register/claim/?token={link.token}")
+    ok("existing staff are told to use their existing password", info["supplier"]["existingAccount"])
+    st, _ = maybe("POST", "/api/register/claim/", body={"token":link.token, "password":"WrongPassword123!"})
+    ok("invitation cannot reset an existing staff password", st == 401)
+    call("POST", "/api/register/claim/", body={"token":link.token, "password":"ExistingPassword123!"})
+    staff_user.refresh_from_db()
+    ok("existing staff retain their work identity and password", staff_user.profile.persona_id == staff_persona.id and staff_user.check_password("ExistingPassword123!"))
+    bidder_session = call("POST", "/api/auth/login/", body={"username":staff_user.username,"password":"ExistingPassword123!","asBidder":True})
+    work_session = call("POST", "/api/auth/login/", body={"username":staff_user.username,"password":"ExistingPassword123!"})
+    ok("staff can choose a separate bidder identity", bidder_session["me"]["role"] == "supplier" and work_session["me"]["role"] == "procurement")
+    st, _ = maybe("POST", "/api/auctions/new/", bidder_session["token"], {"title":"Forbidden buyer action"})
+    ok("bidder session cannot reuse work-side permissions", st == 403)
+    st, _ = maybe("POST", f"/api/auctions/{fid}/", organiser_token, {"direction":"reverse"})
+    ok("auction purpose cannot change underneath participants", st == 409)
+    call("POST", f"/api/suppliers/{V2.id}/suspend/", PROC_T, {"reason":"List boundary"})
+    response = call("POST", f"/api/auctions/{fid}/invite_list/", organiser_token,
+                    {"rows":[{"name":"Vendor Contact", "email":"new-contact@vendor.test", "company":V2.name}], "send":False})
+    ok("file invitation rejects a blacklisted company", response["added"] == 0 and bool(response["notAdded"]))
+    call("POST", f"/api/suppliers/{V2.id}/suspend/", PROC_T, {"ok":False})
+
 # ---------------------------------------------------------------- result
 
 print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")

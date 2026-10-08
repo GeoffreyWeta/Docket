@@ -882,9 +882,9 @@ def suspend_supplier(request, p, body, sid):
     s.save(update_fields=["suspended", "suspended_reason", "suspended_at"])
     log(p, "Vendor suspended",
         f"{s.name}: {reason}"
-        + (f" Still invited to {len(live)} live event(s); existing invitations stand."
+        + (f" On {len(live)} live tender(s); new bids and awards are blocked while suspended."
            if live else ""))
     notify_supplier(s.id, "Vendor account suspended",
-                    f"{org_name()} has suspended {s.name} from new tender invitations. "
+                    f"{org_name()} has blacklisted (suspended) {s.name} from invitations, new bids and awards across tenders and auctions. "
                     f"Reason given: {reason}")
     return JsonResponse({"ok": True, "suspended": True, "liveEvents": live})

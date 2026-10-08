@@ -415,6 +415,13 @@ def sec_round_one(ctx):
     tid = ctx["tid"]
     a_mail, b_mail = VENDOR_A["email"], VENDOR_B["email"]
 
+    call("POST", f"/api/suppliers/{ctx['a']}/suspend/", BUYER,
+         {"reason": "Global blacklist test"})
+    refused("blacklisted invited vendor cannot submit a tender bid", "POST",
+            f"/api/tenders/{tid}/bids/", a_mail,
+            {"decl": True, "amount": 34_000_000}, status=(403,))
+    call("POST", f"/api/suppliers/{ctx['a']}/suspend/", BUYER, {"ok": False})
+
     # --- a bid needs its technical proposal first --------------------------
     refused("sealing a bid with no technical proposal", "POST", f"/api/tenders/{tid}/bids/",
             a_mail, {"decl": True, "amount": 34_000_000}, status=(400,))
@@ -667,6 +674,10 @@ def sec_evaluation_award(ctx):
     refused("an auditor recommending an award", "POST", f"/api/tenders/{tid}/recommend/",
             AUDITOR, {"bidId": best["id"]}, status=(403,))
     signin(BUYER)
+    call("POST", f"/api/suppliers/{best['supplierId']}/suspend/", BUYER, {"reason":"Blacklist recommendation check"})
+    refused("recommending a blacklisted vendor", "POST", f"/api/tenders/{tid}/recommend/", BUYER,
+            {"bidId":best["id"]}, status=(409,))
+    call("POST", f"/api/suppliers/{best['supplierId']}/suspend/", BUYER, {"ok":False})
     call("POST", f"/api/tenders/{tid}/recommend/", BUYER, {"bidId": best["id"]},
          label="award recommended to the approver")
     refused("recommending twice", "POST", f"/api/tenders/{tid}/recommend/", BUYER,
@@ -675,6 +686,12 @@ def sec_evaluation_award(ctx):
             f"/api/tenders/{tid}/award_decision/", BUYER, {"ok": True}, status=(403,))
 
     # --- returned for review, then approved --------------------------------
+    call("POST", f"/api/suppliers/{best['supplierId']}/suspend/", BUYER, {"reason":"Blacklist award check"})
+    signin(APPROVER)
+    refused("approving an award to a blacklisted vendor", "POST", f"/api/tenders/{tid}/award_decision/", APPROVER,
+            {"ok":True}, status=(409,))
+    signin(BUYER)
+    call("POST", f"/api/suppliers/{best['supplierId']}/suspend/", BUYER, {"ok":False})
     signin(APPROVER)
     refused("returning without a reason", "POST", f"/api/tenders/{tid}/award_decision/", APPROVER,
             {"ok": False}, status=(400,))

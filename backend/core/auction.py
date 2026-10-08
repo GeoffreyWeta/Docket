@@ -37,7 +37,7 @@ normally goes wrong:
 """
 from django.db import transaction
 
-from .models import Auction, AuctionLot, AuctionParticipant, LotBid, ProxyBid
+from .models import Auction, AuctionLot, AuctionParticipant, LotBid, ProxyBid, Supplier
 from .util import now_ms, record_event, rid
 
 # A proxy cascade is a fixed point: each automatic bid may provoke another. It
@@ -59,7 +59,8 @@ def _removed(auction_id):
 def live_bids(lot):
     return (lot.bids.filter(retracted_at__isnull=True)
             .exclude(supplier_id__in=_removed(lot.auction_id))
-            .order_by("amount", "at"))
+            .exclude(supplier_id__in=Supplier.objects.filter(suspended=True).values_list("id", flat=True))
+            .order_by("-amount" if lot.auction.direction == "sale" else "amount", "at"))
 
 
 def best_bid(lot):
@@ -78,9 +79,9 @@ def standings(lot):
     best = {}
     for b in live_bids(lot):
         cur = best.get(b.supplier_id)
-        if cur is None or b.amount < cur.amount:
+        if cur is None or (b.amount > cur.amount if lot.auction.direction == "sale" else b.amount < cur.amount):
             best[b.supplier_id] = b
-    rows = sorted(best.values(), key=lambda b: (b.amount, b.at))
+    rows = sorted(best.values(), key=lambda b: (-b.amount if lot.auction.direction == "sale" else b.amount, b.at))
     return [{"rank": i + 1, "supplierId": b.supplier_id, "amount": b.amount,
              "at": b.at, "kind": b.kind, "bidId": b.id}
             for i, b in enumerate(rows)]
@@ -120,6 +121,8 @@ def check_bid(lot, supplier_id, amount, now=None, kind="manual"):
         return "This lot is closed."
 
     p = participant(a, supplier_id)
+    if Supplier.objects.filter(pk=supplier_id, suspended=True).exists():
+        return "This bidder is blacklisted (suspended) and cannot bid. Contact the organiser."
     if not p:
         return "You are not a participant in this auction."
     if p.disqualified:
@@ -135,6 +138,13 @@ def check_bid(lot, supplier_id, amount, now=None, kind="manual"):
         return "Enter a price."
 
     top = best_bid(lot)
+    if a.direction == "sale":
+        if top is None:
+            return None if amount >= lot.ceiling else f"The starting price is {lot.ceiling:,}. Bid that amount or more."
+        if top.supplier_id == supplier_id:
+            return "You already hold the highest bid on this lot."
+        minimum = lot.step_to_beat(top.amount)
+        return None if amount >= minimum else f"The highest bid is {top.amount:,}. Bid {minimum:,} or more."
     if top is None:
         if lot.ceiling and amount > lot.ceiling:
             return f"The opening price is {lot.ceiling:,}. Your first bid must be at or below it."
@@ -244,6 +254,8 @@ def resolve_proxies(lot, now=None):
     proxy has a floor; the cap is there for a configuration nobody anticipated,
     not for the normal case.
     """
+    if lot.auction.direction == "sale":
+        return []
     now = now if now is not None else now_ms()
     placed = []
     for _ in range(MAX_PROXY_ROUNDS):
@@ -251,7 +263,7 @@ def resolve_proxies(lot, now=None):
         if top is None:
             break
         limit = lot.step_to_beat(top.amount)
-        removed = set(_removed(lot.auction_id))
+        removed = set(_removed(lot.auction_id)) | set(Supplier.objects.filter(suspended=True).values_list("id", flat=True))
         contenders = [
             px for px in lot.proxies.filter(cancelled_at__isnull=True)
             if px.supplier_id != top.supplier_id and px.floor <= limit
@@ -275,6 +287,8 @@ def set_proxy(lot, supplier_id, floor, now=None):
     """Replace this vendor's standing instruction on this lot, then let it act."""
     now = now if now is not None else now_ms()
     a = lot.auction
+    if a.direction == "sale":
+        return None, "Automatic bidding is not available for selling auctions. Place bids manually."
     p = participant(a, supplier_id)
     if not p or not p.may_bid:
         return None, "You are not bidding in this auction."
@@ -339,7 +353,7 @@ def close_auction(a, actor, now=None):
         lot.status = "closed"
         if top is None:
             outcome.append({"lot": lot.id, "result": "no bids"})
-        elif lot.reserve is not None and top.amount > lot.reserve:
+        elif lot.reserve is not None and (top.amount < lot.reserve if a.direction == "sale" else top.amount > lot.reserve):
             outcome.append({"lot": lot.id, "result": "reserve not met",
                             "best": top.amount, "supplierId": top.supplier_id})
         else:
@@ -404,6 +418,8 @@ def savings(a):
             continue
         start += lot.ceiling
         end += lot.awarded_amount
+    if a.direction == "sale":
+        return {"ceiling": start, "final": end, "saved": 0, "pct": 0.0, "revenue": end}
     return {"ceiling": start, "final": end, "saved": start - end,
             "pct": ((start - end) / start * 100) if start else 0.0}
 
