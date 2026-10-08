@@ -3238,6 +3238,8 @@ export function NewTender({ api, editId }) {
       : [{ ...blankLine(), desc: editing.title, qty: "1", unit: "lot",
            price: editing.budget ? String(editing.budget) : "" }],
     twoStage: !!editing.twoStage, techThreshold: editing.techThreshold ?? 70,
+    technicalDocumentRequired: editing.technicalDocumentRequired ?? true,
+    commercialDocumentRequired: editing.commercialDocumentRequired ?? false,
     minDecrement: String(editing.minDecrement || ""),
     baseline: editing.baseline ? String(editing.baseline) : "",
     baselineSource: editing.baselineSource || "",
@@ -3248,6 +3250,7 @@ export function NewTender({ api, editId }) {
     criteria: [{ id: uid(), name: "Quality & compliance", weight: 40 }, { id: uid(), name: "Capacity & reliability", weight: 35 }, { id: uid(), name: "Commercial terms", weight: 25 }],
     invited: [], lines: [blankLine()],
     twoStage: false, techThreshold: 70, minDecrement: "",
+    technicalDocumentRequired: true, commercialDocumentRequired: false,
     baseline: "", baselineSource: "", projectedCost: "",
   });
   const [initial] = useState(() => JSON.stringify(f));
@@ -3399,6 +3402,8 @@ export function NewTender({ api, editId }) {
         id: l.id, desc: l.desc.trim(), qty: Number(l.qty), unit: l.unit.trim() || "unit",
         itemCode: l.itemCode || "", price: Number(l.price) || 0 })),
       twoStage: f.twoStage, techThreshold: Number(f.techThreshold) || 70,
+      technicalDocumentRequired: f.technicalDocumentRequired ?? true,
+      commercialDocumentRequired: f.commercialDocumentRequired ?? false,
       minDecrement: Number(f.minDecrement) || 0,
       baseline: Number(f.baseline) || 0,
       baselineSource: f.baselineSource.trim(),
@@ -3594,6 +3599,18 @@ export function NewTender({ api, editId }) {
           )}
 
           <InviteStep api={api} f={f} set={set} />
+          {!isAuction && <div className="card">
+            <div className="chead"><h3>Bid documents</h3></div>
+            <div className="cbody">
+              <p className="hint">Choose which documents bidders must upload before submitting their first bid. Unchecked documents are optional; bidders still enter their prices on screen.</p>
+              <label className="checkline"><input type="checkbox" checked={f.technicalDocumentRequired ?? true}
+                onChange={(e) => set("technicalDocumentRequired", e.target.checked)} />Require a technical proposal</label>
+              <p className="hint">Specifications, delivery plan or an explanation of how the bidder will meet your requirements.</p>
+              <label className="checkline"><input type="checkbox" checked={f.commercialDocumentRequired ?? false}
+                onChange={(e) => set("commercialDocumentRequired", e.target.checked)} />Require a commercial document</label>
+              <p className="hint">A quotation or pricing attachment. Leave both unchecked to allow a bid without document uploads.</p>
+            </div>
+          </div>}
 
           {/* Everything a handful of tenders need and most do not. Still here,
               one click away, and no longer the first thing anybody reads. */}

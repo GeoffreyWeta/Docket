@@ -311,6 +311,8 @@ class SpendDimensions(models.Model):
 
 
 class Tender(Syncable, SpendDimensions):
+    technical_document_required = models.BooleanField(default=True)
+    commercial_document_required = models.BooleanField(default=False)
     id = models.CharField(primary_key=True, max_length=16)
     ref = models.CharField(max_length=40, unique=True)
     title = models.CharField(max_length=200)

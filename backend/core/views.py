@@ -173,6 +173,8 @@ def tender_view(t, p):
         "scope": t.scope, "criteria": t.criteria, "lines": t.lines, "addenda": t.addenda,
         "invited": t.invited, "awardRec": None, "awardMemo": None, "letters": None,
         "twoStage": t.two_stage, "techOpenedAt": t.tech_opened_at, "techThreshold": t.tech_threshold,
+        "technicalDocumentRequired": t.technical_document_required,
+        "commercialDocumentRequired": t.commercial_document_required,
         # Ownership and the savings basis. A supplier is told neither: which
         # buyer is carrying a tender, and what the organisation was paying
         # before it went to market, are both facts a bidder could price against.
@@ -875,6 +877,12 @@ def _apply_tender_payload(t, body):
     if t.ttype not in ("RFI", "RFQ", "RFP"):
         t.ttype = "RFQ"
     t.two_stage = bool(body.get("twoStage"))
+    for key, field in (("technicalDocumentRequired", "technical_document_required"),
+                       ("commercialDocumentRequired", "commercial_document_required")):
+        if key in body:
+            if not isinstance(body[key], bool):
+                raise vocab.Refused("Document requirements must be true or false.")
+            setattr(t, field, body[key])
     try:
         t.tech_threshold = max(0, min(100, int(body.get("techThreshold", 70) or 70)))
     except (TypeError, ValueError):
@@ -1524,9 +1532,13 @@ def bid_collection(request, p, body, tid):
     # technical proposal, so demanding a fresh upload there would be asking for
     # a copy of a document already on the record.
     first_round = rnd is None or rnd.number == 1
-    if first_round and not Document.objects.filter(
-            tender=t, kind="bid", supplier_id=me, envelope="technical").exists():
-        return err("Upload your technical proposal before sealing the bid.")
+    if first_round:
+        for envelope, required, label in (
+                ("technical", t.technical_document_required, "technical proposal"),
+                ("commercial", t.commercial_document_required, "commercial document")):
+            if required and not Document.objects.filter(
+                    tender=t, kind="bid", supplier_id=me, envelope=envelope).exists():
+                return err(f"Upload your {label} before sealing the bid.")
     signed_at = now_ms()
     signed = {"noConflict": True, "signedBy": p["name"], "signedAt": signed_at}
     b = Bid.objects.create(id=rid("b"), tender=t, round=rnd, supplier_id=me, submitted_at=signed_at,
@@ -2670,6 +2682,8 @@ def duplicate_tender(request, p, body, tid):
         invited=[sid for sid in (src.invited or [])
                  if Supplier.objects.filter(pk=sid, suspended=False).exists()],
         addenda=[], two_stage=src.two_stage,
+        technical_document_required=src.technical_document_required,
+        commercial_document_required=src.commercial_document_required,
         tech_threshold=src.tech_threshold,
         # The expectation carries over with the structure; the deadline and the
         # rounds do not, because those are facts about the run, not the template.

@@ -48,7 +48,7 @@ const G = {
     steps: [
       ["Get prequalified", "Upload your compliance documents (tax clearance, certifications) with expiry dates from your company profile. The buyer reviews and approves; you're notified either way."],
       ["Answer invitations", "Invitations arrive by email. Open the bid room: read the scope, download tender documents, and ask questions: answers are published to all bidders, anonymised."],
-      ["Bid properly", "Upload your technical proposal (required) and commercial documents, price the lines, sign the declaration, seal the bid. You can withdraw and resubmit until the deadline."],
+      ["Bid properly", "Upload any documents the buyer requires, price the lines, sign the declaration, and seal the bid. Documents marked optional can be skipped. You can withdraw and resubmit until the deadline."],
       ["Trust the seal", "Your price is encrypted until the recorded opening: nobody, including the buyer, can see it early. In two-stage tenders, if you don't pass technical, your price is never seen at all."],
       ["Auctions are different", "In a reverse auction you see your live rank, never a competitor's price. Each bid must undercut your last by the minimum decrement."],
       ["Stay eligible", "You're reminded before your documents expire, so renew them from your profile to keep getting invited."],

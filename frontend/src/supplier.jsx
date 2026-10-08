@@ -569,6 +569,10 @@ function BidRoomFor({ api, t }) {
   const myDocs = (state.documents || []).filter((x) => x.kind === "bid" && x.tenderId === t.id);
   const tenderDocs = (state.documents || []).filter((x) => x.kind === "tender" && x.tenderId === t.id);
   const hasTechDoc = myDocs.some((x) => x.envelope === "technical");
+  const hasCommDoc = myDocs.some((x) => x.envelope === "commercial");
+  const firstRound = !rnd || rnd.number === 1;
+  const requiresTech = firstRound && (t.technicalDocumentRequired ?? true);
+  const requiresComm = firstRound && (t.commercialDocumentRequired ?? false);
   /* The same conditions the submit button is gated on, each able to name
      itself. The button used to be disabled behind a bare "62% complete" meter,
      which tells a vendor that something is missing and not what, on the one
@@ -577,9 +581,11 @@ function BidRoomFor({ api, t }) {
     { ok: amountValid, to: "sb-price",
       todo: hasLines ? "Price every line" : "Enter your bid amount",
       done: hasLines ? "Every line priced" : "Amount entered" },
-    { ok: hasTechDoc, to: "sb-docs",
+    ...(requiresTech ? [{ ok: hasTechDoc, to: "sb-docs",
       todo: "Upload your technical proposal", done: "Technical proposal attached",
-      note: "PDF, Office or image, up to 10 MB." },
+      note: "PDF, Office or image, up to 10 MB." }] : []),
+    ...(requiresComm ? [{ ok: hasCommDoc, to: "sb-docs",
+      todo: "Upload your commercial document", done: "Commercial document attached" }] : []),
     { ok: form.decl, to: "sb-decl",
       todo: "Sign the conflict-of-interest declaration", done: "Declaration signed" },
     ...addenda.map((a) => ({
@@ -686,7 +692,8 @@ function BidRoomFor({ api, t }) {
     setBusy(true); setAiFb("");
     try {
       const missing = [
-        !hasTechDoc && "technical proposal not uploaded",
+        requiresTech && !hasTechDoc && "technical proposal not uploaded",
+        requiresComm && !hasCommDoc && "commercial document not uploaded",
         !form.decl && "conflict declaration not signed",
         ...addenda.filter((a) => !acks[a.id]).map((a) => `"${a.title}" not acknowledged`),
       ].filter(Boolean);
@@ -912,11 +919,11 @@ function BidRoomFor({ api, t }) {
               ))}
               <div id="sb-docs" style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                 <label className="btn sm">
-                  {hasTechDoc ? "Add technical document" : "Upload technical proposal (required)"}
+                  {hasTechDoc ? "Add technical document" : `Upload technical proposal (${requiresTech ? "required" : "optional"})`}
                   <input type="file" hidden onChange={uploadDoc("technical")} />
                 </label>
                 <label className="btn sm">
-                  Add commercial document (optional)
+                  Add commercial document ({requiresComm ? "required" : "optional"})
                   <input type="file" hidden onChange={uploadDoc("commercial")} />
                 </label>
               </div>
