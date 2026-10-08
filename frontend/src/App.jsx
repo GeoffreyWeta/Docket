@@ -214,6 +214,12 @@ function DemoDoor({ onBack, onScreen, onLoggedIn }) {
 
   const enter = async (username) => {
     setBusy(username); setMsg("");
+    /* A persona is a demo account, so the click goes to the demo backend even
+       if this tab's demo flag was cleared after the buttons were drawn (signing
+       in or out of the real workspace in another tab does that). Otherwise the
+       click reached the real workspace, which refused it as "Demo logins are
+       disabled on this deployment." */
+    setDemo(true);
     try {
       const res = await demoLogin(username);
       onLoggedIn(res, username);
@@ -847,6 +853,7 @@ export default function App() {
   };
 
   const onSwitch = async (username) => {
+    setDemo(true);   // switching persona is a demo action: same reason as DemoDoor
     try {
       const res = await demoLogin(username);
       storeAuth(res.token, username);
