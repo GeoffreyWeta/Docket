@@ -762,9 +762,12 @@ export function PeopleTab({ state, reload, toast }) {
 /* ---------------- roles ---------------- */
 const ROLE_JOBS = [
   ["auction", "Auction organiser", "Creates auctions, invites bidders and runs the room. Award approval is separate.", "procurement", []],
-  ["officer", "Procurement officer", "Drafts and runs tenders; does not manage team access.", "procurement", ["team.invite", "team.org", "settings.rename", "supplier.import", "finance.sync", "finance.dimensions", "tender.lifecycle", "supplier.suspend", "supplier.prequalify", "desk.see_reports"]],
-  ["manager", "Procurement manager", "Runs procurement and views the workload below them.", "procurement", ["team.invite", "team.org", "settings.rename", "supplier.import", "finance.sync", "finance.dimensions"]],
-  ["head", "Head of procurement", "Runs the department, its team and reporting lines.", "procurement", []],
+  ["buyer", "Buyer", "Drafts and runs procurement requests; reports to a manager.", "procurement", ["team.invite", "team.org", "settings.rename", "supplier.import", "finance.sync", "finance.dimensions", "supplier.suspend", "supplier.prequalify", "desk.see_reports"]],
+  ["manager", "Manager", "Reviews buyers' work. Can report to another manager or HOD.", "procurement", ["team.invite", "team.org", "settings.rename", "supplier.import", "finance.sync", "finance.dimensions"]],
+  ["hod", "HOD", "Heads procurement and manages the department.", "procurement", []],
+  ["csco", "Chief Supply Chain Officer", "Leads procurement; signing limits are assigned separately.", "procurement", []],
+  ["finance", "Finance", "Works with the ledger outside the procurement reporting chain.", "auditor", []],
+  ["ceo", "CEO", "Reviews reports outside the procurement reporting chain.", "auditor", []],
   ["evaluator", "Evaluator", "Scores assigned bids and declares conflicts of interest.", "evaluator", []],
   ["approver", "Approver", "Reviews and approves decisions within assigned authority.", "approver", []],
   ["auditor", "Auditor", "Reviews procurement evidence without changing decisions.", "auditor", []],
@@ -800,11 +803,17 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
   const readOnly = false;
   const starter = !!role?.builtin;
   const available = new Set(state.catalogue.customGrantable);
+  const recommendations = state.catalogue.jobTemplates || [];
   const chooseJob = (value) => {
     setTemplate(value);
     const job = ROLE_JOBS.find(([key]) => key === value);
     const source = job ? state.roles.find((r) => r.key === job[3]) : state.roles.find((r) => "existing:" + r.key === value);
     const next = new Set((source?.perms || []).filter((key) => available.has(key) && (!job || !job[4].includes(key))));
+    const recommended = recommendations.find((r) => r.key === value);
+    if (recommended) {
+      next.clear();
+      recommended.perms.filter((key) => available.has(key)).forEach((key) => next.add(key));
+    }
     if (value === "auction") {
       next.clear();
       ["page.auctions", "auction.create", "auction.edit", "auction.invite", "auction.open", "auction.lifecycle", "auction.monitor"].filter((key) => available.has(key)).forEach((key) => next.add(key));
@@ -813,7 +822,7 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
       [...next].filter((key) => ["award.decide", "tender.publish_decision", "auction.award"].includes(key)).forEach((key) => next.delete(key));
     }
     setPerms(next);
-    if (job) setF((previous) => ({...previous, label:job[1], title:job[1], note:job[2]}));
+    if (recommended || job) setF((previous) => ({...previous, label:recommended?.label || job[1], title:recommended?.label || job[1], note:recommended?.note || job[2]}));
   };
 
   const save = async () => {
@@ -949,6 +958,41 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
   );
 }
 
+export function VendorsTab({ state }) {
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [page, setPage] = useState(0);
+  const vendors = state.vendors || [];
+  const shown = vendors.filter((v) => (filter === "all" || (filter === "signed" ? v.signedUp : !v.signedUp))
+    && `${v.name} ${v.code} ${v.category}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const last = Math.max(0, Math.ceil(shown.length / 50) - 1);
+  const current = Math.min(page, last);
+  return <>
+    <h2>Vendor register and sign-ups</h2>
+    <p className="muted">All vendors includes imported companies. Signed up means the vendor has a linked login account.</p>
+    <div className="role-toolbar">
+      <input className="in" type="search" aria-label="Search vendors" placeholder="Search name, code or category..."
+        value={query} onChange={(e) => {setQuery(e.target.value);setPage(0);}} />
+      <div className="filterchips" role="group" aria-label="Vendor sign-up status">
+        {[["all","All vendors",vendors.length],["signed","Signed up",vendors.filter((v) => v.signedUp).length],
+          ["pending","Not signed up",vendors.filter((v) => !v.signedUp).length]].map(([key,label,count]) =>
+          <button key={key} className={"fchip"+(filter === key ? " on" : "")} aria-pressed={filter === key}
+            onClick={() => {setFilter(key);setPage(0);}}>{label}<span className="n">{count}</span></button>)}
+      </div>
+    </div>
+    <div className="tablewrap"><table className="tbl"><thead><tr><th>Vendor</th><th>Category</th><th>Sign-up status</th></tr></thead>
+      <tbody>{shown.slice(current*50,current*50+50).map((v) => <tr key={v.id}>
+        <td data-l="Vendor"><b>{v.name}</b><div className="muted">{v.code || "No vendor code"}</div></td>
+        <td data-l="Category">{v.category}{v.blacklisted && <div className="chip warn">Blacklisted</div>}</td>
+        <td data-l="Sign-up status">{v.signedUp ? "Signed up · has an account" : "Not signed up"}</td>
+      </tr>)}</tbody></table></div>
+    {!shown.length && <p role="status">No vendors match this filter.</p>}
+    <div className="toolrow" style={{marginTop:12}}><span className="muted">{shown.length} vendors · page {current+1} of {last+1}</span>
+      <button className="btn sm" disabled={!current} onClick={() => setPage(current-1)}>Previous</button>
+      <button className="btn sm" disabled={current === last} onClick={() => setPage(current+1)}>Next</button></div>
+  </>;
+}
+
 export function RolesTab({ state, reload, toast }) {
   const [open, setOpen] = useState(null);       // role object
   const [creating, setCreating] = useState(false);
@@ -974,7 +1018,7 @@ export function RolesTab({ state, reload, toast }) {
       <div className="toolrow">
         <div style={{ flex: 1, minWidth: 0 }}>
           <h2 style={{ margin: "0 0 4px", fontSize: 20 }}>Roles &amp; access</h2>
-          <div className="muted" style={{ fontSize: 13 }}>Define what each role can do. Individual account adjustments remain in People.</div>
+          <div className="muted" style={{ fontSize: 13 }}>Buyer → Manager → HOD → Chief Supply Chain Officer. Finance, CEO and Auditors work outside this procurement chain. Assign each person's role in People and reporting line in Approvals; additional manager levels are supported.</div>
         </div>
         <button className="btn pri sm" onClick={() => setCreating(true)}><Icon n="plus" s={14} /> New role</button>
       </div>
@@ -988,37 +1032,30 @@ export function RolesTab({ state, reload, toast }) {
         </div>
       </div>
 
-      <div className="rolegrid">
+      <div className="tablewrap role-list">
+        <table className="tbl"><thead><tr><th>Role and purpose</th><th>People</th><th>Access</th><th>Actions</th></tr></thead><tbody>
         {visible.map((r) => (
-          <div className="card rolecard" key={r.key}>
-            <div className="chead">
-              <Avatar name={r.label} seed={r.key} size={36} />
-              <h3>{r.label.split(/\s-\s/)[0].trim()}</h3>
-              {r.builtin
-                ? <span className="chip" style={{ marginLeft: "auto" }}>starter</span>
-                : <span className="chip gold" style={{ marginLeft: "auto" }}>custom</span>}
-            </div>
-            <div className="cbody">
-              <div className="role-description muted">
+          <tr className="role-row" key={r.key}>
+            <td data-l="Role"><button className="role-name" aria-label={`Manage ${r.label}`} onClick={() => setOpen(r)}>{r.label}</button>
+              <div className="muted role-purpose">
                 {r.note || r.title || "Add a description to explain this role's responsibilities."}
               </div>
-              <div className="role-metrics"><span><b>{r.people}</b> {r.people === 1 ? "member" : "members"}</span>
-                <span><b>{r.perms.length}</b> {r.perms.length === 1 ? "permission" : "permissions"}</span></div>
-              <div className="role-areas" aria-label="Permission areas">
+              <span className="faint">{r.builtin ? "Starter · customisable" : "Custom role"}</span></td>
+            <td data-l="People">{r.people}</td>
+            <td data-l="Access"><b>{r.perms.length} permissions</b><div className="muted role-purpose" aria-label="Permission areas">
                 {state.catalogue.groups.filter((g) => state.catalogue.permissions.some((p) => p.group === g.id && r.perms.includes(p.key)))
-                  .map((g) => <span className="chip soft" key={g.id}>{g.title}</span>)}
+                  .map((g) => g.title).join(", ")}
                 {!r.perms.length && <span className="muted">No permissions assigned</span>}
-              </div>
-              <div className="btnrow role-actions">
-                <button className="btn sm" aria-label={`Manage ${r.label}`} onClick={() => setOpen(r)}>Manage role</button>
+              </div></td>
+            <td data-l="Actions"><div className="btnrow">
                 <button className="btn sm" disabled={busy || r.people > 0}
                         aria-label={`Delete ${r.label}`}
                         title={r.people ? "Move the people on it to another role first" : ""}
                         onClick={() => remove(r)}>{r.builtin ? "Remove" : "Delete"}</button>
-              </div>
-            </div>
-          </div>
+              </div></td>
+          </tr>
         ))}
+        </tbody></table>
       </div>
       {!visible.length && <div className="emptyfriendly" role="status"><b>No roles match</b>
         <span>Try another search or filter.</span><button className="btn sm" onClick={() => {setQuery("");setFilter("all");}}>Clear filters</button></div>}
@@ -1549,7 +1586,7 @@ function LinesCard({ org, onSaved, toast }) {
                   <span className="lbl">Reports to</span>
                   <select className="in" value={p.managerId || ""} disabled={busy === p.id}
                           onChange={(e) => setManager(p, e.target.value)}>
-                    <option value="">Nobody (top of the chart)</option>
+                    <option value="">No reporting manager assigned</option>
                     {people.filter((m) => m.id !== p.id && !below[p.id].has(m.id)).map((m) => (
                       <option key={m.id} value={m.id}>{m.name}{m.title ? " · " + m.title : ""}</option>
                     ))}
@@ -1602,7 +1639,7 @@ function greeting() {
   return "Good evening";
 }
 
-const TABS = [["people", "People"], ["roles", "Roles"], ["approvals", "Approvals"],
+const TABS = [["people", "People"], ["vendors", "Vendors"], ["roles", "Roles"], ["approvals", "Approvals"],
               ["front", "Appearance"], ["demo", "Demo data"], ["log", "What has changed"]];
 
 export default function SuperAdmin() {
@@ -1682,7 +1719,7 @@ export default function SuperAdmin() {
           <div className="pagehead">
             <h1>{greeting()}, {state.admin.name.split(" ")[0]}</h1>
             <span className="sub">
-              {state.counts.team} on the team · {state.counts.suppliers} vendors ·{" "}
+              {state.counts.team} on the team · {state.counts.vendorTotal ?? state.counts.suppliers} vendors in the register ·{" "}
               {state.counts.customRoles === 0 ? "no roles of your own yet" : `${state.counts.customRoles} role${state.counts.customRoles === 1 ? "" : "s"} you made`}
             </span>
           </div>
@@ -1690,9 +1727,10 @@ export default function SuperAdmin() {
           {err && <div className="notice" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 14 }}>{err}</div>}
 
           <div className="statrow">
-            {[["Everyone", c.total, "accounts that can sign in"],
+            {[["Everyone", c.total, "login accounts"],
               ["Your team", c.team, "people who run the tendering"],
-              ["Vendors", c.suppliers, "suppliers with a login"],
+              ["All vendors", c.vendorTotal ?? c.suppliers, "companies in the register"],
+              ["Vendor accounts", c.vendorSignedUp ?? c.suppliers, "vendors who signed up"],
               ["Administrators", c.admins, "can open this console"],
               ["Your own roles", c.customRoles, "beyond the built-in four"],
               ["Tailored access", c.customised, "moved off their role"],
@@ -1708,6 +1746,7 @@ export default function SuperAdmin() {
           </div>
 
           {tab === "people" && <PeopleTab state={state} reload={reload} toast={toast} />}
+          {tab === "vendors" && <VendorsTab state={state} />}
           {tab === "roles" && <RolesTab state={state} reload={reload} toast={toast} />}
           {tab === "approvals" && <ApprovalsTab org={state.org} reload={reload} toast={toast} />}
           {tab === "front" && <AppearanceTab current={state.landing} accent={state.accent}
@@ -1972,16 +2011,10 @@ export const ADMIN_CSS = `
   padding:2px 6px;border-radius:var(--r-xs);border:1px solid var(--line2);color:var(--faint)}
 .ptag.grant{color:var(--green);border-color:var(--chip-ok-line);background:var(--green-tint)}
 .ptag.revoke{color:var(--wax);border-color:var(--chip-warn-line);background:var(--wax-tint)}
-.rolegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
-.rolecard .cbody{display:flex;flex-direction:column}
-.rolecard{min-width:0}
-.rolecard .chead h3{flex:1;min-width:0;overflow-wrap:anywhere}
-.role-description{font-size:13px;line-height:1.6;min-height:62px;overflow-wrap:anywhere}
-.role-metrics{display:flex;gap:20px;padding:12px 0;border-bottom:1px solid var(--hair);font-size:12px;color:var(--muted)}
-.role-metrics b{font-size:18px;color:var(--ink);margin-right:3px}
-.role-areas{display:flex;flex-wrap:wrap;gap:6px;padding:14px 0;align-content:flex-start;flex:1}
-.role-areas .chip{white-space:normal;font-size:11px}
-.role-actions{margin-top:auto;padding-top:12px;border-top:1px solid var(--hair);justify-content:space-between}
+.role-list td{vertical-align:top}
+.role-name{background:none;border:0;padding:0;color:var(--ink);font:inherit;font-weight:600;text-align:left;cursor:pointer;overflow-wrap:anywhere}
+.role-name:hover{text-decoration:underline;color:var(--brand)}
+.role-purpose{font-size:12px;line-height:1.5;max-width:480px;margin:5px 0;overflow-wrap:anywhere}
 .role-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:18px}
 .role-toolbar>.in{flex:1 1 220px;min-width:0}
 .role-toolbar .filterchips{margin:0!important}

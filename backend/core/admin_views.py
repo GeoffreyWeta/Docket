@@ -27,7 +27,7 @@ from django.db import transaction
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-from .models import AccessRole, AdminAudit, AuthToken, FailedLogin, Persona, Profile
+from .models import AccessRole, AdminAudit, AuthToken, FailedLogin, Persona, Profile, Supplier
 from .permissions import (ADMIN_ROLE, ALL_KEYS, BUYER_ROLES, CATALOGUE,
                           CUSTOM_GRANTABLE, GROUPS, RESERVED_ROLE_KEYS,
                           SUPPLIER_ROLE, assignable_roles, custom_roles,
@@ -205,6 +205,11 @@ def admin_state(request, admin, body):
              .prefetch_related("tokens")
              .order_by("-is_superuser", "profile__supplier_id", "username"))
     rows = [_user_view(u, custom) for u in users]
+    from .workspace_jobs import job_templates
+    signed_up = set(Profile.objects.filter(supplier__isnull=False).values_list("supplier_id", flat=True))
+    vendors = [{"id":s.id,"name":s.name,"code":s.code,"category":s.category,
+                "signedUp":s.id in signed_up,"blacklisted":s.suspended}
+               for s in Supplier.objects.order_by("name")]
     counts = {}
     for r in rows:
         counts[r["role"]] = counts.get(r["role"], 0) + 1
@@ -214,14 +219,18 @@ def admin_state(request, admin, body):
             "groups": [{"id": g, "title": t, "blurb": b} for g, t, b in GROUPS],
             "permissions": CATALOGUE,
             "customGrantable": sorted(CUSTOM_GRANTABLE),
+            "jobTemplates": job_templates(),
         },
         "roles": [_role_view(r, counts) for r in assignable_roles(custom)],
         "users": rows,
+        "vendors": vendors,
         "counts": {
             "total": len(rows),
             "admins": sum(1 for r in rows if r["isAdmin"]),
             "team": sum(1 for r in rows if r["role"] not in (SUPPLIER_ROLE, ADMIN_ROLE)),
             "suppliers": sum(1 for r in rows if r["role"] == SUPPLIER_ROLE),
+            "vendorTotal": len(vendors),
+            "vendorSignedUp": len(signed_up),
             "disabled": sum(1 for r in rows if not r["active"]),
             "customised": sum(1 for r in rows if r["extra"] or r["revoked"]),
             "customRoles": sum(1 for r in custom.values() if not r["builtin"]),

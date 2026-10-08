@@ -567,6 +567,7 @@ def seed_all():
     if settings.DEMO_LOGIN:
         from django.core.management import call_command
         call_command("seed_sale_demo", verbosity=0)
+        call_command("configure_procurement_roles", verbosity=0)
 
     # Write down what was just made, so an administrator can take it away again
     # without touching anything real that arrives later.
