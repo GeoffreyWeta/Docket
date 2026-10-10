@@ -154,6 +154,41 @@ def auction_create(request, p, body):
     return JsonResponse(_auction_view(a, p, monitor=True))
 
 
+@route(["POST"], perm="auction.create")
+def auction_duplicate(request, p, body, aid):
+    """A new draft from an existing auction: same rules, lots and vendors, no
+    dates and no bids. The vendors come across uninvited, so nobody hears
+    about the copy until somebody sends the invitations."""
+    src = _find(aid)
+    if not src:
+        return err("Auction not found.", 404)
+    n = Auction.objects.count() + 1
+    while Auction.objects.filter(ref=f"AUC-{n:04d}").exists():
+        n += 1
+    a = Auction.objects.create(
+        id=rid("a"), ref=f"AUC-{n:04d}", title=f"{src.title} (copy)"[:200],
+        scope=src.scope, terms=src.terms, visibility=src.visibility,
+        currency=src.currency, direction=src.direction,
+        snipe_window_ms=src.snipe_window_ms, extend_by_ms=src.extend_by_ms,
+        max_extensions=src.max_extensions, ceiling_visible=src.ceiling_visible,
+        require_acceptance=src.require_acceptance,
+        created_at=now_ms(), created_by=p["name"], owner_id=p.get("id"),
+        **{key: getattr(src, key) for key, _ in Auction.DIMENSIONS},
+    )
+    AuctionLot.objects.bulk_create([
+        AuctionLot(id=rid("l"), auction=a, number=lot.number, title=lot.title,
+                   description=lot.description, qty=lot.qty, uom=lot.uom,
+                   ceiling=lot.ceiling, reserve=lot.reserve,
+                   min_decrement=lot.min_decrement, decrement_is_pct=lot.decrement_is_pct)
+        for lot in src.lots.all()])
+    suspended = set(Supplier.objects.filter(suspended=True).values_list("id", flat=True))
+    AuctionParticipant.objects.bulk_create([
+        AuctionParticipant(id=rid("ap"), auction=a, supplier_id=x.supplier_id)
+        for x in src.participants.all() if x.supplier_id not in suspended and not x.disqualified])
+    log(p, "Auction duplicated", f"{a.ref} drafted from {src.ref}: dates cleared, lots and vendors carried over.")
+    return JsonResponse(_auction_view(a, p, monitor=True))
+
+
 @route(["POST", "PATCH"], perm="auction.edit")
 def auction_update(request, p, body, aid):
     a = _find(aid)
@@ -229,6 +264,11 @@ def lot_create(request, p, body, aid):
         return err("Quantity and minimum step must be whole non-negative amounts.")
     if qty <= 0:
         return err("Quantity must be positive.")
+    pct = bool(body.get("decrementIsPct"))
+    if pct and step > 50:
+        # Past half, a buying auction's second bid would have to be nearly
+        # free; nobody sets that on purpose.
+        return err("The percentage a bid must beat the best by can be at most 50%.")
     lot = AuctionLot.objects.create(
         id=rid("l"), auction=a,
         number=(a.lots.count() + 1),
@@ -236,7 +276,7 @@ def lot_create(request, p, body, aid):
         qty=qty, uom=vocab.unit(body.get("uom"), blank="")[:24],
         ceiling=ceiling, reserve=reserve,
         min_decrement=step,
-        decrement_is_pct=bool(body.get("decrementIsPct")),
+        decrement_is_pct=pct,
     )
     return JsonResponse(_lot_view(lot, for_buyer=True, monitor=True))
 

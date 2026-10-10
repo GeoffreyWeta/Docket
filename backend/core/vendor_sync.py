@@ -14,6 +14,7 @@ So both call plan() and then apply(), and the guards below hold for both.
 from django.db import transaction
 
 from core.models import Bid, Document, Profile, Supplier, Tender
+from core.util import now_ms
 
 # Each seeded demo supplier and the register category it should become. The name
 # is a hint, not a lookup: the first vendor in that category whose name contains
@@ -199,7 +200,9 @@ def _write(vendors, existing, protect):
         fields = {k: v[k] for k in FROM_FILE}
         row = existing.get(v["id"])
         if row is None:
-            insert.append(Supplier(id=v["id"], registered_at=v["registered_at"],
+            # On the company's own register, so registered: with the register's
+            # date where it has one, today where it does not.
+            insert.append(Supplier(id=v["id"], registered_at=v["registered_at"] or now_ms(),
                                    rating=v["rating"], docs=v["docs"], perf=v["perf"],
                                    source="import", **fields))
             continue

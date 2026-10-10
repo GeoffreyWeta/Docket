@@ -759,6 +759,7 @@ def _apply_vendor(row, ctx):
             subcategory=subcategory_for(category, classification, name),
             classification=classification,
             prequalified=False,          # never granted by an import
+            registered_at=now_ms(),      # a vendor the ledger already pays is on the register
         )
         ctx.setdefault("new_vendors", []).append(name)
 

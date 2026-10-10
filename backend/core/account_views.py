@@ -121,7 +121,10 @@ def _finish_vendor(payload, request=None):
         # it is placed here too rather than trusted.
         category=_placed(vocab.category, payload.get("category"), "Uncategorised"),
         location=_placed(vocab.location, payload.get("location"), "-"), prequalified=False,
-        contact_email=email, registered_at=now_ms(), docs=[], perf={},
+        # A company that signs up by itself is not on the vendor register
+        # until the company says yes: prequalification, or audit approving
+        # its first bid (views.put_on_register).
+        contact_email=email, registered_at=None, docs=[], perf={},
         source=payload.get("_source", "self"),
         contact_person=payload.get("contactPerson", "")[:140],
         phone=_placed(vocab.phone, payload.get("phone"), ""),
@@ -266,8 +269,13 @@ def claim_vendor(request):
         Profile.objects.create(user=user, supplier=sup)
     # `registered_at` is when they actually claimed the account. The import may
     # have set it from the register's own NAV date; this is the truer fact.
-    Supplier.objects.filter(pk=sup.id).update(registered_at=now_ms(),
-                                              source=sup.source or "invite")
+    # A company a buyer typed in is not on the register yet, and claiming a
+    # login does not put it there: that is audit's decision.
+    if sup.registered_at:
+        Supplier.objects.filter(pk=sup.id).update(registered_at=now_ms(),
+                                                  source=sup.source or "invite")
+    else:
+        Supplier.objects.filter(pk=sup.id).update(source=sup.source or "invite")
     _mail(email, "Registration complete",
           f"Your account for {sup.name} is active and you can sign in now.\n\n"
           f"You were already on the register; verification is what is still outstanding, "

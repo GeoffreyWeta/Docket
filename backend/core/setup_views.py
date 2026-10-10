@@ -433,7 +433,8 @@ def setup_workspace(request):
         row.save()
 
         created_vendors = [
-            Supplier(id=rid("s"), prequalified=False, docs=[], perf={}, source="import", **v)
+            Supplier(id=rid("s"), prequalified=False, docs=[], perf={}, source="import",
+                     registered_at=now_ms(), **v)  # imported = on the register
             for v in vendors
         ]
         Supplier.objects.bulk_create(created_vendors)

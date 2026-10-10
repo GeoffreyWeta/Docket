@@ -47,6 +47,7 @@ auction_urlpatterns = [
     path("auctions/new/", auction_views.auction_create),
     path("auctions/mine/", auction_views.my_auctions),
     path("auctions/<str:aid>/", auction_views.auction_update),
+    path("auctions/<str:aid>/duplicate/", auction_views.auction_duplicate),
     path("auctions/<str:aid>/lots/", auction_views.lot_create),
     path("auctions/<str:aid>/lots/<str:lid>/delete/", auction_views.lot_delete),
     path("auctions/<str:aid>/images/", auction_views.image_upload),
@@ -171,6 +172,7 @@ urlpatterns = admin_urlpatterns + feed_urlpatterns + auction_urlpatterns + [
     path("docs/<str:doc_id>/download/", views.download_doc),
 
     path("bids/<str:bid_id>/scores/", views.save_scores),
+    path("bids/<str:bid_id>/review/", views.review_bid),
     path("clarifications/<str:cid>/answer/", views.answer_clarification),
     path("suppliers/<str:sid>/", views.supplier_detail),
     path("suppliers/<str:sid>/prequalify/", views.prequalify),

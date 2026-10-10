@@ -37,7 +37,8 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "Vendor picker stays within phone width");
   await page.locator("#nt-deadline").fill("2026-12-15");
-  check((await page.locator("#nt-deadline").locator("..").innerText()).includes("Africa/Lagos"), "Closing time identifies the workspace zone in a different browser zone");
+  // The date sits beside its time picker, so the zone hint belongs to the field row, not the input's parent.
+  check((await page.locator("#nt-deadline").locator("xpath=ancestor::div[contains(@class,'frow')][1]").innerText()).includes("Africa/Lagos"), "Closing time identifies the workspace zone in a different browser zone");
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.evaluate(() => { document.querySelector(".dk > .main").scrollTop = 650; });
   await page.locator('[data-nav="tenders"]').click(); await ready(".lrows");

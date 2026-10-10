@@ -597,7 +597,7 @@ def compliance(tenders, contract_rows_, threshold, now=None):
 
     # 2) Competitive rather than single-source.
     bid_counts = defaultdict(int)
-    for tid in Bid.objects.values_list("tender_id", flat=True):
+    for tid in Bid.objects.exclude(review__in=("held", "rejected")).values_list("tender_id", flat=True):
         bid_counts[tid] += 1
     opened = [t for t in awarded if t.opened_at or t.status == "awarded"]
     single = [t for t in opened if bid_counts.get(t.id, 0) <= 1]
@@ -798,7 +798,7 @@ def distress_signals(now=None):
 
     # Bidding below anything sustainable is the classic distress tell.
     bids_by_tender = defaultdict(list)
-    for b in Bid.objects.exclude(amount=None):
+    for b in Bid.objects.exclude(amount=None).exclude(review__in=("held", "rejected")):
         bids_by_tender[b.tender_id].append(b)
     for tid, bids in bids_by_tender.items():
         for b in bids:
@@ -978,7 +978,7 @@ def _ex_duplicate_invoice(now):
 def _ex_low_bid(now):
     out = []
     by_tender = defaultdict(list)
-    for b in Bid.objects.exclude(amount=None).select_related("tender"):
+    for b in Bid.objects.exclude(amount=None).exclude(review__in=("held", "rejected")).select_related("tender"):
         by_tender[b.tender_id].append(b)
     names = dict(Supplier.objects.values_list("id", "name"))
     for tid, bids in by_tender.items():
@@ -1109,7 +1109,7 @@ def payload(threshold=None, year=None):
         tenders = [t for t in tenders if not t.awarded_at or year_of(t.awarded_at) == year]
 
     bids_by_tender = defaultdict(list)
-    for b in Bid.objects.all():
+    for b in Bid.objects.exclude(review__in=("held", "rejected")):  # held or turned down by audit: not in the competition
         bids_by_tender[b.tender_id].append(b)
 
     contracts = list(Contract.objects.select_related("supplier", "tender"))

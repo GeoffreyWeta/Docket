@@ -18,6 +18,7 @@ import { StaffCsvDialog } from "./staffimport";
 import { Figures, Guide, More, Page, Quiet, Row, Rows } from "./page";
 import {
   DAY, REG_STATUS, VERIFY_STATUS, abnormallyLow, closingTime, commScore, dateInZone, daysLeft, displayStatus,
+  offeredQty, partialLines, timeInZone,
   effStatus, fmtCompact, fmtDate, fmtDateTime, fmtMoney, lineMaxima, linesCeiling,
   linesOverMax, mean, median, regStatusOf, roundsOf, savingsAgainst, stdev, techScore,
   totalScore, uid, varianceFlags, verifyStatusOf,
@@ -987,7 +988,11 @@ export function TendersPage({ api }) {
   const duplicate = async (id) => {
     if (duping) return;
     setDuping(id);
-    try { if (await act.duplicate(id)) go({ page: "tenders" }); } finally { setDuping(null); }
+    /* Straight into the copy, where the dates are waiting to be set. */
+    try {
+      const made = await act.duplicate(id);
+      if (made && made.id) go({ page: "new", editId: made.id });
+    } finally { setDuping(null); }
   };
   /* The dashboard's figures are click-throughs, and each arrives carrying the
      filter it counted - landing on an unfiltered list would make the reader
@@ -1064,7 +1069,7 @@ export function TendersPage({ api }) {
                    meta={<>
                      <span className="mono">{t.ref}</span>
                      <span>{t.category}</span>
-                     <span><Money n={t.budget} /></span>
+                     <span>{t.budget > 0 ? <Money n={t.budget} /> : "no maximum"}</span>
                      {!["approval", "draft"].includes(t.status) && <span><Countdown t={t.deadline} /></span>}
                      {bidsWord && <span>{bidsWord}{(t.rounds || []).length > 1 ? ` · round ${t.currentRound}` : ""}</span>}
                    </>}
@@ -1075,7 +1080,7 @@ export function TendersPage({ api }) {
                          one column that survives as a chip, and only when wrong */}
                      {inFlight && !nDocs && <span className="chip warn">{t.type} not attached</span>}
                      <Stamp s={st} />
-                     {can(user, "tender.edit") && (
+                     {can(user, "tender.create") && (
                        <button className="btn sm" title="Create a draft copy: dates cleared, structure carried over"
                                disabled={!!duping} onClick={() => duplicate(t.id)}>{duping === t.id ? "Copying…" : "Duplicate"}</button>
                      )}
@@ -1091,7 +1096,8 @@ export function TendersPage({ api }) {
 /* ---------------- buyer: tender detail ---------------- */
 
 export function TenderDetail({ api, id, initialTab }) {
-  const { state, user, go } = api;
+  const { state, user, go, act } = api;
+  const [duping, setDuping] = useState(false);
   /* Which tabs exist follows what this person can actually do here: whoever
      answers clarifications gets the clarifications tab, whoever scores or reads
      the panel gets evaluation, and everyone gets the overview. */
@@ -1111,7 +1117,7 @@ export function TenderDetail({ api, id, initialTab }) {
       || can(user, "tender.vendors")) tabs.push("vendors");
   if (can(user, "page.tenders") || can(user, "tender.rounds") || can(user, "bid.open")) tabs.push("rounds");
   if (can(user, "clarification.answer")) tabs.push("clar");
-  if (can(user, "bid.open") || can(user, "award.recommend")) tabs.push("bids");
+  if (can(user, "bid.open") || can(user, "award.recommend") || can(user, "bid.approve_new_vendor")) tabs.push("bids");
   if (can(user, "bid.score") || can(user, "bid.see_all_scores")) tabs.push("eval");
   if (can(user, "page.audit")) tabs.push("audit");
   if (t && t.type === "AUC") {
@@ -1130,10 +1136,22 @@ export function TenderDetail({ api, id, initialTab }) {
       <button className="btn sm" style={{ marginBottom: 14 }} onClick={() => go({ page: can(user, "page.tenders") ? "tenders" : homePage(user) })}>← Back</button>
       <div className="pagehead" style={{ marginBottom: 12 }}>
         <div>
-          <div className="mono muted" style={{ marginBottom: 3 }}>{t.ref} · {t.type} · {t.category}</div>
+          <div className="mono muted" style={{ marginBottom: 3 }}>
+            {t.ref} · {t.type} · {t.category} · {t.bidMode === "open" ? "open bidding" : "sealed bids"}
+          </div>
           <h1>{t.title}</h1>
         </div>
         <div className="grow" />
+        {can(user, "tender.create") && t.type !== "AUC" && (
+          <button className="btn sm" disabled={duping} title="A new draft with the same lines, documents, scoring and vendors. Dates are cleared."
+                  onClick={async () => {
+                    setDuping(true);
+                    try {
+                      const made = await act.duplicate(t.id);
+                      if (made && made.id) go({ page: "new", editId: made.id });
+                    } finally { setDuping(false); }
+                  }}>{duping ? "Copying…" : "Duplicate"}</button>
+        )}
         {/* An auction in progress is somewhere to be, not something to read
             about: from the file, the room is one button away. */}
         {t.type === "AUC" && !t.openedAt && (
@@ -1194,7 +1212,7 @@ export function OverviewTab({ api, t }) {
   };
   /* Same rule the server routes by (views._route_submission). */
   const thr = Number(state.org.approvalThreshold) || 0;
-  const needsSignOff = (state.org.approvalLevels || []).length > 0 || (thr > 0 && t.budget >= thr);
+  const needsSignOff = (state.org.approvalLevels || []).length > 0 || (thr > 0 && (t.budget >= thr || !(t.budget > 0)));
   const submitForApproval = once("submit", () => act.submitTender(t.id));
   const issueAddendum = once("addendum", async () => {
     if (!ad.title.trim()) return;
@@ -1280,7 +1298,14 @@ export function OverviewTab({ api, t }) {
       <div className="card">
         <div className="chead"><h3>Key terms</h3></div>
         <div className="cbody" style={{ paddingTop: 6 }}>
-          <div className="rowline"><span className="muted" style={{ flex: 1 }}>{lineMaxima(t) ? "Ceiling, from your line maximums" : "Budget ceiling"}</span><Money n={t.budget} strong /></div>
+          <div className="rowline"><span className="muted" style={{ flex: 1 }}>{lineMaxima(t) ? "Ceiling, from your line maximums" : "Budget ceiling"}</span>
+            {t.budget > 0 ? <Money n={t.budget} strong /> : <span className="faint">no maximum set</span>}</div>
+          <div className="rowline"><span className="muted" style={{ flex: 1 }}>How vendors bid</span>
+            <span>{t.bidMode === "open" ? "Open: vendors see their position" : "Closed: sealed until opening"}</span></div>
+          {t.budget > 0 && (
+            <div className="rowline"><span className="muted" style={{ flex: 1 }}>Maximum value shown to vendors</span>
+              <span>{t.budgetVisible ? "Yes" : "No"}</span></div>
+          )}
           {t.projectedCost != null && (
             <div className="rowline"><span className="muted" style={{ flex: 1 }}>Projected cost</span><Money n={t.projectedCost} /></div>
           )}
@@ -1476,10 +1501,94 @@ export function ClarTab({ api, t }) {
 
 /* ---------------- bids & opening ---------------- */
 
+/* Bids from companies not on the vendor register wait for audit. Shown above
+   whatever the tab is showing, because nothing on this tender can be opened
+   until they are decided. */
+function NewVendorBids({ api, t }) {
+  const { state, user, act } = api;
+  const rows = (state.reviewBids || []).filter((b) => b.tenderId === t.id);
+  const [turnDown, setTurnDown] = useState(null);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState("");
+  if (!rows.length) return null;
+  const canDecide = can(user, "bid.approve_new_vendor");
+  const held = rows.filter((b) => b.review === "held").length;
+  const approve = async (b) => {
+    setBusy(b.id);
+    try { await act.reviewBid(b.id, true); } finally { setBusy(""); }
+  };
+  const nameOf = (b) => state.suppliers.find((x) => x.id === b.supplierId)?.name || "a vendor";
+  return (
+    <div className="card" style={{ marginBottom: 14 }}>
+      <div className="chead"><h3>Bids from vendors not on the register</h3>
+        {held > 0 && <span className="chip warn" style={{ marginLeft: "auto" }}>{held} waiting for audit</span>}
+      </div>
+      <div className="cbody">
+        <p className="hint" style={{ marginTop: 0 }}>
+          These companies are not on the vendor register yet, so their bids count only once audit approves
+          them. Approving a bid also puts the company on the register, so its next bids go straight through.
+          {held > 0 && " The bids on this tender cannot be opened while any are waiting."}
+        </p>
+        {rows.map((b) => {
+          const s = state.suppliers.find((x) => x.id === b.supplierId);
+          return (
+            <div className="sealrow" key={b.id}>
+              <div style={{ flex: 1 }}>
+                <b>{s?.name || b.supplierId}</b>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Bid received {fmtDateTime(b.submittedAt)}{s?.contactEmail ? ` · ${s.contactEmail}` : ""}
+                  {b.review === "rejected" && ` · turned down by ${b.reviewBy || "audit"}: ${b.reviewNote}`}
+                </div>
+              </div>
+              {b.review === "rejected" ? <span className="chip">Turned down</span>
+                : canDecide ? (
+                  <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button className="btn sm" disabled={!!busy} onClick={() => { setReason(""); setTurnDown(b); }}>Turn down</button>
+                    <button className="btn sm pri" disabled={!!busy} onClick={() => approve(b)}>
+                      {busy === b.id ? "Approving…" : "Approve and register"}</button>
+                  </span>
+                ) : <span className="chip warn">Waiting for audit</span>}
+            </div>
+          );
+        })}
+      </div>
+      {turnDown && (
+        <ConfirmDialog title={`Turn down the bid from ${nameOf(turnDown)}?`} confirmLabel="Turn down the bid" tone="wax"
+                       disabled={!reason.trim()}
+                       onClose={() => setTurnDown(null)}
+                       onConfirm={async () => ((await act.reviewBid(turnDown.id, false, reason.trim())) ? undefined : false)}>
+          <p>The bid will never be opened or counted. The reason is recorded and sent to the vendor.</p>
+          <label className="lbl" htmlFor="tb-why">Reason</label>
+          <textarea id="tb-why" className="in" value={reason} onChange={(e) => setReason(e.target.value)}
+                    placeholder="e.g. Could not verify the company registration documents" />
+        </ConfirmDialog>
+      )}
+    </div>
+  );
+}
+
 export function BidsTab({ api, t }) {
+  return (
+    <div>
+      <NewVendorBids api={api} t={t} />
+      <BidsTabBody api={api} t={t} />
+    </div>
+  );
+}
+
+function BidsTabBody({ api, t }) {
   const { state, user, act, toast } = api;
   const st = effStatus(t);
+  /* Only bids in the competition: waiting for audit, or turned down, they
+     are listed above and nowhere else. */
   const bids = state.bids.filter((b) => b.tenderId === t.id);
+  const heldN = (state.reviewBids || []).filter((b) => b.tenderId === t.id && b.review === "held").length;
+  const heldNote = (
+    <div className="notice" style={{ marginTop: 14 }}>
+      {heldN} {heldN === 1 ? "bid is" : "bids are"} waiting for audit approval. The bids can be opened once
+      {heldN === 1 ? " it is" : " they are"} approved or turned down.
+    </div>
+  );
   /* True only for the render that follows the opening, so the ceremony plays
      once for the person who broke the seals and never again on a revisit. */
   const [justOpened, setJustOpened] = useState(false);
@@ -1524,7 +1633,8 @@ export function BidsTab({ api, t }) {
     return (
       <div>
         <BidBucket api={api} t={t} />
-        {st === "closed" && can(user, "bid.open") && (
+        {st === "closed" && can(user, "bid.open") && heldN > 0 && heldNote}
+        {st === "closed" && can(user, "bid.open") && !heldN && (
           <div className="notice" style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ flex: 1 }}>The current round is sealed. Break the seals in a recorded opening to score it.</span>
             <HoldButton label="Hold to open the bids" tone="wax" onDone={openBids} />
@@ -1593,12 +1703,15 @@ export function BidsTab({ api, t }) {
               <div className="sealrow" key={b.id}>
                 <SealMark s={15} cracked={justOpened} className={justOpened ? "cracked" : ""}
                           style={justOpened ? { animationDelay: i * 90 + "ms" } : null} />
-                <div style={{ flex: 1 }}><b>{s.name}</b><div className="muted" style={{ fontSize: 12 }}>Sealed bid received {fmtDateTime(b.submittedAt)}</div></div>
-                <span className="mono waxfg" style={{ fontSize: 11, letterSpacing: ".1em" }}>SEALED</span>
+                <div style={{ flex: 1 }}><b>{s.name}</b><div className="muted" style={{ fontSize: 12 }}>
+                  {t.bidMode === "open" ? "Bid received" : "Sealed bid received"} {fmtDateTime(b.submittedAt)}</div></div>
+                <span className="mono waxfg" style={{ fontSize: 11, letterSpacing: ".1em" }}>{t.bidMode === "open" ? "HIDDEN" : "SEALED"}</span>
               </div>
             );
           })}
-          {!bids.length && st !== "closed" && <Empty art="sealed">No bids yet. They arrive sealed, so you will see the count grow here, never a price.</Empty>}
+          {!bids.length && st !== "closed" && <Empty art="sealed">No bids yet. {t.bidMode === "open"
+            ? "Vendors see their own position as they bid. You will see the count grow here, and the prices after the opening."
+            : "They arrive sealed, so you will see the count grow here, never a price."}</Empty>}
         </div>
         {/* A deadline that passed with nothing in the box needs a decision, not
             an empty seal ceremony: give it more time, or call it off. */}
@@ -1611,7 +1724,8 @@ export function BidsTab({ api, t }) {
             <LifecycleBar api={api} t={t} />
           </div>
         )}
-        {st === "closed" && can(user, "bid.open") && bids.length > 0 && (
+        {st === "closed" && can(user, "bid.open") && bids.length > 0 && heldN > 0 && heldNote}
+        {st === "closed" && can(user, "bid.open") && bids.length > 0 && !heldN && (
           <div className="ceremony">
             <SealMark s={26} className="stamped" />
             <h3>Bid opening</h3>
@@ -1626,9 +1740,9 @@ export function BidsTab({ api, t }) {
             <div className="holdhint" style={{ marginTop: 8 }}>Press and hold: the opening is permanent and carries your name.</div>
           </div>
         )}
-        {st === "published" && (
-          <div className="notice">Bids stay sealed until the deadline passes on {fmtDate(t.deadline)}. Nobody, including this team, can view their contents before the opening is logged.</div>
-        )}
+        {st === "published" && (t.bidMode === "open"
+          ? <div className="notice">This is an open tender: each vendor sees their own position and can lower their price until {fmtDateTime(t.deadline)}. This team sees the prices after the recorded opening.</div>
+          : <div className="notice">Bids stay sealed until the deadline passes on {fmtDate(t.deadline)}. Nobody, including this team, can view their contents before the opening is logged.</div>)}
       </div>
     );
   }
@@ -1660,6 +1774,7 @@ export function BidsTab({ api, t }) {
               const delta = ((b.amount - t.budget) / t.budget) * 100;
               const low = abnormallyLow(b, bids);
               const over = linesOverMax(t, b);
+              const part = partialLines(t, b);
               return (
                 <tr key={b.id}>
                   <td>
@@ -1690,8 +1805,10 @@ export function BidsTab({ api, t }) {
                       <td data-l="Flags">
                         {over.length > 0 && <span className="chip warn" style={{ marginRight: 4 }} title={over.map((l) => l.desc).join(", ")}>
                           Over your maximum on {over.length} {over.length === 1 ? "line" : "lines"}</span>}
+                        {part.length > 0 && <span className="chip" style={{ marginRight: 4 }} title={part.map((l) => `${l.desc}: ${offeredQty(b, l).toLocaleString()} of ${l.qty.toLocaleString()}`).join(", ")}>
+                          Part quantity on {part.length} {part.length === 1 ? "line" : "lines"}</span>}
                         {low && <span className="chip warn">Abnormally low: verify viability</span>}
-                        {!low && !over.length && <span className="faint">-</span>}
+                        {!low && !over.length && !part.length && <span className="faint">-</span>}
                       </td>
                     </>
                   )}
@@ -1704,7 +1821,7 @@ export function BidsTab({ api, t }) {
       {hasLines && (
         <div className="card">
           <div className="chead"><h3>Line by line</h3><span className="mono faint" style={{ marginLeft: "auto" }}>
-            unit rates · lowest per line in green{maxed ? " · above your maximum in red, and scores nothing on that line" : ""}</span></div>
+            unit rates · quantity shown where a vendor offers less than asked · lowest per line in green{maxed ? " · above your maximum in red, and scores nothing on that line" : ""}</span></div>
           <div className="tscroll">
             <table className="tbl wide">
               <thead>
@@ -1719,7 +1836,13 @@ export function BidsTab({ api, t }) {
                     {bids.map((b) => {
                       const p = b.lines?.[l.id];
                       const cls = p != null && maxed && p > l.price ? " over" : p != null && p === lineMin[l.id] ? " best" : "";
-                      return <td key={b.id} className={"num money" + cls}>{p != null ? fmtMoney(p) : "-"}</td>;
+                      const q = offeredQty(b, l);
+                      return (
+                        <td key={b.id} className={"num money" + cls}>
+                          {p != null ? fmtMoney(p) : q === 0 ? <span className="faint">not offered</span> : "-"}
+                          {q > 0 && q < l.qty && <div className="hint" style={{ marginTop: 2 }}>{q.toLocaleString()} of {l.qty.toLocaleString()}</div>}
+                        </td>
+                      );
                     })}
                   </tr>
                 ))}
@@ -2139,7 +2262,7 @@ function EvalMoney({ t, bids }) {
   const BASIS = { baseline: "against the baseline", projection: "against the projection", budget: "against the budget" };
   return (
     <div className="evalmoney">
-      <div className="em"><div className="k">Budget ceiling</div><div className="v">{fmtCompact(t.budget)}</div></div>
+      <div className="em"><div className="k">Budget ceiling</div><div className="v">{t.budget > 0 ? fmtCompact(t.budget) : <span className="faint">not set</span>}</div></div>
       <div className="em"><div className="k">Projected cost</div>
         <div className="v">{t.projectedCost != null ? fmtCompact(t.projectedCost) : <span className="faint">not set</span>}</div></div>
       <div className="em"><div className="k">Baseline</div>
@@ -2565,6 +2688,7 @@ export function ApprovalsPage({ api }) {
   };
   /** "₦5m under the ₦80m ceiling", or "over the ₦80m ceiling by ₦5m". */
   const vsCeiling = (budget, amount, named = true) => {
+    if (!(budget > 0)) return "with no maximum value set";
     const gap = budget - amount;
     const ceil = named ? `the ${fmtCompact(budget)} ceiling` : "the ceiling";
     return gap >= 0 ? `${fmtCompact(gap)} under ${ceil}` : `over ${ceil} by ${fmtCompact(-gap)}`;
@@ -2607,7 +2731,7 @@ export function ApprovalsPage({ api }) {
       note: `Award · ${state.suppliers.find((s) => s.id === t.awardRec.supplierId)?.name} at ${fmtCompact(t.awardRec.amount)}`,
       onPick: () => document.getElementById("appr-a" + t.id)?.scrollIntoView({ behavior: "smooth", block: "start" }) })),
     ...pubs.map((t) => ({ key: "p" + t.id, label: t.title,
-      note: `Publish · ceiling ${fmtCompact(t.budget)}`,
+      note: `Publish · ${ceilWords(t)}`,
       onPick: () => document.getElementById("appr-p" + t.id)?.scrollIntoView({ behavior: "smooth", block: "start" }) })),
   ];
   const guide = (
@@ -2660,7 +2784,7 @@ export function ApprovalsPage({ api }) {
           <ConfirmDialog title={nextWho ? "Sign this publication?" : "Approve and publish?"}
                          confirmLabel={nextWho ? "Sign and pass it up" : "Approve & publish"} disabled={late}
                          onClose={() => setPubT(null)} onConfirm={() => approvePub(pubT)}>
-            “{pubT.title}”, ceiling {fmtMoney(pubT.budget)}, closing {fmtDate(pubT.deadline)}.
+            “{pubT.title}”, {pubT.budget > 0 ? `ceiling ${fmtMoney(pubT.budget)}` : "no maximum value set"}, closing {fmtDateTime(pubT.deadline)}.
             <div style={{ marginTop: 8 }}>
               {late ? "The deadline has passed. Extend it before approving."
                 : nextWho ? `Your signature passes it to ${nextWho}. Nothing is sent to suppliers yet.`
@@ -2719,7 +2843,7 @@ export function ApprovalsPage({ api }) {
         <div className="card" key={t.id} id={"appr-p" + t.id} style={{ marginBottom: 14 }}>
           <div className="chead">
             <h3>{t.title}</h3>
-            <span className="chip" style={{ marginLeft: "auto" }}>Publish · ceiling {fmtCompact(t.budget)}</span>
+            <span className="chip" style={{ marginLeft: "auto" }}>Publish · {ceilWords(t)}</span>
           </div>
           <div className="cbody">
             <div className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
@@ -2762,7 +2886,7 @@ export function ApprovalsPage({ api }) {
                 <b>{t.title}</b>
                 <span className="chip">
                   {kind === "award" ? `Award · ${fmtCompact(t.awardRec.amount)}`
-                                    : `Publish · ceiling ${fmtCompact(t.budget)}`}
+                                    : `Publish · ${ceilWords(t)}`}
                 </span>
               </div>
               <ApprovalChain chain={kind === "award" ? t.awardChain : t.publishChain}
@@ -3228,6 +3352,8 @@ export function NewTender({ api, editId }) {
     title: editing.title, type: editing.type, category: editing.category,
     /* A draft saved without a date stores 0, which is "no date", not 1970. */
     deadline: editing.deadline > 0 ? dateInZone(editing.deadline, timeZone) : "",
+    closeTime: editing.deadline > 0 ? timeInZone(editing.deadline, timeZone) : "17:00",
+    bidMode: editing.bidMode || "closed", budgetVisible: !!editing.budgetVisible,
     techWeight: editing.techWeight, scope: editing.scope,
     criteria: editing.criteria.map((c) => ({ ...c })), invited: [...editing.invited],
     /* A draft from before lines carried a maximum was a single lump sum. It
@@ -3245,7 +3371,8 @@ export function NewTender({ api, editId }) {
     baselineSource: editing.baselineSource || "",
     projectedCost: editing.projectedCost ? String(editing.projectedCost) : "",
   } : {
-    title: "", type: "RFQ", category: "", deadline: "",
+    title: "", type: "RFQ", category: "", deadline: "", closeTime: "17:00",
+    bidMode: "closed", budgetVisible: false,
     techWeight: 70, scope: "",
     criteria: [{ id: uid(), name: "Quality & compliance", weight: 40 }, { id: uid(), name: "Capacity & reliability", weight: 35 }, { id: uid(), name: "Commercial terms", weight: 25 }],
     invited: [], lines: [blankLine()],
@@ -3263,18 +3390,24 @@ export function NewTender({ api, editId }) {
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const weightSum = f.criteria.reduce((s, c) => s + Number(c.weight || 0), 0);
   const isAuction = f.type === "AUC";
-  /* Bids close at 17:00 on the chosen day, so a date earlier than that is
-     already over and is caught here rather than by the server at the end. */
+  /* Bids close at the chosen time on the chosen day (17:00 unless changed),
+     so a moment already gone is caught here rather than by the server. */
+  const closeTime = f.closeTime || "17:00";
   const deadlineMs = editing?.deadline > 0 && f.deadline === dateInZone(editing.deadline, timeZone)
-    ? editing.deadline : closingTime(f.deadline, timeZone);
+    && closeTime === timeInZone(editing.deadline, timeZone)
+    ? editing.deadline : closingTime(f.deadline, timeZone, closeTime);
   const deadlineOk = deadlineMs > Date.now();
   const namesOk = isAuction || f.criteria.every((c) => String(c.name || "").trim());
   /* There is no "most you can spend" box any more. The ceiling is each line's
      maximum per unit times its quantity, and bids are checked and graded
-     against those same maximums, so the two can never disagree. */
-  const ceiling = linesCeiling(f.lines);
+     against those same maximums, so the two can never disagree. The maximum
+     is optional: with one on every line there is a ceiling, otherwise none,
+     because a total that leaves lines out is not a maximum of anything. */
+  const allPriced = f.lines.length > 0 && f.lines.every((l) => Number(l.price) > 0);
+  const somePriced = f.lines.some((l) => Number(l.price) > 0);
+  const ceiling = allPriced ? linesCeiling(f.lines) : 0;
   const linesOk = f.lines.length > 0
-    && f.lines.every((l) => l.desc.trim() && Number(l.qty) > 0 && Number(l.price) > 0);
+    && f.lines.every((l) => l.desc.trim() && Number(l.qty) > 0);
   const projOk = !(Number(f.projectedCost) > 0 && ceiling > 0 && Number(f.projectedCost) > ceiling);
   const ready = f.title.trim() && f.category && deadlineOk && f.invited.length > 0 && projOk
     && (isAuction ? Number(f.minDecrement) > 0 && f.lines.length === 0 : linesOk && weightSum === 100 && namesOk);
@@ -3325,13 +3458,14 @@ export function NewTender({ api, editId }) {
       todo: "Pick a category", done: "Category picked",
       note: "It decides which vendors we suggest." },
     { key: "lines", ok: linesOk, to: "nt-lines", quiet: isAuction,
-      todo: f.lines.length ? "Give every line a quantity and a maximum price" : "Add what you are buying, line by line",
-      done: f.lines.length + (f.lines.length === 1 ? " line" : " lines") + " · ceiling " + fmtMoney(ceiling),
-      note: "Each bid is checked and graded against the maximum on every line." },
+      todo: f.lines.length ? "Give every line a description and a quantity" : "Add what you are buying, line by line",
+      done: f.lines.length + (f.lines.length === 1 ? " line" : " lines")
+        + (ceiling > 0 ? " · ceiling " + fmtMoney(ceiling) : " · no maximum set"),
+      note: "The most you will pay per line is optional." },
     { key: "deadline", ok: deadlineOk, to: "nt-deadline",
-      todo: f.deadline ? "That closing date has passed" : "Choose a closing date",
-      done: "Closes " + fmtDeadline(f.deadline),
-      note: f.deadline ? "Bids close at 17:00 on the day. Pick a later date." : "Vendors need a date before they can be invited." },
+      todo: f.deadline ? "That closing time has passed" : "Choose a closing date",
+      done: "Closes " + fmtDeadline(f.deadline) + " at " + closeTime,
+      note: f.deadline ? `Bids close at ${closeTime} on the day. Pick a later date or time.` : "Vendors need a date before they can be invited." },
     { key: "invited", ok: f.invited.length > 0, to: "nt-invite",
       todo: "Invite at least one vendor",
       done: f.invited.length + (f.invited.length === 1 ? " vendor invited" : " vendors invited") },
@@ -3368,7 +3502,8 @@ export function NewTender({ api, editId }) {
      ceiling at or above a threshold above 0 does. */
   const threshold = Number(state.org.approvalThreshold) || 0;
   const hasLadder = (state.org.approvalLevels || []).length > 0;
-  const needsApproval = hasLadder || (threshold > 0 && ceiling >= threshold);
+  /* No maximum prices means no value to compare, so it goes for sign-off. */
+  const needsApproval = hasLadder || (threshold > 0 && (ceiling >= threshold || ceiling <= 0));
 
   const draftScope = async () => {
     setBusy(true);
@@ -3395,13 +3530,14 @@ export function NewTender({ api, editId }) {
     const payload = {
       title: f.title.trim(), type: f.type, category: f.category,
       budget: ceiling, deadline: deadlineMs,
+      bidMode: f.bidMode === "open" ? "open" : "closed", budgetVisible: !!f.budgetVisible && ceiling > 0,
       invited: f.invited, techWeight: Number(f.techWeight),
       criteria: f.criteria.map((c) => ({ id: c.id, name: c.name, weight: Number(c.weight) })),
       scope: f.scope.trim(),
       lines: isAuction ? [] : f.lines.filter((l) => l.desc.trim()).map((l) => ({
         id: l.id, desc: l.desc.trim(), qty: Number(l.qty), unit: l.unit.trim() || "unit",
         itemCode: l.itemCode || "", price: Number(l.price) || 0 })),
-      twoStage: f.twoStage, techThreshold: Number(f.techThreshold) || 70,
+      twoStage: f.twoStage && f.bidMode !== "open", techThreshold: Number(f.techThreshold) || 70,
       technicalDocumentRequired: f.technicalDocumentRequired ?? true,
       commercialDocumentRequired: f.commercialDocumentRequired ?? false,
       minDecrement: Number(f.minDecrement) || 0,
@@ -3456,9 +3592,17 @@ export function NewTender({ api, editId }) {
 
               <div className="grid g2">
                 <div className="frow"><label className="lbl" htmlFor="nt-deadline">Bids close on</label>
-                  <input id="nt-deadline" className="in" type="date" min={dateInZone(Date.now(), timeZone)}
-                         value={f.deadline} onChange={(e) => set("deadline", e.target.value)} />
-                  <div className="hint">Closes at {new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit" }).format(new Date(deadlineMs || closingTime(dateInZone(Date.now(), timeZone), timeZone)))} ({timeZone}). Nobody sees a price before the recorded opening.</div></div>
+                  <div className="formrow">
+                    <input id="nt-deadline" className="in" type="date" min={dateInZone(Date.now(), timeZone)}
+                           style={{ flex: "1 1 150px" }}
+                           value={f.deadline} onChange={(e) => set("deadline", e.target.value)} />
+                    <input id="nt-closetime" className="in" type="time" aria-label="Closing time"
+                           style={{ flex: "0 1 120px" }}
+                           value={closeTime} onChange={(e) => set("closeTime", e.target.value || "17:00")} />
+                  </div>
+                  <div className="hint">Closes at {closeTime} ({timeZone}). {f.bidMode === "open"
+                    ? "Vendors see where their price stands until then; the buying side sees prices after the recorded opening."
+                    : "Nobody sees a price before the recorded opening."}</div></div>
 
                 <div className="frow"><label className="lbl" htmlFor="nt-type">Kind of tender</label>
                   <select id="nt-type" className="in" value={f.type} onChange={(e) => set("type", e.target.value)}>
@@ -3473,6 +3617,19 @@ export function NewTender({ api, editId }) {
                   </select>
                   <div className="hint">{TYPE_HINT[f.type]}</div></div>
               </div>
+
+              {!isAuction && (
+                <div className="frow" id="nt-bidmode"><label className="lbl" htmlFor="nt-mode">How vendors bid</label>
+                  <Choice id="nt-mode" value={f.bidMode || "closed"} required
+                          onChange={(v) => setF((x) => ({ ...x, bidMode: v, twoStage: v === "open" ? false : x.twoStage }))}
+                          options={[["closed", "Closed: sealed bids, nobody sees anything until opening"],
+                                    ["open", "Open: vendors see their position and can lower their price"]]} />
+                  <div className="hint">
+                    {f.bidMode === "open"
+                      ? "Each vendor sees where their price stands (for example 2nd of 5), never anyone else's price or name, and can re-bid as often as they like before the closing time. Open bids are not sealed."
+                      : "Bids are encrypted until the recorded opening after the closing time. Vendors can withdraw and replace a bid before then."}
+                  </div></div>
+              )}
 
               {isAuction && (
                 <div className="frow"><label className="lbl" htmlFor="nt-decrement">Minimum decrement</label>
@@ -3500,9 +3657,9 @@ export function NewTender({ api, editId }) {
                 <div className="frow" style={{ marginTop: 16, marginBottom: 0 }} id="nt-lines">
                   <label className="lbl">What you are buying, and the most you will pay</label>
                   <div className="hint" style={{ marginTop: 0, marginBottom: 10 }}>
-                    One line per item: how many, and the most you will pay for each one. Every bid is checked
-                    against these maximums line by line, and its price score is graded on them. Vendors never
-                    see your maximums.
+                    One line per item and how many. The most you will pay for each one is optional. Where you
+                    give it, bids are checked against it and, with one on every line, the price score is graded
+                    on them. Vendors never see the per-line maximums.
                   </div>
                   {f.lines.map((l, i) => (
                     <div key={l.id} className="lineedit">
@@ -3525,7 +3682,7 @@ export function NewTender({ api, editId }) {
                                     onChange={(v) => setLine(l.id, "unit", v)} /></div>
                       <button className="btn sm" aria-label="Remove line" style={{ alignSelf: "end" }}
                               onClick={() => set("lines", f.lines.filter((x) => x.id !== l.id))}><Icon n="close" s={13} /></button>
-                      <label className="lcell"><span>Most you will pay per {l.unit || "unit"}</span>
+                      <label className="lcell"><span>Most you will pay per {l.unit || "unit"} <span className="faint">optional</span></span>
                         <input className="in" type="number" min="0" placeholder="In naira" value={l.price}
                                onChange={(e) => setLine(l.id, "price", e.target.value)} /></label>
                       <div className="lcell"><span>Line maximum</span>
@@ -3538,10 +3695,24 @@ export function NewTender({ api, editId }) {
                     <button className="btn sm" style={{ marginRight: "auto" }}
                             onClick={() => set("lines", [...f.lines, blankLine()])}>
                       Add another line</button>
-                    <span className="lbl" style={{ margin: 0 }}>Ceiling</span>
-                    <span className="money" style={{ fontWeight: 650, fontSize: 16 }}>{fmtMoney(ceiling)}</span>
+                    <span className="lbl" style={{ margin: 0 }}>Maximum order value</span>
+                    <span className="money" style={{ fontWeight: 650, fontSize: 16 }}>
+                      {ceiling > 0 ? fmtMoney(ceiling) : <span className="faint">not set</span>}</span>
                   </div>
-                  <div className="hint" style={{ textAlign: "right" }}>What the line maximums add up to. It also decides who has to approve this.</div>
+                  <div className="hint" style={{ textAlign: "right" }}>
+                    {ceiling > 0 ? "What the line maximums add up to. It also decides who has to approve this."
+                      : somePriced ? "Give every line a maximum to get a total. Without one on every line there is no maximum order value."
+                      : "No maximums given. Where there is an approval threshold, this goes for sign-off because its value is unknown."}
+                  </div>
+                  <label className="checkline" style={{ marginTop: 10 }}>
+                    <input type="checkbox" checked={!!f.budgetVisible && ceiling > 0} disabled={ceiling <= 0}
+                           onChange={(e) => set("budgetVisible", e.target.checked)} />
+                    <span>Show the maximum order value to vendors
+                      <span className="hint" style={{ display: "block" }}>
+                        {ceiling > 0 ? `Vendors will see ${fmtMoney(ceiling)} in their invitation and bid room. The per-line maximums stay hidden.`
+                          : "Needs a maximum on every line."}
+                      </span></span>
+                  </label>
                 </div>
               )}
             </div>
@@ -3589,9 +3760,9 @@ export function NewTender({ api, editId }) {
                          value={f.techWeight} onChange={(e) => set("techWeight", e.target.value)} />
                   <div className="hint">
                     {f.techWeight}% of the final score comes from the criteria above, {100 - f.techWeight}% from price.
-                    Price is graded line by line against your maximums: each line counts for its quantity times its
-                    maximum, the lowest rate at or under the maximum gets full marks, and a rate above the maximum
-                    scores nothing on that line.
+                    {allPriced
+                      ? " Price is graded line by line against your maximums: each line counts for its quantity times its maximum, the lowest rate at or under the maximum gets full marks, and a rate above the maximum scores nothing on that line."
+                      : " Without a maximum on every line, the lowest price gets full marks and the rest score in proportion."}
                   </div>
                 </div>
               </div>
@@ -3626,7 +3797,8 @@ export function NewTender({ api, editId }) {
               {!isAuction && (
                 <div className="frow">
                   <label className="checkline" htmlFor="nt-two">
-                    <input id="nt-two" type="checkbox" checked={f.twoStage}
+                    <input id="nt-two" type="checkbox" checked={f.twoStage && f.bidMode !== "open"}
+                           disabled={f.bidMode === "open"}
                            onChange={(e) => set("twoStage", e.target.checked)} />
                     <span>
                       <b>Open technical envelopes first</b>
@@ -3638,6 +3810,7 @@ export function NewTender({ api, editId }) {
                                onChange={(e) => set("techThreshold", e.target.value)} />
                         out of 100 have their pricing decrypted. Everyone else has their commercial
                         envelope returned unopened. Standard in public-sector procurement.
+                        {f.bidMode === "open" && " Not available on an open tender, where vendors see their price position."}
                       </span>
                     </span>
                   </label>
@@ -3689,7 +3862,8 @@ export function NewTender({ api, editId }) {
                      : outstanding.length + " things left"}
             </div>
             <div className="readywhy">
-              {ready ? "Nothing is missing. No price is visible to anyone until bids close."
+              {ready ? (f.bidMode === "open" ? "Nothing is missing. Vendors will see their position, never each other's prices."
+                                             : "Nothing is missing. No price is visible to anyone until bids close.")
                      : "Pick any line to jump straight to that field."}
             </div>
             <div className="readybarrow">
@@ -3724,8 +3898,10 @@ export function NewTender({ api, editId }) {
             <div className="readyroute">
               {hasLadder
                 ? "Your approval ladder applies, so this goes for sign-off before any vendor is invited."
-                : !ceiling || !threshold
+                : !threshold
                   ? "Nothing needs sign-off here, so it publishes and invites vendors as soon as you press the button."
+                  : !ceiling
+                    ? `No maximum value is set, so it cannot be compared with the ${fmtMoney(threshold)} sign-off threshold. It goes for sign-off before any vendor is invited.`
                   : needsApproval
                     ? `The ${fmtMoney(ceiling)} ceiling is at or above the ${fmtMoney(threshold)} sign-off threshold, so this needs a sign-off instead of publishing straight away.`
                     : `Below the ${fmtMoney(threshold)} sign-off threshold, so it publishes as soon as you press the button.`}
@@ -3735,7 +3911,7 @@ export function NewTender({ api, editId }) {
                              onClose={() => setConfirmPub(false)}
                              onConfirm={async () => { const ok = await save(true); return ok ? undefined : false; }}>
                 <p>This emails {f.invited.length} {f.invited.length === 1 ? "vendor" : "vendors"} now.
-                  Bids close {fmtDeadline(f.deadline)} at 17:00.</p>
+                  Bids close {fmtDeadline(f.deadline)} at {closeTime}.</p>
               </ConfirmDialog>
             )}
           </div>
@@ -3752,6 +3928,9 @@ const TYPE_HINT = {
   RFI: "Gather information using the standard sealed submission process. This workspace currently requires priced lines for all tender types.",
   AUC: "Live price competition. Bidders see their rank, never a rival's price.",
 };
+
+/* "ceiling ₦12m", or plainly that there is none. */
+const ceilWords = (t) => (t.budget > 0 ? `ceiling ${fmtCompact(t.budget)}` : "no maximum value set");
 
 const fmtDeadline = (d) => {
   if (!d) return "";

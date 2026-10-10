@@ -190,7 +190,11 @@ class Supplier(Syncable):
     id = models.CharField(primary_key=True, max_length=16)
     name = models.CharField(max_length=120)
     contact_email = models.CharField(max_length=200, blank=True, default="")
-    registered_at = models.BigIntegerField(null=True, blank=True)  # set for self-registered vendors
+    # When this company joined the vendor register. Everyone imported from the
+    # register counts; a company a buyer types in, or one that signs up by
+    # itself, stays unregistered until audit approves its first bid or it is
+    # prequalified. Until then its bids are held (see Bid.review).
+    registered_at = models.BigIntegerField(null=True, blank=True)
     rejected_reason = models.CharField(max_length=300, blank=True, default="")
     category = models.CharField(max_length=60)
     location = models.CharField(max_length=60)
@@ -313,6 +317,15 @@ class SpendDimensions(models.Model):
 class Tender(Syncable, SpendDimensions):
     technical_document_required = models.BooleanField(default=True)
     commercial_document_required = models.BooleanField(default=False)
+    # "closed" is the sealed tender: nobody sees anything until the recorded
+    # opening. "open" lets each vendor see where their price stands (their
+    # position, never anyone else's price) and lower it before the deadline.
+    # An open tender cannot be sealed, because ranking needs the prices.
+    BID_MODES = (("closed", "Closed (sealed)"), ("open", "Open (vendors see their position)"))
+    bid_mode = models.CharField(max_length=8, default="closed", choices=BID_MODES)
+    # Whether vendors are told the maximum order value (the ceiling). Off by
+    # default: it is the buyer's call per tender.
+    budget_visible = models.BooleanField(default=False)
     id = models.CharField(primary_key=True, max_length=16)
     ref = models.CharField(max_length=40, unique=True)
     title = models.CharField(max_length=200)
@@ -506,9 +519,23 @@ class Bid(Syncable):
     amount = models.BigIntegerField(null=True, blank=True)  # None while cryptographically sealed
     sealed_blob = models.BinaryField(null=True, blank=True)  # Fernet({amount, lines}) until opening
     lines = models.JSONField(default=dict)   # {lineId: unitPrice}
+    # {lineId: quantity the vendor can supply}. A line missing here is offered
+    # in full. Sealed with the prices while the bid is sealed.
+    qtys = models.JSONField(default=dict, blank=True)
     scores = models.JSONField(default=dict)  # {personaId: {criterionId: 0-10}}
     notes = models.JSONField(default=dict)   # {personaId: justification text}
     disqualified = models.BooleanField(default=False)  # failed stage 1 - commercial envelope returned unopened
+    # A bid from a vendor who is not on the register yet waits for audit.
+    # "" = counts normally, "held" = waiting, "approved" / "rejected" = decided.
+    review = models.CharField(max_length=10, blank=True, default="")
+    review_by = models.CharField(max_length=120, blank=True, default="")
+    review_at = models.BigIntegerField(null=True, blank=True)
+    review_note = models.CharField(max_length=300, blank=True, default="")
+
+    @property
+    def counts(self):
+        """Whether this bid takes part in opening, ranking and award."""
+        return self.review not in ("held", "rejected")
 
     class Meta:
         constraints = [

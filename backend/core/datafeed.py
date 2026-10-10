@@ -184,7 +184,8 @@ def bid_row(b):
     host) and its presence in a second system with different access control is
     precisely the risk sealing exists to remove.
     """
-    opened = b.tender.opened_at is not None
+    # A bid held for audit, or turned down by it, never had its number read.
+    opened = b.tender.opened_at is not None and b.counts
     return {
         "id": b.id, "tender_id": b.tender_id, "round_id": b.round_id,
         "round_number": b.round_number,

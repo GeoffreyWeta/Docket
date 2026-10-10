@@ -142,8 +142,18 @@ half = {**base, "submit": True,
         "lines": [{"desc": "Cups", "qty": 2000, "unit": "sleeve", "price": 6_000},
                   {"desc": "Boxes", "qty": 1000, "unit": "box"}]}
 r = c.post("/api/tenders/", half, content_type="application/json", **H)
-ok("a line without its maximum cannot be submitted",
-   r.status_code == 400 and "most you will pay" in r.json().get("error", ""), r.content)
+# The maximum per line is optional. With one line left open there is no
+# ceiling at all, because a total that leaves a line out is not a maximum.
+ok("a line without its maximum can be submitted", r.status_code == 200, r.content)
+if r.status_code == 200:
+    t = Tender.objects.get(pk=r.json()["id"])
+    ok("and the tender has no ceiling rather than a partial one", t.budget == 0, t.budget)
+    ok("which sends it for sign-off instead of slipping under the threshold",
+       t.status in ("approval", "published"), t.status)
+
+none = {**base, "lines": [{"desc": "Cups", "qty": 2000, "unit": "sleeve"}]}
+r = c.post("/api/tenders/", none, content_type="application/json", **H)
+ok("a draft with no maximums at all saves", r.status_code == 200, r.content)
 
 _runner.teardown_databases(_old_db)
 print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")

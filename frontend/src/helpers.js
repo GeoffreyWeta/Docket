@@ -19,9 +19,19 @@ export function dateInZone(timestamp, timeZone = "Africa/Lagos") {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
-export function closingTime(date, timeZone = "Africa/Lagos") {
+/* "HH:MM" on the wall clock in `timeZone`, the partner of dateInZone. */
+export function timeInZone(timestamp, timeZone = "Africa/Lagos") {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(timestamp));
+  const part = (type) => parts.find((p) => p.type === type).value;
+  return `${part("hour")}:${part("minute")}`;
+}
+
+/* The instant a date and a wall-clock time mean in `timeZone`. The time
+   defaults to 17:00, which is when bids closed before a time could be picked. */
+export function closingTime(date, timeZone = "Africa/Lagos", time = "17:00") {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return 0;
-  const wanted = Date.parse(`${date}T17:00:00Z`);
+  const hhmm = /^\d{2}:\d{2}$/.test(time || "") ? time : "17:00";
+  const wanted = Date.parse(`${date}T${hhmm}:00Z`);
   let instant = wanted;
   const fmt = new Intl.DateTimeFormat("en-GB", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
   for (let i = 0; i < 3; i++) {
@@ -156,8 +166,10 @@ export const savingsAgainst = (t, amount) => {
   const [basisAmount, basis] = t.baseline ? [t.baseline, "baseline"]
     : t.projectedCost ? [t.projectedCost, "projection"]
     : [t.budget, "budget"];
-  const savings = (basisAmount || 0) - amount;
-  return { basis, basisAmount, savings, pct: basisAmount ? (savings / basisAmount) * 100 : 0 };
+  /* Nothing to measure against: no baseline, no projection, no maximums. */
+  if (!basisAmount) return null;
+  const savings = basisAmount - amount;
+  return { basis, basisAmount, savings, pct: (savings / basisAmount) * 100 };
 };
 
 export const techScore = (t, bid) => {
@@ -177,19 +189,29 @@ export const lineMaxima = (t) =>
   t.lines && t.lines.length && t.lines.every((l) => Number(l.price) > 0) ? t.lines : null;
 export const linesCeiling = (lines) =>
   (lines || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
+/* The maximum is optional per line, so only lines carrying one are checked. */
 export const linesOverMax = (t, bid) => {
-  const ls = lineMaxima(t);
-  if (!ls || !bid.lines) return [];
+  const ls = (t.lines || []).filter((l) => Number(l.price) > 0);
+  if (!ls.length || !bid.lines) return [];
   return ls.filter((l) => (bid.lines[l.id] || 0) > l.price);
 };
+/* Mirrors util.offered / partial_lines: how much of a line a bid offers. */
+export const offeredQty = (bid, l) => {
+  const q = (bid.qtys || {})[l.id];
+  return q == null ? l.qty : Math.max(0, Math.min(Number(q), l.qty));
+};
+export const partialLines = (t, bid) => (t.lines || []).filter((l) => offeredQty(bid, l) < l.qty);
 
 /* Price score out of 100. With a maximum on every line it is graded line by
    line: each line counts for quantity × maximum, a rate above the maximum
    earns nothing on that line, and at or under it the lowest rate on the line
    gets full marks and the rest score in proportion. Without maximums, the
-   lowest total gets full marks. */
+   lowest total gets full marks. A vendor offering part of a line's quantity
+   earns that share of the line, and once anyone has, lines are compared rate
+   against rate rather than on totals that no longer cover the same goods. */
 export const commScore = (t, bid, bids) => {
   if (bid.amount == null) return null;
+  const share = (b, l) => (l.qty ? offeredQty(b, l) / l.qty : 1);
   const ls = lineMaxima(t);
   if (ls && bid.lines && Object.keys(bid.lines).length) {
     let got = 0;
@@ -198,11 +220,24 @@ export const commScore = (t, bid, bids) => {
       if (mine <= 0 || mine > l.price) return;
       const rates = bids.filter((b) => b.amount != null).map((b) => b.lines?.[l.id] || 0)
                         .filter((r) => r > 0 && r <= l.price);
-      got += l.qty * l.price * (Math.min(mine, ...rates) / mine);
+      got += l.qty * l.price * (Math.min(mine, ...rates) / mine) * share(bid, l);
     });
     return (got / linesCeiling(ls)) * 100;
   }
-  const lo = Math.min(...bids.filter((b) => b.amount != null).map((b) => b.amount));
+  const priced = bids.filter((b) => b.amount != null);
+  if ((t.lines || []).length && priced.some((b) => partialLines(t, b).length)) {
+    let total = 0, got = 0;
+    t.lines.forEach((l) => {
+      const rates = priced.map((b) => b.lines?.[l.id] || 0).filter((r) => r > 0);
+      if (!rates.length || !l.qty) return;
+      const best = Math.min(...rates);
+      total += l.qty * best;
+      const mine = bid.lines?.[l.id] || 0;
+      if (mine > 0) got += l.qty * best * (best / mine) * share(bid, l);
+    });
+    return total ? (got / total) * 100 : 0;
+  }
+  const lo = Math.min(...priced.map((b) => b.amount));
   return (lo / bid.amount) * 100;
 };
 export const totalScore = (t, bid, bids) => {

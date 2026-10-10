@@ -166,6 +166,18 @@ def run_sweep():
             notify_perm("supplier.prequalify", f"Registration awaiting review: {s.name}",
                         f"{s.name} registered on {fmt_date_ms(s.registered_at, date_only=True)} and is still waiting for a "
                         f"prequalification decision. Vendors who hear nothing stop responding to invitations.")
+    # Companies that signed up by themselves and are not on the register yet:
+    # their sign-up date is their login's, since being registered now waits
+    # for the company's yes (views.put_on_register).
+    from .models import Profile
+    for s in Supplier.objects.filter(prequalified=False, registered_at__isnull=True, rejected_reason="",
+                                     source__in=("self", "invite")):
+        prof = Profile.objects.filter(supplier=s).select_related("user").first()
+        joined = int(prof.user.date_joined.timestamp() * 1000) if prof else None
+        if joined and now - joined >= 3 * DAY_MS and _once(f"regnudge:{s.id}"):
+            notify_perm("supplier.prequalify", f"Registration awaiting review: {s.name}",
+                        f"{s.name} signed up on {fmt_date_ms(joined, date_only=True)} and is still waiting for a "
+                        f"prequalification decision. Vendors who hear nothing stop responding to invitations.")
 
     # 8) The finance exceptions. Same eight rules the Finance page lists, run
     #    here so an overdue payment or a duplicate invoice reaches somebody

@@ -37,8 +37,8 @@ from .util import (record_event, seal_bytes, seal_json, unseal_bytes,
                    unseal_json, verify_chain)
 from .util import (abnormally_low, award_letter, comm_score, eff_status,
                    fmt_compact, fmt_date_ms, fmt_money, lines_ceiling, lines_over_max,
-                   now_ms, regret_letter, rid, savings_against, tech_score, total_score,
-                   variance_flags)
+                   now_ms, partial_lines, price_positions, regret_letter, rid, savings_against,
+                   tech_score, total_score, variance_flags)
 
 PERSONA_SUPPLIERS = ["s2", "s3", "s7"]                 # supplier personas exposed in the demo switcher
 
@@ -175,6 +175,7 @@ def tender_view(t, p):
         "twoStage": t.two_stage, "techOpenedAt": t.tech_opened_at, "techThreshold": t.tech_threshold,
         "technicalDocumentRequired": t.technical_document_required,
         "commercialDocumentRequired": t.commercial_document_required,
+        "bidMode": t.bid_mode or "closed", "budgetVisible": t.budget_visible,
         # Ownership and the savings basis. A supplier is told neither: which
         # buyer is carrying a tender, and what the organisation was paying
         # before it went to market, are both facts a bidder could price against.
@@ -191,7 +192,10 @@ def tender_view(t, p):
         # ceiling goes with them: it is those maximums added up, and on a
         # one-line tender it is the maximum itself.
         d["lines"] = [{k: v for k, v in l.items() if k != "price"} for l in (t.lines or [])]
-        d["budget"] = None
+        # Unless the buyer chose to publish the maximum order value. Only the
+        # total goes: the per-line maximums stay with the buyer either way.
+        d["budget"] = t.budget if t.budget_visible and t.budget > 0 else None
+        d["standing"] = open_standing(t, p["supplierId"]) if t.bid_mode == "open" else None
     d.update(lifecycle_fields(t, p))
     d["rounds"] = rounds_for(t, p)
     cur = t.active_round() or t.latest_round()
@@ -228,6 +232,20 @@ def tender_view(t, p):
     return d
 
 
+def open_standing(t, supplier_id):
+    """Where this vendor's price stands on an open tender: their position and
+    how many bids are in. Never anyone else's price or name."""
+    rnd = t.active_round() or t.latest_round()
+    bids = list(Bid.objects.filter(tender=t, round=rnd))
+    mine = next((b for b in bids if b.supplier_id == supplier_id), None)
+    if not mine:
+        return None
+    if mine.review in ("held", "rejected"):
+        return {"review": mine.review}
+    ranked = [b for b in bids if b.counts and b.amount is not None]
+    return {"position": price_positions(ranked, t).get(mine.id), "of": len(ranked)}
+
+
 def _round_opened(b, t):
     """Has the recorded opening happened for the window this bid was taken in?
 
@@ -258,15 +276,21 @@ def bid_view(b, t, p):
     tech_open = bool(t.tech_opened_at) and _first_round(b)
     base = {"id": b.id, "tenderId": b.tender_id, "supplierId": b.supplier_id,
             "submittedAt": b.submitted_at, "disqualified": b.disqualified,
-            "roundId": b.round_id, "roundNumber": b.round_number}
+            "roundId": b.round_id, "roundNumber": b.round_number,
+            "review": b.review or "", "reviewBy": b.review_by or "", "reviewAt": b.review_at,
+            "reviewNote": b.review_note or ""}
     if p["role"] == "supplier":
         if b.supplier_id != p["supplierId"]:
             return None
         if b.sealed_blob is not None:  # own bid, still sealed: echo what they submitted
             data = unseal_json(b.sealed_blob)
-            return {**base, "amount": data["amount"], "lines": data["lines"], "sealed": True, "scores": {}}
-        return {**base, "amount": b.amount, "lines": b.lines, "sealed": not opened, "scores": {}}
-    if not opened and not tech_open:
+            return {**base, "amount": data["amount"], "lines": data["lines"],
+                    "qtys": data.get("qtys") or {}, "sealed": True, "scores": {}}
+        return {**base, "amount": b.amount, "lines": b.lines, "qtys": b.qtys or {},
+                "sealed": not opened and t.bid_mode != "open", "scores": {}}
+    # A bid waiting for audit, or turned down by it, is not part of the
+    # competition: the buying side sees that it exists and nothing inside it.
+    if not b.counts or (not opened and not tech_open):
         return {**base, "sealed": True}
     if has(p, "bid.see_all_scores"):
         scores, notes = b.scores, (b.notes or {})
@@ -278,7 +302,7 @@ def bid_view(b, t, p):
         return {**base, "sealed": False, "commercialSealed": True, "scores": scores, "notes": notes}
     if b.disqualified:  # commercial envelope was returned unopened - there is no amount, ever
         return {**base, "sealed": False, "commercialSealed": True, "scores": scores, "notes": notes}
-    return {**base, "amount": b.amount, "lines": b.lines, "sealed": False,
+    return {**base, "amount": b.amount, "lines": b.lines, "qtys": b.qtys or {}, "sealed": False,
             "commercialSealed": False, "scores": scores, "notes": notes}
 
 
@@ -293,6 +317,15 @@ def doc_visible(d, t, p):
     #
     # The two-stage technical release is scoped by _first_round, above.
     opened_at = d.round.opened_at if d.round_id else t.opened_at
+    # Waiting for audit, or turned down: not in the competition. Worked out
+    # once per tender object, since bootstrap asks this for every document.
+    outside = getattr(t, "_outside_bidders", None)
+    if outside is None:
+        outside = set(Bid.objects.filter(tender=t, review__in=("held", "rejected"))
+                      .values_list("supplier_id", "round_id"))
+        t._outside_bidders = outside
+    if (d.supplier_id, d.round_id) in outside:
+        return False
     if d.envelope == "technical":
         return bool(opened_at or (t.tech_opened_at and _first_round(d)))
     if not opened_at:
@@ -785,8 +818,15 @@ def _publish(t, p):
     t.published_at = now_ms()
     t.save()
     log(p, "Published", f"{t.title} released to {len(t.invited)} invited supplier(s).", t.id)
-    body = (f"{org_name()} invites your sealed bid for {t.ref} - {t.title}. "
-            f"Bids close {_closes_at(t.deadline)}. Full terms are in your bid room.")
+    if t.bid_mode == "open":
+        body = (f"{org_name()} invites your bid for {t.ref} - {t.title}. This is an open tender: "
+                f"once you bid you will see where your price stands, and you can lower it until bids "
+                f"close {_closes_at(t.deadline)}. Full terms are in your bid room.")
+    else:
+        body = (f"{org_name()} invites your sealed bid for {t.ref} - {t.title}. "
+                f"Bids close {_closes_at(t.deadline)}. Full terms are in your bid room.")
+    if t.budget_visible and t.budget > 0:
+        body += f" The maximum order value is {fmt_money(t.budget)}."
     names = {s.id: s.name for s in Supplier.objects.filter(id__in=list(t.invited or []))}
     for sid in t.invited or []:
         if not notify_supplier(sid, f"Invitation to tender: {t.title}", body, t.id):
@@ -808,6 +848,11 @@ def _ask_next_signature(t, kind, subject, body):
     return step
 
 
+def _value_words(t):
+    """The tender's value as a sentence can carry it."""
+    return f"ceiling {fmt_compact(t.budget)}" if t.budget > 0 else "no maximum value set"
+
+
 def _route_submission(t, p):
     """Where a draft goes when it is submitted.
 
@@ -825,10 +870,10 @@ def _route_submission(t, p):
         t.status = "approval"
         t.save()
         log(p, "Submitted for approval",
-            f"{fmt_compact(t.budget)} needs {len(steps)} signature(s) under the delegation "
+            f"Submitted with {_value_words(t)}; needs {len(steps)} signature(s) under the delegation "
             f"of authority: {approvals.describe(steps)}.", t.id)
         _ask_next_signature(t, approvals.PUBLISH, f"Publication approval needed: {t.title}",
-                            f"{t.ref} at {fmt_compact(t.budget)} needs your sign-off before "
+                            f"{t.ref} ({_value_words(t)}) needs your sign-off before "
                             f"invitations go out. This is step 1 of {len(steps)}.")
         return
     _route_submission_legacy(t, p)
@@ -838,13 +883,15 @@ def _route_submission_legacy(t, p):
     """The single-threshold matrix: at/above the threshold→ approver; below → publish now."""
     # A threshold of 0 means nothing needs sign-off, not that everything does.
     threshold = int(org_settings().get("approvalThreshold") or 0)
-    if threshold > 0 and t.budget >= threshold:
+    # A tender with no maximum prices has no value to compare, so where there
+    # is a threshold it goes for sign-off rather than slipping under it.
+    if threshold > 0 and (t.budget >= threshold or t.budget <= 0):
         t.status = "approval"
         t.save()
         log(p, "Submitted for approval",
             f"Routed for sign-off under the approval matrix (\u2265{fmt_compact(threshold)}).", t.id)
         notify_perm("tender.publish_decision", f"Publication approval needed: {t.title}",
-                    f"{t.ref} at {fmt_compact(t.budget)} needs your sign-off before invitations go out.", t.id)
+                    f"{t.ref} ({_value_words(t)}) needs your sign-off before invitations go out.", t.id)
     else:
         _publish(t, p)
 
@@ -876,7 +923,12 @@ def _apply_tender_payload(t, body):
     t.ttype = body.get("type", "RFQ")
     if t.ttype not in ("RFI", "RFQ", "RFP"):
         t.ttype = "RFQ"
-    t.two_stage = bool(body.get("twoStage"))
+    t.bid_mode = "open" if body.get("bidMode") == "open" else "closed"
+    # Two-stage opening keeps prices sealed while proposals are scored, and an
+    # open tender shows vendors where their price stands, so the two cannot go
+    # together. Open wins: it is the choice the buyer made on purpose.
+    t.two_stage = bool(body.get("twoStage")) and t.bid_mode == "closed"
+    t.budget_visible = bool(body.get("budgetVisible"))
     for key, field in (("technicalDocumentRequired", "technical_document_required"),
                        ("commercialDocumentRequired", "commercial_document_required")):
         if key in body:
@@ -931,10 +983,15 @@ def _apply_tender_payload(t, body):
                for l in body.get("lines", []) if str(l.get("desc", "")).strip()]
     # The ceiling is no longer typed in. It is each line's maximum per unit
     # times its quantity, so it cannot disagree with the prices bids are
-    # graded against. A caller that sends no line maximums at all (an older
-    # client, a lump-sum integration) still names the ceiling outright.
-    if any(l["price"] for l in t.lines):
+    # graded against. The maximum is optional: with one on every line the
+    # ceiling is their total, with some lines left open there is no ceiling
+    # (0), because a total that leaves lines out is not a maximum of anything.
+    # A caller that sends no line maximums at all (an older client, a lump-sum
+    # integration) can still name the ceiling outright.
+    if t.lines and all(l["price"] for l in t.lines):
         t.budget = lines_ceiling(t.lines)
+    elif any(l["price"] for l in t.lines):
+        t.budget = 0
     else:
         t.budget = _whole(body.get("budget"))
     # Suspended vendors are dropped rather than rejected: a draft's list is
@@ -962,11 +1019,10 @@ def _validate_tender(t, submitting):
         return ("The projected cost is above what the line maximums add up to. "
                 "Raise a maximum or revise the projection.")
     if submitting:
-        # .get: a draft saved before lines carried a maximum is submitted as stored.
-        if any(l.get("price") for l in t.lines) and not all(l.get("price") for l in t.lines):
-            return "Every line needs the most you will pay per unit."
-        if t.budget <= 0:
-            return "Add at least one line with a quantity and the most you will pay per unit."
+        # The most you will pay per unit is optional, so a line only needs to
+        # say what is being bought and how much of it.
+        if not t.lines and t.budget <= 0:
+            return "Add at least one line saying what you are buying and how many."
         if t.deadline <= now_ms():
             return "The deadline must be in the future."
         # Was an `elif` hanging off a reverse-auction branch, which had no
@@ -1133,7 +1189,7 @@ def publish_decision(request, p, body, tid):
                 f"Step {step.seq} of {total} signed at {step.level_name}. "
                 f"Now with {nxt.persona.name if nxt.persona_id and nxt.persona else nxt.level_name}.", t.id)
             _ask_next_signature(t, approvals.PUBLISH, f"Publication approval needed: {t.title}",
-                                f"{t.ref} at {fmt_compact(t.budget)} has cleared step {step.seq} "
+                                f"{t.ref} ({_value_words(t)}) has cleared step {step.seq} "
                                 f"of {total} and is now waiting on you.")
             return JsonResponse({"ok": True, "done": False,
                                  "next": nxt.persona.name if nxt.persona_id and nxt.persona
@@ -1187,6 +1243,12 @@ def _stamp_round_opening(t):
     r.save(update_fields=["status", "opened_at", "closed_at"])
 
 
+def _unseal_bid(b):
+    data = unseal_json(b.sealed_blob)
+    b.amount, b.lines, b.qtys, b.sealed_blob = data["amount"], data["lines"], data.get("qtys") or {}, None
+    b.save(update_fields=["amount", "lines", "qtys", "sealed_blob"])
+
+
 @route(["POST"], perm="bid.open")
 def open_bids(request, p, body, tid):
     """The recorded opening. Three shapes:
@@ -1206,7 +1268,16 @@ def open_bids(request, p, body, tid):
 
     if eff_status(t) != "closed" and not (t.two_stage and t.tech_opened_at and t.status == "evaluation"):
         return err("Bids can only be opened after the deadline seals them.", 409)
-    n = t.bids.count()
+    held = t.bids.filter(review="held").count()
+    if held:
+        # Opened together or not at all: a bid approved after the others were
+        # read would be priced by a vendor nobody had yet seen, and opened
+        # alone it would be read by a panel that had already seen the rest.
+        return err(f"{held} bid(s) from companies not on the vendor register are waiting for "
+                   f"audit approval. They must be approved or turned down before the bids are opened.", 409)
+    # Turned down by audit: never opened, here or later.
+    rejected = set(t.bids.filter(review="rejected").values_list("supplier_id", flat=True))
+    n = t.bids.exclude(review="rejected").count()
     if not n:
         return err("There are no sealed bids to open.", 409)
 
@@ -1214,7 +1285,8 @@ def open_bids(request, p, body, tid):
         # ---- stage 1: technical envelopes only ----
         with _tx.atomic():
             for d in Document.objects.select_for_update().filter(
-                    tender=t, kind="bid", envelope="technical", encrypted=True):
+                    tender=t, kind="bid", envelope="technical", encrypted=True).exclude(
+                    supplier_id__in=rejected):
                 d.data = unseal_bytes(d.data)
                 d.encrypted = False
                 d.save(update_fields=["data", "encrypted"])
@@ -1235,7 +1307,7 @@ def open_bids(request, p, body, tid):
             threshold = int(body.get("threshold", t.tech_threshold))
         except (TypeError, ValueError):
             threshold = t.tech_threshold
-        bids = list(Bid.objects.select_for_update().filter(tender=t))
+        bids = list(Bid.objects.select_for_update().filter(tender=t).exclude(review="rejected"))
         unscored = [b for b in bids if tech_score(t, b) is None]
         if unscored:
             return err(f"{len(unscored)} bid(s) have no technical scores yet - the commercial "
@@ -1244,9 +1316,7 @@ def open_bids(request, p, body, tid):
         with _tx.atomic():
             for b in bids:
                 if tech_score(t, b) >= threshold:
-                    data = unseal_json(b.sealed_blob)
-                    b.amount, b.lines, b.sealed_blob = data["amount"], data["lines"], None
-                    b.save(update_fields=["amount", "lines", "sealed_blob"])
+                    _unseal_bid(b)
                     for d in Document.objects.select_for_update().filter(
                             tender=t, kind="bid", supplier_id=b.supplier_id, encrypted=True):
                         d.data = unseal_bytes(d.data)
@@ -1273,11 +1343,11 @@ def open_bids(request, p, body, tid):
 
     # ---- single-stage: unseal everything ----
     with _tx.atomic():
-        for b in Bid.objects.select_for_update().filter(tender=t, sealed_blob__isnull=False):
-            data = unseal_json(b.sealed_blob)
-            b.amount, b.lines, b.sealed_blob = data["amount"], data["lines"], None
-            b.save(update_fields=["amount", "lines", "sealed_blob"])
-        for d in Document.objects.select_for_update().filter(tender=t, kind="bid", encrypted=True):
+        for b in (Bid.objects.select_for_update().filter(tender=t, sealed_blob__isnull=False)
+                  .exclude(review="rejected")):
+            _unseal_bid(b)
+        for d in (Document.objects.select_for_update().filter(tender=t, kind="bid", encrypted=True)
+                  .exclude(supplier_id__in=rejected)):
             d.data = unseal_bytes(d.data)
             d.encrypted = False
             d.save(update_fields=["data", "encrypted"])
@@ -1301,10 +1371,12 @@ def recommend_award(request, p, body, tid):
         return err("Awards can only be recommended during evaluation.", 409)
     if t.award_rec:
         return err("A recommendation is already waiting for sign-off.", 409)
-    bids = list(t.bids.all())
+    # A bid waiting for audit, or turned down by it, is not in the competition
+    # and must not move anybody else's price score either.
+    bids = [b for b in t.bids.all() if b.counts]
     bid = next((b for b in bids if b.id == body.get("bidId")), None)
     if not bid:
-        return err("Bid not found on this tender.", 404)
+        return err("Bid not found on this tender, or it is still waiting for audit approval.", 404)
     if bid.disqualified:
         return err("That bidder was disqualified at technical evaluation - their commercial envelope was never opened.", 409)
     if bid.amount is None:
@@ -1315,7 +1387,6 @@ def recommend_award(request, p, body, tid):
     ts = tech_score(t, bid)
     cs = comm_score(bid, bids, t)
     tot = total_score(t, bid, bids)
-    under = (t.budget - bid.amount) / t.budget * 100
     flags = []
     if abnormally_low(bid, bids):
         flags.append("pricing flagged as abnormally low - viability to be verified before contract")
@@ -1323,12 +1394,21 @@ def recommend_award(request, p, body, tid):
     if over:
         flags.append(f"rate above the maximum on {len(over)} line(s): "
                      + ", ".join(f'"{l["desc"]}"' for l in over))
+    part = partial_lines(t, bid)
+    if part:
+        flags.append(f"offers only part of the quantity on {len(part)} line(s): "
+                     + ", ".join(f'"{l["desc"]}"' for l in part))
     for c in variance_flags(t, bid):
         flags.append(f'panel split on "{c["name"]}"')
+    if t.budget > 0:
+        under = (t.budget - bid.amount) / t.budget * 100
+        against = (f" - {abs(under):.1f}% {'under' if under >= 0 else 'over'} the "
+                   f"{fmt_compact(t.budget)} ceiling")
+    else:
+        against = " (no maximum value was set)"
     memo = (
-        f"Panel recommends {s.name} at {fmt_compact(bid.amount)} - {abs(under):.1f}% "
-        f"{'under' if under >= 0 else 'over'} the "
-        f"{fmt_compact(t.budget)} ceiling. Technical {f'{ts:.0f}' if ts is not None else '-'}/100, "
+        f"Panel recommends {s.name} at {fmt_compact(bid.amount)}{against}. "
+        f"Technical {f'{ts:.0f}' if ts is not None else '-'}/100, "
         f"commercial {cs:.0f}/100, weighted total {f'{tot:.1f}' if tot is not None else '-'}. "
         + (("Flags: " + "; ".join(flags) + ".") if flags else "No variance or pricing flags.")
     )
@@ -1422,6 +1502,8 @@ def award_decision(request, p, body, tid):
         t.award_rec = None
         letters = {}
         for b in t.bids.all():
+            if not b.counts:
+                continue  # never in the competition; they were told when audit decided
             name = Supplier.objects.get(pk=b.supplier_id).name
             letters[b.supplier_id] = (
                 {"type": "award", "text": award_letter(org_name(), t, name, t.awarded_amount)}
@@ -1431,10 +1513,13 @@ def award_decision(request, p, body, tid):
         t.letters = letters
         t.save()
         t.rounds.exclude(status="cancelled").update(status="completed")
-        under = (t.budget - t.awarded_amount) / t.budget * 100
+        if t.budget > 0:
+            under = (t.budget - t.awarded_amount) / t.budget * 100
+            against = f" - {abs(under):.1f}% {'under' if under >= 0 else 'over'} budget"
+        else:
+            against = ""
         log(p, "Award approved",
-            f"Awarded to {winner.name} at {fmt_compact(t.awarded_amount)} - {abs(under):.1f}% "
-            f"{'under' if under >= 0 else 'over'} budget. "
+            f"Awarded to {winner.name} at {fmt_compact(t.awarded_amount)}{against}. "
             f"Award and regret letters issued.", t.id)
         notify_perm("award.recommend", f"Award approved: {t.title}",
                     f"The award to {winner.name} was approved. Letters have been issued to all bidders.", t.id)
@@ -1491,34 +1576,57 @@ def bid_collection(request, p, body, tid):
     mine = Bid.objects.filter(tender=t, supplier_id=me, round=rnd)
 
     if request.method == "DELETE":
-        deleted, _ = mine.delete()
+        deleted, _ = mine.exclude(review="rejected").delete()
         if not deleted:
-            return err("You have no sealed bid to withdraw.", 404)
+            return err("You have no bid to withdraw.", 404)
         log(p, "Sealed bid withdrawn by supplier", "Withdrawn before the deadline; a replacement may be submitted.", t.id)
         return JsonResponse({"ok": True})
 
-    if mine.exists():
+    is_open = t.bid_mode == "open"
+    existing = mine.first()
+    if existing and existing.review == "rejected":
+        return err("Your bid on this tender was turned down by audit, so it cannot be changed.", 409)
+    if existing and not is_open:
         return err("You already have a sealed bid - withdraw it first to replace it.", 409)
     # The conflict-of-interest declaration is signed in the signer's own name,
     # so it is required here and recorded against the bid, not only ticked on
     # a screen that never sent it.
     decl = body.get("decl")
     if not (decl is True or (isinstance(decl, dict) and decl.get("noConflict") is True)):
-        return err("Sign the conflict-of-interest declaration before sealing the bid.")
+        return err("Sign the conflict-of-interest declaration before submitting the bid.")
     acks = set(body.get("acks", []))
     missing = [a["title"] for a in t.addenda if a["id"] not in acks]
     if missing:
-        return err("Acknowledge every addendum before sealing: " + "; ".join(missing))
+        return err("Acknowledge every addendum before submitting: " + "; ".join(missing))
+    clean_qtys = {}
     if t.lines:
         prices = body.get("lines", {}) or {}
+        # How much of each line the vendor can supply. Left out means all of
+        # it; zero means "we do not supply this line", which needs no rate.
+        asked = body.get("qtys") or {}
+        if not isinstance(asked, dict):
+            asked = {}
         amount = 0
         clean_lines = {}
         for l in t.lines:
+            q = l["qty"]
+            if asked.get(l["id"]) not in (None, ""):
+                q = _qty(asked[l["id"]])
+                if q is None or q > l["qty"]:
+                    return err(f'The quantity you can supply for "{l["desc"]}" must be a whole number '
+                               f'from 0 to {l["qty"]:,}.')
+            if q == 0:
+                clean_qtys[l["id"]] = 0
+                continue
             price = _bid_whole(prices.get(l["id"]))
             if price <= 0:
-                return err(f'Every line needs a positive whole unit rate ("{l["desc"]}"). Fractions are not supported.')
-            amount += price * l["qty"]
+                return err(f'Every line you supply needs a positive whole unit rate ("{l["desc"]}"). Fractions are not supported.')
+            amount += price * q
             clean_lines[l["id"]] = price
+            if q < l["qty"]:
+                clean_qtys[l["id"]] = q
+        if not clean_lines:
+            return err("Offer at least one line: set the quantity you can supply above zero on the lines you deliver.")
     else:
         amount = _bid_whole(body.get("amount", 0))
         if amount <= 0:
@@ -1538,26 +1646,134 @@ def bid_collection(request, p, body, tid):
                 ("commercial", t.commercial_document_required, "commercial document")):
             if required and not Document.objects.filter(
                     tender=t, kind="bid", supplier_id=me, envelope=envelope).exists():
-                return err(f"Upload your {label} before sealing the bid.")
+                return err(f"Upload your {label} before submitting the bid.")
+
+    # A company that is not on the vendor register yet can bid, but its bid
+    # waits for audit before it counts. Approving it registers the company,
+    # so this happens once per company, not once per bid.
+    sup = Supplier.objects.filter(pk=me).first()
+    sup_name = sup.name if sup else me
+    review = existing.review if existing else ""
+    if not (sup and sup.registered_at):
+        review = "held"
     signed_at = now_ms()
     signed = {"noConflict": True, "signedBy": p["name"], "signedAt": signed_at}
-    b = Bid.objects.create(id=rid("b"), tender=t, round=rnd, supplier_id=me, submitted_at=signed_at,
-                           amount=None, lines={}, scores={},
-                           sealed_blob=seal_json({"amount": amount, "lines": clean_lines,
-                                                  "decl": signed}))
     where = f" in {rnd.label.lower()}" if rnd else ""
-    log(p, "Sealed bid received", f"Contents sealed until the opening is logged{where}.", t.id)
-    sup_name = Supplier.objects.filter(pk=me).values_list("name", flat=True).first() or me
+    revised = existing is not None
+    if is_open:
+        # Nothing to seal: an open tender ranks the prices as they come in.
+        if revised:
+            b = existing
+            b.amount, b.lines, b.qtys, b.submitted_at, b.review = amount, clean_lines, clean_qtys, signed_at, review
+            b.save(update_fields=["amount", "lines", "qtys", "submitted_at", "review"])
+        else:
+            b = Bid.objects.create(id=rid("b"), tender=t, round=rnd, supplier_id=me, submitted_at=signed_at,
+                                   amount=amount, lines=clean_lines, qtys=clean_qtys, scores={},
+                                   review=review)
+        log(p, "Bid revised" if revised else "Bid received",
+            f"Open tender: the vendor sees their position, never anyone else's price{where}.", t.id)
+    else:
+        b = Bid.objects.create(id=rid("b"), tender=t, round=rnd, supplier_id=me, submitted_at=signed_at,
+                               amount=None, lines={}, scores={}, review=review,
+                               sealed_blob=seal_json({"amount": amount, "lines": clean_lines,
+                                                      "qtys": clean_qtys, "decl": signed}))
+        log(p, "Sealed bid received", f"Contents sealed until the opening is logged{where}.", t.id)
     log(p, "Conflict-of-interest declaration signed",
         f"{p['name']} declared no conflict of interest for {sup_name}, signed electronically "
         f"with bid {b.id} on {fmt_date_ms(signed_at)}.", t.id)
-    notify_supplier(me, f"Bid received: {t.title}",
-                    f"{org_name()} has received your sealed bid for {t.ref}{where}. It stays sealed "
-                    f"until the recorded opening after the deadline, {fmt_date_ms(t.deadline)}.", t.id)
-    notify_perm("bid.open", f"Sealed bid received: {t.title}",
-                f"A sealed bid was received on {t.ref}{where}. Contents stay sealed until the "
-                f"recorded opening.", t.id)
+
+    if review == "held" and not revised:
+        log(p, "Bid held for audit approval",
+            f"{sup_name} is not on the vendor register yet, so bid {b.id} counts only once audit approves it.", t.id)
+    if is_open:
+        tail = (f"This is an open tender: your bid room shows where your price stands, and you can lower it "
+                f"until {_closes_at(t.deadline)}.")
+    else:
+        tail = (f"It stays sealed until the recorded opening after the deadline, "
+                f"{fmt_date_ms(t.deadline)}.")
+    if review == "held":
+        tail += (f" Because {sup_name} is not on {org_name()}'s vendor register yet, the bid will count "
+                 f"once it has been approved. You will be told the outcome.")
+    what = "recorded your revised bid" if revised else "received your bid"
+    notify_supplier(me, f"Bid {'updated' if revised else 'received'}: {t.title}",
+                    f"{org_name()} has {what} for {t.ref}{where}. {tail}", t.id)
+    if not revised:
+        kind = "Bid" if is_open else "Sealed bid"
+        notify_perm("bid.open", f"{kind} received: {t.title}",
+                    f"A {kind.lower()} was received on {t.ref}{where}. Its contents stay hidden from "
+                    f"the buying side until the recorded opening.", t.id)
+        if review == "held":
+            notify_perm("bid.approve_new_vendor", f"Bid from a new vendor needs approval: {t.title}",
+                        f"{sup_name} is not on the vendor register and has bid on {t.ref}. The bid counts "
+                        f"only once you approve it, and approving it puts {sup_name} on the register.", t.id)
+    return JsonResponse({"ok": True, "held": review == "held"})
+
+
+def put_on_register(s, by, why):
+    """Put a company on the vendor register and let its waiting bids count.
+    Returns the bids released. Called when audit approves one of its bids,
+    and when it is prequalified: either is the company saying yes to it."""
+    if not s.registered_at:
+        s.registered_at = now_ms()
+        s.save(update_fields=["registered_at"])
+    released = list(Bid.objects.filter(supplier_id=s.id, review="held").select_related("tender"))
+    for b in released:
+        b.review, b.review_by, b.review_at, b.review_note = "approved", by[:120], now_ms(), why[:300]
+        b.save(update_fields=["review", "review_by", "review_at", "review_note"])
+    return released
+
+
+def _tell_released(p, s, released):
+    for b in released:
+        log(p, "New vendor bid approved",
+            f"{s.name} is now on the vendor register, so bid {b.id} counts.", b.tender_id)
+        notify_supplier(s.id, f"Bid approved: {b.tender.title}",
+                        f"{org_name()} approved your bid on {b.tender.ref}. {s.name} is now on the vendor "
+                        f"register, so your next bids count straight away.", b.tender_id)
+
+
+@route(["POST"], perm="bid.approve_new_vendor")
+def review_bid(request, p, body, bid_id):
+    """Audit's decision on a bid from a company not on the vendor register."""
+    b = Bid.objects.select_related("tender").filter(pk=bid_id).first()
+    if not b:
+        return err("Bid not found.", 404)
+    t = b.tender
+    if b.review != "held":
+        return err("This bid is not waiting for approval.", 409)
+    if t.status in ("cancelled", "awarded"):
+        return err("This tender is finished, so its bids can no longer be approved.", 409)
+    s = Supplier.objects.filter(pk=b.supplier_id).first()
+    if not s:
+        return err("The vendor behind this bid no longer exists.", 404)
+    if body.get("ok", True) is not False:
+        if s.suspended:
+            return err("This vendor is suspended. Lift the suspension before approving their bid.", 409)
+        _tell_released(p, s, put_on_register(s, p["name"], "Approved by audit"))
+        log(p, "Vendor added to the register", f"{s.name} approved by audit through a bid on {t.ref}.", t.id)
+        return JsonResponse({"ok": True})
+    reason = str(body.get("reason") or "").strip()[:300]
+    if not reason:
+        return err("Give the vendor a reason. It is recorded and sent to them.")
+    b.review, b.review_by, b.review_at, b.review_note = "rejected", p["name"][:120], now_ms(), reason
+    b.save(update_fields=["review", "review_by", "review_at", "review_note"])
+    log(p, "New vendor bid turned down", f"{s.name}: {reason}", t.id)
+    notify_supplier(s.id, f"Bid not accepted: {t.title}",
+                    f"{org_name()} could not accept your bid on {t.ref}: {reason}", t.id)
     return JsonResponse({"ok": True})
+
+
+def _qty(value):
+    """A quantity a vendor can supply: a whole number from zero, or None."""
+    if isinstance(value, bool):
+        return None
+    try:
+        q = Decimal(str(value).replace(",", "").strip())
+    except (InvalidOperation, ValueError):
+        return None
+    if not q.is_finite() or q < 0 or q != q.to_integral_value():
+        return None
+    return int(q)
 
 
 @route(["POST"], perm="bid.score")
@@ -1699,6 +1915,9 @@ def prequalify(request, p, body, sid):
         s.verified_by = p["name"]
         s.save(update_fields=["prequalified", "rejected_reason", "verified_at", "verified_by"])
         log(p, "Supplier prequalified", f"{s.name} approved onto the register after document review.")
+        # Prequalifying a company is a yes to it, so it is on the register now
+        # and any bid it had waiting for audit counts.
+        _tell_released(p, s, put_on_register(s, p["name"], "Released when the vendor was prequalified"))
         notify_supplier(s.id, "Prequalification approved",
                         f"{org_name()} has prequalified {s.name}. You can now be invited to tenders.")
     else:
@@ -1809,13 +2028,14 @@ def ai_brief(request, p, body, tid):
     t = Tender.objects.filter(pk=tid).first()
     if not t or not t.opened_at:
         return err("The brief is available once bids are opened.", 409)
-    bids = list(t.bids.all())
+    bids = [b for b in t.bids.all() if b.counts]
     rows = []
     for b in bids:
         s = Supplier.objects.get(pk=b.supplier_id)
         ts = tech_score(t, b)
         rows.append(
-            f"{s.name}: bid {fmt_money(b.amount)} (budget {fmt_money(t.budget)}); "
+            f"{s.name}: bid {fmt_money(b.amount)} "
+            f"({f'budget {fmt_money(t.budget)}' if t.budget > 0 else 'no maximum set'}); "
             f"avg technical score {f'{ts:.0f}/100' if ts is not None else 'not yet scored'}; "
             f"supplier on-time delivery {s.perf.get('onTime')}%, quality {s.perf.get('quality')}%."
         )
@@ -1877,7 +2097,7 @@ def ai_bid_review(request, p, body, tid):
 def ai_insights(request, p, body):
     tenders = list(Tender.objects.all())
     awarded = [t for t in tenders if t.status == "awarded"]
-    savings = sum(t.budget - t.awarded_amount for t in awarded)
+    savings = sum(t.budget - t.awarded_amount for t in awarded if t.budget > 0)
     cycles = [(t.awarded_at - t.published_at) / 86_400_000 for t in awarded if t.published_at and t.awarded_at]
     outliers, splits = [], []
     for t in tenders:
@@ -2529,7 +2749,7 @@ def import_suppliers(request, p, body):
         Supplier.objects.create(
             id=rid("s"), name=name, **vendor_fields(r),
             prequalified=r.get("prequalified", "").lower() in ("yes", "y", "true", "1"),
-            docs=[], perf={}, source="import",
+            docs=[], perf={}, source="import", registered_at=now_ms(),  # imported = on the register
         )
         created.append(name)
     log(p, "Suppliers imported", f"{len(created)} supplier(s) imported from CSV; {skipped} duplicate/blank row(s) skipped.")
@@ -2685,9 +2905,13 @@ def duplicate_tender(request, p, body, tid):
         technical_document_required=src.technical_document_required,
         commercial_document_required=src.commercial_document_required,
         tech_threshold=src.tech_threshold,
+        bid_mode=src.bid_mode, budget_visible=src.budget_visible,
         # The expectation carries over with the structure; the deadline and the
         # rounds do not, because those are facts about the run, not the template.
         projected_cost=src.projected_cost,
+        baseline=src.baseline, baseline_source=src.baseline_source,
+        owner_id=p["id"] if p["role"] != "supplier" else None,
+        **{key: getattr(src, key) for key, _ in Tender.DIMENSIONS},
     )
     t.ref = _next_ref(t.ttype)
     t.save()
@@ -2728,7 +2952,7 @@ def export_compliance(request, p, body, tid):
         flow.append(Paragraph(txt, body_s))
 
     flow.append(Paragraph("1. Competition", sec))
-    para(f"Type: {t.ttype}{' · two-stage envelope opening' if t.two_stage else ''}. Budget ceiling {fmt_compact(t.budget)}. "
+    para(f"Type: {t.ttype}{' · two-stage envelope opening' if t.two_stage else ''}. {f'Budget ceiling {fmt_compact(t.budget)}' if t.budget > 0 else 'No maximum value set'}. "
          f"{len(t.invited)} supplier(s) invited: {', '.join(names.get(x, x) for x in t.invited) or '-'}. "
          f"{len(bids)} bid(s) received. Published {fmt_date_ms(t.published_at) if t.published_at else '-'}; "
          f"deadline {fmt_date_ms(t.deadline) if t.deadline else '-'}.")

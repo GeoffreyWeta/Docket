@@ -672,10 +672,34 @@ const formOf = (a) => ({
 });
 const sameForm = (x, y) => Object.keys(x).every((k) => String(x[k] ?? "").trim() === String(y[k] ?? "").trim());
 
+/* A new draft from this auction: same rules, lots and vendors, no dates and
+   no bids. Nobody is invited until somebody sends the invitations. */
+function DuplicateAuctionButton({ api, a }) {
+  const { user, go, toast } = api;
+  const [busy, setBusy] = useState(false);
+  if (!can(user, "auction.create")) return null;
+  return (
+    <button className="btn sm" disabled={busy}
+            title="A new draft with the same rules, lots and vendors. Dates are cleared and nobody is invited yet."
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const made = await raw(`/auctions/${a.id}/duplicate/`, { method: "POST", body: {} });
+                toast.ok("Copy created", "Set the clock, then send the invitations when you are ready.");
+                go({ page: "auction", id: made.id });
+              } catch (e) {
+                toast.warn("Could not copy the auction", e.message || "");
+              } finally { setBusy(false); }
+            }}>{busy ? "Copying\u2026" : "Duplicate"}</button>
+  );
+}
+
+const BLANK_LOT = { title: "", qty: 1, uom: "", ceiling: "", reserve: "", minDecrement: "", stepKind: "amount" };
+
 function DraftAuction({ api, a, refresh }) {
   const { state, user, go, toast } = api;
   const [f, setF] = useState(() => formOf(a));
-  const [lot, setLot] = useState({ title: "", qty: 1, uom: "", ceiling: "", reserve: "", minDecrement: "" });
+  const [lot, setLot] = useState(BLANK_LOT);
   const [parts, setParts] = useState([]);
   const [pick, setPick] = useState([]);
   const [inviteCategory, setInviteCategory] = useState("");
@@ -722,8 +746,9 @@ function DraftAuction({ api, a, refresh }) {
       ceiling: Number(lot.ceiling) || 0,
       reserve: lot.reserve === "" ? "" : Number(lot.reserve),
       minDecrement: Number(lot.minDecrement) || 0,
+      decrementIsPct: lot.stepKind === "pct",
     }, "Lot added.");
-    if (ok) setLot({ title: "", qty: 1, uom: "", ceiling: "", reserve: "", minDecrement: "" });
+    if (ok) setLot(BLANK_LOT);
   };
 
   const invite = async () => {
@@ -818,6 +843,7 @@ function DraftAuction({ api, a, refresh }) {
           <p className="mono faint">{a.ref} &middot; draft</p>
         </div>
         <div className="grow" />
+        <DuplicateAuctionButton api={api} a={a} />
         <AucStamp s={a.status} />
       </div>
 
@@ -958,7 +984,7 @@ function DraftAuction({ api, a, refresh }) {
                     <td>{l.title}<div className="hint" style={{ marginTop: 2 }}>{l.qty} {l.uom}</div></td>
                     <td className="num money">{fmtMoney(l.ceiling)}</td>
                     <td className="num money">{l.reserve ? fmtMoney(l.reserve) : <span className="faint">none</span>}</td>
-                    <td className="num money">{l.minDecrement ? fmtMoney(l.minDecrement) : <span className="faint">none</span>}</td>
+                    <td className="num money">{l.minDecrement ? (l.decrementIsPct ? `${l.minDecrement}%` : fmtMoney(l.minDecrement)) : <span className="faint">none</span>}</td>
                     <td className="num">{canEdit && (
                       <button className="btn sm iconly" aria-label={"Remove lot " + l.number}
                               onClick={() => call(`/lots/${l.id}/delete/`, {}, "Lot removed.")}>
@@ -988,10 +1014,20 @@ function DraftAuction({ api, a, refresh }) {
                   <input id="ac-lr" className="in" type="number" value={lot.reserve}
                          onChange={(e) => setLot({ ...lot, reserve: e.target.value })} />
                   <div className="hint">{a.direction === "sale" ? "Lowest amount you will sell for. " : "Maximum acceptable purchase price. "}Never shown to bidders.</div></div>
-                <div className="frow"><label className="lbl" htmlFor="ac-ld">Minimum step</label>
-                  <input id="ac-ld" className="in" type="number" value={lot.minDecrement}
-                         onChange={(e) => setLot({ ...lot, minDecrement: e.target.value })} />
-                  <div className="hint">How much a bid must beat the best by.</div></div>
+                <div className="frow"><label className="lbl" htmlFor="ac-ld">To take first place, beat the best by</label>
+                  <div className="formrow">
+                    <input id="ac-ld" className="in" type="number" min="0" max={lot.stepKind === "pct" ? 50 : undefined}
+                           style={{ flex: "1 1 90px" }} value={lot.minDecrement}
+                           onChange={(e) => setLot({ ...lot, minDecrement: e.target.value })} />
+                    <select className="in" aria-label="Step as an amount or a percentage" style={{ flex: "0 1 110px" }}
+                            value={lot.stepKind} onChange={(e) => setLot({ ...lot, stepKind: e.target.value })}>
+                      <option value="amount">naira</option>
+                      <option value="pct">percent</option>
+                    </select>
+                  </div>
+                  <div className="hint">{lot.stepKind === "pct"
+                    ? `A bid takes first place only if it beats the current best by at least this percentage${a.direction === "sale" ? "" : " (lower)"}. Up to 50%.`
+                    : "A bid takes first place only if it beats the current best by at least this amount. Leave blank for any improvement."}</div></div>
                 <div className="frow"><label className="lbl" htmlFor="ac-lq">Quantity and unit</label>
                   <div className="formrow">
                     <input id="ac-lq" className="in" type="number" min="1" style={{ maxWidth: 90 }} value={lot.qty}
@@ -1001,11 +1037,13 @@ function DraftAuction({ api, a, refresh }) {
               </div>
               <div className="gaterow" style={{ marginTop: 12 }}>
                 <button className="btn" onClick={addLot}
-                        disabled={!lot.title.trim() || !(Number(lot.ceiling) > 0) || !!busy}>
+                        disabled={!lot.title.trim() || !(Number(lot.ceiling) > 0) || !!busy
+                          || (lot.stepKind === "pct" && Number(lot.minDecrement) > 50)}>
                   {busy === "/lots/" ? "Adding…" : "Add lot"}
                 </button>
                 {!lot.title.trim() ? <span className="hint gatehint">The lot needs a title.</span>
                   : !(Number(lot.ceiling) > 0) ? <span className="hint gatehint">Set a positive opening price. Buyers compete downwards; bidders in a sale compete upwards.</span>
+                  : lot.stepKind === "pct" && Number(lot.minDecrement) > 50 ? <span className="hint gatehint">The percentage can be at most 50%.</span>
                   : null}
               </div>
             </>
@@ -1256,6 +1294,7 @@ export function AuctionPage({ api, id }) {
           <p className="mono faint">{a.ref} · {a.direction === "sale" ? "selling: highest bid wins" : "buying: lowest price wins"} · {a.visibility === "rank" ? "rank visible, prices private"
             : a.visibility === "price" ? "best price visible" : "blind"}</p>
         </div>
+        <DuplicateAuctionButton api={api} a={a} />
         <div className="aucclock">
           <AucStamp s={a.status} timeUp={timeUp} />
           {live && a.endsAt && <LiveCountdown deadline={a.endsAt} className="mono" />}
@@ -1297,7 +1336,7 @@ export function AuctionPage({ api, id }) {
             <span className="mono faint" style={{ marginLeft: "auto" }}>
               {lot.ceiling ? `opening ${fmtCompact(lot.ceiling)}` : ""}
               {lot.reserve ? ` · reserve ${fmtCompact(lot.reserve)}` : ""}
-              {lot.minDecrement ? ` · step ${fmtCompact(lot.minDecrement)}` : ""}
+              {lot.minDecrement ? ` · step ${lot.decrementIsPct ? lot.minDecrement + "%" : fmtCompact(lot.minDecrement)}` : ""}
             </span>
           </div>
           <div className="cbody">

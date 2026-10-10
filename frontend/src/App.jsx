@@ -582,6 +582,14 @@ export default function App() {
       boot.current.landed = mine;
       setBootError("");
       setMustChangePassword(false);
+      /* On the buying side, a bid waiting for audit (or turned down by it) is
+         not in the competition, so it is kept off the list every screen
+         counts, scores and charts from. The audit panel reads it from here. */
+      if (d.me && d.me.role !== "supplier" && Array.isArray(d.bids)) {
+        const outside = (b) => b.review === "held" || b.review === "rejected";
+        d.reviewBids = d.bids.filter(outside);
+        d.bids = d.bids.filter((b) => !outside(b));
+      }
       setData(d);
       setRoute((current) => current || landingRoute(d.me));
       return d;
@@ -788,6 +796,14 @@ export default function App() {
     }
   };
 
+  /* As wrap, but hands back what the server answered (or null), for the
+     few calls whose caller goes somewhere with the result. */
+  const wrapValue = (fn) => async (...args) => {
+    let out = null;
+    const ok = await wrap(async (...a) => { out = await fn(...a); })(...args);
+    return ok ? (out || {}) : null;
+  };
+
   const act = {
     submitTender: wrap((id) => raw(`/tenders/${id}/submit/`, { method: "POST", body: {} })),
     addAddendum: wrap((id, b) => raw(`/tenders/${id}/addenda/`, { method: "POST", body: b })),
@@ -812,7 +828,8 @@ export default function App() {
     setReportingLine: wrap((personId, managerId) =>
       raw(`/team/org/`, { method: "POST", body: { personId, managerId } })),
     deleteMyDoc: wrap((docId) => raw(`/me/docs/${docId}/`, { method: "DELETE", body: {} })),
-    duplicate: wrap((tid) => raw(`/tenders/${tid}/duplicate/`, { method: "POST", body: {} })),
+    duplicate: wrapValue((tid) => raw(`/tenders/${tid}/duplicate/`, { method: "POST", body: {} })),
+    reviewBid: wrap((bidId, ok, reason) => raw(`/bids/${bidId}/review/`, { method: "POST", body: { ok, reason } })),
     rename: wrap((b) => raw(`/me/`, { method: "POST", body: b })),
     saveScores: wrap((bidId, scores, note) =>
       raw(`/bids/${bidId}/scores/`, { method: "POST", body: note === undefined ? { scores } : { scores, note } }), false),

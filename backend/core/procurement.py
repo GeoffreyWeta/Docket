@@ -136,7 +136,10 @@ def vendor_rows(t, p):
             # `invited_at` is about the register drive and is a different thing.
             "invitationStatus": ("awaiting" if t.status in ("draft", "approval")
                                  else "unreachable" if f"[{sid}]" in unreached else "sent"),
-            "bidStatus": ("submitted" if last else "none"),
+            # "held": waiting for audit because the company is not on the
+            # register yet; "rejected": audit turned it down.
+            "bidStatus": ((last.review if last.review in ("held", "rejected") else "submitted")
+                          if last else "none"),
             "submittedAt": last.submitted_at if last else None,
             "roundsBid": [b.round.number if b.round_id else 1 for b in mine],
             "currentRound": (latest.number if latest else 1),

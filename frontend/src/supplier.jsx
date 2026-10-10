@@ -320,6 +320,7 @@ export function PortalHome({ api }) {
                        meta={<>
                          <span className="mono">{t.ref}</span>
                          {t.lines && t.lines.length > 0 && <span>{t.lines.length} priced lines</span>}
+                         {t.bidMode === "open" && <span>open bidding</span>}
                          {(t.rounds || []).length > 1 && <span>round {t.currentRound} of {t.rounds.length}</span>}
                          {(t.addenda || []).length > 0 && <span>{(t.addenda || []).length} addendum</span>}
                          {(t.deadlineChanges || []).length > 0 && <span>deadline extended</span>}
@@ -327,11 +328,14 @@ export function PortalHome({ api }) {
                        right={<>
                          <Countdown t={t.deadline} />
                          {st === "paused" ? <span className="chip warn">Paused by the buyer</span>
-                           : myBid ? <span className="chip ok">Sealed</span>
+                           : myBid && myBid.review === "held" ? <span className="chip warn">Waiting for approval</span>
+                           : myBid && t.bidMode === "open" && t.standing && t.standing.position
+                             ? <span className="chip ok">Your price: {t.standing.position} of {t.standing.of}</span>
+                           : myBid ? <span className="chip ok">{t.bidMode === "open" ? "Bid in" : "Sealed"}</span>
                            : left ? <span className="chip">Not shortlisted</span>
                            : st === "published" ? <span className="chip warn">Not started</span>
                            : <span className="chip">Closed</span>}
-                         {st === "published" && !left && <button className="btn sm pri" onClick={() => go({ page: "bidroom", id: t.id })}>{myBid ? "View receipt" : "Bid"}</button>}
+                         {st === "published" && !left && <button className="btn sm pri" onClick={() => go({ page: "bidroom", id: t.id })}>{myBid ? (t.bidMode === "open" ? "See position" : "View receipt") : "Bid"}</button>}
                        </>} />
                 );
               })}
@@ -533,6 +537,10 @@ function BidRoomFor({ api, t }) {
   });
   const [form, setForm] = useState({ amount: (draft0 && draft0.amount) || "", decl: false });
   const [prices, setPrices] = useState((draft0 && draft0.prices) || {});
+  /* How many of each line the vendor can supply. Blank means all of it. */
+  const [qtys, setQtys] = useState((draft0 && draft0.qtys) || {});
+  /* On an open tender a vendor changes their bid in place to move up. */
+  const [revising, setRevising] = useState(false);
   const [restored, setRestored] = useState(!!draft0);
   const [acks, setAcks] = useState({});
   const [q, setQ] = useState("");
@@ -541,8 +549,10 @@ function BidRoomFor({ api, t }) {
   const [askWithdraw, setAskWithdraw] = useState(false);
   const [askSeal, setAskSeal] = useState(false);
   const [sealing, setSealing] = useState(false);
-  const typed = !!String(form.amount).trim() || Object.values(prices).some((v) => String(v).trim());
-  const draft = useDraftStorage(draftKey, { amount: form.amount, prices }, typed);
+  const typed = !!String(form.amount).trim() || Object.values(prices).some((v) => String(v).trim())
+    || Object.values(qtys).some((v) => String(v).trim());
+  const draft = useDraftStorage(draftKey, { amount: form.amount, prices, qtys }, typed);
+  const isOpen = t.bidMode === "open";
   /* The clock by the submit button, refreshed so "closes in 12 min" counts. */
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -562,8 +572,23 @@ function BidRoomFor({ api, t }) {
 
   /* "540,000,000" is how people write money, so commas and spaces are fine. */
   const num = wholeAmount;
-  const linesTotal = hasLines ? t.lines.reduce((s, l) => s + (num(prices[l.id]) || 0) * l.qty, 0) : 0;
-  const amountValid = hasLines ? t.lines.every((l) => num(prices[l.id]) > 0) && Number.isSafeInteger(linesTotal) : num(form.amount) > 0;
+  /* Blank is the whole line, 0 is "we do not supply this", anything else must
+     be a whole number no larger than what was asked for. */
+  const qtyOf = (l) => {
+    const raw = String(qtys[l.id] ?? "").trim();
+    if (!raw) return l.qty;
+    if (/^0+$/.test(raw)) return 0;
+    const n = num(raw);
+    return Number.isFinite(n) && n <= l.qty ? n : NaN;
+  };
+  const linesTotal = hasLines ? t.lines.reduce((s, l) => {
+    const q = qtyOf(l);
+    return s + (q > 0 ? (num(prices[l.id]) || 0) * q : 0);
+  }, 0) : 0;
+  const amountValid = hasLines
+    ? t.lines.every((l) => { const q = qtyOf(l); return Number.isFinite(q) && (q === 0 || num(prices[l.id]) > 0); })
+      && t.lines.some((l) => qtyOf(l) > 0) && Number.isSafeInteger(linesTotal)
+    : num(form.amount) > 0;
   const sealTotal = hasLines ? linesTotal : num(form.amount) || 0;
   const notShortlisted = !myBid && rnd && rnd.mine === false;
   const myDocs = (state.documents || []).filter((x) => x.kind === "bid" && x.tenderId === t.id);
@@ -579,8 +604,8 @@ function BidRoomFor({ api, t }) {
      form in the product where getting it wrong means missing a deadline. */
   const steps = [
     { ok: amountValid, to: "sb-price",
-      todo: hasLines ? "Price every line" : "Enter your bid amount",
-      done: hasLines ? "Every line priced" : "Amount entered" },
+      todo: hasLines ? "Price every line you supply" : "Enter your bid amount",
+      done: hasLines ? "Every line you supply is priced" : "Amount entered" },
     ...(requiresTech ? [{ ok: hasTechDoc, to: "sb-docs",
       todo: "Upload your technical proposal", done: "Technical proposal attached",
       note: "PDF, Office or image, up to 10 MB." }] : []),
@@ -619,7 +644,7 @@ function BidRoomFor({ api, t }) {
   };
 
   /* Typed but not sealed: the browser asks before the tab closes. */
-  const unsent = typed && !myBid && st === "published";
+  const unsent = typed && (!myBid || revising) && st === "published";
   useEffect(() => {
     if (!unsent) return undefined;
     const warn = (e) => { e.preventDefault(); e.returnValue = ""; };
@@ -636,7 +661,8 @@ function BidRoomFor({ api, t }) {
     try {
       ok = await act.submitBid(t.id, {
         amount: hasLines ? undefined : num(form.amount),
-        lines: hasLines ? Object.fromEntries(t.lines.map((l) => [l.id, num(prices[l.id])])) : undefined,
+        lines: hasLines ? Object.fromEntries(t.lines.filter((l) => qtyOf(l) > 0).map((l) => [l.id, num(prices[l.id])])) : undefined,
+        qtys: hasLines ? Object.fromEntries(t.lines.map((l) => [l.id, qtyOf(l)])) : undefined,
         acks: addenda.map((a) => a.id).filter((aid) => acks[aid]),
         decl: form.decl === true,
       });
@@ -644,18 +670,22 @@ function BidRoomFor({ api, t }) {
       setSealing(false);
     }
     if (ok) {
+      const wasRevising = revising;
       draft.clear();
       setPrices({});
+      setQtys({});
       setForm({ amount: "", decl: false });
       setRestored(false);
+      setRevising(false);
       cue.stamp();
-      toast.ok("Bid sealed", "Encrypted at rest. The buyer sees only that a bid exists until the recorded opening.");
+      if (isOpen) toast.ok(wasRevising ? "Bid updated" : "Bid submitted", "Your position is shown on this page. Other vendors never see your price.");
+      else toast.ok("Bid sealed", "Encrypted at rest. The buyer sees only that a bid exists until the recorded opening.");
     }
   };
   const withdraw = async () => {
     /* Capture the figures before the bid goes: the server deletes it, and this
        is the only copy the client has to re-seal from. */
-    const was = myBid ? { amount: myBid.amount, lines: { ...(myBid.lines || {}) } } : null;
+    const was = myBid ? { amount: myBid.amount, lines: { ...(myBid.lines || {}) }, qtys: { ...(myBid.qtys || {}) } } : null;
     const acksWere = addenda.map((a) => a.id);
     const ok = await act.withdrawBid(t.id);
     setAiFb("");
@@ -664,6 +694,7 @@ function BidRoomFor({ api, t }) {
          one rate does not mean typing forty again. */
       if (was) {
         setPrices(Object.fromEntries(Object.entries(was.lines).map(([k, v]) => [k, String(v)])));
+        setQtys(Object.fromEntries(Object.entries(was.qtys).map(([k, v]) => [k, String(v)])));
         setForm((f) => ({ ...f, amount: was.amount != null && !hasLines ? String(was.amount) : "" }));
       }
       toast.undo("Sealed bid withdrawn", "Your documents are unlocked. Submit a replacement any time before the deadline.",
@@ -671,11 +702,13 @@ function BidRoomFor({ api, t }) {
                    const back = await act.submitBid(t.id, {
                      amount: hasLines ? undefined : was?.amount,
                      lines: hasLines ? was?.lines : undefined,
+                     qtys: hasLines ? was?.qtys : undefined,
                      acks: acksWere,
                      decl: true,  // re-sealing the bid they signed, unchanged
                    });
                    if (back) {
                      setPrices({});
+                     setQtys({});
                      setForm({ amount: "", decl: false });
                      cue.stamp();
                      toast.ok("Bid re-sealed at the same figures", "Same prices, same documents, a new receipt.");
@@ -683,6 +716,15 @@ function BidRoomFor({ api, t }) {
                  });
     }
   };
+  const startRevising = () => {
+    if (!myBid) return;
+    setPrices(Object.fromEntries(Object.entries(myBid.lines || {}).map(([k, v]) => [k, String(v)])));
+    setQtys(Object.fromEntries(Object.entries(myBid.qtys || {}).map(([k, v]) => [k, String(v)])));
+    setForm({ amount: myBid.amount != null && !hasLines ? String(myBid.amount) : "", decl: false });
+    setRevising(true);
+  };
+  const standing = t.standing;
+  const ord = (n) => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
   const ask = async () => {
     if (!q.trim()) return;
     const ok = await act.askClar(t.id, q.trim());
@@ -720,6 +762,12 @@ function BidRoomFor({ api, t }) {
         <div className="grow" /><Countdown t={t.deadline} />
       </div>
 
+      {t.budget != null && t.budget > 0 && (
+        <div className="notice" style={{ marginBottom: 14 }}>
+          <b>Maximum order value: <span className="money">{fmtMoney(t.budget)}</span>.</b> The buyer has chosen to share
+          the most this order can be worth in total.
+        </div>
+      )}
       {/* Everything the buyer changed that this vendor is owed. Stated before
           the scope, because a paused event or a moved deadline changes what
           they should do next and the scope does not. */}
@@ -798,22 +846,55 @@ function BidRoomFor({ api, t }) {
           <b> The withdrawal is recorded in the audit trail under your company's name.</b>
         </ConfirmDialog>
       )}
-      {askSeal && !myBid && (
-        <ConfirmDialog title="Seal and submit your bid?" confirmLabel="Seal & submit" tone="wax"
+      {askSeal && (!myBid || revising) && (
+        <ConfirmDialog title={isOpen ? (revising ? "Update your bid?" : "Submit your bid?") : "Seal and submit your bid?"}
+                       confirmLabel={isOpen ? (revising ? "Update bid" : "Submit bid") : "Seal & submit"} tone="wax"
                        onClose={() => setAskSeal(false)}
                        onConfirm={async () => { await submit(); }}>
           You are submitting <b>{fmtMoney(sealTotal)}</b> for <b>{t.title}</b> with {myDocs.length} document{myDocs.length === 1 ? "" : "s"}.
-          {" "}You can withdraw and replace it any time before the deadline.
+          {" "}{isOpen ? "You can change it again any time before the closing time." : "You can withdraw and replace it any time before the deadline."}
         </ConfirmDialog>
       )}
-      {myBid ? (
+      {myBid && myBid.review === "held" && (
+        <div className="notice wax" style={{ marginBottom: 14 }}>
+          <b>Waiting for approval.</b> Your company is not on the buyer's vendor register yet, so this bid counts
+          once their audit team approves it. Approval also registers your company, so your next bids count straight away.
+          You will be told the outcome.
+        </div>
+      )}
+      {myBid && myBid.review === "rejected" && (
+        <div className="notice wax" style={{ marginBottom: 14 }}>
+          <b>Your bid was not accepted.</b> {myBid.reviewNote}
+        </div>
+      )}
+      {isOpen && myBid && standing && standing.position && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="cbody" style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 34, fontWeight: 700, lineHeight: 1 }} className="mono">{ord(standing.position)}</div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <b>{standing.position === 1 ? `Your price is the best of ${standing.of} so far.` : `Your price is ${ord(standing.position)} of ${standing.of}.`}</b>
+              <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
+                Based on price only. {standing.position === 1 ? "Another vendor can still overtake you before the closing time." : "Lower your rates to move up."}
+                {" "}You never see other vendors' prices or names, and they never see yours.
+              </div>
+            </div>
+            {st === "published" && !revising && myBid.review !== "rejected" && (
+              <button className="btn pri" onClick={startRevising}>Change my bid</button>
+            )}
+          </div>
+        </div>
+      )}
+      {myBid && !revising ? (
         <div>
           <div className="receipt" style={{ marginBottom: 14 }}>
             <SealMark s={26} className="stamped" />
-            <h3 style={{ fontFamily: "Georgia,'Times New Roman',serif", margin: "10px 0 4px" }}>Bid sealed</h3>
+            <h3 style={{ fontFamily: "Georgia,'Times New Roman',serif", margin: "10px 0 4px" }}>{isOpen ? "Bid received" : "Bid sealed"}</h3>
             <p className="muted" style={{ margin: "0 0 12px", fontSize: 13 }}>
-              Submitted {fmtDateTime(myBid.submittedAt)}. Your bid is cryptographically sealed: the buyer sees only that a bid exists.
-              Only the buyer sees the contents, at the recorded opening after the deadline. Other vendors never do.
+              {isOpen
+                ? <>Submitted {fmtDateTime(myBid.submittedAt)}. This is an open tender: you see where your price stands and can
+                    change your bid until the closing time. The buyer sees the prices after the recorded opening. Other vendors never do.</>
+                : <>Submitted {fmtDateTime(myBid.submittedAt)}. Your bid is cryptographically sealed: the buyer sees only that a bid exists.
+                    Only the buyer sees the contents, at the recorded opening after the deadline. Other vendors never do.</>}
             </p>
             {/* What was sealed, so the vendor's own copy of the receipt says it:
                 the figure, each rate, and the documents that went with it. */}
@@ -824,12 +905,18 @@ function BidRoomFor({ api, t }) {
             )}
             {hasLines && myBid.lines && Object.keys(myBid.lines).length > 0 && (
               <div style={{ margin: "0 0 10px", fontSize: 12.5 }}>
-                {t.lines.map((l) => (
-                  <div key={l.id} style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
-                    <span>{l.desc}</span>
-                    <span className="money">{fmtMoney(myBid.lines[l.id] || 0)} per {l.unit}</span>
-                  </div>
-                ))}
+                {t.lines.map((l) => {
+                  const q = (myBid.qtys || {})[l.id];
+                  return (
+                    <div key={l.id} style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
+                      <span>{l.desc}</span>
+                      <span className="money">
+                        {q === 0 ? "not offered"
+                          : <>{fmtMoney(myBid.lines[l.id] || 0)} per {l.unit}{q != null && q < l.qty ? ` · ${q.toLocaleString()} of ${l.qty.toLocaleString()}` : ""}</>}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
             {myDocs.length > 0 && (
@@ -845,7 +932,10 @@ function BidRoomFor({ api, t }) {
             <div className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>
               RECEIPT <TypeOut text={myBid.id.toUpperCase()} /> · {t.ref}
             </div>
-            {st === "published" && <div style={{ marginTop: 14 }}><button className="btn sm" onClick={() => setAskWithdraw(true)}>Withdraw & replace before deadline</button></div>}
+            {st === "published" && !isOpen && myBid.review !== "rejected" && <div style={{ marginTop: 14 }}><button className="btn sm" onClick={() => setAskWithdraw(true)}>Withdraw & replace before deadline</button></div>}
+            {st === "published" && isOpen && myBid.review !== "rejected" && !(standing && standing.position) && (
+              <div style={{ marginTop: 14 }}><button className="btn sm" onClick={startRevising}>Change my bid</button></div>
+            )}
           </div>
         </div>
       ) : st === "published" && notShortlisted ? (
@@ -854,10 +944,12 @@ function BidRoomFor({ api, t }) {
         </div>
       ) : st === "published" ? (
         <div className="card" style={{ marginBottom: 14 }}>
-          <div className="chead"><h3>Your sealed bid</h3>
+          <div className="chead"><h3>{revising ? "Change your bid" : isOpen ? "Your bid" : "Your sealed bid"}</h3>
             <span className="hint" style={{ marginLeft: "auto", marginTop: 0 }}>
-              {outstanding.length === 0 ? "ready to seal" : outstanding.length + " left"}
+              {outstanding.length === 0 ? (isOpen ? "ready to submit" : "ready to seal") : outstanding.length + " left"}
             </span>
+            {revising && <button className="btn sm" style={{ marginLeft: 10 }}
+                                 onClick={() => { setRevising(false); setPrices({}); setQtys({}); }}>Cancel</button>}
           </div>
           <div className="cbody">
             {typed && <p className="hint" role="status">{draft.status || "Saving on this device..."}</p>}
@@ -868,10 +960,10 @@ function BidRoomFor({ api, t }) {
             )}
             {hasLines ? (
               <div className="frow" id="sb-price">
-                <label className="lbl">Your rate for each line</label>
+                <label className="lbl">Your rate for each line, and how many you can supply</label>
                 <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>
-                  In naira, per unit, fixed for the contract term. The total works itself out below. The buyer
-                  has set the most it will pay for each line: a rate above that scores nothing on that line.
+                  In naira, per unit, fixed for the contract term. If you cannot supply the full quantity of a line,
+                  enter how many you can (0 if none); leave it blank to supply all of it. The total works itself out below.
                 </div>
                 {t.lines.map((l) => (
                   /* .priceline stacks the line above its rate and running total
@@ -881,9 +973,17 @@ function BidRoomFor({ api, t }) {
                     <input className="in" type="text" inputMode="numeric" placeholder={"per " + l.unit} aria-label={"Unit rate for " + l.desc}
                            aria-invalid={!!String(prices[l.id] || "").trim() && !Number.isFinite(num(prices[l.id]))}
                            aria-describedby={`rate-help-${l.id}`} value={prices[l.id] ?? ""} onChange={(e) => setPrices((p) => ({ ...p, [l.id]: e.target.value }))} />
-                    <div className="money ptotal">{num(prices[l.id]) > 0 ? fmtMoney(num(prices[l.id]) * l.qty) : "-"}</div>
+                    <div className="money ptotal">{num(prices[l.id]) > 0 && qtyOf(l) > 0 ? fmtMoney(num(prices[l.id]) * qtyOf(l)) : "-"}</div>
+                    <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12.5 }}>
+                      <label htmlFor={`qty-${l.id}`} className="muted">You can supply</label>
+                      <input id={`qty-${l.id}`} className="in" type="text" inputMode="numeric" style={{ maxWidth: 110 }}
+                             placeholder={l.qty.toLocaleString()} aria-invalid={!Number.isFinite(qtyOf(l))}
+                             value={qtys[l.id] ?? ""} onChange={(e) => setQtys((x) => ({ ...x, [l.id]: e.target.value }))} />
+                      <span className="muted">of {l.qty.toLocaleString()} {l.unit}{qtyOf(l) === 0 ? " (not offered, no rate needed)" : ""}</span>
+                    </div>
                     <div id={`rate-help-${l.id}`} className="hint" style={{ gridColumn: "1 / -1" }}>
-                      {String(prices[l.id] || "").trim() && !Number.isFinite(num(prices[l.id])) ? "Enter a positive whole amount, for example 1,250. Fractions and negative amounts are not supported." : "Whole naira only. Commas are optional."}
+                      {!Number.isFinite(qtyOf(l)) ? `Enter a whole number from 0 to ${l.qty.toLocaleString()}, or leave it blank to supply all of it.`
+                        : String(prices[l.id] || "").trim() && !Number.isFinite(num(prices[l.id])) ? "Enter a positive whole amount, for example 1,250. Fractions and negative amounts are not supported." : "Whole naira only. Commas are optional."}
                     </div>
                   </div>
                 ))}
@@ -946,13 +1046,14 @@ function BidRoomFor({ api, t }) {
             <div className={"ready bidready" + (outstanding.length ? "" : " done")} aria-live="polite">
               <div className="readytop">
                 <div className="readyhl">
-                  {outstanding.length === 0 ? "Ready to seal"
+                  {outstanding.length === 0 ? (isOpen ? "Ready to submit" : "Ready to seal")
                     : outstanding.length === 1 ? "One thing left"
                     : outstanding.length + " things left"}
                 </div>
                 <div className="readywhy">
                   {outstanding.length === 0
-                    ? "Sealing encrypts your prices and documents until the recorded opening."
+                    ? (isOpen ? "Submitting shows you where your price stands. The buyer sees prices after the recorded opening."
+                              : "Sealing encrypts your prices and documents until the recorded opening.")
                     : "Pick any line to jump straight to it."}
                 </div>
                 <div className="readybarrow">
@@ -974,7 +1075,7 @@ function BidRoomFor({ api, t }) {
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button className="btn wax" disabled={pct < 100 || sealing} onClick={() => setAskSeal(true)}>
-                <Icon n="stamp" s={15} />{sealing ? "Sealing…" : "Seal & submit bid"}
+                <Icon n="stamp" s={15} />{sealing ? (isOpen ? "Submitting…" : "Sealing…") : isOpen ? (revising ? "Update bid" : "Submit bid") : "Seal & submit bid"}
               </button>
               {t.deadline - nowMs() > 0 && t.deadline - nowMs() <= 3600000 && (
                 <span className="hint docwarn" style={{ alignSelf: "center", marginTop: 0 }} role="status">
@@ -985,7 +1086,9 @@ function BidRoomFor({ api, t }) {
               <button className="btn" onClick={reviewAI} disabled={busy}>{busy ? "Reviewing…" : "Review my bid with AI"}</button>
               */}
             </div>
-            <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>Once sealed, the buyer cannot see your prices until the recorded opening. You can withdraw and replace your bid any time before the deadline. The AI review is advisory and stays on your side of the wall.</div>
+            <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>{isOpen
+              ? "This is an open tender: after you submit you will see where your price stands, and you can change your bid until the closing time. The buyer sees prices after the recorded opening."
+              : "Once sealed, the buyer cannot see your prices until the recorded opening. You can withdraw and replace your bid any time before the deadline."}</div>
           </div>
         </div>
       ) : (

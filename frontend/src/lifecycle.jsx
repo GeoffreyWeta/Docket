@@ -331,7 +331,7 @@ export function VendorsTab({ api, t }) {
   const shown = q.trim()
     ? rows.filter((r) => (r.name + " " + r.email).toLowerCase().includes(q.trim().toLowerCase()))
     : rows;
-  const submitted = rows.filter((r) => r.bidStatus === "submitted").length;
+  const submitted = rows.filter((r) => r.bidStatus === "submitted" || r.bidStatus === "held").length;
   const unverified = rows.filter((r) => r.verificationStatus === "unverified").length;
   const unregistered = rows.filter((r) => r.registrationStatus !== "registered").length;
 
@@ -401,8 +401,9 @@ export function VendorsTab({ api, t }) {
                       </span>
                     </td>
                     <td data-l="Bid">
-                      {r.bidStatus === "submitted"
-                        ? <span className="chip ok">Submitted</span>
+                      {r.bidStatus === "submitted" ? <span className="chip ok">Submitted</span>
+                        : r.bidStatus === "held" ? <span className="chip warn" title="Not on the vendor register yet: the bid counts once audit approves it">Waiting for audit</span>
+                        : r.bidStatus === "rejected" ? <span className="chip">Turned down by audit</span>
                         : <span className="chip">No bid</span>}
                       {r.submittedAt && <div className="mono faint" style={{ fontSize: 11 }}>{fmtDate(r.submittedAt)}</div>}
                     </td>
@@ -418,7 +419,7 @@ export function VendorsTab({ api, t }) {
                         : <span className="muted">-</span>}
                     </td>
                     <td>
-                      {canManage && r.bidStatus !== "submitted" && !r.awarded && (
+                      {canManage && r.bidStatus === "none" && !r.awarded && (
                         <button className="btn sm" onClick={() => setDropping(r)}>Withdraw</button>
                       )}
                     </td>

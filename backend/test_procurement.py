@@ -183,7 +183,9 @@ def sec_vendors(ctx):
     ok(f'vendor A self-registered - {a.name} ({a.id})')
     yes("registration confirmation was emailed to the vendor",
         any("Registration received" in m.subject for m in mail_to(VENDOR_A["email"])))
-    eq("registration status", a.registration_status(), "registered")
+    # Signing up is not being on the register: that waits for the company's
+    # yes (prequalification, or audit approving a first bid).
+    eq("a self-registered company is not on the register yet", a.registration_status(), "pending")
     eq("verification status starts unverified", a.verification_status(), "unverified")
     eq("source recorded", a.source, "self")
 
@@ -221,13 +223,14 @@ def sec_vendors(ctx):
     call("POST", "/api/register/claim/", None, {"token": tok.token, "password": VENDOR_B["password"]})
     eq("claiming attaches to the existing record, it does not create a second",
        Supplier.objects.count(), before)
-    eq("claiming completes registration",
-       Supplier.objects.get(pk=bsid).registration_status(), "registered")
+    eq("claiming a login does not put a typed-in company on the register",
+       Supplier.objects.get(pk=bsid).registration_status(), "invited")
 
     # --- verification -----------------------------------------------------
     call("POST", f"/api/suppliers/{a.id}/prequalify/", BUYER, {"ok": True})
     a.refresh_from_db()
     eq("vendor A is verified after prequalification", a.verification_status(), "verified")
+    eq("and prequalification puts it on the register", a.registration_status(), "registered")
     yes("the verification is dated and attributed", bool(a.verified_at and a.verified_by))
 
     # An auditor reads; they do not decide. This is the capability check, not
@@ -447,6 +450,27 @@ def sec_round_one(ctx):
         mail_to(a_mail) and any("received" in m.subject.lower() for m in mail_to(a_mail)))
     refused("bidding twice in the same round", "POST", f"/api/tenders/{tid}/bids/", a_mail,
             {"decl": True, "lines": {line: 16_000}}, status=(409,))
+
+    # --- a company not on the register: its bid waits for audit -------------
+    a_row = Bid.objects.get(tender_id=tid, supplier_id=ctx["a"])
+    b_row = Bid.objects.get(tender_id=tid, supplier_id=ctx["b"])
+    eq("a registered vendor's bid counts straight away", a_row.review, "")
+    eq("a typed-in company's bid is held for audit", b_row.review, "held")
+    yes("the held vendor was told why", any("register" in m.body for m in mail_to(b_mail)))
+    signin(BUYER)
+    refused("procurement approving a held bid", "POST", f"/api/bids/{b_row.id}/review/", BUYER,
+            {"ok": True}, status=(403,))
+    signin(AUDITOR)
+    refused("turning a bid down with no reason", "POST", f"/api/bids/{b_row.id}/review/", AUDITOR,
+            {"ok": False}, status=(400,))
+    call("POST", f"/api/bids/{b_row.id}/review/", AUDITOR, {"ok": True},
+         label="audit approved the held bid")
+    b_row.refresh_from_db()
+    eq("the bid now counts", b_row.review, "approved")
+    eq("and approving it put the company on the register",
+       Supplier.objects.get(pk=ctx["b"]).registration_status(), "registered")
+    refused("approving the same bid twice", "POST", f"/api/bids/{b_row.id}/review/", AUDITOR,
+            {"ok": True}, status=(409,))
 
     # --- one vendor cannot see another's bid -------------------------------
     a_bids = [b for b in boot(a_mail)["bids"] if b["tenderId"] == tid]

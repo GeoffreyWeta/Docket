@@ -74,6 +74,10 @@ def savings_against(t, amount):
         basis, word = t.projected_cost, "projection"
     else:
         basis, word = t.budget, "budget"
+    if not basis:
+        # No baseline, no projection and no maximum prices: there is nothing
+        # to measure a saving against, and "saved minus the bid" is not one.
+        return None
     saving = (basis or 0) - amount
     return {"basis": word, "basisAmount": basis, "savings": saving,
             "pct": (saving / basis * 100) if basis else 0.0}
@@ -97,11 +101,28 @@ def lines_ceiling(lines):
 
 
 def lines_over_max(tender, bid):
-    """The lines on which this bid's rate is above the buyer's maximum."""
-    lines = line_maxima(tender)
+    """The lines on which this bid's rate is above the buyer's maximum. The
+    maximum is optional, so only lines that carry one are checked."""
+    lines = [l for l in tender.lines or [] if (l.get("price") or 0) > 0]
     if not lines or not bid.lines:
         return []
     return [l for l in lines if (bid.lines.get(l["id"]) or 0) > l["price"]]
+
+
+def offered(bid, line):
+    """How much of a line this bid offers: the vendor's own quantity, or the
+    whole line when they did not say."""
+    q = (bid.qtys or {}).get(line["id"])
+    return line["qty"] if q is None else max(0, min(int(q), line["qty"]))
+
+
+def partial_lines(tender, bid):
+    """The lines this bid offers less than the full quantity of."""
+    return [l for l in tender.lines or [] if offered(bid, l) < l["qty"]]
+
+
+def _share(bid, line):
+    return offered(bid, line) / line["qty"] if line["qty"] else 1.0
 
 
 def tech_score(tender, bid):
@@ -125,7 +146,12 @@ def comm_score(bid, bids, tender=None):
     for its quantity times its maximum, so the big lines decide the score. A
     rate above the maximum earns nothing on that line; at or under it, the
     lowest rate on the line gets full marks and the rest score in proportion.
-    Without maximums, the lowest total gets full marks."""
+    Without maximums, the lowest total gets full marks.
+
+    A vendor may offer less than the full quantity of a line. Credit on that
+    line is scaled by the share they offer, and once anybody has offered part
+    of a line the totals are no longer like for like, so lines are compared
+    rate against rate, each weighted by its quantity at the best rate."""
     if bid.amount is None:
         return None
     lines = line_maxima(tender) if tender is not None else None
@@ -138,11 +164,31 @@ def comm_score(bid, bids, tender=None):
                 continue
             rates = ((b.lines or {}).get(l["id"]) or 0 for b in bids if b.amount is not None)
             best = min([mine] + [r for r in rates if 0 < r <= l["price"]])
-            got += l["qty"] * l["price"] * best / mine
+            got += l["qty"] * l["price"] * best / mine * _share(bid, l)
         return got / weight * 100
-    priced = [b.amount for b in bids if b.amount is not None]
-    lo = min(priced)
+    priced = [b for b in bids if b.amount is not None]
+    tlines = (tender.lines or []) if tender is not None else []
+    if tlines and any(partial_lines(tender, b) for b in priced):
+        total = got = 0.0
+        for l in tlines:
+            rates = [r for r in ((b.lines or {}).get(l["id"]) or 0 for b in priced) if r > 0]
+            if not rates or not l["qty"]:
+                continue
+            best = min(rates)
+            total += l["qty"] * best
+            mine = (bid.lines or {}).get(l["id"]) or 0
+            if mine > 0:
+                got += l["qty"] * best * best / mine * _share(bid, l)
+        return got / total * 100 if total else 0.0
+    lo = min(b.amount for b in priced)
     return (lo / bid.amount) * 100
+
+
+def price_positions(bids, tender):
+    """{bid id: position} by price score, best first. Equal scores go to
+    whoever got there first, as in an auction."""
+    order = sorted(bids, key=lambda b: (-(comm_score(b, bids, tender) or 0), b.submitted_at, b.id))
+    return {b.id: i + 1 for i, b in enumerate(order)}
 
 
 def total_score(tender, bid, bids):

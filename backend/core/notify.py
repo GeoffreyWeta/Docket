@@ -118,10 +118,12 @@ def notify_perm(key, subject, body, tender_id=None):
     if not tender_id:
         page = "suppliers" if key.startswith("supplier.") else "finance" if key == "page.finance" else None
         target = {"page": page} if page else None
-    elif key in ("bid.score", "bid.open", "clarification.answer", "award.recommend"):
+    elif key in ("bid.score", "bid.open", "clarification.answer", "award.recommend",
+                 "bid.approve_new_vendor"):
         target = {"page": "tender", "id": tender_id,
                   "tab": {"bid.score": "eval", "bid.open": "bids",
-                          "clarification.answer": "clar", "award.recommend": "bids"}[key]}
+                          "clarification.answer": "clar", "award.recommend": "bids",
+                          "bid.approve_new_vendor": "bids"}[key]}
     notify_users(_users_for_perm(key), subject, body, tender_id, destination=target)
 
 

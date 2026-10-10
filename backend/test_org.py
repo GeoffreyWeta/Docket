@@ -829,8 +829,11 @@ def sec_vendor_admin(ctx):
     sid2, _ = register_company(COMPANY2)
     ok(f'second vendor "{COMPANY2["company"]}" registered ({sid2})')
     d = boot(COMPANY2["email"])
-    yes("new registration is pending, not prequalified",
-        d["suppliers"][0]["prequalified"] is False and d["suppliers"][0]["registeredAt"])
+    # Signing up is not being on the register: that waits for prequalification
+    # or for audit approving the company's first bid.
+    yes("new registration is pending, not prequalified and not yet on the register",
+        d["suppliers"][0]["prequalified"] is False and not d["suppliers"][0]["registeredAt"]
+        and d["suppliers"][0]["registrationStatus"] == "pending")
     yes("procurement heard about the registration",
         any("New vendor registration" in s for s in subjects(TU)))
     call("POST", "/api/me/docs/", COMPANY2["email"],

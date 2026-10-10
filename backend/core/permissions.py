@@ -113,6 +113,7 @@ PERMISSIONS = [
     ("bid.see_all_scores", "bids", "See the whole panel's scores", "Without this a scorer sees only their own marks - this is what keeps evaluation blind."),
     ("coi.declare", "bids", "Declare conflicts of interest", "Sign the conflict-of-interest declaration before scoring."),
     ("clarification.answer", "bids", "Answer clarifications", "Publish answers to vendor questions."),
+    ("bid.approve_new_vendor", "bids", "Approve bids from new vendors", "A bid from a company that is not on the vendor register yet waits for this approval before it counts. Approving it also puts the company on the register."),
 
     ("page.auctions", "auctions", "Auctions", "The buying and selling auction list and live rooms."),
     ("auction.create", "auctions", "Create auctions", "Draft a buying or selling auction, its lots and its rules."),
@@ -201,6 +202,9 @@ _APPROVER = {
 _AUDITOR = {
     "page.audit", "page.tenders", "page.scorecards", "page.finance",
     "page.auctions", "auction.monitor",
+    # The one thing audit decides rather than reads: whether a company that is
+    # not on the register yet may take part.
+    "bid.approve_new_vendor",
     "bid.see_all_scores", "award.see_recommendation",
     "audit.integrity", "audit.export",
     "export.comparison", "export.memo", "export.compliance",

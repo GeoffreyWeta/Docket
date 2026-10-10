@@ -34,7 +34,7 @@ def export_comparison(request, p, body, tid):
                f" · Opened: {fmt_date_ms(t.opened_at)}"])
     ws.append([])
     sups = {s.id: s.name for s in Supplier.objects.all()}
-    bids = list(Bid.objects.filter(tender=t).order_by("submitted_at"))
+    bids = list(Bid.objects.filter(tender=t).exclude(review__in=("held", "rejected")).order_by("submitted_at"))
     head = ["Supplier", "Amount", "vs ceiling"]
     if t.lines:
         head += [f"{l['desc']} (x{l['qty']})" for l in t.lines]
