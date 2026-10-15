@@ -347,22 +347,7 @@ def close_auction(a, actor, now=None):
     if a.status not in ("live", "paused"):
         return None, "Only a live auction can be closed."
 
-    outcome = []
-    for lot in a.lots.all():
-        top = best_bid(lot)
-        lot.status = "closed"
-        if top is None:
-            outcome.append({"lot": lot.id, "result": "no bids"})
-        elif lot.reserve is not None and (top.amount < lot.reserve if a.direction == "sale" else top.amount > lot.reserve):
-            outcome.append({"lot": lot.id, "result": "reserve not met",
-                            "best": top.amount, "supplierId": top.supplier_id})
-        else:
-            lot.awarded_to = top.supplier_id
-            lot.awarded_amount = top.amount
-            lot.awarded_at = now
-            outcome.append({"lot": lot.id, "result": "winner",
-                            "best": top.amount, "supplierId": top.supplier_id})
-        lot.save(update_fields=["status", "awarded_to", "awarded_amount", "awarded_at"])
+    outcome = [_settle_lot(lot, a, now) for lot in a.lots.all()]
 
     a.status = "closed"
     a.closed_at = now
@@ -373,7 +358,72 @@ def close_auction(a, actor, now=None):
     record_event(actor=actor, role="procurement", action="Auction closed",
                  detail=f"{a.ref} - {a.bids.count()} price movements, "
                         f"{len(a.extensions or [])} extension(s), {won} lot(s) with a winner.")
+    ask_audit_about_new_winners(a)
     return outcome, None
+
+
+def _settle_lot(lot, a, now):
+    """One lot against its reserve: a winner, or the reason there is none."""
+    top = best_bid(lot)
+    lot.status = "closed"
+    lot.awarded_to, lot.awarded_amount, lot.awarded_at = "", None, None
+    if top is None:
+        out = {"lot": lot.id, "result": "no bids"}
+    elif lot.reserve is not None and (top.amount < lot.reserve if a.direction == "sale" else top.amount > lot.reserve):
+        out = {"lot": lot.id, "result": "reserve not met",
+               "best": top.amount, "supplierId": top.supplier_id}
+    else:
+        lot.awarded_to = top.supplier_id
+        lot.awarded_amount = top.amount
+        lot.awarded_at = now
+        out = {"lot": lot.id, "result": "winner",
+               "best": top.amount, "supplierId": top.supplier_id}
+    lot.save(update_fields=["status", "awarded_to", "awarded_amount", "awarded_at"])
+    return out
+
+
+# ---------------- winners who are not on the register ----------------
+#
+# Anyone invited may bid in a buying auction. A company the organisation has
+# never approved does not get the contract on price alone, though: when one
+# wins a lot, audit approves it (which registers the company) or turns it
+# down, and the lot passes to the next best bidder. Selling auctions are
+# left out - their bidders are staff and buyers of assets, not vendors.
+
+def unregistered_winners(a):
+    """[(lot, supplier)] for lots won by a company not on the register."""
+    if a.direction != "reverse" or a.status != "closed":
+        return []
+    won = [l for l in a.lots.all() if l.awarded_to]
+    if not won:
+        return []
+    new = {s.id: s for s in Supplier.objects.filter(pk__in=[l.awarded_to for l in won],
+                                                     registered_at__isnull=True)}
+    return [(l, new[l.awarded_to]) for l in won if l.awarded_to in new]
+
+
+def ask_audit_about_new_winners(a):
+    pending = unregistered_winners(a)
+    if not pending:
+        return
+    from .notify import _users_for_perm, notify_users
+    names = ", ".join(sorted({s.name for _, s in pending}))
+    notify_users(_users_for_perm("bid.approve_new_vendor"),
+                 f"Auction winner needs approval: {a.title}",
+                 f"{names} won {len(pending)} lot(s) on {a.ref} but "
+                 f"{'is' if len({s.id for _, s in pending}) == 1 else 'are'} not on the vendor register. "
+                 f"Approve them, which puts them on the register, or turn them down and the lot passes "
+                 f"to the next best bidder. The auction cannot be awarded until you decide.",
+                 destination={"page": "auction", "id": a.id})
+
+
+def resettle_without(a, supplier_id, now=None):
+    """Re-settle the lots a removed bidder had won. Their prices stay on the
+    record and stop counting, so each lot goes to the next best bidder, or
+    to nobody if that price misses the reserve."""
+    now = now if now is not None else now_ms()
+    return [_settle_lot(lot, a, a.closed_at or now)
+            for lot in a.lots.all() if lot.awarded_to == supplier_id]
 
 
 def settle_if_due(a, now=None):

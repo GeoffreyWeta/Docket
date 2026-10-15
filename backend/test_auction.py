@@ -109,7 +109,10 @@ def buyer(name, role):
 
 
 def vendor(name):
-    s = Supplier.objects.create(id=rid("s"), name=name, category="Fuel", location="Lagos")
+    # Vendors from the company's own register. A company that is not on it can
+    # bid, but its win waits for audit - covered in the invitation journey below.
+    s = Supplier.objects.create(id=rid("s"), name=name, category="Fuel", location="Lagos",
+                                registered_at=now_ms())
     u = User.objects.create_user(username=f"{s.id}@x.test", password="x")
     Profile.objects.create(user=u, supplier=s)
     t = AuthToken.objects.create(key=rid("k") + rid("k"), user=u, created=now_ms())
@@ -589,6 +592,11 @@ with override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBack
     call("POST", f"/api/auctions/{aid}/close/", organiser_token)
     st, _ = maybe("POST", f"/api/auctions/{aid}/award/", organiser_token)
     ok("organising an auction does not grant award authority", st == 403)
+    # The invitees are new companies, not on the register: the win waits for audit.
+    st, _ = maybe("POST", f"/api/auctions/{aid}/award/", APPR_T)
+    ok("a new company's win cannot be awarded before audit decides", st == 409)
+    _, audit_token = buyer("Journey auditor", "auditor")
+    call("POST", f"/api/auctions/{aid}/lots/{lid}/winner_review/", audit_token, {"ok": True})
     call("POST", f"/api/auctions/{aid}/award/", APPR_T)
     settled = AuctionLot.objects.get(pk=lid)
     ok("reverse journey awards the lowest bidder", settled.awarded_to == User.objects.get(username=tokens[1].email).profile.supplier_id)

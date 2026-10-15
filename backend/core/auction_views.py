@@ -81,6 +81,12 @@ def _auction_view(a, p, *, monitor=False):
     if not supplier:
         out["participants"] = a.participants.count()
         out["movements"] = a.bids.filter(retracted_at__isnull=True).count()
+        # Lots won by a company not on the vendor register: audit decides
+        # before the award (engine.unregistered_winners).
+        out["winnerChecks"] = [
+            {"lotId": l.id, "lotNumber": l.number, "lotTitle": l.title, "amount": l.awarded_amount,
+             "supplierId": s.id, "name": s.name, "email": s.contact_email or ""}
+            for l, s in engine.unregistered_winners(a)]
     return out
 
 
@@ -886,6 +892,10 @@ def auction_award(request, p, body, aid):
         return err("A selected winner is blacklisted. Review the lot before awarding; no award has been issued.", 409)
     if not won:
         return err("No lot has a winner - every lot was either unbid or failed its reserve.", 409)
+    pending = engine.unregistered_winners(a)
+    if pending:
+        return err(f"{len(pending)} lot(s) were won by a company not on the vendor register. Audit must "
+                   f"approve or turn down the winner before the auction is awarded.", 409)
     a.status = "awarded"
     a.awarded_at = now_ms()
     a.awarded_by = p["name"]
@@ -913,6 +923,53 @@ def auction_award(request, p, body, aid):
           f"this time. Thank you for taking part.", a)
     return JsonResponse({"ok": True, "savings": s,
                          "auction": _auction_view(a, p, monitor=True)})
+
+
+@route(["POST"], perm="bid.approve_new_vendor")
+def winner_review(request, p, body, aid, lid):
+    """Audit's decision on a lot won by a company not on the vendor register.
+
+    Approving puts the company on the register (and lets any tender bid it has
+    waiting count). Turning it down removes it from this auction, on the record
+    and with a reason, and every lot it had won passes to the next best bidder,
+    who may need the same check."""
+    from .views import _tell_released, put_on_register
+    a = _find(aid)
+    lot = a and a.lots.filter(pk=lid).first()
+    if not lot:
+        return err("Lot not found.", 404)
+    if a.status != "closed":
+        return err("Winners are checked after the auction closes and before it is awarded.", 409)
+    s = Supplier.objects.filter(pk=lot.awarded_to).first() if lot.awarded_to else None
+    if not s or s.registered_at:
+        return err("This lot's winner is not waiting for approval.", 409)
+    if body.get("ok", True) is not False:
+        if s.suspended:
+            return err("This vendor is suspended. Lift the suspension before approving them.", 409)
+        _tell_released(p, s, put_on_register(s, p["name"], "Approved by audit after winning an auction"))
+        log(p, "Auction winner approved",
+            f"{s.name} won lot {lot.number} of {a.ref} and was approved onto the vendor register.")
+        return JsonResponse(_auction_view(a, p, monitor=True))
+
+    reason = str(body.get("reason") or "").strip()[:300]
+    if not reason:
+        return err("Give a reason. It is recorded and sent to the vendor.")
+    part = a.participants.filter(supplier_id=s.id).first()
+    if part:
+        part.disqualified = True
+        part.disqualified_reason = f"Not approved by audit: {reason}"[:300]
+        part.save(update_fields=["disqualified", "disqualified_reason"])
+    moved = engine.resettle_without(a, s.id)
+    names = {x.id: x.name for x in Supplier.objects.filter(
+        pk__in=[o["supplierId"] for o in moved if o.get("supplierId")])}
+    went = "; ".join(
+        f"lot passes to {names.get(o['supplierId'], o['supplierId'])}" if o["result"] == "winner"
+        else f"lot has no winner ({o['result']})" for o in moved)
+    log(p, "Auction winner turned down", f"{s.name} on {a.ref}: {reason}. {went}.")
+    _tell([s.id], f"Auction result: {a.title}",
+          f"{org_name()} could not accept {s.name} as the winner on {a.ref}: {reason}", a)
+    engine.ask_audit_about_new_winners(a)
+    return JsonResponse(_auction_view(a, p, monitor=True))
 
 
 # ---------------- the room ----------------

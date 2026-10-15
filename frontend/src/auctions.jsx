@@ -1174,6 +1174,78 @@ function DraftAuction({ api, a, refresh }) {
   );
 }
 
+/* Lots won by a company not on the vendor register. Anyone invited may bid,
+   but the award waits until audit approves the winner (which registers the
+   company) or turns them down, and the lot passes to the next best bidder. */
+function WinnerChecks({ api, a, refresh }) {
+  const { user, toast } = api;
+  const checks = a.winnerChecks || [];
+  const [turnDown, setTurnDown] = useState(null);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState("");
+  if (a.status !== "closed" || !checks.length) return null;
+  const canDecide = can(user, "bid.approve_new_vendor");
+  const decide = async (c, ok, why) => {
+    setBusy(c.lotId);
+    try {
+      await raw(`/auctions/${a.id}/lots/${c.lotId}/winner_review/`, { method: "POST", body: ok ? { ok: true } : { ok: false, reason: why } });
+      toast.ok(ok ? `${c.name} approved and registered` : `${c.name} turned down`,
+               ok ? "The lot can now be awarded." : "The lot passes to the next best bidder, if there is one.");
+      refresh();
+      return true;
+    } catch (e) {
+      toast.warn("That did not go through", e.message || "");
+      return false;
+    } finally { setBusy(""); }
+  };
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <div className="chead"><h3>Winners not on the vendor register</h3>
+        <span className="chip warn" style={{ marginLeft: "auto" }}>{checks.length} waiting for audit</span>
+      </div>
+      <div className="cbody">
+        <p className="hint" style={{ marginTop: 0 }}>
+          These companies won on price but are not on the vendor register yet. Approving one puts it on the
+          register. Turning one down removes it from this auction and the lot passes to the next best bidder.
+          The auction cannot be awarded until every winner here is decided.
+        </p>
+        {checks.map((c) => (
+          <div className="sealrow" key={c.lotId}>
+            <div style={{ flex: 1 }}>
+              <b>{c.name}</b>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Won lot {c.lotNumber}, {c.lotTitle}, at <span className="money">{fmtMoney(c.amount)}</span>
+                {c.email ? ` · ${c.email}` : ""}
+              </div>
+            </div>
+            {canDecide ? (
+              <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <button className="btn sm" disabled={!!busy} onClick={() => { setReason(""); setTurnDown(c); }}>Turn down</button>
+                <button className="btn sm pri" disabled={!!busy} onClick={() => decide(c, true)}>
+                  {busy === c.lotId ? "Approving\u2026" : "Approve and register"}</button>
+              </span>
+            ) : <span className="chip warn">Waiting for audit</span>}
+          </div>
+        ))}
+      </div>
+      {turnDown && (
+        <ConfirmDialog title={`Turn down ${turnDown.name}?`} confirmLabel="Turn them down" tone="wax"
+                       disabled={!reason.trim()}
+                       onClose={() => setTurnDown(null)}
+                       onConfirm={async () => ((await decide(turnDown, false, reason.trim())) ? undefined : false)}>
+          <p style={{ marginTop: 0 }}>
+            {turnDown.name} is removed from this auction. Every lot they won passes to the next best bidder, or has
+            no winner if that price misses the reserve. The reason is recorded and sent to them.
+          </p>
+          <label className="lbl" htmlFor="wc-why">Reason</label>
+          <textarea id="wc-why" className="in" value={reason} onChange={(e) => setReason(e.target.value)}
+                    placeholder="e.g. Could not verify the company registration documents" />
+        </ConfirmDialog>
+      )}
+    </div>
+  );
+}
+
 export function AuctionPage({ api, id }) {
   const { user, go, toast } = api;
   const { a, err, moved, extended, refresh } = useRoom(api, id);
@@ -1243,7 +1315,8 @@ export function AuctionPage({ api, id }) {
      the demo's auction into a red error after a hold-to-confirm. Say what
      happened instead. */
   const nothingWon = a.status === "closed" && lots.length > 0 && !lots.some((l) => l.awardedTo);
-  if (a.status === "closed" && !nothingWon && can(user, "auction.award")) {
+  const checksN = a.status === "closed" ? (a.winnerChecks || []).length : 0;
+  if (a.status === "closed" && !nothingWon && !checksN && can(user, "auction.award")) {
     items.push({ key: "award", label: "Award the auction",
                  note: "Commits to the winning price on every lot.",
                  onPick: () => setAsk("award") });
@@ -1271,6 +1344,8 @@ export function AuctionPage({ api, id }) {
                  ? "The winning prices are committed. The award is on the chain with the standings that produced it."
                  : nothingWon
                    ? `${missed} The reserve is the walk-away price, and nobody is owed a contract at a price nobody met.`
+                 : checksN
+                   ? `${checksN} lot${checksN === 1 ? " was" : "s were"} won by a company not on the vendor register. Audit approves or turns down the winner before the auction can be awarded.`
                    : "No further bids can land. The standings are final."}
            items={items}>
       <Figures>
@@ -1344,6 +1419,8 @@ export function AuctionPage({ api, id }) {
           </div>
         </div>
       )}
+
+      <WinnerChecks api={api} a={a} refresh={refresh} />
 
       {/* More bidders while the clock runs. A room that opened with three
           vendors is not stuck with three; the server takes a list at any

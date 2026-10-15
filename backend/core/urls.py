@@ -50,6 +50,7 @@ auction_urlpatterns = [
     path("auctions/<str:aid>/duplicate/", auction_views.auction_duplicate),
     path("auctions/<str:aid>/lots/", auction_views.lot_create),
     path("auctions/<str:aid>/lots/<str:lid>/delete/", auction_views.lot_delete),
+    path("auctions/<str:aid>/lots/<str:lid>/winner_review/", auction_views.winner_review),
     path("auctions/<str:aid>/images/", auction_views.image_upload),
     path("auctions/<str:aid>/images/<str:did>/", auction_views.image_view),
     path("auctions/<str:aid>/images/<str:did>/delete/", auction_views.image_delete),

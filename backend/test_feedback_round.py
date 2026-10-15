@@ -292,6 +292,79 @@ code, out = call("POST", f"/api/auctions/{dup.id}/lots/", PROC_K,
                  {"title": "More AGO", "ceiling": 500, "minDecrement": 5, "decrementIsPct": True})
 ok("a 5% step is accepted", code == 200 and out.get("decrementIsPct") is True, out)
 
+# ---------------------------------------------------------------- auction winners
+print("\n-- a company not on the register wins an auction")
+from core import auction as engine     # noqa: E402
+APPR, APPR_K = buyer("Mark Iyer", "approver")
+
+
+def live_auction(ref, bidders):
+    au = Auction.objects.create(id=rid("a"), ref=ref, title="Diesel " + ref, created_at=now_ms(),
+                                owner=PROC, status="live", require_acceptance=False,
+                                starts_at=now_ms() - 60_000, ends_at=now_ms() + 3_600_000)
+    lot = AuctionLot.objects.create(id=rid("l"), auction=au, number=1, title="AGO", qty=1, ceiling=1_000)
+    for sid, price in bidders:
+        AuctionParticipant.objects.create(id=rid("ap"), auction=au, supplier_id=sid, invited_at=now_ms())
+    for sid, price in bidders:
+        _, problem = engine.place_bid(lot, sid, price)
+        assert problem is None, problem
+    return au, lot
+
+
+W1, W1_K = vendor("Fresh Fuels", registered=False)
+au, lot = live_auction("AUC-7001", [(A.id, 900), (W1.id, 800)])
+ok("a company not on the register can bid in an auction", lot.bids.filter(supplier_id=W1.id).exists())
+code, out = call("POST", f"/api/auctions/{au.id}/close/", PROC_K)
+lot.refresh_from_db()
+ok("it wins on price when the room closes", code == 200 and lot.awarded_to == W1.id, (code, lot.awarded_to))
+checks = call("GET", f"/api/auctions/{au.id}/room/", PROC_K)[1].get("winnerChecks")
+ok("the buying side is shown the winner needs audit", checks and checks[0]["supplierId"] == W1.id, checks)
+code, out = call("POST", f"/api/auctions/{au.id}/award/", APPR_K, {"memo": "x"})
+ok("the auction cannot be awarded while the winner waits", code == 409 and "audit" in out.get("error", "").lower(), out)
+code, _ = call("POST", f"/api/auctions/{au.id}/lots/{lot.id}/winner_review/", PROC_K, {"ok": True})
+ok("procurement cannot approve the winner", code == 403, code)
+code, _ = call("POST", f"/api/auctions/{au.id}/lots/{lot.id}/winner_review/", AUD_K, {"ok": False})
+ok("turning the winner down needs a reason", code == 400, code)
+code, _ = call("POST", f"/api/auctions/{au.id}/lots/{lot.id}/winner_review/", AUD_K,
+               {"ok": False, "reason": "Company documents could not be verified"})
+lot.refresh_from_db()
+ok("audit turns the winner down", code == 200, code)
+ok("and the lot passes to the next best bidder", lot.awarded_to == A.id and lot.awarded_amount == 900,
+   (lot.awarded_to, lot.awarded_amount))
+ok("the turned-down company is out of the auction",
+   AuctionParticipant.objects.get(auction=au, supplier_id=W1.id).disqualified)
+W1.refresh_from_db()
+ok("and is not registered", W1.registered_at is None)
+code, out = call("POST", f"/api/auctions/{au.id}/award/", APPR_K, {"memo": "Next best"})
+ok("now the auction can be awarded", code == 200, out)
+
+W2, W2_K = vendor("Second Fresh Fuels", registered=False)
+au2, lot2 = live_auction("AUC-7002", [(A.id, 900), (W2.id, 700)])
+call("POST", f"/api/auctions/{au2.id}/close/", PROC_K)
+code, _ = call("POST", f"/api/auctions/{au2.id}/lots/{lot2.id}/winner_review/", AUD_K, {"ok": True})
+W2.refresh_from_db()
+lot2.refresh_from_db()
+ok("approving the winner registers the company", code == 200 and W2.registered_at is not None)
+ok("and keeps the lot with them", lot2.awarded_to == W2.id)
+code, out = call("POST", f"/api/auctions/{au2.id}/award/", APPR_K, {"memo": "Approved newcomer"})
+ok("and the award goes ahead", code == 200, out)
+
+au3, lot3 = live_auction("AUC-7003", [(W1.id, 900), (A.id, 600)])
+call("POST", f"/api/auctions/{au3.id}/close/", PROC_K)
+room = call("GET", f"/api/auctions/{au3.id}/room/", PROC_K)[1]
+ok("a company not on the register that bids but does not win needs no check",
+   room.get("winnerChecks") == [], room.get("winnerChecks"))
+
+sale = Auction.objects.create(id=rid("a"), ref="AUC-7004", title="Old generator", created_at=now_ms(),
+                              owner=PROC, status="live", require_acceptance=False, direction="sale",
+                              starts_at=now_ms() - 60_000, ends_at=now_ms() + 3_600_000)
+slot = AuctionLot.objects.create(id=rid("l"), auction=sale, number=1, title="Generator", qty=1, ceiling=100)
+AuctionParticipant.objects.create(id=rid("ap"), auction=sale, supplier_id=W1.id, invited_at=now_ms())
+engine.place_bid(slot, W1.id, 150)
+call("POST", f"/api/auctions/{sale.id}/close/", PROC_K)
+room = call("GET", f"/api/auctions/{sale.id}/room/", PROC_K)[1]
+ok("a selling auction does not hold its winner for audit", room.get("winnerChecks") == [], room.get("winnerChecks"))
+
 # ---------------------------------------------------------------- migration
 print("\n-- existing vendors are registered")
 old = Supplier.objects.create(id=rid("s"), name="Old Register Vendor", category="Fuel", location="Lagos",
