@@ -60,7 +60,11 @@ export function allowedPages(user) {
 /** Sidebar destinations only - no sub-pages. */
 export function navPages(user) {
   return PAGE_ORDER.filter((p) => can(user, PAGE_PERM[p])
-    || (p === "auctions" && can(user, "page.portal")));
+    || (p === "auctions" && can(user, "page.portal"))
+    /* A line manager is asked to sign whatever their role is called, so the
+       queue appears whenever something is waiting on them (signQueue is
+       counted on the server, in bootstrap). */
+    || (p === "approvals" && (user.signQueue || 0) > 0));
 }
 
 /* Where a role likes to land, when it still may. Anything else - including a

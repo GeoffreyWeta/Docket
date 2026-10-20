@@ -19,7 +19,7 @@
 */
 import React, { useEffect, useState } from "react";
 
-import { raw } from "./api";
+import { downloadUrl, raw } from "./api";
 import { Empty, Money } from "./atoms";
 import { CategorySelect, LocationSelect, PaymentTermsSelect, PhoneInput } from "./fields";
 import {
@@ -82,11 +82,62 @@ function controlsFor(t, user) {
   };
 }
 
+/* A date change (or an auction going out, or its times moving) waiting for
+   the line manager, with the buttons the person reading it may press: the
+   approver signs or turns it down, the requester can withdraw it. Everybody
+   else reads who it is waiting on. */
+export function SignoffBanner({ api, so, what }) {
+  const { act, toast } = api;
+  const [turning, setTurning] = useState(false);
+  if (!so) return null;
+  return (
+    <div className="notice" style={{ marginBottom: 12 }}>
+      {turning && (
+        <ReasonDialog title="Turn this down?" confirmLabel="Turn it down" tone="wax"
+                      placeholder="e.g. Keep the published date: three vendors have already bid."
+                      onClose={() => setTurning(false)}
+                      onConfirm={async (note) => {
+                        if (await act.decideSignoff(so.id, false, note)) {
+                          toast.ok("Turned down", `${so.requestedBy} has been told why. Nothing changed.`);
+                        }
+                      }}>
+          {so.requestedBy} is told your reason. Nothing changes and no vendor is told.
+        </ReasonDialog>
+      )}
+      <b>{what || "A change"} is waiting for {so.mayDecide ? "your approval" : so.approver}.</b>{" "}
+      {so.summary && <span>{so.summary.charAt(0).toUpperCase() + so.summary.slice(1)}. </span>}
+      Asked by {so.requestedBy} {fmtDateTime(so.requestedAt)}.
+      {so.reason ? <> Reason: {so.reason}</> : null}
+      {" "}Nothing changes, and no vendor is told, until it is approved.
+      {(so.mayDecide || so.mayWithdraw) && (
+        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+          {so.mayDecide && (
+            <button className="btn sm pri" onClick={async () => {
+              if (await act.decideSignoff(so.id, true)) {
+                toast.ok("Approved", "The change is applied and the vendors have been told.");
+              }
+            }}>Approve</button>
+          )}
+          {so.mayDecide && <button className="btn sm" onClick={() => setTurning(true)}>Turn down</button>}
+          {so.mayWithdraw && (
+            <button className="btn sm" onClick={async () => {
+              if (await act.withdrawSignoff(so.id)) toast.ok("Request withdrawn", "Nothing changed.");
+            }}>Withdraw request</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function LifecycleBar({ api, t }) {
-  const { user, act, toast } = api;
+  const { user, act, toast, state } = api;
   const c = controlsFor(t, user);
   const [open, setOpen] = useState(null);   // extend | pause | resume | cancel | notify
-  if (!Object.values(c).some(Boolean)) return null;
+  const waiting = (state.signoffs || []).find((x) => x.tenderId === t.id && x.kind === "deadline"
+    && x.status === "pending");
+  if (waiting) c.extend = false;
+  if (!Object.values(c).some(Boolean) && !waiting) return null;
 
   const st = effStatus(t);
   const reopening = st === "closed" && c.extend;
@@ -127,11 +178,12 @@ export function LifecycleBar({ api, t }) {
         </ReasonDialog>
       )}
 
+      <SignoffBanner api={api} so={waiting} what="A change to the closing date" />
       <div className="lifebar">
         <span className="mono faint lifelbl">Event controls</span>
         {c.extend && (
           <button className="btn sm" onClick={() => setOpen("extend")}>
-            <Icon n="clock" /> {reopening ? "Reopen with a new deadline" : "Extend deadline"}
+            <Icon n="clock" /> {reopening ? "Reopen with a new deadline" : "Change closing date"}
           </button>
         )}
         {c.pause && <button className="btn sm" onClick={() => setOpen("pause")}>Pause</button>}
@@ -191,29 +243,45 @@ function ReasonDialog({ title, children, confirmLabel, tone = "pri", hold, holdH
 }
 
 function ExtendDialog({ api, t, reopening, onClose }) {
-  const { act, toast } = api;
+  const { act, toast, state } = api;
   const [when, setWhen] = useState(toInput(t.deadline + 7 * DAY));
   const [reason, setReason] = useState("");
   const ms = fromInput(when);
-  const ok = ms > Math.max(nowMs(), t.deadline) && reason.trim();
+  const now = nowMs();
+  const earlier = ms < t.deadline;
+  /* Later is the ordinary case. Earlier is allowed with a day's notice, so a
+     vendor pricing to the published date can still finish; the server holds
+     the same line. */
+  const dateOk = ms > now && ms !== t.deadline && (!earlier || ms >= now + DAY);
+  const ok = dateOk && reason.trim();
+  const needsApproval = state.org.timelineApproval !== false;
+  const verb = earlier ? "Bring the closing date forward" : reopening ? "Reopen the event" : "Extend the deadline";
   return (
-    <Dialog title={reopening ? `Reopen ${t.ref}` : `Extend the deadline on ${t.ref}`} onClose={onClose} footer={
+    <Dialog title={reopening ? `Reopen ${t.ref}` : `Change the closing date on ${t.ref}`} onClose={onClose} footer={
       <>
-        {!ok && <span className="hint gatehint">Pick a date after the current deadline, and give a reason. Vendors will read it.</span>}
+        {!ok && <span className="hint gatehint">
+          {!dateOk && earlier && ms > now ? "Moving it earlier needs at least 24 hours' notice to vendors."
+            : !dateOk ? "Pick a new date in the future." : "Give a reason. Vendors will read it."}
+        </span>}
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn pri" disabled={!ok} onClick={async () => {
           onClose();
-          if (await act.extendDeadline(t.id, ms, reason.trim())) {
-            toast.ok(reopening ? "Event reopened" : "Deadline extended",
+          const r = await act.extendDeadline(t.id, ms, reason.trim());
+          if (r && r.pending) {
+            toast.ok("Sent for approval", `Waiting for ${r.approver}. The published date stands, and no vendor is told, until they approve.`);
+          } else if (r) {
+            toast.ok(reopening ? "Event reopened" : "Closing date changed",
                      `Now closing ${fmtDateTime(ms)}. Every invited vendor has been told, and the old date is on the record.`);
           }
-        }}>{reopening ? "Reopen the event" : "Extend the deadline"}</button>
+        }}>{needsApproval ? "Ask for approval" : verb}</button>
       </>
     }>
-      <div className="rowline"><span className="muted" style={{ flex: 1 }}>Current deadline</span>
-        <span className="mono">{fmtDateTime(t.deadline)}{t.deadline < nowMs() ? " · passed" : ""}</span></div>
-      <DateTimeField id="ex-when" label="New deadline" value={when} onChange={setWhen}
-                     hint="A deadline can only be pushed back. Bidders working to the published date cannot be asked to meet an earlier one." />
+      <div className="rowline"><span className="muted" style={{ flex: 1 }}>Current closing date</span>
+        <span className="mono">{fmtDateTime(t.deadline)}{t.deadline < now ? " · passed" : ""}</span></div>
+      <DateTimeField id="ex-when" label="New closing date" value={when} onChange={setWhen}
+                     hint={earlier
+                       ? "Earlier than the published date. Vendors get at least 24 hours' notice, so it cannot be sooner than that."
+                       : "Later than the published date. It can also be moved earlier, with at least 24 hours' notice."} />
       <div className="frow">
         <label className="lbl" htmlFor="ex-why">Reason</label>
         <textarea id="ex-why" className="in" value={reason} onChange={(e) => setReason(e.target.value)}
@@ -222,10 +290,16 @@ function ExtendDialog({ api, t, reopening, onClose }) {
           Sent to every invited vendor and recorded with the old date, the new one and your name.
         </div>
       </div>
+      {needsApproval && (
+        <div className="notice" style={{ marginTop: 4 }}>
+          <b>This waits for your line manager's approval.</b> The published date stands, and no vendor
+          is told, until they approve. Then every invited vendor is emailed the new date.
+        </div>
+      )}
       {(t.deadlineChanges || []).length > 0 && (
         <div className="notice" style={{ marginTop: 4 }}>
           This deadline has already moved {t.deadlineChanges.length === 1 ? "once" : `${t.deadlineChanges.length} times`}.
-          Repeated extensions are visible to everyone reading the audit trail.
+          Repeated changes are visible to everyone reading the audit trail.
         </div>
       )}
     </Dialog>
@@ -245,10 +319,13 @@ function ResumeDialog({ api, t, onClose }) {
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn pri" disabled={!ok} onClick={async () => {
           onClose();
-          if (await act.resumeEvent(t.id, ms || null)) {
+          const r = await act.resumeEvent(t.id, ms || null);
+          if (r && r.pending) {
+            toast.ok("Sent for approval", `A new closing date waits for ${r.approver}. The event stays paused until they approve, then resumes on that date.`);
+          } else if (r) {
             toast.ok("Event resumed", "Submissions are open again and every invited vendor has been told.");
           }
-        }}>Resume the event</button>
+        }}>{ms && api.state.org.timelineApproval !== false ? "Ask for approval and resume" : "Resume the event"}</button>
       </>
     }>
       {lapsed ? (
@@ -332,6 +409,8 @@ export function VendorsTab({ api, t }) {
     ? rows.filter((r) => (r.name + " " + r.email).toLowerCase().includes(q.trim().toLowerCase()))
     : rows;
   const submitted = rows.filter((r) => r.bidStatus === "submitted" || r.bidStatus === "held").length;
+  /* Which agreements this event asks its vendors for (an NDA, payment terms). */
+  const asked = Object.keys((rows[0] && rows[0].agreements) || {});
   const unverified = rows.filter((r) => r.verificationStatus === "unverified").length;
   const unregistered = rows.filter((r) => r.registrationStatus !== "registered").length;
 
@@ -380,7 +459,8 @@ export function VendorsTab({ api, t }) {
               <thead>
                 <tr>
                   <th>Vendor</th><th>Registration</th><th>Verification</th>
-                  <th>Invitation</th><th>Bid</th><th>Rounds</th><th>Evaluation</th><th>Actions</th>
+                  <th>Invitation</th>{asked.length > 0 && <th>Agreements</th>}
+                  <th>Bid</th><th>Rounds</th><th>Evaluation</th><th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -400,6 +480,22 @@ export function VendorsTab({ api, t }) {
                           : r.invitationStatus === "unreachable" ? "Not reachable (no email)" : "Not yet sent"}
                       </span>
                     </td>
+                    {asked.length > 0 && (
+                      <td data-l="Agreements">
+                        {asked.map((k) => {
+                          const a = (r.agreements || {})[k];
+                          const word = k === "nda" ? "NDA" : "Payment terms";
+                          return a ? (
+                            <div key={k}>
+                              <button className="doclink" title={`${a.by}${a.title ? `, ${a.title}` : ""}, ${fmtDateTime(a.at)}`}
+                                      onClick={() => downloadUrl(`/acceptances/${a.id}/`, `${t.ref}-${word}-${r.name}.txt`)}>
+                                <span className="chip ok">{k === "nda" ? "NDA signed" : "Terms accepted"}</span>
+                              </button>
+                            </div>
+                          ) : <div key={k}><span className="chip">{word} not yet</span></div>;
+                        })}
+                      </td>
+                    )}
                     <td data-l="Bid">
                       {r.bidStatus === "submitted" ? <span className="chip ok">Submitted</span>
                         : r.bidStatus === "held" ? <span className="chip warn" title="Not on the vendor register yet: the bid counts once audit approves it">Waiting for audit</span>

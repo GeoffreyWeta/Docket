@@ -28,8 +28,9 @@ import {
 } from "./lifecycle";
 import { Icon, SealMark } from "./icons";
 import { Mark, OrgMark } from "./logo";
-import { RETURN_REASONS, fmtPhone, phoneProblem, unitFor } from "./vocab";
-import { Choice } from "./fields";
+import { BID_DOC_TYPES, PAYMENT_TERMS, REMINDER_HOURS, RETURN_REASONS, fmtPhone, phoneProblem,
+  unitFor } from "./vocab";
+import { Choice, PaymentTermsSelect } from "./fields";
 import { can, homePage, navPages } from "./perms";
 import { DUR, cue, reducedMotion, useCountUp, useFlip } from "./motion";
 import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwitch, TopProgress, tabKeys } from "./ui";
@@ -1212,7 +1213,8 @@ export function OverviewTab({ api, t }) {
   };
   /* Same rule the server routes by (views._route_submission). */
   const thr = Number(state.org.approvalThreshold) || 0;
-  const needsSignOff = (state.org.approvalLevels || []).length > 0 || (thr > 0 && (t.budget >= thr || !(t.budget > 0)));
+  const needsSignOff = state.org.lineManagerApproval !== false || (state.org.approvalLevels || []).length > 0
+    || (thr > 0 && (t.budget >= thr || !(t.budget > 0)));
   const submitForApproval = once("submit", () => act.submitTender(t.id));
   const issueAddendum = once("addendum", async () => {
     if (!ad.title.trim()) return;
@@ -1313,6 +1315,18 @@ export function OverviewTab({ api, t }) {
             <div className="rowline"><span className="muted" style={{ flex: 1 }}>Baseline{t.baselineSource ? ` · ${t.baselineSource}` : ""}</span><Money n={t.baseline} /></div>
           )}
           <div className="rowline"><span className="muted" style={{ flex: 1 }}>Submission deadline</span><span className="mono">{t.deadline > 0 ? fmtDate(t.deadline) : "Not set"}</span></div>
+          <div className="rowline"><span className="muted" style={{ flex: 1 }}>Payment terms vendors accept</span>
+            <span>{t.paymentTerms ? (PAYMENT_TERMS.find(([v]) => v === t.paymentTerms) || [0, t.paymentTerms])[1] : "None stated"}</span></div>
+          {t.paymentConditions && (
+            <div className="rowline"><span className="muted" style={{ flex: 1 }}>Payment conditions</span>
+              <span style={{ maxWidth: "60%", textAlign: "right" }}>{t.paymentConditions}</span></div>
+          )}
+          <div className="rowline"><span className="muted" style={{ flex: 1 }}>Non-disclosure agreement</span>
+            <span>{t.ndaRequired ? "Vendors sign it before they see anything" : "Not required"}</span></div>
+          {(t.requiredDocs || []).length > 0 && (
+            <div className="rowline"><span className="muted" style={{ flex: 1 }}>Documents a bid must include</span>
+              <span style={{ maxWidth: "60%", textAlign: "right" }}>{t.requiredDocs.join(", ")}</span></div>
+          )}
           {t.publishedAt && <div className="rowline"><span className="muted" style={{ flex: 1 }}>Published</span><span className="mono">{fmtDate(t.publishedAt)}</span></div>}
           <div className="rowline"><span className="muted" style={{ flex: 1 }}>Evaluation split</span><span className="mono">{t.techWeight}% technical / {t.commWeight}% commercial</span></div>
           {(t.rounds || []).length > 1 && (
@@ -1668,7 +1682,7 @@ function BidsTabBody({ api, t }) {
                     Technical proposal open · {scored ? `${scored} scorer(s) done` : "awaiting scores"}
                     {" · "}
                     {(state.documents || []).filter((x) => x.kind === "bid" && x.tenderId === t.id && x.supplierId === b.supplierId).map((x) => (
-                      <button key={x.id} className="doclink" style={{ fontSize: 11.5, marginRight: 8 }} onClick={() => downloadDoc(x.id, x.name)}>{x.name}</button>
+                      <button key={x.id} className="doclink" style={{ fontSize: 11.5, marginRight: 8 }} onClick={() => downloadDoc(x.id, x.name)}>{x.docType ? `${x.docType}: ` : ""}{x.name}</button>
                     ))}
                   </div>
                 </div>
@@ -1781,7 +1795,7 @@ function BidsTabBody({ api, t }) {
                     <b>{s.name}</b>{t.awardedTo === b.supplierId && <span className="chip gold" style={{ marginLeft: 8 }}>Awarded</span>}
                     <div style={{ marginTop: 3 }}>
                       {(state.documents || []).filter((x) => x.kind === "bid" && x.tenderId === t.id && x.supplierId === b.supplierId).map((x) => (
-                        <button key={x.id} className="doclink" style={{ fontSize: 11.5, marginRight: 10 }} onClick={() => downloadDoc(x.id, x.name)}>{x.name}</button>
+                        <button key={x.id} className="doclink" style={{ fontSize: 11.5, marginRight: 10 }} onClick={() => downloadDoc(x.id, x.name)}>{x.docType ? `${x.docType}: ` : ""}{x.name}</button>
                       ))}
                     </div>
                   </td>
@@ -2067,7 +2081,7 @@ export function EvalTab({ api, t }) {
                 <div style={{ padding: "8px 18px 0" }}>
                   <span className="mono faint" style={{ fontSize: 10.5, marginRight: 8 }}>READ FIRST:</span>
                   {bidDocs.map((x) => (
-                    <button key={x.id} className="doclink" style={{ fontSize: 12, marginRight: 12 }} onClick={() => downloadDoc(x.id, x.name)}>{x.name}</button>
+                    <button key={x.id} className="doclink" style={{ fontSize: 12, marginRight: 12 }} onClick={() => downloadDoc(x.id, x.name)}>{x.docType ? `${x.docType}: ` : ""}{x.name}</button>
                   ))}
                 </div>
               )}
@@ -2383,8 +2397,20 @@ export function EvalsPage({ api }) {
     level's role. The role is last because most workspaces give every rung the
     same one, and checking it first would make all the rungs interchangeable.
     See the long note on the server. */
-export function canSignStep(step, me, users) {
+export function canSignStep(step, me, users, ownerId) {
   if (!step || step.decidedAt) return false;
+  /* The line manager's signature, or the fallback for somebody with nobody
+     above them: the manager or the people above them, else anybody who can
+     approve publication except the person who raised it. */
+  if (step.levelId === "line" || step.levelId === "any") {
+    const here = (id) => (users || []).some((u) => u.id === id);
+    if (step.personaId && here(step.personaId)) {
+      return step.personaId === me.id || (step.holders || []).includes(me.id);
+    }
+    const live = (step.holders || []).filter(here);
+    if (live.length) return live.includes(me.id);
+    return can(me, "tender.publish_decision") && me.id !== ownerId;
+  }
   if (step.personaId) {
     if (step.personaId === me.id) return true;
     /* A named signatory who has left must not strand the chain; one who is
@@ -2414,6 +2440,7 @@ function stepWho(step, users) {
     .map((h) => (users || []).find((x) => x.id === h))
     .filter(Boolean).map((x) => x.name);
   if (pinned.length) return pinned.join(" or ");
+  if (step.levelId === "line" || step.levelId === "any") return "anyone who can approve publication";
   const onRung = (users || []).filter((u) => u.approvalLevel === step.levelId);
   if (onRung.length) return onRung.map((u) => u.name).join(" or ");
   return "any " + step.level;
@@ -2445,7 +2472,7 @@ export function ApprovalChain({ chain, users, me, compact = false }) {
           const state = st.decision === "approved" ? "done"
             : st.decision === "rejected" ? "no"
             : st.id === chain.currentId ? "now" : "next";
-          const mine = state === "now" && me && canSignStep(st, me, users);
+          const mine = state === "now" && me && canSignStep(st, me, users, chain.ownerId);
           return (
             <li className={"sigstep " + state + (mine ? " mine" : "")} key={st.id}>
               <span className="sigdot" aria-hidden="true">
@@ -2455,9 +2482,11 @@ export function ApprovalChain({ chain, users, me, compact = false }) {
               </span>
               <div className="sigbody">
                 <b>{st.level}
-                  <i className="siglimit mono">
-                    {st.limit ? `up to ${fmtCompact(st.limit)}` : "unlimited"}
-                  </i>
+                  {st.levelId !== "line" && st.levelId !== "any" && (
+                    <i className="siglimit mono">
+                      {st.limit ? `up to ${fmtCompact(st.limit)}` : "unlimited"}
+                    </i>
+                  )}
                 </b>
                 <span>
                   {state === "done"
@@ -2615,6 +2644,94 @@ function ReturnDialog({ kind, t, onClose, onConfirm }) {
   );
 }
 
+const SO_KIND = {
+  auction_release: "Auction going out to vendors",
+  deadline: "Closing date change",
+  auction_times: "Auction times change",
+};
+
+function TurnDownDialog({ so, onClose, onConfirm }) {
+  const [why, setWhy] = useState("");
+  return (
+    <ConfirmDialog title="Turn this down?" confirmLabel="Turn it down" tone="wax"
+                   disabled={!why.trim()} onClose={onClose} onConfirm={() => onConfirm(why.trim())}>
+      {so.requestedBy} is told your reason. Nothing changes, and no vendor is told.
+      {so.kind === "auction_release" ? " The auction goes back to draft." : ""}
+      <div className="frow" style={{ marginTop: 12, marginBottom: 0 }}>
+        <label className="lbl" htmlFor="so-why">Reason</label>
+        <textarea id="so-why" className="in" style={{ minHeight: 60 }} maxLength={280} autoFocus
+                  value={why} onChange={(e) => setWhy(e.target.value)}
+                  placeholder="e.g. Keep the published date: three vendors have already bid." />
+      </div>
+    </ConfirmDialog>
+  );
+}
+
+/** One line manager sign-off: what it changes, who asked, and the buttons
+    for the person it is waiting on. */
+function SignoffCard({ api, so, onDecide }) {
+  const where = so.auctionId ? { page: "auction", id: so.auctionId } : { page: "tender", id: so.tenderId };
+  return (
+    <div className="card" id={"appr-s" + so.id} style={{ marginBottom: 14 }}>
+      <div className="chead">
+        <h3>{so.title}</h3>
+        <span className="chip" style={{ marginLeft: "auto" }}>{SO_KIND[so.kind] || "Sign-off"}</span>
+      </div>
+      <div className="cbody">
+        <div className="hint" style={{ marginTop: 0, marginBottom: 10 }}>
+          {so.ref} · asked by {so.requestedBy} {fmtDateTime(so.requestedAt)}
+          {onDecide ? "" : ` · waiting for ${so.approver}`}.
+        </div>
+        {so.summary && <div style={{ marginBottom: 8 }}>{so.summary.charAt(0).toUpperCase() + so.summary.slice(1)}.</div>}
+        {so.reason && <div className="muted" style={{ marginBottom: 10 }}>Reason: {so.reason}</div>}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {onDecide && <button className="btn pri" onClick={() => onDecide(true)}>Approve</button>}
+          {onDecide && <button className="btn" onClick={() => onDecide(false)}>Turn down…</button>}
+          <button className="btn" onClick={() => api.go(where)}>
+            Open the {so.auctionId ? "auction" : "tender"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Whether tenders and auctions wait for the raiser's line manager, and
+    whether a date moved after publication does. Both on unless switched off. */
+function LineManagerSwitches({ api }) {
+  const { state, toast } = api;
+  const org = state.org;
+  const save = async (key, value) => {
+    try {
+      await raw("/settings/", { method: "POST", body: { [key]: value } });
+      toast.ok("Saved", value ? "Switched on." : "Switched off.");
+      api.refresh();
+    } catch (e) { toast.warn("Not saved", e.message || ""); }
+  };
+  const lm = org.lineManagerApproval !== false;
+  const tl = org.timelineApproval !== false;
+  return (
+    <More title="Line manager approval"
+          summary={lm && tl ? "on for everything going to vendors, and for date changes"
+            : lm ? "on for tenders and auctions, off for date changes"
+            : tl ? "off for tenders and auctions, on for date changes" : "off"}>
+      <label className="checkline">
+        <input type="checkbox" checked={lm} onChange={(e) => save("lineManagerApproval", e.target.checked)} />
+        <span><b>Every tender and auction waits for the raiser's line manager</b>
+          <span className="hint" style={{ display: "block" }}>Whatever its value. Nothing reaches a vendor until their manager, or
+            someone above them, has approved it. Someone with no line manager on record goes to
+            anyone who can approve publication. The approval matrix above still applies on top.</span></span>
+      </label>
+      <label className="checkline" style={{ marginTop: 10 }}>
+        <input type="checkbox" checked={tl} onChange={(e) => save("timelineApproval", e.target.checked)} />
+        <span><b>Changing a closing date, or an auction's times, after vendors were told waits for approval</b>
+          <span className="hint" style={{ display: "block" }}>The published date stands until the requester's line manager approves.
+            Then every invited vendor is told.</span></span>
+      </label>
+    </More>
+  );
+}
+
 export function ApprovalsPage({ api }) {
   const { state, act } = api;
   const me = state.me;
@@ -2637,8 +2754,15 @@ export function ApprovalsPage({ api }) {
     /* No chain means the workspace runs on the single threshold, where the
        capability is the whole authorisation - see approvals.py. */
     if (!cur) return kind === "award" ? can(me, "award.decide") : can(me, "tender.publish_decision");
-    return canSignStep(cur, me, users);
+    const chain = kind === "award" ? t.awardChain : t.publishChain;
+    return canSignStep(cur, me, users, chain && chain.ownerId);
   };
+  /* Line manager sign-offs that are not a publication chain: an auction going
+     out, a closing date or an auction's times moving. */
+  const waitingSO = (state.signoffs || []).filter((x) => x.status === "pending");
+  const mySO = waitingSO.filter((x) => x.mayDecide);
+  const otherSO = waitingSO.filter((x) => !x.mayDecide);
+  const [soQ, setSoQ] = useState(null);         // {so, ok}
 
   const allPubs = state.tenders.filter((t) => t.status === "approval");
   const allAwards = state.tenders.filter((t) => t.status === "evaluation" && t.awardRec);
@@ -2733,6 +2857,9 @@ export function ApprovalsPage({ api }) {
     ...pubs.map((t) => ({ key: "p" + t.id, label: t.title,
       note: `Publish · ${ceilWords(t)}`,
       onPick: () => document.getElementById("appr-p" + t.id)?.scrollIntoView({ behavior: "smooth", block: "start" }) })),
+    ...mySO.map((x) => ({ key: "s" + x.id, label: x.title,
+      note: SO_KIND[x.kind] || "Sign-off",
+      onPick: () => document.getElementById("appr-s" + x.id)?.scrollIntoView({ behavior: "smooth", block: "start" }) })),
   ];
   const guide = (
     <Guide art={queue.length ? "draft" : "clear"} tone={queue.length ? undefined : "good"}
@@ -2795,9 +2922,36 @@ export function ApprovalsPage({ api }) {
       })()}
       {retQ && <ReturnDialog kind={retQ.kind} t={retQ.t} onClose={() => setRetQ(null)}
                              onConfirm={(reason) => sendBack(retQ, reason)} />}
+      {soQ && soQ.ok && (
+        <ConfirmDialog title="Approve this?" confirmLabel="Approve"
+                       onClose={() => setSoQ(null)}
+                       onConfirm={async () => {
+                         if (await act.decideSignoff(soQ.so.id, true)) {
+                           api.toast.ok("Approved", soQ.so.kind === "auction_release"
+                             ? "The auction has gone out and its vendors have been invited."
+                             : "The change is applied and every vendor has been told.");
+                         }
+                       }}>
+          {soQ.so.ref} - {soQ.so.title}: {SO_KIND[soQ.so.kind].toLowerCase()}
+          {soQ.so.summary ? ` (${soQ.so.summary})` : ""}, asked by {soQ.so.requestedBy}.
+          <div style={{ marginTop: 8 }}>
+            {soQ.so.kind === "auction_release"
+              ? "Approving sends the invitations: with a start time ahead the auction is scheduled and every vendor is told when it opens; otherwise the room opens now."
+              : "Approving applies the change at once and emails every vendor on the event."}
+          </div>
+        </ConfirmDialog>
+      )}
+      {soQ && !soQ.ok && (
+        <TurnDownDialog so={soQ.so} onClose={() => setSoQ(null)}
+                        onConfirm={async (reason) => {
+                          if (await act.decideSignoff(soQ.so.id, false, reason)) {
+                            api.toast.info("Turned down", `${soQ.so.requestedBy} has been told why. Nothing changed.`);
+                          }
+                        }} />
+      )}
       <div className="pagehead">
         <h1>Approvals</h1>
-        <span className="sub">Awards to sign off, and tenders waiting to be published.</span>
+        <span className="sub">Awards to sign off, tenders and auctions waiting to go out, and date changes.</span>
       </div>
 
       {awards.map((t) => {
@@ -2869,8 +3023,19 @@ export function ApprovalsPage({ api }) {
         </div>
       ))}
 
-      {!pubs.length && !awards.length && (
+      {mySO.map((x) => (
+        <SignoffCard key={x.id} api={api} so={x} onDecide={(ok) => setSoQ({ so: x, ok })} />
+      ))}
+
+      {!pubs.length && !awards.length && !mySO.length && (
         <div className="card"><Empty art="clear">Nothing is waiting for your sign-off.</Empty></div>
+      )}
+
+      {otherSO.length > 0 && (
+        <More title={`${otherSO.length} sign-off${otherSO.length === 1 ? "" : "s"} waiting on somebody else`}
+              summary="auctions going out and dates moving, and whose they are">
+          {otherSO.map((x) => <SignoffCard key={x.id} api={api} so={x} />)}
+        </More>
       )}
 
       {/* Everything in the building that is waiting on a signature, and whose.
@@ -2939,7 +3104,7 @@ export function ApprovalsPage({ api }) {
         <More title="When a tender needs your sign-off" summary={thr ? `at or above ${fmtCompact(Number(thr))}` : "no threshold set"}>
           <div className="frow" style={{ marginBottom: 0 }}>
             <label className="lbl">Sign-off threshold</label>
-            <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>In naira. A tender at or above this comes to you before it publishes. Below it, publishing is immediate. Only you can change this.</div>
+            <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>In naira. A tender at or above this comes to you, after the raiser's line manager, before it publishes. Below it, the line manager's yes is enough. Only you can change this.</div>
             <div style={{ display: "flex", gap: 8 }}>
               <input className="in" type="number" value={thr} onChange={(e) => setThr(e.target.value)} />
               <button className="btn pri" onClick={saveThr} disabled={!Number(thr)}>Save</button>
@@ -2954,6 +3119,8 @@ export function ApprovalsPage({ api }) {
           </div>
         </More>
       )}
+
+      {can(me, "settings.threshold") && <LineManagerSwitches api={api} />}
 
       <More title="Committed spend" summary={`${fmtCompact(committed)} awarded to date · ${fmtCompact(pending)} pending your approval`}>
         <div className="rowline"><span className="muted" style={{ flex: 1 }}>Awarded to date</span><Money n={committed} strong /></div>
@@ -3366,6 +3533,9 @@ export function NewTender({ api, editId }) {
     twoStage: !!editing.twoStage, techThreshold: editing.techThreshold ?? 70,
     technicalDocumentRequired: editing.technicalDocumentRequired ?? true,
     commercialDocumentRequired: editing.commercialDocumentRequired ?? false,
+    requiredDocs: [...(editing.requiredDocs || [])],
+    paymentTerms: editing.paymentTerms || "", paymentConditions: editing.paymentConditions || "",
+    ndaRequired: !!editing.ndaRequired, ndaText: editing.ndaText || "",
     minDecrement: String(editing.minDecrement || ""),
     baseline: editing.baseline ? String(editing.baseline) : "",
     baselineSource: editing.baselineSource || "",
@@ -3378,6 +3548,9 @@ export function NewTender({ api, editId }) {
     invited: [], lines: [blankLine()],
     twoStage: false, techThreshold: 70, minDecrement: "",
     technicalDocumentRequired: true, commercialDocumentRequired: false,
+    /* The company's default payment terms, from Team > Vendor reminders and agreements. */
+    requiredDocs: [], paymentTerms: state.org.paymentTerms || "",
+    paymentConditions: state.org.paymentConditions || "", ndaRequired: false, ndaText: "",
     baseline: "", baselineSource: "", projectedCost: "",
   });
   const [initial] = useState(() => JSON.stringify(f));
@@ -3409,7 +3582,9 @@ export function NewTender({ api, editId }) {
   const linesOk = f.lines.length > 0
     && f.lines.every((l) => l.desc.trim() && Number(l.qty) > 0);
   const projOk = !(Number(f.projectedCost) > 0 && ceiling > 0 && Number(f.projectedCost) > ceiling);
-  const ready = f.title.trim() && f.category && deadlineOk && f.invited.length > 0 && projOk
+  /* An NDA vendors are asked to sign has to say something. */
+  const ndaOk = !f.ndaRequired || String(f.ndaText || "").trim().length >= 40;
+  const ready = f.title.trim() && f.category && deadlineOk && f.invited.length > 0 && projOk && ndaOk
     && (isAuction ? Number(f.minDecrement) > 0 && f.lines.length === 0 : linesOk && weightSum === 100 && namesOk);
   const setLine = (id, k, v) => set("lines", f.lines.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
 
@@ -3485,6 +3660,9 @@ export function NewTender({ api, editId }) {
     { key: "proj", ok: projOk, to: "nt-proj", quiet: projOk,
       todo: "Projected cost is above the ceiling", done: "Projection sits under the ceiling",
       note: "Raise a line maximum, or revise the projection." },
+    { key: "nda", ok: ndaOk, to: "nt-nda", quiet: ndaOk,
+      todo: "Write the NDA vendors will sign", done: "NDA ready",
+      note: "Use the company's standard text, or switch the NDA off." },
   ].filter((c) => !(c.quiet && c.ok));
 
   const outstanding = checks.filter((c) => !c.ok);
@@ -3502,8 +3680,11 @@ export function NewTender({ api, editId }) {
      ceiling at or above a threshold above 0 does. */
   const threshold = Number(state.org.approvalThreshold) || 0;
   const hasLadder = (state.org.approvalLevels || []).length > 0;
+  /* Every tender waits for the raiser's line manager unless the workspace
+     switched that off (approvals.publish_plan). */
+  const lineFirst = state.org.lineManagerApproval !== false;
   /* No maximum prices means no value to compare, so it goes for sign-off. */
-  const needsApproval = hasLadder || (threshold > 0 && (ceiling >= threshold || ceiling <= 0));
+  const needsApproval = lineFirst || hasLadder || (threshold > 0 && (ceiling >= threshold || ceiling <= 0));
 
   const draftScope = async () => {
     setBusy(true);
@@ -3540,6 +3721,9 @@ export function NewTender({ api, editId }) {
       twoStage: f.twoStage && f.bidMode !== "open", techThreshold: Number(f.techThreshold) || 70,
       technicalDocumentRequired: f.technicalDocumentRequired ?? true,
       commercialDocumentRequired: f.commercialDocumentRequired ?? false,
+      requiredDocs: f.requiredDocs || [],
+      paymentTerms: f.paymentTerms || "", paymentConditions: String(f.paymentConditions || "").trim(),
+      ndaRequired: !!f.ndaRequired, ndaText: f.ndaRequired ? String(f.ndaText || "").trim() : "",
       minDecrement: Number(f.minDecrement) || 0,
       baseline: Number(f.baseline) || 0,
       baselineSource: f.baselineSource.trim(),
@@ -3780,6 +3964,54 @@ export function NewTender({ api, editId }) {
               <label className="checkline"><input type="checkbox" checked={f.commercialDocumentRequired ?? false}
                 onChange={(e) => set("commercialDocumentRequired", e.target.checked)} />Require a commercial document</label>
               <p className="hint">A quotation or pricing attachment. Leave both unchecked to allow a bid without document uploads.</p>
+              <div className="lbl" style={{ marginTop: 12 }}>Also require these documents</div>
+              <p className="hint" style={{ marginTop: 0 }}>Vendors say what each upload is. Tick the ones a bid must include.
+                A quotation is sealed in the commercial envelope; everything else in the technical one.</p>
+              <div className="aucopts">
+                {BID_DOC_TYPES.map(([v, label]) => (
+                  <label className="checkline" key={v}>
+                    <input type="checkbox" checked={(f.requiredDocs || []).includes(v)}
+                           onChange={(e) => set("requiredDocs", e.target.checked
+                             ? [...new Set([...(f.requiredDocs || []), v])]
+                             : (f.requiredDocs || []).filter((x) => x !== v))} />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>}
+
+          {!isAuction && <div className="card" id="nt-nda">
+            <div className="chead"><h3>Payment terms and confidentiality</h3></div>
+            <div className="cbody">
+              <p className="hint" style={{ marginTop: 0 }}>Vendors accept these before they can see the rest of the
+                tender or bid. Each acceptance is recorded with their name, the time and the exact text.</p>
+              <div className="grid g2">
+                <div className="frow"><label className="lbl" htmlFor="nt-pay">Payment terms</label>
+                  <PaymentTermsSelect id="nt-pay" value={f.paymentTerms || ""} onChange={(v) => set("paymentTerms", v)} />
+                  <div className="hint">Leave as "Not agreed yet" to ask nobody to accept payment terms.</div></div>
+                <div className="frow"><label className="lbl" htmlFor="nt-payc">Conditions <span className="faint">optional</span></label>
+                  <textarea id="nt-payc" className="in" rows={2} maxLength={2000} value={f.paymentConditions || ""}
+                            onChange={(e) => set("paymentConditions", e.target.value)}
+                            placeholder="e.g. Paid against a signed goods received note and a valid VAT invoice." /></div>
+              </div>
+              <label className="checkline" style={{ marginTop: 6 }}>
+                <input type="checkbox" checked={!!f.ndaRequired}
+                       onChange={(e) => setF((x) => ({ ...x, ndaRequired: e.target.checked,
+                         ndaText: e.target.checked && !String(x.ndaText || "").trim()
+                           ? (state.org.ndaStandard || "") : x.ndaText }))} />
+                <span><b>Sensitive request: vendors sign a non-disclosure agreement first</b>
+                  <span className="hint" style={{ display: "block" }}>Until they sign, invited vendors see only the title and the closing date.</span></span>
+              </label>
+              {f.ndaRequired && (
+                <div className="frow" style={{ marginTop: 10 }}>
+                  <label className="lbl" htmlFor="nt-ndatext">The agreement vendors sign</label>
+                  <textarea id="nt-ndatext" className="in" rows={10} maxLength={20000} value={f.ndaText || ""}
+                            onChange={(e) => set("ndaText", e.target.value)} />
+                  <div className="hint">Starts as your company's standard NDA (Team page, Vendor reminders and agreements).
+                    Changes here apply to this tender only. It cannot change once the tender is published.</div>
+                </div>
+              )}
             </div>
           </div>}
 
@@ -3896,7 +4128,12 @@ export function NewTender({ api, editId }) {
               {editing ? "Save draft" : "Save as draft"}
             </button>
             <div className="readyroute">
-              {hasLadder
+              {lineFirst
+                ? "Your line manager approves it before any vendor is invited"
+                  + (hasLadder ? ", and your approval ladder applies after that." : threshold > 0 && (ceiling >= threshold || ceiling <= 0)
+                    ? `, then someone who can approve publication, because it ${ceiling > 0 ? `is at or above the ${fmtMoney(threshold)} threshold` : "has no maximum value"}.`
+                    : ".")
+                : hasLadder
                 ? "Your approval ladder applies, so this goes for sign-off before any vendor is invited."
                 : !threshold
                   ? "Nothing needs sign-off here, so it publishes and invites vendors as soon as you press the button."
@@ -5359,6 +5596,13 @@ export function TeamPage({ api }) {
         <WorkspaceCard api={api} />
       </More>
 
+      {can(user, "settings.rename") && (
+        <More title="Vendor reminders and agreements"
+              summary="when vendors are reminded, your standard NDA and default payment terms">
+          <VendorCommsCard api={api} />
+        </More>
+      )}
+
       {can(user, "team.view") && (
         <>
           <More title="Roles"
@@ -5871,6 +6115,71 @@ const PROFILE_FIELDS = [
   ["fiscalYearStart", "Financial year starts", FiscalStartSelect],
   ["timezone",     "Time zone",          TimezoneSelect],
 ];
+
+/** How the company talks to its vendors: when they are reminded of a closing
+    date, the NDA a sensitive event asks them to sign, and the payment terms
+    every new tender and auction starts with. */
+function VendorCommsCard({ api }) {
+  const { state, refresh, toast } = api;
+  const org = state.org;
+  const [hours, setHours] = useState(org.reminderHours || []);
+  const [nda, setNda] = useState(org.ndaText || "");
+  const [terms, setTerms] = useState(org.paymentTerms || "");
+  const [cond, setCond] = useState(org.paymentConditions || "");
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await raw("/settings/", { method: "POST", body: {
+        reminderHours: hours, ndaText: nda.trim(), paymentTerms: terms, paymentConditions: cond.trim() } });
+      toast.ok("Saved", "New tenders and auctions use these. Events already published keep what their vendors accepted.");
+      refresh();
+    } catch (e) { toast.warn("Not saved", e.message || ""); }
+    setBusy(false);
+  };
+  const flip = (h, on) => setHours((xs) => (on ? [...new Set([...xs, h])] : xs.filter((x) => x !== h))
+    .sort((a, b) => b - a));
+  return (
+    <div className="card" style={{ marginBottom: 14 }}>
+      <div className="cbody">
+        <div className="lbl">Remind vendors who have not bid</div>
+        <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>
+          By email and in their portal, before a tender closes and before an auction opens (and, once it is
+          live, before it closes). Each one is sent once, and only if that moment comes after the event went
+          out. Untick them all to switch reminders off.
+        </div>
+        <div className="aucopts" style={{ marginBottom: 14 }}>
+          {REMINDER_HOURS.map(([h, label]) => (
+            <label className="checkline" key={h}>
+              <input type="checkbox" checked={hours.includes(h)} onChange={(e) => flip(h, e.target.checked)} />
+              {label}
+            </label>
+          ))}
+        </div>
+        <div className="grid g2">
+          <div className="frow"><label className="lbl" htmlFor="vc-terms">Default payment terms</label>
+            <PaymentTermsSelect id="vc-terms" value={terms} onChange={setTerms} />
+            <div className="hint">Every new tender and auction starts with these. Vendors accept them before they bid.</div></div>
+          <div className="frow"><label className="lbl" htmlFor="vc-cond">Default payment conditions</label>
+            <textarea id="vc-cond" className="in" rows={2} maxLength={2000} value={cond}
+                      onChange={(e) => setCond(e.target.value)}
+                      placeholder="e.g. Paid against a signed goods received note and a valid VAT invoice." /></div>
+        </div>
+        <div className="frow">
+          <label className="lbl" htmlFor="vc-nda">Standard non-disclosure agreement</label>
+          <textarea id="vc-nda" className="in" rows={10} maxLength={20000} value={nda}
+                    placeholder={org.ndaStandard} onChange={(e) => setNda(e.target.value)} />
+          <div className="hint">
+            Copied onto a tender or auction marked sensitive, where vendors sign it before they see anything.
+            Leave it empty to use the starter text shown, which puts your registered name in. It is a plain
+            starting point: have your legal team review it. Write {"{company}"} where your company's name should go.
+          </div>
+        </div>
+        <button className="btn pri" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+      </div>
+    </div>
+  );
+}
 
 function WorkspaceCard({ api }) {
   const { state, refresh, toast } = api;

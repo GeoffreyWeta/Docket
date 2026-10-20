@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 
-import { downloadDoc, raw } from "./api";
+import { downloadDoc, downloadUrl, raw } from "./api";
 import { draftKeyFor, readDraft, useDraftStorage } from "./drafts";
 import { AuctionGallery } from "./auctions";
 import { Countdown, Empty, Money, Stat } from "./atoms";
 import { Meter } from "./charts";
-import { CategorySelect, DocTypeSelect, LocationSelect, PhoneInput } from "./fields";
+import { BidDocTypeSelect, CategorySelect, DocTypeSelect, LocationSelect, PhoneInput } from "./fields";
+import { BID_DOC_TYPES } from "./vocab";
 import { Figures, Guide, More, Page, Quiet, Row, Rows } from "./page";
 import {
   REG_STATUS, VERIFY_STATUS, activeRound, daysLeft, effStatus, fmtCompact, fmtDate,
@@ -290,11 +291,14 @@ export function PortalHome({ api }) {
                          title={a.title}
                          meta={<>{a.ref}{lot && lot.ceiling ? <> &middot; opening price {fmtCompact(lot.ceiling)}</> : null}
                            {a.disqualified ? <> &middot; you were removed</> : null}</>}
-                         right={a.live
+                         right={a.gated
+                           ? <span className="chip warn">{gateWords(a.agreements)}</span>
+                           : a.live
                            ? <LiveCountdown deadline={a.endsAt} />
                            : a.status === "awarded" && aucWon(a).length
                              ? <span className="chip gold">Awarded to you</span>
                              : <span className="chip">{a.status === "awarded" ? "Awarded"
+                                 : a.status === "scheduled" && a.startsAt ? `Opens ${fmtDate(a.startsAt)}${a.prebidOpen ? " · pre-bids open" : ""}`
                                  : a.status === "scheduled" || a.status === "draft" || (a.status === "live" && (a.startsAt || 0) > Date.now()) ? "Opens soon"
                                  : a.status === "paused" ? "Paused"
                                  : a.status === "cancelled" ? "Cancelled" : "Closed"}</span>}
@@ -327,7 +331,8 @@ export function PortalHome({ api }) {
                        </>}
                        right={<>
                          <Countdown t={t.deadline} />
-                         {st === "paused" ? <span className="chip warn">Paused by the buyer</span>
+                         {t.gated && st === "published" ? <span className="chip warn">{gateWords(t.agreements)}</span>
+                           : st === "paused" ? <span className="chip warn">Paused by the buyer</span>
                            : myBid && myBid.review === "held" ? <span className="chip warn">Waiting for approval</span>
                            : myBid && t.bidMode === "open" && t.standing && t.standing.position
                              ? <span className="chip ok">Your price: {t.standing.position} of {t.standing.of}</span>
@@ -335,7 +340,7 @@ export function PortalHome({ api }) {
                            : left ? <span className="chip">Not shortlisted</span>
                            : st === "published" ? <span className="chip warn">Not started</span>
                            : <span className="chip">Closed</span>}
-                         {st === "published" && !left && <button className="btn sm pri" onClick={() => go({ page: "bidroom", id: t.id })}>{myBid ? (t.bidMode === "open" ? "See position" : "View receipt") : "Bid"}</button>}
+                         {st === "published" && !left && <button className="btn sm pri" onClick={() => go({ page: "bidroom", id: t.id })}>{t.gated ? "Open" : myBid ? (t.bidMode === "open" ? "See position" : "View receipt") : "Bid"}</button>}
                        </>} />
                 );
               })}
@@ -515,9 +520,129 @@ const closesAt = (ms) => {
    below the point where it would otherwise return early. A refresh that took
    the tender away (withdrawn from this vendor, cancelled) then rendered fewer
    hooks than the render before it, and React stopped the whole page. */
+/* What a vendor still has to accept, in a few words for a chip. */
+function gateWords(ag) {
+  const pending = (ag && ag.pending) || [];
+  if (pending.includes("nda")) return "Sign the NDA to see it";
+  if (pending.includes("payment")) return "Accept the payment terms";
+  return "Agreements needed";
+}
+
+/* What an event asks a vendor to accept before it opens up to them: an NDA to
+   sign, payment terms to accept. One name and job title for both, and a box
+   of its own for each, so nobody signs one by ticking the other. The server
+   records each with the exact text and the time; this only collects them. */
+export function AgreementGate({ agreements, company, onAccept, onDone }) {
+  const ag = agreements || {};
+  const pending = ag.pending || [];
+  const [name, setName] = useState("");
+  const [title, setTitle] = useState("");
+  const [ticks, setTicks] = useState({});
+  const [busy, setBusy] = useState(false);
+  const ready = name.trim().length >= 2 && pending.every((k) => ticks[k]);
+  const sign = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    let all = true;
+    try {
+      for (const k of pending) {
+        if (!(await onAccept(k, name.trim(), title.trim()))) { all = false; break; }
+      }
+    } finally { setBusy(false); }
+    if (all && onDone) onDone();
+  };
+  const tick = (k) => (e) => setTicks((x) => ({ ...x, [k]: e.target.checked }));
+  return (
+    <div className="card" style={{ marginBottom: 14 }}>
+      <div className="chead"><h3>{pending.includes("nda") ? "Sign before you see the details" : "Accept the payment terms"}</h3></div>
+      <div className="cbody" style={{ fontSize: 13.5, lineHeight: 1.6 }}>
+        <p className="muted" style={{ marginTop: 0 }}>
+          {pending.includes("nda")
+            ? "This is a confidential request. Until somebody at your company signs the agreement below, you see only its title and closing date."
+            : "The buyer asks every vendor to accept its payment terms before bidding, so nobody wins an award on terms they did not see."}
+        </p>
+        {pending.includes("nda") && (
+          <div className="frow">
+            <div className="lbl">Non-disclosure agreement</div>
+            <div style={{ whiteSpace: "pre-wrap", maxHeight: 340, overflowY: "auto", border: "1px solid var(--line)",
+                          borderRadius: 8, padding: 12, fontSize: 13 }} tabIndex={0} aria-label="The agreement">
+              {ag.ndaText}
+            </div>
+            <label className="checkline" style={{ marginTop: 8 }}>
+              <input type="checkbox" checked={!!ticks.nda} onChange={tick("nda")} />
+              I have read this agreement and sign it on behalf of {company}.
+            </label>
+          </div>
+        )}
+        {pending.includes("payment") && (
+          <div className="frow">
+            <div className="lbl">Payment terms</div>
+            <div className="notice" style={{ marginBottom: 6 }}>
+              {ag.paymentTerms && <b>{ag.paymentTermsLabel}.</b>}{" "}
+              <span style={{ whiteSpace: "pre-wrap" }}>{ag.paymentConditions}</span>
+            </div>
+            <label className="checkline">
+              <input type="checkbox" checked={!!ticks.payment} onChange={tick("payment")} />
+              {company} accepts these payment terms for any award from this event.
+            </label>
+          </div>
+        )}
+        <div className="grid g2">
+          <div className="frow"><label className="lbl" htmlFor="ag-name">Your full name</label>
+            <input id="ag-name" className="in" autoComplete="name" value={name} maxLength={120}
+                   onChange={(e) => setName(e.target.value)} /></div>
+          <div className="frow"><label className="lbl" htmlFor="ag-title">Your job title <span className="faint">optional</span></label>
+            <input id="ag-title" className="in" autoComplete="organization-title" value={title} maxLength={120}
+                   onChange={(e) => setTitle(e.target.value)} /></div>
+        </div>
+        <button className="btn pri" disabled={!ready || busy} onClick={sign}>
+          {busy ? "Recording…" : pending.includes("nda") ? "Sign and continue" : "Accept and continue"}
+        </button>
+        {!ready && <div className="hint">{name.trim().length < 2 ? "Type your full name." : "Tick each box to confirm."}</div>}
+        <div className="hint">Recorded with your name, the time and the exact text you accepted. The buyer can see
+          that you accepted; other vendors cannot.</div>
+      </div>
+    </div>
+  );
+}
+
+/* What the vendor has already accepted on this event, so the terms they will
+   be paid on stay in front of them while they price. */
+function AgreementsAccepted({ agreements }) {
+  const ag = agreements || {};
+  const done = ag.accepted || {};
+  if (!Object.keys(done).length) return null;
+  return (
+    <div className="notice" style={{ marginBottom: 14, fontSize: 12.5 }}>
+      {done.nda && <>You signed the non-disclosure agreement on {fmtDate(done.nda.at)}. </>}
+      {done.payment && <>Payment terms you accepted: <b>{ag.paymentTermsLabel || "as stated"}</b>.
+        {ag.paymentConditions ? <> {ag.paymentConditions.trim().replace(/[.!?]?$/, ".")}</> : null}</>}
+    </div>
+  );
+}
+
+function GatedTender({ api, t }) {
+  const { act, toast, go, state, user } = api;
+  const company = ((state.suppliers || []).find((x) => x.id === user.supplierId) || {}).name || "your company";
+  return (
+    <div style={{ maxWidth: 820 }}>
+      <button className="btn sm" style={{ marginBottom: 14 }} onClick={() => go({ page: "portal" })}>← My invitations</button>
+      <div className="pagehead" style={{ marginBottom: 14 }}>
+        <div><div className="mono muted" style={{ marginBottom: 3 }}>{t.ref} · {closesAt(t.deadline)}</div>
+          <h1>{t.title}</h1></div>
+        <div className="grow" /><Countdown t={t.deadline} />
+      </div>
+      <AgreementGate agreements={t.agreements} company={company}
+                     onAccept={(k, name, title) => act.acceptAgreement(t.id, k, name, title)}
+                     onDone={() => toast.ok("Thank you", "The tender is open to you. Read it through, then bid.")} />
+    </div>
+  );
+}
+
 export function BidRoom({ api, id }) {
   const t = api.state.tenders.find((x) => x.id === id);
   if (!t) return <Empty>Tender not found.</Empty>;
+  if (t.gated) return <GatedTender api={api} t={t} />;
   return <BidRoomFor api={api} t={t} />;
 }
 
@@ -595,6 +720,9 @@ function BidRoomFor({ api, t }) {
   const tenderDocs = (state.documents || []).filter((x) => x.kind === "tender" && x.tenderId === t.id);
   const hasTechDoc = myDocs.some((x) => x.envelope === "technical");
   const hasCommDoc = myDocs.some((x) => x.envelope === "commercial");
+  const typesIn = new Set(myDocs.map((x) => x.docType).filter(Boolean));
+  const docLabel = (k) => ((BID_DOC_TYPES.find(([v]) => v === k) || [k, k])[1]);
+  const [docType, setDocType] = useState("");
   const firstRound = !rnd || rnd.number === 1;
   const requiresTech = firstRound && (t.technicalDocumentRequired ?? true);
   const requiresComm = firstRound && (t.commercialDocumentRequired ?? false);
@@ -611,6 +739,9 @@ function BidRoomFor({ api, t }) {
       note: "PDF, Office or image, up to 10 MB." }] : []),
     ...(requiresComm ? [{ ok: hasCommDoc, to: "sb-docs",
       todo: "Upload your commercial document", done: "Commercial document attached" }] : []),
+    ...(firstRound ? (t.requiredDocs || []) : []).map((k) => ({
+      ok: typesIn.has(k), to: "sb-docs",
+      todo: `Attach your ${docLabel(k).toLowerCase()}`, done: `${docLabel(k)} attached` })),
     { ok: form.decl, to: "sb-decl",
       todo: "Sign the conflict-of-interest declaration", done: "Declaration signed" },
     ...addenda.map((a) => ({
@@ -637,9 +768,11 @@ function BidRoomFor({ api, t }) {
     const f = el.matches("input,textarea") ? el : el.querySelector("input,textarea,button,label");
     if (f && f.focus) f.focus({ preventScroll: true });
   };
-  const uploadDoc = (envelope) => (e) => {
+  /* The vendor says what the document is; where it is sealed follows from
+     that (a quotation carries prices, so it goes in the commercial envelope). */
+  const uploadDoc = (e) => {
     const f = e.target.files[0];
-    if (f) act.upload(`/tenders/${t.id}/bid_docs/`, f, { envelope });
+    if (f && docType) act.upload(`/tenders/${t.id}/bid_docs/`, f, { docType });
     e.target.value = "";
   };
 
@@ -768,6 +901,7 @@ function BidRoomFor({ api, t }) {
           the most this order can be worth in total.
         </div>
       )}
+      <AgreementsAccepted agreements={t.agreements} />
       {/* Everything the buyer changed that this vendor is owed. Stated before
           the scope, because a paused event or a moved deadline changes what
           they should do next and the scope does not. */}
@@ -1010,24 +1144,31 @@ function BidRoomFor({ api, t }) {
               <label className="lbl">Submission documents</label>
               {myDocs.map((x) => (
                 <div className="docrow" key={x.id}>
-                  <span className="chip" style={{ textTransform: "capitalize" }}>{x.envelope}</span>
+                  <span className="chip">{x.docType || (x.envelope === "commercial" ? "Commercial" : "Technical")}</span>
                   <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}><Icon n="file" s={13} />{x.name}</button>
-                  <span className="mono faint">{Math.max(1, Math.round(x.size / 1024))} KB</span>
+                  <span className="mono faint">{Math.max(1, Math.round(x.size / 1024))} KB · {x.envelope}</span>
                   <span style={{ flex: 1 }} />
                   <button className="btn sm iconly" aria-label="Remove document" onClick={() => act.deleteDoc(x.id)}><Icon n="close" s={12} /></button>
                 </div>
               ))}
-              <div id="sb-docs" style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-                <label className="btn sm">
-                  {hasTechDoc ? "Add technical document" : `Upload technical proposal (${requiresTech ? "required" : "optional"})`}
-                  <input type="file" hidden onChange={uploadDoc("technical")} />
-                </label>
-                <label className="btn sm">
-                  Add commercial document ({requiresComm ? "required" : "optional"})
-                  <input type="file" hidden onChange={uploadDoc("commercial")} />
+              {(requiresTech || requiresComm || (firstRound && (t.requiredDocs || []).length > 0)) && (
+                <div className="hint" style={{ marginTop: 6 }}>
+                  The buyer asks for: {[requiresTech && "a technical proposal", requiresComm && "a commercial document",
+                    ...(firstRound ? (t.requiredDocs || []).map((k) => docLabel(k).toLowerCase()) : [])]
+                    .filter(Boolean).join(", ")}.
+                </div>
+              )}
+              <div id="sb-docs" style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <BidDocTypeSelect ariaLabel="What is this document?" value={docType} onChange={setDocType} />
+                <label className={"btn sm" + (docType ? " pri" : "")} aria-disabled={!docType}
+                       title={docType ? undefined : "Choose what the document is first"}>
+                  <Icon n="upload" s={13} /> Upload
+                  <input type="file" hidden disabled={!docType} onChange={uploadDoc} />
                 </label>
               </div>
-              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>PDF, Office or image files up to 10 MB. Documents are sealed with your bid and cannot be seen by the buyer until the recorded opening.</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Choose what the document is, then upload it: a quotation, a product specification, a certificate.
+                PDF, Office or image files up to 10 MB. A quotation is sealed in the commercial envelope, everything else in the technical one,
+                and nothing can be seen by the buyer until the recorded opening.</div>
             </div>
             <div className="frow" id="sb-decl">
               <label className="lbl">Declaration</label>
@@ -1168,6 +1309,7 @@ export function AuctionRoom({ api, id }) {
   const [offset, setOffset] = useState(0);     // server clock minus this phone's clock
   const [failures, setFailures] = useState(0); // refreshes in a row that did not get through
   const [nonce, setNonce] = useState(0);   // bumped to re-read the room after an action
+  const [question, setQuestion] = useState("");
   const busy = useRef(false);   // the button and the Enter key share one guard, so one press is one bid
 
   const lots = (a && a.lots) || [];
@@ -1254,6 +1396,28 @@ export function AuctionRoom({ api, id }) {
       <div>
         <button className="btn sm" onClick={() => go({ page: "portal" })} style={{ marginBottom: 16 }}>&larr; All invitations</button>
         <Empty art="sealed">You were removed from this auction{a.disqualifiedReason ? `: ${a.disqualifiedReason}` : "."}</Empty>
+      </div>
+    );
+  }
+  if (a.gated) {
+    const company = ((api.state.suppliers || []).find((x) => x.id === me) || {}).name || "your company";
+    return (
+      <div style={{ maxWidth: 820 }}>
+        <button className="btn sm" onClick={() => go({ page: "portal" })} style={{ marginBottom: 16 }}>&larr; All invitations</button>
+        <div className="pagehead">
+          <div><div className="mono muted" style={{ marginBottom: 3 }}>{a.ref}
+            {a.startsAt ? <> &middot; opens {fmtDateTime(a.startsAt)}</> : null}
+            {a.endsAt ? <> &middot; closes {fmtDateTime(a.endsAt)}</> : null}</div>
+            <h1>{a.title}</h1></div>
+        </div>
+        <AgreementGate agreements={a.agreements} company={company}
+                       onAccept={async (k, name, title) => {
+                         try {
+                           await raw(`/auctions/${a.id}/accept/`, { method: "POST", body: { kind: k, name, title, agree: true } });
+                           return true;
+                         } catch (e) { toast.warn("Not recorded", e.message || ""); return false; }
+                       }}
+                       onDone={() => { toast.ok("Thank you", "The auction is open to you."); setNonce((n) => n + 1); }} />
       </div>
     );
   }
@@ -1351,6 +1515,36 @@ export function AuctionRoom({ api, id }) {
     }
     busy.current = false;
     setPlacing(false);
+  };
+
+  /* An opening price, before the room opens. Sealed from the other vendors:
+     the server answers with no rank, and the room shows only the vendor's own. */
+  const placePre = async () => {
+    if (busy.current || !typed || !lot) return;
+    busy.current = true;
+    setMsg("");
+    setPlacing(true);
+    try {
+      await raw(`/auctions/${a.id}/lots/${lot.id}/bid/`, { method: "POST", body: { amount: typed } });
+      setAmount("");
+      toast.ok(`Pre-bid in: ${fmtMoney(typed)}`, "It stands as your first bid when the room opens. Other vendors cannot see it.");
+      setNonce((n) => n + 1);
+    } catch (e) {
+      setMsg(e.message || "That did not go through.");
+      toast.warn("Pre-bid not accepted", e.message || "");
+    }
+    busy.current = false;
+    setPlacing(false);
+  };
+  const ask = async () => {
+    const q = question.trim();
+    if (!q) return;
+    try {
+      await raw(`/auctions/${a.id}/questions/`, { method: "POST", body: { q } });
+      setQuestion("");
+      toast.ok("Question sent", "The answer is published to every vendor in the auction. Nobody is told who asked.");
+      setNonce((n) => n + 1);
+    } catch (e) { toast.warn("Not sent", e.message || ""); }
   };
 
   const accept = async () => {
@@ -1456,7 +1650,8 @@ export function AuctionRoom({ api, id }) {
           <div className="card" style={{ marginBottom: 14 }}>
             <div className="chead"><h3>Where you stand</h3>
               <span className="mono faint" style={{ marginLeft: "auto" }}>
-                {a.visibility === "rank" ? "you see your position, not other prices"
+                {phase === "notyet" ? "positions show once the room opens"
+                  : a.visibility === "rank" ? "you see your position, not other prices"
                   : a.visibility === "price" ? "you see your position and the best price" : "sealed, positions are hidden"}
               </span>
             </div>
@@ -1542,10 +1737,38 @@ export function AuctionRoom({ api, id }) {
               </div>
             </div>
           )}
+          {phase === "notyet" && a.prebidOpen && !needsAccept && lot && lot.status === "open" && (
+            <div className="card" style={{ marginBottom: 14 }}>
+              <div className="chead"><h3>Put in an opening price</h3>
+                <span className="mono faint" style={{ marginLeft: "auto" }}>before the room opens</span></div>
+              <div className="cbody">
+                <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>
+                  Optional. A pre-bid stands as your first bid when bidding opens {fmtDateTime(a.startsAt)}.
+                  Nobody else sees it, and you see no ranks, until then. You can lower it before the room opens, not raise it.
+                  {ceiling ? <> It has to be {fmtMoney(ceiling)} or {selling ? "more" : "less"}.</> : null}
+                </div>
+                <div className="frow" style={{ marginBottom: 9 }}>
+                  <label className="lbl" htmlFor="pre-amt">Your price{qtyWords ? ` for all ${qtyWords}` : ""}</label>
+                  <input id="pre-amt" className="in" type="number" inputMode="numeric" value={amount}
+                         onChange={(e) => setAmount(e.target.value)}
+                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); placePre(); } }} />
+                  {typed > 0 && <div className="hint" aria-live="polite" style={{ fontWeight: 600 }}>{fmtMoney(typed)}</div>}
+                </div>
+                {myLast && <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+                  Your pre-bid: <Money n={myLast.amount} /></div>}
+                {msg && <div className="notice" role="status" style={{ borderLeft: "3px solid var(--wax)", marginBottom: 10 }}>{msg}</div>}
+                <button className="btn pri" onClick={placePre} disabled={!typed || placing}>
+                  {placing ? "Sending…" : myLast ? "Lower my pre-bid" : "Put in my pre-bid"}
+                </button>
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>Every bid is binding, pre-bids included: if it wins, you must {selling ? "buy" : "supply"} at that price.</div>
+              </div>
+            </div>
+          )}
           {!live && (
             <div className="notice" style={{ marginBottom: 14 }}>
               {phase === "notyet"
-                ? <>Not open yet.{a.startsAt ? <> Bidding opens {fmtDateTime(a.startsAt)}.</> : " The buyer has not set the opening time yet."} You can read everything here now and come back then.</>
+                ? <>Not open yet.{a.startsAt ? <> Bidding opens {fmtDateTime(a.startsAt)}{a.endsAt ? <> and closes {fmtDateTime(a.endsAt)}</> : null}.</> : " The buyer has not set the opening time yet."}
+                    {" "}You can read everything here now{a.prebidOpen ? ", put in an opening price" : ""} and ask the buyer questions below.</>
                 : phase === "paused" ? <>Paused{a.pausedReason ? `: ${a.pausedReason}` : ""}. The clock is stopped and you lose no time.</>
                 : phase === "cancelled" ? <>Cancelled{a.cancelReason ? `: ${a.cancelReason}` : ""}. Nobody will be awarded from this auction.</>
                 : phase === "awarded" ? lots.map((l) => <div key={l.id}>{awardLine(l)}</div>)
@@ -1609,6 +1832,43 @@ export function AuctionRoom({ api, id }) {
         </div>
       </div>
 
+      <AgreementsAccepted agreements={a.agreements} />
+      {(a.documents || []).length > 0 && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <div className="chead"><h3>Documents</h3></div>
+          <div className="cbody">
+            {a.documents.map((d) => (
+              <div className="docrow" key={d.id}>
+                <button className="doclink" onClick={() => downloadUrl(`/auctions/${a.id}/docs/${d.id}/`, d.name)}>
+                  <Icon n="file" s={13} />{d.name}</button>
+                <span className="mono faint">{Math.max(1, Math.round(d.size / 1024))} KB</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="card" style={{ marginTop: 14 }}>
+        <div className="chead"><h3>Questions and answers</h3>
+          <span className="mono faint" style={{ marginLeft: "auto" }}>answers go to every vendor</span></div>
+        <div className="cbody">
+          {(a.questions || []).map((q) => (
+            <div className="qa" key={q.id}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>{q.q}</div>
+              {q.a ? <div style={{ borderLeft: "3px solid var(--green)", paddingLeft: 10, fontSize: 13 }}>{q.a}</div>
+                   : <span className="chip warn">Waiting for the buyer's answer</span>}
+            </div>
+          ))}
+          {!(a.questions || []).length && <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>No questions yet.</div>}
+          {["scheduled", "live", "paused"].includes(a.status) && (
+            <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+              <input className="in" placeholder="Ask the buyer a question…" aria-label="Ask a question" maxLength={2000}
+                     value={question} onChange={(e) => setQuestion(e.target.value)}
+                     onKeyDown={(e) => e.key === "Enter" && ask()} />
+              <button className="btn" onClick={ask} disabled={!question.trim()}><Icon n="question" s={14} />Ask</button>
+            </div>
+          )}
+        </div>
+      </div>
       {(a.scope || (a.images || []).length > 0) && (
         <div className="card" style={{ marginTop: 14 }}>
           <div className="chead"><h3>What you are bidding on</h3>

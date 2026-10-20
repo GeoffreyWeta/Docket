@@ -158,6 +158,27 @@ def new_tender(who, payload, expect=200):
     return call("POST", "/api/tenders/", who, payload, expect=expect)
 
 
+def sign_publication(tid):
+    """Sign a submitted tender off the way its signers would: each signature
+    the chain is waiting on, by whoever it is waiting on, until it goes out.
+    Every tender waits for the raiser's line manager first (since 2026-10-20)."""
+    from core import approvals
+    for _ in range(10):
+        t = Tender.objects.get(pk=tid)
+        if t.status != "approval":
+            break
+        step = approvals.current_step(t, approvals.PUBLISH)
+        ids = approvals.signers(step) if step else []
+        u = (User.objects.filter(profile__persona_id__in=ids).first() if ids else
+             User.objects.filter(profile__persona__role="approver").first())
+        if not u:
+            break
+        if u.username not in TOK:
+            signin(u.username)
+        call("POST", f"/api/tenders/{tid}/publish_decision/", u.username, {"ok": True})
+    return Tender.objects.get(pk=tid).status
+
+
 # ---------------------------------------------------------------- setup
 
 CO, TU = COMPANY["email"], TEAMMATE["email"]
@@ -261,6 +282,7 @@ def setup():
                       "warehouses, monthly call-off, food-contact compliance required."),
         })["id"]
         call("POST", f"/api/tenders/{tid}/docs/", TU, files={"file": pdf("test-tender-pack.pdf")})
+        sign_publication(tid)
         t = tender_of(TU, tid)
         yes(f'sandbox tender published to the test company ({t["ref"]})', t["status"] == "published")
         yes("test company can see it in its portal", tender_of(CO, tid) is not None)
@@ -1038,9 +1060,16 @@ def sec_sweep(ctx):
     run_sweep()
     eq("the sweep is idempotent", n_count(CO, "Document expiring"), before)
 
+    # Reminders go at the workspace's reminder times (3 days, 1 day and 2
+    # hours out by default), and only for moments after publication: so this
+    # tender went out two days ago and closes in twenty hours, past its
+    # one-day mark.
+    Tender.objects.filter(pk=b).update(published_at=now_ms() - 2 * DAY,
+                                       deadline=now_ms() + 20 * 3600_000)
+    run_sweep()
     yes("invited bidders are reminded before the deadline",
         Notification.objects.filter(user__username=CO, tender_id=b,
-                                    subject__startswith="Deadline approaching").exists())
+                                    subject__startswith="Reminder:").exists())
     Tender.objects.filter(pk=b).update(deadline=now_ms() - 1000)
     run_sweep()
     yes("procurement is told when a deadline seals the bids",
@@ -1469,6 +1498,15 @@ def main():
     if args.full:
         print("Reseeding the demo workspace (--full wipes and reseeds this database)…")
         seed_all()
+        # The full suite exercises the approval threshold, the lifecycle and
+        # the rest with both approval switches off: the line manager's
+        # sign-off and date change approval have their own tests in
+        # test_event_controls.py. Only after a reseed, so a set-up-only run
+        # never changes the workspace's own settings.
+        from core.models import OrgSetting
+        row, _ = OrgSetting.objects.get_or_create(pk=1)
+        row.data = {**(row.data or {}), "lineManagerApproval": False, "timelineApproval": False}
+        row.save()
     ctx = setup()
     if args.full:
         # the rest of the cast: evaluators, approver, auditor and two rival suppliers

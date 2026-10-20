@@ -61,8 +61,14 @@ _old_db = _runner.setup_databases()
 
 from core import auction as engine                         # noqa: E402
 from core.models import (Auction, AuctionLot, AuctionParticipant, AuthToken,  # noqa: E402
-                         LotBid, Persona, Profile, ProxyBid, Supplier, Tender)
+                         LotBid, OrgSetting, Persona, Profile, ProxyBid, Supplier, Tender)
 from core.util import now_ms, rid                          # noqa: E402
+
+# These sections exercise the room itself. Sending an auction for the line
+# manager's approval, scheduling and pre-bids are in test_event_controls.py,
+# so the two approval switches are off here and "open" opens the room.
+OrgSetting.objects.update_or_create(pk=1, defaults={"data": {"lineManagerApproval": False,
+                                                             "timelineApproval": False}})
 
 c = Client()
 PASSED, FAILED = [], []
@@ -475,7 +481,13 @@ st, b = upload(a, V1_T, "mine.png", PNG)
 ok("a vendor cannot add photos", st == 403, f"{st} {b}")
 
 r = c.get(f"/api/auctions/{a.id}/images/{img['id']}/", HTTP_AUTHORIZATION=f"Bearer {V1_T}")
-ok("an invited vendor can see the photo", r.status_code == 200 and r.content == PNG, str(r.status_code))
+ok("a vendor cannot see a draft's photos", r.status_code == 403, str(r.status_code))
+Auction.objects.filter(pk=a.id).update(status="scheduled", starts_at=now_ms() + 3600_000,
+                                       ends_at=now_ms() + 7200_000)
+r = c.get(f"/api/auctions/{a.id}/images/{img['id']}/", HTTP_AUTHORIZATION=f"Bearer {V1_T}")
+ok("an invited vendor can see the photo once it has gone out",
+   r.status_code == 200 and r.content == PNG, str(r.status_code))
+Auction.objects.filter(pk=a.id).update(status="draft")
 ok("served as the type its bytes say", r["Content-Type"] == "image/png" and r["X-Content-Type-Options"] == "nosniff")
 st, _ = maybe("GET", f"/api/auctions/{a.id}/images/{img['id']}/", OUT_T)
 ok("a vendor not on the list cannot", st == 403, str(st))

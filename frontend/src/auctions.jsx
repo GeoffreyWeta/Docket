@@ -29,10 +29,11 @@
    describes a phone. */
 import React, { useEffect, useRef, useState } from "react";
 
-import { blobUrl, raw, uploadFile } from "./api";
+import { blobUrl, downloadUrl, raw, uploadFile } from "./api";
 import { BP } from "./breakpoints";
 import { Empty } from "./atoms";
-import { UnitSelect } from "./fields";
+import { PaymentTermsSelect, UnitSelect } from "./fields";
+import { SignoffBanner } from "./lifecycle";
 import { Figures, Guide, Page, Quiet } from "./page";
 import { Icon } from "./icons";
 import { can } from "./perms";
@@ -48,6 +49,7 @@ import { fmtCompact, fmtDateTime, fmtMoney } from "./helpers";
    would ship an unmeasured pair. */
 const AUC_STATUS = {
   draft:     ["draft", "Draft"],
+  approval:  ["approval", "Waiting for approval"],
   scheduled: ["approval", "Scheduled"],
   live:      ["published", "Live"],
   paused:    ["paused", "Paused"],
@@ -433,7 +435,8 @@ function Standings({ st, moved, monitor }) {
             <td className="num money">{fmtMoney(r.amount)}</td>
             <td className="mono faint aucwhen">
               {r.at ? fmtDateTime(r.at) : ""}
-              {r.kind && r.kind !== "manual" && <span className="aucauto" title="Placed by a standing limit">auto</span>}
+              {r.kind === "proxy" && <span className="aucauto" title="Placed by a standing limit">auto</span>}
+              {r.kind === "prebid" && <span className="aucauto" title="Put in before the room opened">pre-bid</span>}
             </td>
           </tr>
         ))}
@@ -664,7 +667,10 @@ function InviteFromList({ api, a, onChanged }) {
 const formOf = (a) => ({
   title: a.title, ref: a.ref, scope: a.scope || "", terms: a.terms || "",
   visibility: a.visibility, ceilingVisible: !!a.ceilingVisible,
-  requireAcceptance: !!a.requireAcceptance,
+  requireAcceptance: !!a.requireAcceptance, allowPrebid: !!a.allowPrebid,
+  paymentTerms: a.paymentTerms || "", paymentConditions: a.paymentConditions || "",
+  ndaRequired: !!a.ndaRequired, ndaText: a.ndaText || "",
+  startsAt: toLocalInput(a.startsAt),
   endsAt: toLocalInput(a.endsAt),
   snipeWindowMs: a.snipeWindowMs ?? 120000,
   extendByMs: a.extendByMs ?? 120000,
@@ -695,10 +701,175 @@ function DuplicateAuctionButton({ api, a }) {
 }
 
 const BLANK_LOT = { title: "", qty: 1, uom: "", ceiling: "", reserve: "", minDecrement: "", stepKind: "amount" };
+const minute = (ms) => Math.round((ms || 0) / 60000);
+const NO_MOVES = new Set();   // pre-bids do not flash: nothing is moving yet
+
+/* Move a scheduled auction's opening or closing, or a live one's close. With
+   date change approval on it waits for the requester's line manager; either
+   way every invited vendor is told once it moves. */
+function TimesDialog({ api, a, onClose, onDone }) {
+  const { toast, state } = api;
+  const scheduled = a.status === "scheduled";
+  const [start, setStart] = useState(toLocalInput(a.startsAt));
+  const [end, setEnd] = useState(toLocalInput(a.endsAt));
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const s0 = start ? new Date(start).getTime() : 0;
+  const e0 = end ? new Date(end).getTime() : 0;
+  const now = Date.now();
+  const earlier = scheduled && minute(s0) < minute(a.startsAt);
+  const startOk = !scheduled || (s0 > now && (!earlier || s0 >= now + 24 * HOUR));
+  const endOk = scheduled ? e0 > s0 : e0 > Math.max(now, a.endsAt || 0);
+  const changed = (scheduled && minute(s0) !== minute(a.startsAt)) || minute(e0) !== minute(a.endsAt);
+  const ok = startOk && endOk && changed && reason.trim();
+  const needsApproval = state.org.timelineApproval !== false;
+  return (
+    <Dialog title={scheduled ? "Change the auction's times" : "Move the closing time"} onClose={onClose} footer={
+      <>
+        {!ok && <span className="hint gatehint">
+          {!startOk ? (earlier ? "Moving the opening earlier needs at least 24 hours' notice." : "The opening has to be in the future.")
+            : !endOk ? (scheduled ? "It has to close after it opens." : "A live auction's close can only move later.")
+            : !changed ? "Change a time first." : "Give a reason. Vendors will read it."}
+        </span>}
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn pri" disabled={!ok || busy} onClick={async () => {
+          setBusy(true);
+          try {
+            const r = await raw(`/auctions/${a.id}/times/`, { method: "POST", body: {
+              startsAt: scheduled ? s0 : undefined, endsAt: e0, reason: reason.trim() } });
+            if (r.pending) toast.ok("Sent for approval", `Waiting for ${r.approver}. The published times stand until they approve.`);
+            else toast.ok("Times changed", "Every invited vendor has been told.");
+            onClose();
+            onDone();
+          } catch (e) { toast.warn("That did not go through", e.message || ""); }
+          setBusy(false);
+        }}>{needsApproval ? "Ask for approval" : "Change the times"}</button>
+      </>
+    }>
+      <div className="grid g2">
+        {scheduled && (
+          <div className="frow"><label className="lbl" htmlFor="tm-start">Opens at</label>
+            <input id="tm-start" className="in" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} /></div>
+        )}
+        <div className="frow"><label className="lbl" htmlFor="tm-end">Closes at</label>
+          <input id="tm-end" className="in" type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} /></div>
+      </div>
+      <div className="frow">
+        <label className="lbl" htmlFor="tm-why">Reason</label>
+        <textarea id="tm-why" className="in" rows={2} maxLength={300} value={reason}
+                  onChange={(e) => setReason(e.target.value)} placeholder="e.g. Clashes with the vendors' trade fair." />
+        <div className="hint">Sent to every invited vendor with the new times.</div>
+      </div>
+      {needsApproval && (
+        <div className="notice"><b>This waits for your line manager's approval.</b> The published times stand,
+          and no vendor is told, until they approve.</div>
+      )}
+    </Dialog>
+  );
+}
+
+/* Questions vendors asked, and the answers published to all of them. */
+function AuctionQuestions({ api, a, refresh }) {
+  const { user, toast } = api;
+  const [drafts, setDrafts] = useState({});
+  const qs = a.questions || [];
+  const canAnswer = can(user, "clarification.answer");
+  if (!qs.length && !["scheduled", "live", "paused"].includes(a.status)) return null;
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <div className="chead"><h3>Questions from vendors</h3>
+        <span className="mono faint" style={{ marginLeft: "auto" }}>answers go to every vendor, without who asked</span></div>
+      <div className="cbody">
+        {!qs.length && <div className="muted" style={{ fontSize: 13 }}>No questions yet.</div>}
+        {qs.map((q) => (
+          <div className="qa" key={q.id}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>{q.q}</div>
+            <div className="hint" style={{ marginTop: 0, marginBottom: 6 }}>{q.supplier} · {fmtDateTime(q.askedAt)}</div>
+            {q.a ? <div style={{ borderLeft: "3px solid var(--green)", paddingLeft: 10, fontSize: 13 }}>{q.a}</div>
+              : canAnswer ? (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <textarea className="in" rows={2} style={{ flex: "1 1 260px" }} aria-label="Answer" maxLength={4000}
+                            value={drafts[q.id] || ""} onChange={(e) => setDrafts((d) => ({ ...d, [q.id]: e.target.value }))} />
+                  <button className="btn pri" disabled={!(drafts[q.id] || "").trim()} onClick={async () => {
+                    try {
+                      await raw(`/clarifications/${q.id}/answer/`, { method: "POST", body: { a: drafts[q.id].trim() } });
+                      toast.ok("Answer published", "Every vendor in the auction can read it, and has been told.");
+                      refresh();
+                    } catch (e) { toast.warn("Not published", e.message || ""); }
+                  }}>Publish answer</button>
+                </div>
+              ) : <span className="chip warn">Waiting for an answer</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* Specifications, drawings, a site map: what bidders read before they price.
+   Unlike the photos, a document can be added after the auction has gone out,
+   and every vendor is told. */
+function AuctionDocs({ api, a, refresh, editable }) {
+  const { toast } = api;
+  const [busy, setBusy] = useState(false);
+  const docs = a.documents || [];
+  if (!docs.length && !editable) return null;
+  const add = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    try {
+      await uploadFile(`/auctions/${a.id}/docs/`, file);
+      toast.ok("Document added", a.status === "draft" || a.status === "approval"
+        ? "Vendors will see it when the auction goes out." : "Every invited vendor has been told.");
+      refresh();
+    } catch (err) { toast.warn(`${file.name} was not added`, err.message || ""); }
+    setBusy(false);
+  };
+  return (
+    <div className="card" style={{ marginBottom: 14, marginTop: 14 }}>
+      <div className="chead"><h3>Documents</h3>
+        <span className="mono faint" style={{ marginLeft: "auto" }}>{docs.length ? `${docs.length} for bidders to read` : "optional"}</span></div>
+      <div className="cbody">
+        {docs.map((d) => (
+          <div className="docrow" key={d.id}>
+            <button className="doclink" onClick={() => downloadUrl(`/auctions/${a.id}/docs/${d.id}/`, d.name)}>
+              <Icon n="file" s={13} />{d.name}</button>
+            <span className="mono faint">{Math.max(1, Math.round(d.size / 1024))} KB</span>
+            <span style={{ flex: 1 }} />
+            {editable && (
+              <button className="btn sm iconly" aria-label={"Remove " + d.name} onClick={async () => {
+                try {
+                  await raw(`/auctions/${a.id}/docs/${d.id}/delete/`, { method: "POST", body: {} });
+                  toast.ok("Document removed");
+                  refresh();
+                } catch (err) { toast.warn("Not removed", err.message || ""); }
+              }}><Icon n="close" s={12} /></button>
+            )}
+          </div>
+        ))}
+        {!docs.length && <div className="hint" style={{ marginTop: 0 }}>Specifications, drawings or anything else bidders should read before they price.</div>}
+        {editable && (
+          <label className="btn sm" style={{ marginTop: 10 }}>
+            <Icon n="upload" s={14} /> {busy ? "Uploading…" : "Add a document"}
+            <input type="file" hidden disabled={busy} onChange={add} />
+          </label>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function DraftAuction({ api, a, refresh }) {
   const { state, user, go, toast } = api;
   const [f, setF] = useState(() => formOf(a));
+  const [timesOpen, setTimesOpen] = useState(false);
+  const [askCancel, setAskCancel] = useState(false);
+  const [cancelWhy, setCancelWhy] = useState("");
+  /* Once it has gone to approval or out to vendors the rules are fixed:
+     bidders price against what was published. */
+  const isDraft = a.status === "draft";
   const [lot, setLot] = useState(BLANK_LOT);
   const [parts, setParts] = useState([]);
   const [pick, setPick] = useState([]);
@@ -707,9 +878,10 @@ function DraftAuction({ api, a, refresh }) {
   const [busy, setBusy] = useState("");
   const [askOpen, setAskOpen] = useState(false);
 
-  const canEdit = can(user, "auction.edit");
+  const canEdit = can(user, "auction.edit") && isDraft;
   const canInvite = can(user, "auction.invite");
   const lots = lotsOf(a);
+  const needsApproval = state.org.lineManagerApproval !== false;
 
   const loadParts = () => raw(`/auctions/${a.id}/participants/`)
     .then((d) => setParts(d.participants || []))
@@ -733,7 +905,10 @@ function DraftAuction({ api, a, refresh }) {
   const saveDetails = () => call("/", {
     title: f.title, ref: f.ref, scope: f.scope, terms: f.terms,
     visibility: f.visibility, ceilingVisible: f.ceilingVisible,
-    requireAcceptance: f.requireAcceptance,
+    requireAcceptance: f.requireAcceptance, allowPrebid: f.allowPrebid,
+    paymentTerms: f.paymentTerms, paymentConditions: f.paymentConditions,
+    ndaRequired: f.ndaRequired, ndaText: f.ndaRequired ? f.ndaText : "",
+    startsAt: f.startsAt ? new Date(f.startsAt).getTime() : 0,
     endsAt: f.endsAt ? new Date(f.endsAt).getTime() : 0,
     snipeWindowMs: Number(f.snipeWindowMs) || 0,
     extendByMs: Number(f.extendByMs) || 0,
@@ -810,24 +985,41 @@ function DraftAuction({ api, a, refresh }) {
   const hasVendor = parts.length > 0 || (a.participants || 0) > 0;
   const hasClock = !!a.endsAt;
   const clockAhead = hasClock && a.endsAt > Date.now();
-  const ready = hasLot && hasVendor && clockAhead && !dirty;
+  const startOk = !a.startsAt || a.startsAt < a.endsAt;
+  const startAhead = !!a.startsAt && a.startsAt > Date.now();
+  const ndaOk = !a.ndaRequired || (a.ndaText || "").trim().length >= 40;
+  const ready = isDraft && hasLot && hasVendor && clockAhead && startOk && ndaOk && !dirty;
+  /* What sending does, in words: to the line manager first where that is on,
+     then scheduled (vendors told when it opens) or open at once. */
+  const sendLabel = needsApproval ? "Send for approval" : startAhead ? "Schedule it" : "Open the room now";
 
   const guide = (
     <Guide art="draft"
-           headline={ready ? "Ready to open" : "Not ready yet"}
-           why={ready
-             ? "Opening starts the clock and invites cannot be taken back. Bidders price against what you publish here."
+           headline={a.status === "approval" ? "Waiting for approval"
+             : a.status === "scheduled" ? `Opens ${fmtDateTime(a.startsAt)}`
+             : ready ? "Ready to send" : "Not ready yet"}
+           why={a.status === "approval"
+             ? `${(a.signoff && a.signoff.approver) || "The line manager"} is asked to approve it. No vendor has been told yet.`
+             : a.status === "scheduled"
+             ? "Vendors have the schedule and can prepare. The room opens and closes by itself."
+             : ready
+             ? "Once it goes, invitations cannot be taken back. Bidders price against what you publish here."
              : dirty
                ? "You have changes that are not saved. Save them first, so the room opens with what you see."
                : "A room with no lot, no vendor or no closing time is a room nobody can bid in, and the server will refuse to open it."}
            items={ready && can(user, "auction.open")
-             ? [{ key: "open", label: "Open the room", note: "Starts the clock now.", onPick: () => setAskOpen(true) }]
+             ? [{ key: "open", label: sendLabel,
+                  note: needsApproval ? "Your line manager approves it before any vendor hears of it."
+                    : startAhead ? "Vendors are told when it opens." : "Starts the clock now.",
+                  onPick: () => setAskOpen(true) }]
              : []}>
       <div className="aucchecks">
         <Ready ok={!!f.title}>A title</Ready>
         <Ready ok={hasLot}>At least one lot</Ready>
         <Ready ok={hasVendor}>At least one vendor invited</Ready>
         <Ready ok={clockAhead}>A closing time in the future</Ready>
+        {!startOk && <Ready ok={false}>Opens before it closes</Ready>}
+        {!ndaOk && <Ready ok={false}>The NDA written</Ready>}
         {dirty && <Ready ok={false}>Changes saved</Ready>}
       </div>
     </Guide>
@@ -840,14 +1032,63 @@ function DraftAuction({ api, a, refresh }) {
       <div className="pagehead" style={{ marginBottom: 12 }}>
         <div>
           <h1>{a.title}</h1>
-          <p className="mono faint">{a.ref} &middot; draft</p>
+          <p className="mono faint">{a.ref} &middot; {isDraft ? "draft" : a.status === "approval" ? "waiting for approval" : "scheduled"}</p>
         </div>
         <div className="grow" />
         <DuplicateAuctionButton api={api} a={a} />
         <AucStamp s={a.status} />
       </div>
 
-      {!canEdit && (
+      {timesOpen && <TimesDialog api={api} a={a} onClose={() => setTimesOpen(false)} onDone={refresh} />}
+      {askCancel && (
+        <ConfirmDialog title="Cancel this auction?" confirmLabel="Cancel the auction" tone="wax"
+                       disabled={!cancelWhy.trim()} onClose={() => setAskCancel(false)}
+                       onConfirm={() => call("/cancel/", { reason: cancelWhy.trim() }, "The auction is cancelled.")}>
+          Every invited vendor is told your reason. This cannot be undone; duplicate it to run it again.
+          <textarea className="in" style={{ marginTop: 10 }} rows={2} maxLength={300} autoFocus value={cancelWhy}
+                    onChange={(e) => setCancelWhy(e.target.value)} placeholder="e.g. Requirement withdrawn." />
+        </ConfirmDialog>
+      )}
+
+      {a.status === "approval" && (
+        <>
+          <SignoffBanner api={{ ...api, act: { ...api.act,
+            decideSignoff: async (...x) => { const r = await api.act.decideSignoff(...x); refresh(); return r; },
+            withdrawSignoff: async (...x) => { const r = await api.act.withdrawSignoff(...x); refresh(); return r; } } }}
+                         so={a.signoff} what="This auction going out to vendors" />
+          {can(user, "auction.edit") && (
+            <div style={{ marginBottom: 14 }}>
+              <button className="btn sm" onClick={() => call("/recall/", {}, "Back in draft. Send it again when it is ready.")}>
+                Recall to draft to change it
+              </button>
+            </div>
+          )}
+        </>
+      )}
+      {a.status === "scheduled" && (
+        <div className="notice" style={{ marginBottom: 14 }}>
+          <b>Scheduled. Bidding opens {fmtDateTime(a.startsAt)} and closes {fmtDateTime(a.endsAt)}.</b>{" "}
+          The invited vendors have been told and can read everything now
+          {a.allowPrebid ? ", ask questions and put in opening prices" : " and ask questions"}. The room opens by itself
+          at the start time and closes by itself at the end. The rules are fixed now that vendors have them.
+          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+            {can(user, "auction.lifecycle") && !(a.signoff && a.signoff.kind === "auction_times") && (
+              <button className="btn sm" onClick={() => setTimesOpen(true)}><Icon n="clock" /> Change the times</button>
+            )}
+            {can(user, "auction.lifecycle") && (
+              <button className="btn sm wax" onClick={() => { setCancelWhy(""); setAskCancel(true); }}>Cancel the auction</button>
+            )}
+          </div>
+        </div>
+      )}
+      {a.status === "scheduled" && a.signoff && (
+        <SignoffBanner api={{ ...api, act: { ...api.act,
+          decideSignoff: async (...x) => { const r = await api.act.decideSignoff(...x); refresh(); return r; },
+          withdrawSignoff: async (...x) => { const r = await api.act.withdrawSignoff(...x); refresh(); return r; } } }}
+                       so={a.signoff} what="A change to the auction's times" />
+      )}
+
+      {!canEdit && isDraft && (
         <div className="notice" style={{ marginBottom: 14 }}>
           You can see this draft but not change it. Shaping an auction needs the edit capability.
         </div>
@@ -904,6 +1145,9 @@ function DraftAuction({ api, a, refresh }) {
         </div>
       </div>
 
+      <AuctionDocs api={api} a={a} refresh={refresh}
+                   editable={can(user, "auction.edit") && ["draft", "approval", "scheduled"].includes(a.status)} />
+
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="chead"><h3>The rules of the room</h3></div>
         <div className="cbody">
@@ -926,6 +1170,13 @@ function DraftAuction({ api, a, refresh }) {
               <input id="ac-ends" className="in" type="datetime-local" value={f.endsAt} disabled={!canEdit}
                      onChange={(e) => setF({ ...f, endsAt: e.target.value })} />
               <div className="hint">Anti-sniping can push this out. It never pulls it in.</div></div>
+          </div>
+          <div className="grid g2" style={{ marginBottom: 12 }}>
+            <div className="frow"><label className="lbl" htmlFor="ac-starts">Opens at <span className="faint">optional</span></label>
+              <input id="ac-starts" className="in" type="datetime-local" value={f.startsAt} disabled={!canEdit}
+                     onChange={(e) => setF({ ...f, startsAt: e.target.value })} />
+              <div className="hint">Leave empty to open the room as soon as it is approved. With a time set, vendors
+                are invited with the schedule, can prepare until then, and the room opens by itself.</div></div>
           </div>
           <div className="grid g3" style={{ marginBottom: 12 }}>
             <div className="frow"><label className="lbl" htmlFor="ac-snipe">Closing window (minutes)</label>
@@ -957,7 +1208,34 @@ function DraftAuction({ api, a, refresh }) {
             <label className="checkline"><input type="checkbox" checked={f.requireAcceptance} disabled={!canEdit}
                    onChange={(e) => setF({ ...f, requireAcceptance: e.target.checked })} />
               <span>Make bidders accept the terms before they can bid</span></label>
+            <label className="checkline"><input type="checkbox" checked={f.allowPrebid} disabled={!canEdit}
+                   onChange={(e) => setF({ ...f, allowPrebid: e.target.checked })} />
+              <span>Take pre-bids: before it opens, vendors can put in an opening price, sealed from the others until then</span></label>
           </div>
+          <div className="lbl" style={{ marginTop: 14 }}>Payment terms and confidentiality</div>
+          <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>Vendors accept these before they can see the
+            lots or bid, recorded with their name, the time and the exact text.</div>
+          <div className="grid g2">
+            <div className="frow"><label className="lbl" htmlFor="ac-pay">Payment terms</label>
+              <PaymentTermsSelect id="ac-pay" value={f.paymentTerms} disabled={!canEdit}
+                                  onChange={(v) => setF({ ...f, paymentTerms: v })} /></div>
+            <div className="frow"><label className="lbl" htmlFor="ac-payc">Conditions <span className="faint">optional</span></label>
+              <textarea id="ac-payc" className="in" rows={2} maxLength={2000} disabled={!canEdit} value={f.paymentConditions}
+                        onChange={(e) => setF({ ...f, paymentConditions: e.target.value })} /></div>
+          </div>
+          <label className="checkline">
+            <input type="checkbox" checked={f.ndaRequired} disabled={!canEdit}
+                   onChange={(e) => setF({ ...f, ndaRequired: e.target.checked,
+                     ndaText: e.target.checked && !f.ndaText.trim() ? (state.org.ndaStandard || "") : f.ndaText })} />
+            <span>Sensitive: vendors sign a non-disclosure agreement before they see anything but the title and times</span></label>
+          {f.ndaRequired && (
+            <div className="frow" style={{ marginTop: 8 }}>
+              <label className="lbl" htmlFor="ac-nda">The agreement vendors sign</label>
+              <textarea id="ac-nda" className="in" rows={8} maxLength={20000} disabled={!canEdit} value={f.ndaText}
+                        onChange={(e) => setF({ ...f, ndaText: e.target.value })} />
+              <div className="hint">Starts as your company's standard NDA. Fixed once the auction goes out.</div>
+            </div>
+          )}
           {canEdit && (
             <div style={{ marginTop: 14 }}>
               <button className="btn" onClick={saveDetails} disabled={!!busy}>
@@ -1101,7 +1379,7 @@ function DraftAuction({ api, a, refresh }) {
               <button className="btn" onClick={invite} disabled={!pick.length || !!busy}>
                 {busy === "/participants/" ? "Adding…" : pick.length ? `Add ${pick.length} to the list` : "Add to the list"}
               </button>
-              {untold > 0 && (
+              {untold > 0 && !(isDraft && needsApproval) && a.status !== "approval" && (
                 <button className="btn pri" onClick={sendInvites} disabled={!!busy}>
                   {busy === "/invite/" ? `Sending ${inviteProgress}...` : `Send ${untold} invitation${untold === 1 ? "" : "s"}`}
                 </button>
@@ -1113,7 +1391,9 @@ function DraftAuction({ api, a, refresh }) {
                 about it as they were picked. Now the list is built quietly and
                 the invitation is a button somebody presses. */}
             <div className="hint" style={{ marginTop: 8 }}>
-              {untold > 0
+              {untold > 0 && (isDraft && needsApproval || a.status === "approval")
+                ? `Adding somebody does not write to them. ${untold} vendor${untold === 1 ? " is" : "s are"} on the list; they are invited once the auction is approved.`
+                : untold > 0
                 ? `Adding somebody does not write to them. ${untold} vendor${untold === 1 ? " is" : "s are"} on the list and have not been told; they are emailed when you send, or automatically when the room opens.`
                 : parts.length
                   ? "Everybody on the list has been invited. Anyone added after this stays silent until you send again."
@@ -1128,9 +1408,9 @@ function DraftAuction({ api, a, refresh }) {
         </div>
       )}
 
-      {can(user, "auction.open") && (
+      {can(user, "auction.open") && isDraft && (
         <div className="card">
-          <div className="chead"><h3>Open the room</h3></div>
+          <div className="chead"><h3>{needsApproval ? "Send for approval" : startAhead ? "Schedule it" : "Open the room"}</h3></div>
           <div className="cbody">
             <div className="aucchecks" style={{ marginBottom: 12 }}>
               <Ready ok={hasLot}>{lots.length || "No"} lot{lots.length === 1 ? "" : "s"}</Ready>
@@ -1138,12 +1418,21 @@ function DraftAuction({ api, a, refresh }) {
               <Ready ok={clockAhead}>{!hasClock ? "No closing time"
                 : clockAhead ? "Closes " + fmtDateTime(a.endsAt)
                 : "The closing time, " + fmtDateTime(a.endsAt) + ", has already passed"}</Ready>
+              <Ready ok={startOk}>{!a.startsAt ? "Opens as soon as it goes out"
+                : startOk ? "Opens " + fmtDateTime(a.startsAt) : "Opens after it closes"}</Ready>
+              {!ndaOk && <Ready ok={false}>The NDA vendors sign is written</Ready>}
               {dirty && <Ready ok={false}>Unsaved changes above. Save them first.</Ready>}
             </div>
-            <button className="btn pri" disabled={!ready || !!busy} onClick={() => setAskOpen(true)}>Open the room</button>
+            {needsApproval && (
+              <div className="hint" style={{ marginTop: 0, marginBottom: 10 }}>
+                Your line manager approves it before any vendor hears of it. Then
+                {startAhead ? " it is scheduled and every vendor is invited with the opening and closing times." : " the room opens and every vendor is invited."}
+              </div>
+            )}
+            <button className="btn pri" disabled={!ready || !!busy} onClick={() => setAskOpen(true)}>{sendLabel}</button>
             {!ready && <div className="hint" style={{ marginTop: 8 }}>
               {dirty
-                ? "The room opens with what is saved, so save your changes before opening."
+                ? "It goes out with what is saved, so save your changes first."
                 : "Everything above has to be ticked. The server checks the same things and will refuse otherwise."}
             </div>}
             {clockAhead && a.endsAt < Date.now() + HOUR && (
@@ -1156,20 +1445,46 @@ function DraftAuction({ api, a, refresh }) {
       )}
 
       {askOpen && (
-        <ConfirmDialog title="Open the room?" confirmLabel="Open it" tone="pri"
+        <ConfirmDialog title={needsApproval ? "Send it for approval?" : startAhead ? "Schedule the auction?" : "Open the room?"}
+                       confirmLabel={sendLabel} tone="pri"
                        onClose={() => setAskOpen(false)}
                        onConfirm={async () => {
-                         const ok = await call("/open/", {}, "The room is open.");
-                         if (ok) refresh();
+                         setBusy("/submit/");
+                         try {
+                           const r = await raw(`/auctions/${a.id}/submit/`, { method: "POST", body: {} });
+                           if (r.pending) toast.ok("Sent for approval", `Waiting for ${r.approver}. No vendor is told until they approve.`);
+                           else if (r.status === "scheduled") toast.ok("Scheduled", "Every vendor has been invited with the opening and closing times.");
+                           else toast.ok("The room is open.");
+                           refresh();
+                         } catch (e) { toast.warn("That did not go through", e.message || ""); }
+                         finally { setBusy(""); }
                        }}>
-          {untold > 0 && <><b>{untold} vendor{untold === 1 ? "" : "s"} on the list
-          {untold === 1 ? " has" : " have"} not been told yet, and will be emailed now.</b>{" "}</>}
-          The clock starts now and invited vendors can bid until <b>{fmtDateTime(a.endsAt)}</b>.
-          Everybody already invited is told the room is open. The rules stop being editable:
-          bidders price against what you published, so changing them afterwards would mean
-          pausing and cancelling instead.
+          {needsApproval
+            ? <>Your line manager is asked to approve it. Nothing goes to any vendor until they do; then
+                {startAhead ? <> it is scheduled to open <b>{fmtDateTime(a.startsAt)}</b> and close <b>{fmtDateTime(a.endsAt)}</b>, and every vendor is invited with those times.</>
+                  : <> the room opens and vendors can bid until <b>{fmtDateTime(a.endsAt)}</b>.</>}</>
+            : startAhead
+              ? <>Every vendor is invited now with the schedule: bidding opens <b>{fmtDateTime(a.startsAt)}</b> and closes <b>{fmtDateTime(a.endsAt)}</b>.</>
+              : <>The clock starts now and invited vendors can bid until <b>{fmtDateTime(a.endsAt)}</b>.</>}
+          {" "}The rules stop being editable once it goes: bidders price against what you published.
         </ConfirmDialog>
       )}
+
+      {a.status === "scheduled" && can(user, "auction.monitor") && lots.some((l) => (stateOf(a, l.id).leaderboard || []).length) && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <div className="chead"><h3>Pre-bids so far</h3>
+            <span className="mono faint" style={{ marginLeft: "auto" }}>sealed from the vendors until the room opens</span></div>
+          <div className="cbody">
+            {lots.map((l) => (
+              <div key={l.id} style={{ marginBottom: 10 }}>
+                {lots.length > 1 && <div className="lbl">{l.number}. {l.title}</div>}
+                <Standings st={stateOf(a, l.id)} moved={NO_MOVES} monitor />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {a.status === "scheduled" && <AuctionQuestions api={api} a={a} refresh={refresh} />}
     </Page>
   );
 }
@@ -1252,6 +1567,7 @@ export function AuctionPage({ api, id }) {
   const [lotId, setLotId] = useState(null);
   const [ask, setAsk] = useState(null);
   const [why, setWhy] = useState("");            // the pause reason bidders are sent
+  const [timesOpen, setTimesOpen] = useState(false);
 
   const lots = lotsOf(a);
   const lot = lots.find((l) => l.id === lotId) || lots[0] || null;
@@ -1262,7 +1578,7 @@ export function AuctionPage({ api, id }) {
   if (!a) return <Empty art="chart">Opening the room…</Empty>;
   /* A draft is a form, not a room. Same route, because it is the same auction
      and the reader should not have to know which stage it is at to find it. */
-  if (a.status === "draft" || a.status === "scheduled") {
+  if (a.status === "draft" || a.status === "approval" || a.status === "scheduled") {
     return <DraftAuction api={api} a={a} refresh={refresh} />;
   }
 
@@ -1421,6 +1737,22 @@ export function AuctionPage({ api, id }) {
       )}
 
       <WinnerChecks api={api} a={a} refresh={refresh} />
+
+      {a.signoff && (
+        <SignoffBanner api={{ ...api, act: { ...api.act,
+          decideSignoff: async (...x) => { const r = await api.act.decideSignoff(...x); refresh(); return r; },
+          withdrawSignoff: async (...x) => { const r = await api.act.withdrawSignoff(...x); refresh(); return r; } } }}
+                       so={a.signoff} what="A change to the closing time" />
+      )}
+      {timesOpen && <TimesDialog api={api} a={a} onClose={() => setTimesOpen(false)} onDone={refresh} />}
+      {(live || a.status === "paused") && can(user, "auction.lifecycle") && !a.signoff && (
+        <div style={{ marginTop: 14 }}>
+          <button className="btn sm" onClick={() => setTimesOpen(true)}><Icon n="clock" /> Move the closing time</button>
+        </div>
+      )}
+      <AuctionDocs api={api} a={a} refresh={refresh}
+                   editable={can(user, "auction.edit") && ["live", "paused"].includes(a.status)} />
+      <AuctionQuestions api={api} a={a} refresh={refresh} />
 
       {/* More bidders while the clock runs. A room that opened with three
           vendors is not stuck with three; the server takes a list at any

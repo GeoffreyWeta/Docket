@@ -176,6 +176,9 @@ def tender_view(t, p):
         "technicalDocumentRequired": t.technical_document_required,
         "commercialDocumentRequired": t.commercial_document_required,
         "bidMode": t.bid_mode or "closed", "budgetVisible": t.budget_visible,
+        "requiredDocs": list(t.required_docs or []),
+        "paymentTerms": t.payment_terms or "", "paymentConditions": t.payment_conditions or "",
+        "ndaRequired": t.nda_required, "ndaText": t.nda_text or "",
         # Ownership and the savings basis. A supplier is told neither: which
         # buyer is carrying a tender, and what the organisation was paying
         # before it went to market, are both facts a bidder could price against.
@@ -198,6 +201,19 @@ def tender_view(t, p):
         d["standing"] = open_standing(t, p["supplierId"]) if t.bid_mode == "open" else None
     d.update(lifecycle_fields(t, p))
     d["rounds"] = rounds_for(t, p)
+    if p["role"] == "supplier":
+        # Until the NDA is signed and the payment terms accepted, a vendor
+        # sees what they were invited to and when it closes, and nothing else.
+        from . import agreements
+        d["agreements"] = agreements.summary(t, p["supplierId"])
+        d["gated"] = bool(d["agreements"]["pending"])
+        if d["gated"]:
+            d.update({"scope": "", "lines": [], "criteria": [], "addenda": [], "budget": None,
+                      "standing": None, "requiredDocs": []})
+            for r in d["rounds"]:
+                r["instructions"] = ""
+        # The text is in the agreements block; not twice.
+        d["ndaText"] = ""
     cur = t.active_round() or t.latest_round()
     d["currentRound"] = cur.number if cur else 1
     d["roundCount"] = len(d["rounds"]) or 1
@@ -244,6 +260,31 @@ def open_standing(t, supplier_id):
         return {"review": mine.review}
     ranked = [b for b in bids if b.counts and b.amount is not None]
     return {"position": price_positions(ranked, t).get(mine.id), "of": len(ranked)}
+
+
+GATE_WORDS = {"nda": "sign the non-disclosure agreement", "payment": "accept the payment terms"}
+
+
+def _gate_error(event, supplier_id):
+    """The sentence a vendor reads when they try to act on an event before
+    accepting what it asks for, or None when they have."""
+    from . import agreements
+    pending = agreements.gates(event, supplier_id)
+    if not pending:
+        return None
+    return "First " + " and ".join(GATE_WORDS[k] for k in pending) + ", at the top of this page."
+
+
+def _gated(t, p):
+    """Is this vendor still outside this tender's agreements? Cached on the
+    tender object, because bootstrap asks once per document."""
+    if p["role"] != "supplier":
+        return False
+    key = "_gated_" + p["supplierId"]
+    if not hasattr(t, key):
+        from . import agreements
+        setattr(t, key, bool(agreements.gates(t, p["supplierId"])))
+    return getattr(t, key)
 
 
 def _round_opened(b, t):
@@ -308,7 +349,9 @@ def bid_view(b, t, p):
 
 def doc_visible(d, t, p):
     if d.kind == "tender":
-        return True  # tender itself already role-filtered before this is called
+        # The tender itself is already role-filtered before this is called;
+        # its pack still waits for the NDA and the payment terms.
+        return not _gated(t, p)
     # bid documents: sealed until the relevant recorded opening
     if p["role"] == "supplier":
         return d.supplier_id == p["supplierId"]
@@ -341,7 +384,7 @@ def doc_view(d, label=None):
     # docId). Without them the portal could never say what had lapsed.
     out = {"id": d.id, "kind": d.kind, "tenderId": d.tender_id, "supplierId": d.supplier_id,
            "roundId": d.round_id,
-           "envelope": d.envelope, "name": d.name, "size": d.size,
+           "envelope": d.envelope, "docType": d.doc_type or "", "name": d.name, "size": d.size,
            "uploadedBy": d.uploaded_by, "uploadedAt": d.uploaded_at}
     if d.kind == "supplier":
         out["expiry"] = d.expiry or None
@@ -393,8 +436,10 @@ def bootstrap(request, p, body):
         if bv:
             bids.append(bv)
 
-    clars = [cv for c in Clarification.objects.all()
-             if c.tender_id in visible_ids and (cv := clar_view(c, p))]
+    gated_ids = {t["id"] for t in tenders if t.get("gated")}
+    clars = [cv for c in Clarification.objects.filter(tender__isnull=False)
+             if c.tender_id in visible_ids and c.tender_id not in gated_ids
+             and (cv := clar_view(c, p))]
 
     if p["role"] == "supplier":
         suppliers = [supplier_view(Supplier.objects.get(pk=p["supplierId"]), full=True)]
@@ -465,8 +510,23 @@ def bootstrap(request, p, body):
                "tenderId": n.tender_id, "destination": n.destination, "read": n.read}
               for n in Notification.objects.filter(user_id=p["userId"])[:50]]
 
+    # Line manager sign-offs, and how many signatures are waiting on this
+    # person. A line manager is asked to sign whatever their role is, so the
+    # Approvals page has to be reachable by them (see perms.js navPages).
+    from . import signoffs
+    signoff_rows = signoffs.for_bootstrap(p)
+    queue = 0
+    if p["role"] != "supplier":
+        from . import approvals
+        queue = sum(1 for x in signoff_rows if x["mayDecide"])
+        for t in Tender.objects.filter(status="approval"):
+            step = approvals.current_step(t, approvals.PUBLISH)
+            if step and approvals.may_sign(step, p):
+                queue += 1
+
     return JsonResponse({
-        "org": org_settings(), "me": p, "users": users, "reports": reports,
+        "org": org_settings(), "me": {**p, "signQueue": queue}, "users": users, "reports": reports,
+        "signoffs": signoff_rows,
         "capHolders": holders,
         "taxonomy": taxonomy_tree(vendor_leaf_counts()) if p["role"] != "supplier" else [],
         "suppliers": suppliers, "tenders": tenders, "bids": bids,
@@ -581,6 +641,21 @@ DEFAULT_SETTINGS = {
     # The delegation-of-authority ladder. Empty means the single threshold
     # above is still the whole matrix - see approvals.py.
     "approvalLevels": [],
+    # Every tender and auction waits for the raiser's line manager before any
+    # vendor hears of it, whatever its value (approvals.publish_plan).
+    "lineManagerApproval": True,
+    # A closing date, or an auction's times, moved after vendors were told
+    # waits for the requester's line manager too (signoffs.py).
+    "timelineApproval": True,
+    # When invited vendors who have not bid are reminded: hours before the
+    # close (and before an auction opens). Values off vocab "reminderHours".
+    "reminderHours": [72, 24, 2],
+    # The company's standard NDA, copied onto an event that requires one.
+    # Blank means agreements.DEFAULT_NDA, with the company's name filled in.
+    "ndaText": "",
+    # The payment terms a new tender or auction starts with.
+    "paymentTerms": "",
+    "paymentConditions": "",
     "dimensions": DEFAULT_DIMENSIONS,
     "profile": DEFAULT_PROFILE,
     "logo": "",
@@ -602,6 +677,10 @@ def org_settings():
     # that saved three fields before this shipped would come back missing the
     # other seventeen and every form would render undefined.
     out["profile"] = {**DEFAULT_PROFILE, **(out.get("profile") or {})}
+    # What an event's NDA starts as: the company's own text, or the starter
+    # template with the company's name in it.
+    from .agreements import default_nda
+    out["ndaStandard"] = default_nda(out)
     return out
 
 
@@ -668,6 +747,26 @@ def settings_view(request, p, body):
         if msg:
             return err(msg)
         changes["approvalLevels"] = levels
+    for key in ("lineManagerApproval", "timelineApproval"):
+        if key in body:
+            if not has(p, "settings.threshold"):
+                return err("You don't have permission to change the approval matrix.", 403)
+            if not isinstance(body[key], bool):
+                return err("Approval switches must be on or off.")
+            changes[key] = body[key]
+    if "reminderHours" in body:
+        if not has(p, "settings.rename"):
+            return err("You don't have permission to change vendor reminders.", 403)
+        changes["reminderHours"] = vocab.reminder_hours(body.get("reminderHours"))
+    if "ndaText" in body or "paymentTerms" in body or "paymentConditions" in body:
+        if not has(p, "settings.rename"):
+            return err("You don't have permission to change the vendor agreements.", 403)
+        if "ndaText" in body:
+            changes["ndaText"] = str(body.get("ndaText") or "").strip()[:20000]
+        if "paymentTerms" in body:
+            changes["paymentTerms"] = vocab.payment_terms(body.get("paymentTerms"))
+        if "paymentConditions" in body:
+            changes["paymentConditions"] = str(body.get("paymentConditions") or "").strip()[:2000]
     if "profile" in body:
         if not has(p, "settings.rename"):
             return err("You don't have permission to change the company profile.", 403)
@@ -729,12 +828,32 @@ def settings_view(request, p, body):
         else:
             log(p, "Delegation of authority removed",
                 "The ladder was cleared; publication falls back to the single approval threshold.")
+    if "lineManagerApproval" in changes:
+        log(p, "Line manager approval " + ("switched on" if changes["lineManagerApproval"] else "switched off"),
+            "Every tender and auction now waits for the raiser's line manager before vendors are invited."
+            if changes["lineManagerApproval"] else
+            "Tenders and auctions no longer wait for the raiser's line manager; the approval matrix still applies.")
+    if "timelineApproval" in changes:
+        log(p, "Date change approval " + ("switched on" if changes["timelineApproval"] else "switched off"),
+            "Moving a closing date or an auction's times after vendors were told now waits for the "
+            "requester's line manager." if changes["timelineApproval"] else
+            "Closing dates and auction times now change as soon as they are moved; vendors are still told.")
+    if "reminderHours" in changes:
+        hrs = changes["reminderHours"]
+        log(p, "Vendor reminders changed",
+            ("Vendors who have not bid are reminded " + ", ".join(
+                f"{h // 24} day(s)" if h >= 24 and h % 24 == 0 else f"{h} hour(s)" for h in hrs)
+             + " before the close.") if hrs else "Automatic vendor reminders are switched off.")
+    if any(k in changes for k in ("ndaText", "paymentTerms", "paymentConditions")):
+        log(p, "Vendor agreements updated",
+            "The standard NDA or default payment terms changed. Events already published keep "
+            "the text their vendors accepted.")
     if "profile" in changes:
         log(p, "Company profile updated",
             "The registered details on letters, memos and compliance reports were changed.")
     if "approvalThreshold" in changes:
         log(p, "Approval matrix changed",
-            f"Publication above {fmt_compact(changes['approvalThreshold'])} now requires sign-off; below publishes directly.")
+            f"Publication above {fmt_compact(changes['approvalThreshold'])} now requires sign-off; below it the line manager's approval is enough.")
     if "name" in changes or "short" in changes:
         log(p, "Workspace renamed",
             f"The organisation is now \"{org_name()}\". New tender references use the {ref_prefix()}- prefix; existing references are unchanged.")
@@ -827,6 +946,7 @@ def _publish(t, p):
                 f"Bids close {_closes_at(t.deadline)}. Full terms are in your bid room.")
     if t.budget_visible and t.budget > 0:
         body += f" The maximum order value is {fmt_money(t.budget)}."
+    body += _agreement_words(t)
     names = {s.id: s.name for s in Supplier.objects.filter(id__in=list(t.invited or []))}
     for sid in t.invited or []:
         if not notify_supplier(sid, f"Invitation to tender: {t.title}", body, t.id):
@@ -836,6 +956,18 @@ def _publish(t, p):
         notify_personas([t.owner_id], f"Published: {t.title}",
                         f"{t.ref} is live. Invitations went to {len(t.invited)} vendor(s); "
                         f"bids close {_closes_at(t.deadline)}.", t.id)
+
+
+def _agreement_words(event):
+    """The sentence an invitation carries when the event asks for an NDA or
+    payment terms, so nobody is surprised by the page they land on."""
+    from . import agreements
+    asked = agreements.required(event)
+    if not asked:
+        return ""
+    what = " and ".join({"nda": "sign a non-disclosure agreement",
+                         "payment": "accept the payment terms"}[k] for k in asked)
+    return f" Before you can see the details and bid, you will be asked to {what}."
 
 
 def _ask_next_signature(t, kind, subject, body):
@@ -865,16 +997,29 @@ def _route_submission(t, p):
     """
     from . import approvals
     raiser = t.owner or Persona.objects.filter(pk=p.get("id")).first()
-    steps = approvals.open_chain(t, approvals.PUBLISH, t.budget, raiser)
-    if steps:
+    rows = approvals.publish_plan(raiser, t.budget)
+    if rows:
+        steps = approvals.open_rows(t, approvals.PUBLISH, t.budget, rows)
         t.status = "approval"
         t.save()
         log(p, "Submitted for approval",
-            f"Submitted with {_value_words(t)}; needs {len(steps)} signature(s) under the delegation "
-            f"of authority: {approvals.describe(steps)}.", t.id)
+            f"Submitted with {_value_words(t)}; needs {len(steps)} signature(s) before vendors "
+            f"are invited: {approvals.describe(steps)}.", t.id)
+        # A line manager sending their own report's draft has already said
+        # yes by sending it; asking them to sign it again is a click nobody
+        # needs. Recorded as signed, in their name.
+        first = steps[0]
+        if first.level_id == approvals.LINE and first.persona_id == p.get("id"):
+            approvals.decide(first, p, True, "Sent by the line manager.")
+            log(p, "Publication signed off",
+                f"Step 1 of {len(steps)}: sent by {p['name']}, the line manager.", t.id)
+            if len(steps) == 1:
+                _publish(t, p)
+                return
+        nxt = approvals.current_step(t, approvals.PUBLISH)
         _ask_next_signature(t, approvals.PUBLISH, f"Publication approval needed: {t.title}",
                             f"{t.ref} ({_value_words(t)}) needs your sign-off before "
-                            f"invitations go out. This is step 1 of {len(steps)}.")
+                            f"invitations go out. This is step {nxt.seq} of {len(steps)}.")
         return
     _route_submission_legacy(t, p)
 
@@ -939,6 +1084,22 @@ def _apply_tender_payload(t, body):
         t.tech_threshold = max(0, min(100, int(body.get("techThreshold", 70) or 70)))
     except (TypeError, ValueError):
         t.tech_threshold = 70
+    if "requiredDocs" in body:
+        t.required_docs = vocab.bid_doc_types(body.get("requiredDocs"))
+    # What vendors accept before they see the rest. Payment terms come off the
+    # list; the conditions and the NDA are the buyer's own words.
+    if "paymentTerms" in body:
+        t.payment_terms = vocab.payment_terms(body.get("paymentTerms"), keep=t.payment_terms or "")
+    if "paymentConditions" in body:
+        t.payment_conditions = str(body.get("paymentConditions") or "").strip()[:2000]
+    if "ndaRequired" in body:
+        t.nda_required = bool(body.get("ndaRequired"))
+    if "ndaText" in body or t.nda_required:
+        from .agreements import default_nda
+        text = str(body.get("ndaText", t.nda_text) or "").strip()[:20000]
+        t.nda_text = text if t.nda_required else ""
+        if t.nda_required and not text:
+            t.nda_text = default_nda()
 
     # vocab.category accepts the seven words the old dropdown offered (via
     # taxonomy.canonical), so a draft saved in a browser tab before this shipped
@@ -1036,6 +1197,8 @@ def _validate_tender(t, submitting):
             return "Invite at least one supplier."
         if any(l["qty"] <= 0 for l in t.lines):
             return "Every line item needs a quantity above zero."
+        if t.nda_required and len((t.nda_text or "").strip()) < 40:
+            return "Write the non-disclosure agreement vendors will sign, or switch it off."
     return None
 
 
@@ -1293,6 +1456,8 @@ def open_bids(request, p, body, tid):
             t.tech_opened_at = now_ms()
             t.status = "evaluation"
             t.save()
+        from . import signoffs
+        signoffs.void_for("Bids were opened.", tender=t)
         log(p, "Technical envelopes opened",
             f"{n} technical proposals opened for blind scoring. Commercial envelopes remain sealed "
             f"until technical evaluation concludes (threshold {t.tech_threshold}/100).", t.id)
@@ -1355,6 +1520,8 @@ def open_bids(request, p, body, tid):
         t.status = "evaluation"
         t.save()
     _stamp_round_opening(t)
+    from . import signoffs
+    signoffs.void_for("Bids were opened.", tender=t)
     log(p, "Bid opening - seals broken", f"{n} bids opened before the evaluation panel; amounts recorded.", t.id)
     notify_perm("bid.score", f"Scoring open: {t.title}",
                 f"The seals on {t.ref} were broken in a recorded opening. Sign your conflict-of-interest "
@@ -1567,6 +1734,10 @@ def bid_collection(request, p, body, tid):
         return err("This event was cancelled - no submissions are being taken.", 409)
     if st != "published":
         return err("The deadline has passed - the tender is sealed.", 409)
+    if request.method == "POST":
+        gate = _gate_error(t, me)
+        if gate:
+            return err(gate, 403)
 
     # Which submission window this bid lands in. None is the ordinary
     # single-round event, where the tender's own deadline is the window.
@@ -1647,6 +1818,11 @@ def bid_collection(request, p, body, tid):
             if required and not Document.objects.filter(
                     tender=t, kind="bid", supplier_id=me, envelope=envelope).exists():
                 return err(f"Upload your {label} before submitting the bid.")
+        labels = {v: lb for v, lb, _env in vocab.VOCAB["bidDocTypes"]}
+        for kind in (t.required_docs or []):
+            if not Document.objects.filter(tender=t, kind="bid", supplier_id=me,
+                                           doc_type=kind).exists():
+                return err(f"Attach your {labels.get(kind, kind).lower()} before submitting the bid.")
 
     # A company that is not on the vendor register yet can bid, but its bid
     # waits for audit before it counts. Approving it registers the company,
@@ -1844,6 +2020,9 @@ def ask_clarification(request, p, body, tid):
         return err("Tender not found.", 404)
     if p["supplierId"] not in t.invited or eff_status(t) != "published":
         return err("Questions can only be asked on open tenders you're invited to.", 403)
+    gate = _gate_error(t, p["supplierId"])
+    if gate:
+        return err(gate, 403)
     q = str(body.get("q", "")).strip()
     if not q:
         return err("The question is empty.")
@@ -1853,6 +2032,56 @@ def ask_clarification(request, p, body, tid):
     notify_perm("clarification.answer", f"New clarification: {t.title}",
                 f"A supplier asked a question on {t.ref}. Answers are published to all invited suppliers.", t.id)
     return JsonResponse({"ok": True})
+
+
+@route(["POST"], roles={"supplier"})
+def accept_agreement(request, p, body, tid):
+    """A vendor signs the event's NDA, or accepts its payment terms."""
+    from . import agreements
+    t = Tender.objects.filter(pk=tid).first()
+    if not t or p["supplierId"] not in (t.invited or []) or t.status in ("draft", "approval"):
+        return err("Tender not found.", 404)
+    if body.get("agree") is not True:
+        return err("Tick the box to confirm you have read it and agree.")
+    kind = str(body.get("kind") or "")
+    a, msg = agreements.accept(t, p["supplierId"], kind, body.get("name"), body.get("title"),
+                               _username(p), agreements.client_ip(request))
+    if msg:
+        return err(msg)
+    sup = Supplier.objects.filter(pk=p["supplierId"]).first()
+    what = "Non-disclosure agreement signed" if kind == agreements.NDA else "Payment terms accepted"
+    log(p, what, f"{a.signed_name}{f' ({a.signed_title})' if a.signed_title else ''} for "
+                 f"{sup.name if sup else p['supplierId']}. Text digest {a.digest[:16]}.", t.id)
+    return JsonResponse({"ok": True, "agreements": agreements.summary(t, p["supplierId"])})
+
+
+def _username(p):
+    from django.contrib.auth.models import User
+    u = User.objects.filter(pk=p.get("userId")).first()
+    return u.username if u else ""
+
+
+@route(["GET"])
+def acceptance_record(request, p, body, aid):
+    """The signed NDA or accepted payment terms, as a text file for the file."""
+    from . import agreements
+    from .models import Acceptance
+    if p["role"] == "supplier":
+        a = Acceptance.objects.filter(pk=aid, supplier_id=p["supplierId"]).first()
+    else:
+        if not (has(p, "page.tenders") or has(p, "page.auctions") or has(p, "page.audit")):
+            return err("You don't have permission to do that.", 403)
+        a = Acceptance.objects.filter(pk=aid).first()
+    if not a:
+        return err("Not found.", 404)
+    event = a.tender or a.auction
+    sup = Supplier.objects.filter(pk=a.supplier_id).first()
+    resp = HttpResponse(agreements.record_text(a, event, sup.name if sup else a.supplier_id),
+                        content_type="text/plain; charset=utf-8")
+    name = f"{event.ref}-{'NDA' if a.kind == 'nda' else 'payment-terms'}-{(sup.name if sup else a.supplier_id)}"
+    safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in name)[:120]
+    resp["Content-Disposition"] = f'attachment; filename="{safe}.txt"'
+    return resp
 
 
 @route(["POST"], perm="clarification.answer")
@@ -1875,6 +2104,16 @@ def answer_clarification(request, p, body, cid):
                                       at__gte=(c.answered_at or 0) - 5000,
                                       at__lte=(c.answered_at or 0) + 5000).first())
         return err(f"This question was already answered by {ev.actor if ev else 'a colleague'}.", 409)
+    if c.auction_id:
+        # A question on an auction: every vendor still in it sees the answer.
+        a = c.auction
+        log(p, "Auction question answered", f"{a.ref}: published to every bidder. [{c.id}]")
+        from .notify import notify_supplier as tell
+        for sid in a.participants.filter(disqualified=False).values_list("supplier_id", flat=True):
+            tell(sid, f"Question answered: {a.title}",
+                 f"{org_name()} answered a question on {a.ref}. Every invited vendor can read it in the "
+                 f"auction room.", destination={"page": "auction", "id": a.id})
+        return JsonResponse({"ok": True})
     log(p, "Clarification answered", f"Published to all invited suppliers. [{c.id}]", c.tender_id)
     t = c.tender
     notify_suppliers(t.invited, f"Clarification answered: {t.title}",
@@ -2008,10 +2247,10 @@ def ai_criteria(request, p, body):
 @route(["POST"], perm="ai.use")
 @_ai_guard
 def ai_clar_answer(request, p, body, cid):
-    c = Clarification.objects.select_related("tender").filter(pk=cid).first()
+    c = Clarification.objects.select_related("tender", "auction").filter(pk=cid).first()
     if not c:
         return err("Clarification not found.", 404)
-    t = c.tender
+    t = c.tender or c.auction     # an auction question has a title and scope too
     text = ai.ask(
         f'You draft clarification answers for a buyer running a tender. Tender: "{t.title}". Scope: {t.scope}\n'
         f'Supplier question: "{c.q}"\n\n'
@@ -2208,7 +2447,15 @@ def upload_bid_doc(request, p, body, tid):
         return err("Tender not found.", 404)
     if p["supplierId"] not in t.invited or eff_status(t) != "published":
         return err("Documents can only be uploaded to open tenders you're invited to.", 403)
-    envelope = request.POST.get("envelope", "technical")
+    gate = _gate_error(t, p["supplierId"])
+    if gate:
+        return err(gate, 403)
+    # What the document is decides where it is sealed: a quotation carries
+    # prices, so it goes in the commercial envelope. An older screen sends the
+    # envelope alone, and that still works.
+    doc_type = vocab.bid_doc_type(request.POST.get("docType"))
+    envelope = request.POST.get("envelope") or (vocab.BID_DOC_TYPES.get(doc_type) if doc_type
+                                                else "technical")
     if envelope not in ("technical", "commercial"):
         return err("Envelope must be technical or commercial.")
     up, msg = _read_upload(request)
@@ -2219,7 +2466,7 @@ def upload_bid_doc(request, p, body, tid):
     # sit with that round's bids instead of merging into one undated pile.
     d = Document.objects.create(id=rid("d"), kind="bid", tender=t, round=t.active_round(),
                                 supplier_id=p["supplierId"],
-                                envelope=envelope, encrypted=True,
+                                envelope=envelope, doc_type=doc_type, encrypted=True,
                                 uploaded_by=p["name"], uploaded_at=now_ms(), **up)
     # No event on purpose: even the existence of pre-submission uploads is the supplier's business.
     return JsonResponse({"doc": doc_view(d)})
@@ -2264,6 +2511,8 @@ def download_doc(request, p, body, doc_id):
         t = d.tender
         if tender_view(t, p) is None:
             return err("Not allowed.", 403)
+        if d.kind == "tender" and _gated(t, p):
+            return err(_gate_error(t, p["supplierId"]), 403)
         if not doc_visible(d, t, p):
             return err("Sealed until the recorded opening.", 403)
     payload = unseal_bytes(d.data) if d.encrypted else bytes(d.data)
@@ -2906,6 +3155,9 @@ def duplicate_tender(request, p, body, tid):
         commercial_document_required=src.commercial_document_required,
         tech_threshold=src.tech_threshold,
         bid_mode=src.bid_mode, budget_visible=src.budget_visible,
+        required_docs=list(src.required_docs or []),
+        payment_terms=src.payment_terms, payment_conditions=src.payment_conditions,
+        nda_required=src.nda_required, nda_text=src.nda_text,
         # The expectation carries over with the structure; the deadline and the
         # rounds do not, because those are facts about the run, not the template.
         projected_cost=src.projected_cost,

@@ -89,6 +89,31 @@
     "Other"
   ],
 
+  "_bidDocTypes": "What a vendor attaches to a bid: [value, label, envelope]. The envelope is where it is sealed: anything carrying prices goes in the commercial one, which two-stage opening keeps closed until the technical scores are in.",
+  "bidDocTypes": [
+    ["Quotation", "Quotation or price schedule", "commercial"],
+    ["Technical proposal", "Technical proposal", "technical"],
+    ["Product specification", "Product specification or datasheet", "technical"],
+    ["Brochure or catalogue", "Brochure or catalogue", "technical"],
+    ["Certificate or licence", "Certificate or licence", "technical"],
+    ["Sample photos", "Photos of samples", "technical"],
+    ["Other supporting document", "Other supporting document", "technical"]
+  ],
+
+  "_reminderHours": "When invited vendors who have not bid are reminded, in hours before the closing time (and, for auctions, before the room opens).",
+  "reminderHours": [
+    [336, "14 days before"],
+    [168, "7 days before"],
+    [120, "5 days before"],
+    [72, "3 days before"],
+    [48, "2 days before"],
+    [24, "1 day before"],
+    [12, "12 hours before"],
+    [6, "6 hours before"],
+    [2, "2 hours before"],
+    [1, "1 hour before"]
+  ],
+
   "docTypes": [
     "CAC certificate of incorporation",
     "CAC status report",

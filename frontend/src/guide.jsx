@@ -28,10 +28,10 @@ const G = {
   approver: {
     title: "You are the control",
     steps: [
-      ["Watch your queue", "Two piles: publications (tenders above the threshold) and awards (panel recommendations with memos). You're emailed when anything lands."],
+      ["Watch your queue", "Publications waiting for you (as someone's line manager, or above the threshold), awards with their memos, and date changes. You're emailed when anything lands."],
       ["Read the memo", "Scores, savings vs budget, and any flags (abnormally low pricing, panel splits). Download it as PDF if you want it on file."],
       ["Approve or return", "Approve an award and letters issue instantly to every bidder. Return it and the panel gets your questions."],
-      ["Set the matrix", "You decide the approval threshold: everything at or above it needs you; everything below publishes directly."],
+      ["Set the matrix", "Every tender first needs the raiser's line manager. You decide the approval threshold: everything at or above it also needs you."],
     ],
   },
   auditor: {
@@ -62,7 +62,7 @@ const G = {
    saying nothing: it would describe someone else's job. */
 const CAP_STEPS = [
   ["tender.create", "Draft tenders", "New tender → scope, criteria and line items, then invite prequalified vendors."],
-  ["tender.submit", "Put them forward", "Below the approval threshold a tender publishes directly; at or above it routes to whoever approves publications."],
+  ["tender.submit", "Put them forward", "Every tender goes to your line manager first; at or above the approval threshold it then routes to whoever approves publications."],
   ["tender.publish_decision", "Approve publications", "Your queue holds tenders waiting to go out. Approve and the invitations email themselves."],
   ["clarification.answer", "Answer questions", "Vendor questions are answered once and published to every bidder, anonymised."],
   ["bid.open", "Open the bids", "After the deadline, break the seals in a recorded opening. Nobody sees a price before that, including you."],

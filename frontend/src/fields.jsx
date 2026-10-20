@@ -10,7 +10,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 import {
-  COUNTRIES, CURRENCIES, DOC_TYPES, FAMILIES, FY_STARTS, INDUSTRIES, LOCATIONS,
+  BID_DOC_TYPES, COUNTRIES, CURRENCIES, DOC_TYPES, FAMILIES, FY_STARTS, INDUSTRIES, LOCATIONS,
   NIGERIAN_STATES, PAYMENT_TERMS, TIMEZONES, UNITS, groupNational, joinPhone,
   phoneProblem, splitPhone,
 } from "./vocab";
@@ -71,6 +71,11 @@ export function PaymentTermsSelect(props) {
 /** What kind of compliance document a file is. */
 export function DocTypeSelect(props) {
   return <Choice options={DOC_TYPES} placeholder="What is this document?" {...props} />;
+}
+
+/** What a document attached to a bid is: a quotation, a specification... */
+export function BidDocTypeSelect(props) {
+  return <Choice options={BID_DOC_TYPES} placeholder="What is this document?" {...props} />;
 }
 
 /* ---------------- what is bought ---------------- */

@@ -49,6 +49,42 @@ KINDS = (PUBLISH, AWARD)
 MAX_LEVELS = 8          # eight rungs is already more than any real policy has
 NO_CEILING = 0          # a limit of 0 reads as "can sign for anything"
 
+# Two signatures that are not rungs of the ladder, told apart by `level_id`.
+#
+#   LINE - the raiser's own line manager. With `lineManagerApproval` on (the
+#          default), every tender's publication chain starts here, whatever its
+#          value: nothing goes out to vendors that the person's manager has not
+#          seen. The people above the manager may sign in their place.
+#   ANY  - anybody holding FALLBACK_CAP. Used when there is nobody on record
+#          above the raiser, and for the single-threshold sign-off when the
+#          line manager step comes first. Never the raiser themselves.
+LINE, ANY = "line", "any"
+FALLBACK_CAP = "tender.publish_decision"
+
+
+def line_manager_required(org=None):
+    """Does every tender and auction need the raiser's line manager's yes
+    before vendors are told about it?"""
+    if org is None:
+        from .views import org_settings
+        org = org_settings()
+    return bool(org.get("lineManagerApproval", True))
+
+
+def line_approvers(raiser):
+    """(line manager, [ids of the people above them]) for this person, or
+    (None, []) when nobody is on record above them."""
+    chain = raiser.chain() if raiser else []
+    if not chain:
+        return None, []
+    return chain[0], [m.id for m in chain[1:]]
+
+
+def cap_persona_ids(cap=FALLBACK_CAP):
+    """Persona ids of everybody who actually holds this capability."""
+    from .notify import _users_for_perm
+    return [u.profile.persona_id for u in _users_for_perm(cap) if u.profile.persona_id]
+
 
 # ---------------------------------------------------------------- the ladder
 
@@ -184,22 +220,73 @@ def plan(raiser, amount, levels=None):
     return chain
 
 
+def publish_plan(raiser, amount, org=None):
+    """The signatures a tender needs before it goes to market, nearest first,
+    as (level, persona-or-None, holders) rows. [] means the caller should fall
+    back to the single threshold, exactly as before any of this existed.
+
+    The line manager signs first. Where they also stand on a rung the ladder
+    would have asked for, that one signature is both: nobody is asked to sign
+    the same tender twice for being two things at once.
+    """
+    if org is None:
+        from .views import org_settings
+        org = org_settings()
+    levels = ladder(org)
+    rows = []
+    if line_manager_required(org):
+        mgr, above = line_approvers(raiser)
+        if mgr:
+            rows.append(({"id": LINE, "name": "Line manager", "limit": NO_CEILING, "role": ""},
+                         mgr, above))
+        elif not levels:
+            # Nobody on record above the raiser and no ladder to fall back
+            # on: somebody with publication authority signs instead. (With a
+            # ladder, its own fallback rung is that signature already.)
+            rows.append(({"id": ANY, "name": "Sign-off", "limit": NO_CEILING, "role": ""},
+                         None, []))
+    ladder_steps = plan(raiser, amount, levels)
+    for lvl, per in ladder_steps:
+        first = rows[0] if rows else None
+        if first and first[0]["id"] == LINE and per and first[1].id == per.id:
+            rows[0] = (lvl, per, list(lvl.get("holders") or []))
+            continue
+        rows.append((lvl, per, list(lvl.get("holders") or [])))
+    if rows and not ladder_steps:
+        # No ladder: the single threshold still decides whether somebody with
+        # publication authority signs after the line manager. The line manager
+        # holding that authority already is the same signature.
+        threshold = int(org.get("approvalThreshold") or 0)
+        if threshold > 0 and (amount >= threshold or amount <= 0):
+            mgr = rows[0][1]
+            if not (mgr and mgr.id in cap_persona_ids()) and rows[0][0]["id"] != ANY:
+                rows.append(({"id": ANY, "name": "Publication sign-off", "limit": NO_CEILING,
+                              "role": ""}, None, []))
+    return rows
+
+
+def open_rows(tender, kind, amount, rows):
+    """Persist a planned chain, replacing any earlier one of this kind."""
+    ApprovalStep.objects.filter(tender=tender, kind=kind).delete()
+    made = [ApprovalStep(id=rid("as"), tender=tender, kind=kind, seq=i + 1,
+                         level_id=lvl["id"], level_name=lvl["name"],
+                         level_limit=int(lvl.get("limit") or 0),
+                         role=lvl.get("role", "") or "",
+                         holders=list(holders or []),
+                         persona=per, amount=amount, opened_at=now_ms())
+            for i, (lvl, per, holders) in enumerate(rows)]
+    ApprovalStep.objects.bulk_create(made)
+    return made
+
+
 def open_chain(tender, kind, amount, raiser):
     """Create the pending steps for one decision. Returns them, or [] when the
     workspace has no ladder and the caller should use the legacy threshold."""
     steps = plan(raiser, amount)
     if not steps:
         return []
-    ApprovalStep.objects.filter(tender=tender, kind=kind).delete()
-    rows = [ApprovalStep(id=rid("as"), tender=tender, kind=kind, seq=i + 1,
-                         level_id=lvl["id"], level_name=lvl["name"],
-                         level_limit=int(lvl.get("limit") or 0),
-                         role=lvl.get("role", "") or "",
-                         holders=list(lvl.get("holders") or []),
-                         persona=per, amount=amount, opened_at=now_ms())
-            for i, (lvl, per) in enumerate(steps)]
-    ApprovalStep.objects.bulk_create(rows)
-    return rows
+    return open_rows(tender, kind, amount,
+                     [(lvl, per, list(lvl.get("holders") or [])) for lvl, per in steps])
 
 
 def clear_chain(tender, kind):
@@ -255,6 +342,18 @@ def may_sign(step, identity):
     if not pid:
         return False
 
+    if step.level_id in (LINE, ANY):
+        # The line manager, or the people above them. A manager who has left
+        # hands the step to those above; with nobody above, to anybody who can
+        # approve publication - never to the person who raised the tender.
+        if step.persona_id and Persona.objects.filter(pk=step.persona_id).exists():
+            return pid == step.persona_id or pid in (step.holders or [])
+        live = set(Persona.objects.filter(pk__in=step.holders or []).values_list("id", flat=True))
+        if live:
+            return pid in live
+        from .permissions import has
+        return has(identity, FALLBACK_CAP) and pid != step.tender.owner_id
+
     if step.persona_id:
         if step.persona_id == pid:
             return True
@@ -284,6 +383,11 @@ def signers(step):
         return []
     if step.persona_id and Persona.objects.filter(pk=step.persona_id).exists():
         return [step.persona_id]
+    if step.level_id in (LINE, ANY):
+        live = set(Persona.objects.filter(pk__in=step.holders or []).values_list("id", flat=True))
+        if live:
+            return [h for h in step.holders if h in live]
+        return [pid for pid in cap_persona_ids() if pid != step.tender.owner_id]
     live = {p.id: p for p in Persona.objects.all()}
     pinned = [h for h in (step.holders or []) if h in live]
     if pinned:
@@ -318,6 +422,8 @@ def chain_view(tender, kind):
         return None
     pending = next((s for s in rows if not s.decided_at), None)
     return {"kind": kind, "steps": [step_view(s) for s in rows],
+            # Who raised it: an "any" step is never theirs to sign.
+            "ownerId": tender.owner_id,
             "currentId": pending.id if pending else None,
             "signed": sum(1 for s in rows if s.decision == "approved"),
             "total": len(rows)}
@@ -327,6 +433,47 @@ def describe(steps):
     """One sentence naming the route, for the audit trail."""
     parts = []
     for s in steps:
-        who = s.persona.name if s.persona_id and s.persona else f"any {s.level_name}"
+        if s.persona_id and s.persona:
+            who = s.persona.name
+        elif s.level_id in (LINE, ANY):
+            who = "anyone who can approve publication"
+        else:
+            who = f"any {s.level_name}"
         parts.append(f"{s.level_name} ({who})")
     return " → ".join(parts)
+
+
+# ---------------------------------------------------------------- sign-offs
+#
+# The same rule for the requests that are not a publication chain (an auction
+# going out, a date moving): the requester's line manager or anybody above
+# them, falling back to whoever holds FALLBACK_CAP. Never the requester.
+
+def signoff_route(requester):
+    """(approver persona or None, [ids above them]) for a new request."""
+    return line_approvers(requester)
+
+
+def may_decide(so, identity):
+    pid = identity.get("id")
+    if so.status != "pending" or not pid or identity.get("role") == "supplier":
+        return False
+    if pid == so.requested_by_id:
+        return False
+    if so.approver_id and Persona.objects.filter(pk=so.approver_id).exists():
+        return pid == so.approver_id or pid in (so.also or [])
+    live = set(Persona.objects.filter(pk__in=so.also or []).values_list("id", flat=True))
+    if live:
+        return pid in live
+    from .permissions import has
+    return has(identity, FALLBACK_CAP)
+
+
+def deciders(so):
+    """Who to tell about a request: the approver, else whoever could sign it."""
+    if so.approver_id and Persona.objects.filter(pk=so.approver_id).exists():
+        return [so.approver_id]
+    live = [h for h in (so.also or []) if Persona.objects.filter(pk=h).exists()]
+    if live:
+        return live
+    return [pid for pid in cap_persona_ids() if pid != so.requested_by_id]

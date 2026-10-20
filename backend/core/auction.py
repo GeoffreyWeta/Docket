@@ -289,6 +289,9 @@ def set_proxy(lot, supplier_id, floor, now=None):
     a = lot.auction
     if a.direction == "sale":
         return None, "Automatic bidding is not available for selling auctions. Place bids manually."
+    if not a.is_live(now):
+        return None, ("Automatic bidding can be set once the room is open."
+                      if a.status in ("scheduled", "approval", "draft") else "This auction is not open.")
     p = participant(a, supplier_id)
     if not p or not p.may_bid:
         return None, "You are not bidding in this auction."
@@ -311,11 +314,103 @@ def set_proxy(lot, supplier_id, floor, now=None):
     return px, None
 
 
+# ---------------- the pre-bid stage ----------------
+#
+# While an auction is scheduled its vendors can read everything and, where the
+# buyer allows it, put in an opening price. A pre-bid is an ordinary LotBid of
+# kind "prebid": when the room opens it is simply the vendor's first price, so
+# the standings, the step to beat and the award need nothing new. Until then it
+# is sealed - a vendor sees their own, never anybody else's, and no rank - so
+# nobody prices against a number that was placed before the competition began.
+
+def check_prebid(lot, supplier_id, amount, now=None):
+    """`None` if this opening price is allowed, otherwise the sentence to show."""
+    now = now if now is not None else now_ms()
+    a = lot.auction
+    if a.status != "scheduled" or (a.starts_at or 0) <= now:
+        return "Pre-bids are only taken before the room opens."
+    if not a.allow_prebid:
+        return "This auction does not take pre-bids. Bidding opens when the room does."
+    if lot.status != "open":
+        return "This lot is closed."
+    if Supplier.objects.filter(pk=supplier_id, suspended=True).exists():
+        return "This bidder is blacklisted (suspended) and cannot bid. Contact the organiser."
+    p = participant(a, supplier_id)
+    if not p or not p.may_bid:
+        return "You are not a participant in this auction."
+    if a.require_acceptance and not p.accepted_at:
+        return "Accept the auction rules before putting in a price."
+    if not isinstance(amount, int) or amount <= 0:
+        return "Enter a price."
+    selling = a.direction == "sale"
+    if lot.ceiling and (amount < lot.ceiling if selling else amount > lot.ceiling):
+        return (f"The starting price is {lot.ceiling:,}. Bid that amount or more." if selling else
+                f"The opening price is {lot.ceiling:,}. Your pre-bid must be at or below it.")
+    mine = (lot.bids.filter(supplier_id=supplier_id, retracted_at__isnull=True)
+            .order_by("-amount" if selling else "amount").first())
+    if mine and (amount <= mine.amount if selling else amount >= mine.amount):
+        # Prices only ever improve, so a pre-bid cannot be walked back either:
+        # the lowest a vendor ever offered is the one that stands.
+        return (f"Your pre-bid is {mine.amount:,}. A new one has to be "
+                f"{'higher' if selling else 'lower'}.")
+    return None
+
+
+@transaction.atomic
+def place_prebid(lot, supplier_id, amount, now=None):
+    """Record an opening price. Returns `(bid, error)`."""
+    now = now if now is not None else now_ms()
+    a = Auction.objects.select_for_update().get(pk=lot.auction_id)
+    lot = AuctionLot.objects.select_related("auction").get(pk=lot.pk)
+    lot.auction = a
+    bad = check_prebid(lot, supplier_id, amount, now=now)
+    if bad:
+        return None, bad
+    bid = LotBid.objects.create(id=rid("ab"), lot=lot, auction=a, supplier_id=supplier_id,
+                                amount=amount, at=now, kind="prebid",
+                                closes_at_bid_time=a.ends_at or 0)
+    p = participant(a, supplier_id)
+    if p and not p.joined_at:
+        p.joined_at = now
+        p.save(update_fields=["joined_at"])
+    return bid, None
+
+
+def start_due(now=None):
+    """Open every scheduled auction whose start time has come, and tell its
+    vendors. Run by the sweep and, lazily, whenever the auctions are read."""
+    now = now if now is not None else now_ms()
+    opened = 0
+    for a in Auction.objects.filter(status="scheduled", starts_at__lte=now):
+        with transaction.atomic():
+            fresh = Auction.objects.select_for_update().filter(pk=a.pk, status="scheduled").first()
+            if not fresh:
+                continue
+            fresh.status = "live"
+            fresh.scheduled_ends_at = fresh.scheduled_ends_at or fresh.ends_at
+            fresh.save(update_fields=["status", "scheduled_ends_at"])
+        pre = fresh.bids.filter(kind="prebid", retracted_at__isnull=True).count()
+        record_event(actor="System", role="system", action="Auction opened on schedule",
+                     detail=f"{fresh.ref} opened at its scheduled time"
+                            + (f" with {pre} pre-bid(s) standing." if pre else "."))
+        opened += 1
+        from .auction_views import _send_invites, _tell, _when
+        from .util import org_name
+        told = list(fresh.participants.filter(invite_count__gt=0, disqualified=False)
+                    .values_list("supplier_id", flat=True))
+        _tell(told, f"The auction room is open: {fresh.title}",
+              f"{org_name()} has opened {fresh.ref} - {fresh.title}. You can bid now. "
+              f"Bidding closes on {_when(fresh.ends_at)}."
+              + (" Pre-bids stand as each vendor's first price." if pre else ""), fresh)
+        _send_invites(fresh, None)
+    return opened
+
+
 # ---------------- the lifecycle ----------------
 
 def open_auction(a, actor, now=None):
     now = now if now is not None else now_ms()
-    if a.status not in ("draft", "scheduled"):
+    if a.status not in ("draft", "approval", "scheduled"):
         return "Only a draft or scheduled auction can be opened."
     if not a.lots.exists():
         return "Add at least one lot before opening."

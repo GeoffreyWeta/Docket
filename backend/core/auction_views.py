@@ -31,7 +31,7 @@ from .permissions import has
 from .taxonomy import canonical
 from .util import now_ms, record_event, rid
 from .notify import notify_supplier
-from .views import _read_upload, _bid_whole, err, log, org_name, route
+from .views import _agreement_words, _read_upload, _bid_whole, err, log, org_name, route
 
 
 # ---------------- serialization ----------------
@@ -75,10 +75,29 @@ def _auction_view(a, p, *, monitor=False):
         "serverNow": now_ms(),
         "live": a.is_live(),
     }
-    if not a.ceiling_visible and supplier and a.status in ("draft", "scheduled"):
+    out.update({
+        "allowPrebid": a.allow_prebid, "scheduledAt": a.scheduled_at,
+        "paymentTerms": a.payment_terms or "", "paymentConditions": a.payment_conditions or "",
+        "ndaRequired": a.nda_required, "ndaText": "" if supplier else (a.nda_text or ""),
+        "documents": _docs_view(a),
+        # The pre-bid stage: scheduled, and the room not open yet.
+        "prebidOpen": a.status == "scheduled" and a.allow_prebid and (a.starts_at or 0) > now_ms(),
+    })
+    if not a.ceiling_visible and supplier and a.status in ("draft", "approval", "scheduled"):
         for l in out["lots"]:
             l["ceiling"] = None
+    if supplier:
+        # The NDA and the payment terms come before anything else about it.
+        from . import agreements
+        out["agreements"] = agreements.summary(a, p["supplierId"])
+        out["gated"] = bool(out["agreements"]["pending"])
+        if out["gated"]:
+            out.update({"scope": "", "terms": "", "lots": [], "images": [], "documents": []})
     if not supplier:
+        from . import signoffs
+        so = signoffs.pending(auction=a)
+        out["signoff"] = signoffs.view(so, p) if so else None
+        out["questionsWaiting"] = a.questions.filter(answered_at__isnull=True).count()
         out["participants"] = a.participants.count()
         out["movements"] = a.bids.filter(retracted_at__isnull=True).count()
         # Lots won by a company not on the vendor register: audit decides
@@ -94,7 +113,23 @@ def _images_view(a):
     # `data` is deferred: this runs on every poll of the room, and the photos
     # themselves are fetched once, by id, from their own endpoint.
     return [{"id": d.id, "name": d.name, "size": d.size}
-            for d in a.images.defer("data").order_by("uploaded_at", "id")]
+            for d in _photos(a).defer("data").order_by("uploaded_at", "id")]
+
+
+def _photos(a):
+    """The auction's photos. Its documents share the relation (kind
+    "auctiondoc"), so every photo query says which it means."""
+    return a.images.filter(kind="auction")
+
+
+def _docs_view(a):
+    return [{"id": d.id, "name": d.name, "size": d.size, "uploadedAt": d.uploaded_at}
+            for d in a.images.filter(kind="auctiondoc").defer("data").order_by("uploaded_at", "id")]
+
+
+def _gate_error(a, supplier_id):
+    from .views import _gate_error as gate
+    return gate(a, supplier_id)
 
 
 def _find(aid):
@@ -112,6 +147,7 @@ def _mine(a, p):
 
 @route(["GET"], perm="page.auctions")
 def auction_list(request, p, body):
+    engine.start_due()
     engine.settle_due()
     rows = [_auction_view(a, p, monitor=has(p, "auction.monitor"))
             for a in Auction.objects.prefetch_related("lots").all()]
@@ -122,11 +158,14 @@ def auction_list(request, p, body):
 def my_auctions(request, p, body):
     """A vendor sees the auctions they were actually invited to, and drafts
     never appear: an auction nobody has opened is not yet an invitation."""
+    engine.start_due()
     engine.settle_due()
     ids = list(AuctionParticipant.objects
                .filter(supplier_id=p["supplierId"]).values_list("auction_id", flat=True))
+    # Not a draft, and not one waiting for its line manager: until it is
+    # approved nobody has been invited to anything.
     qs = (Auction.objects.filter(pk__in=ids)
-          .exclude(status="draft").prefetch_related("lots"))
+          .exclude(status__in=("draft", "approval")).prefetch_related("lots"))
     out = []
     for a in qs:
         v = _auction_view(a, p)
@@ -177,7 +216,9 @@ def auction_duplicate(request, p, body, aid):
         currency=src.currency, direction=src.direction,
         snipe_window_ms=src.snipe_window_ms, extend_by_ms=src.extend_by_ms,
         max_extensions=src.max_extensions, ceiling_visible=src.ceiling_visible,
-        require_acceptance=src.require_acceptance,
+        require_acceptance=src.require_acceptance, allow_prebid=src.allow_prebid,
+        payment_terms=src.payment_terms, payment_conditions=src.payment_conditions,
+        nda_required=src.nda_required, nda_text=src.nda_text,
         created_at=now_ms(), created_by=p["name"], owner_id=p.get("id"),
         **{key: getattr(src, key) for key, _ in Auction.DIMENSIONS},
     )
@@ -200,9 +241,11 @@ def auction_update(request, p, body, aid):
     a = _find(aid)
     if not a:
         return err("Auction not found.", 404)
-    if a.status not in ("draft", "scheduled"):
-        return err("A live auction's rules cannot be changed. Pause it and cancel "
-                   "if the terms were wrong - bidders priced against what was published.", 409)
+    if a.status == "approval":
+        return err("This auction is waiting for approval. Recall it to draft to change it.", 409)
+    if a.status != "draft":
+        return err("The rules cannot change once vendors have been told: they are pricing against "
+                   "what was published. Change the times, or cancel and duplicate it.", 409)
     if "direction" in body and body["direction"] != a.direction:
         return err("Buying or selling is fixed when the auction is created. Create a new auction to change its purpose.", 409)
 
@@ -225,9 +268,18 @@ def auction_update(request, p, body, aid):
             except (TypeError, ValueError):
                 return err(f"{key} must be a number.")
     for key, attr in (("ceilingVisible", "ceiling_visible"),
-                      ("requireAcceptance", "require_acceptance")):
+                      ("requireAcceptance", "require_acceptance"),
+                      ("allowPrebid", "allow_prebid"), ("ndaRequired", "nda_required")):
         if key in body:
             setattr(a, attr, bool(body[key]))
+    if "paymentTerms" in body:
+        a.payment_terms = vocab.payment_terms(body.get("paymentTerms"), keep=a.payment_terms or "")
+    if "paymentConditions" in body:
+        a.payment_conditions = str(body.get("paymentConditions") or "").strip()[:2000]
+    if "ndaText" in body or "ndaRequired" in body:
+        from .agreements import default_nda
+        text = str(body.get("ndaText", a.nda_text) or "").strip()[:20000]
+        a.nda_text = (text or default_nda()) if a.nda_required else ""
     if a.ends_at and a.starts_at and a.ends_at <= a.starts_at:
         return err("The auction has to close after it opens.")
     a.save()
@@ -239,8 +291,8 @@ def lot_create(request, p, body, aid):
     a = _find(aid)
     if not a:
         return err("Auction not found.", 404)
-    if a.status not in ("draft", "scheduled"):
-        return err("Lots cannot be added once the room is open.", 409)
+    if a.status != "draft":
+        return err("Lots cannot change once the auction has gone to approval or to vendors.", 409)
     try:
         ceiling = _bid_whole(body.get("ceiling", 0) or 0)
     except (TypeError, ValueError):
@@ -290,7 +342,7 @@ def lot_create(request, p, body, aid):
 @route(["POST", "DELETE"], perm="auction.edit")
 def lot_delete(request, p, body, aid, lid):
     a = _find(aid)
-    if not a or a.status not in ("draft", "scheduled"):
+    if not a or a.status != "draft":
         return err("Lots can only be removed from a draft.", 409)
     lot = a.lots.filter(pk=lid).first()
     if not lot:
@@ -331,9 +383,9 @@ def image_upload(request, p, body, aid):
     a = _find(aid)
     if not a:
         return err("Auction not found.", 404)
-    if a.status not in ("draft", "scheduled"):
-        return err("Photos cannot change once the room is open.", 409)
-    if a.images.count() >= MAX_IMAGES:
+    if a.status != "draft":
+        return err("Photos cannot change once the auction has gone to approval or to vendors.", 409)
+    if _photos(a).count() >= MAX_IMAGES:
         return err(f"An auction can carry at most {MAX_IMAGES} photos.")
     up, msg = _read_upload(request, IMAGE_EXTENSIONS)
     if msg:
@@ -353,9 +405,9 @@ def image_delete(request, p, body, aid, did):
     a = _find(aid)
     if not a:
         return err("Auction not found.", 404)
-    if a.status not in ("draft", "scheduled"):
-        return err("Photos cannot change once the room is open.", 409)
-    d = a.images.filter(pk=did).first()
+    if a.status != "draft":
+        return err("Photos cannot change once the auction has gone to approval or to vendors.", 409)
+    d = _photos(a).filter(pk=did).first()
     if not d:
         return err("Photo not found.", 404)
     d.delete()
@@ -369,19 +421,96 @@ def image_view(request, p, body, aid, did):
     a = Auction.objects.filter(pk=aid).first()
     if not a:
         return err("Auction not found.", 404)
-    if p["role"] == "supplier":
-        part = _mine(a, p)
-        if not part or part.disqualified:
-            return err("You are not a participant in this auction.", 403)
-    elif not has(p, "page.auctions"):
-        return err("You don't have permission to do that.", 403)
-    d = a.images.filter(pk=did).first()
+    bad = _vendor_door(a, p)
+    if bad:
+        return bad
+    d = _photos(a).filter(pk=did).first()
     if not d:
         return err("Photo not found.", 404)
     resp = HttpResponse(bytes(d.data), content_type=d.content_type)
     resp["X-Content-Type-Options"] = "nosniff"
     resp["Content-Disposition"] = "inline"
     resp["Cache-Control"] = "private, max-age=3600"
+    return resp
+
+
+def _vendor_door(a, p):
+    """None if this caller may read the auction's photos and documents, else
+    the refusal. A buyer who can see auctions; a vendor on its list, not
+    removed, once it has gone out, and past its NDA and payment terms."""
+    if p["role"] == "supplier":
+        part = _mine(a, p)
+        if not part or part.disqualified or a.status in ("draft", "approval"):
+            return err("You are not a participant in this auction.", 403)
+        gate = _gate_error(a, p["supplierId"])
+        if gate:
+            return err(gate, 403)
+        return None
+    if not has(p, "page.auctions"):
+        return err("You don't have permission to do that.", 403)
+    return None
+
+
+# ---------------- the document pack ----------------
+#
+# Specifications, drawings, a site map: what bidders read before they price.
+# Unlike the photos and the lots, a document can be added after the auction has
+# gone out - an answer to a question often is one - and every vendor is told.
+
+@route(["POST"], perm="auction.edit")
+def doc_upload(request, p, body, aid):
+    a = _find(aid)
+    if not a:
+        return err("Auction not found.", 404)
+    if a.status in ("closed", "awarded", "cancelled"):
+        return err("This auction is over; its documents are final.", 409)
+    up, msg = _read_upload(request)
+    if msg:
+        return err(msg)
+    d = Document.objects.create(id=rid("d"), kind="auctiondoc", auction=a, tender=None,
+                                supplier_id=None, envelope="",
+                                uploaded_by=p["name"], uploaded_at=now_ms(), **up)
+    log(p, "Auction document added", f"{d.name} added to {a.ref}.")
+    if a.status not in ("draft", "approval"):
+        _tell(_told(a), f"New document: {a.title}",
+              f"{org_name()} added \"{d.name}\" to {a.ref}. Read it in the auction room.", a)
+    return JsonResponse({"doc": {"id": d.id, "name": d.name, "size": d.size,
+                                 "uploadedAt": d.uploaded_at}})
+
+
+@route(["POST", "DELETE"], perm="auction.edit")
+def doc_delete(request, p, body, aid, did):
+    a = _find(aid)
+    if not a:
+        return err("Auction not found.", 404)
+    if a.status in ("closed", "awarded", "cancelled"):
+        return err("This auction is over; its documents are final.", 409)
+    d = a.images.filter(kind="auctiondoc", pk=did).first()
+    if not d:
+        return err("Document not found.", 404)
+    name = d.name
+    d.delete()
+    log(p, "Auction document removed", f"{name} withdrawn from {a.ref}.")
+    if a.status not in ("draft", "approval"):
+        _tell(_told(a), f"Document withdrawn: {a.title}",
+              f"{org_name()} removed \"{name}\" from {a.ref}.", a)
+    return JsonResponse({"ok": True})
+
+
+@route(["GET"])
+def doc_download(request, p, body, aid, did):
+    a = Auction.objects.filter(pk=aid).first()
+    if not a:
+        return err("Auction not found.", 404)
+    bad = _vendor_door(a, p)
+    if bad:
+        return bad
+    d = a.images.filter(kind="auctiondoc", pk=did).first()
+    if not d:
+        return err("Document not found.", 404)
+    resp = HttpResponse(bytes(d.data), content_type=d.content_type)
+    resp["X-Content-Type-Options"] = "nosniff"
+    resp["Content-Disposition"] = f'attachment; filename="{d.name}"'
     return resp
 
 
@@ -408,6 +537,37 @@ def _tell(sids, subject, body, a):
             notify_supplier(sid, subject, body, destination={"page": "auction", "id": a.id})
         except Exception:                           # noqa: BLE001
             pass
+
+
+def _may_tell(a):
+    """May vendors be written to about this auction yet? Not while it waits
+    for its line manager, and not from a draft where one is required: they
+    hear about it once it is approved and scheduled."""
+    if a.status == "approval":
+        return False
+    if a.status == "draft":
+        from . import approvals
+        return not approvals.line_manager_required()
+    return True
+
+
+def _told(a):
+    """Vendors already told about this auction and still in it."""
+    return list(a.participants.filter(invite_count__gt=0, disqualified=False)
+                .values_list("supplier_id", flat=True))
+
+
+def _schedule_words(a):
+    """When the room opens and closes, and what can be done before then."""
+    if a.is_live():
+        return "The room is open now. " + (f"Bidding closes on {_when(a.ends_at)}. " if a.ends_at else "")
+    if a.status == "scheduled" and a.starts_at:
+        return (f"Bidding opens on {_when(a.starts_at)} and closes on {_when(a.ends_at)}. "
+                "Until it opens you can sign in to read the lots and the terms and ask questions"
+                + (", and put in an opening price (a pre-bid) that stands as your first bid"
+                   if a.allow_prebid else "") + ". ")
+    return ("You will be told when the room opens. "
+            + (f"Bidding closes on {_when(a.ends_at)}. " if a.ends_at else ""))
 
 
 def _send_invites(a, p, only=None):
@@ -443,9 +603,7 @@ def _send_invites(a, p, only=None):
                    "competitor's price. " if a.visibility == "rank" else "")
                 + (f"The opening price is {lot.ceiling:,} {a.currency}. "
                    if lot and lot.ceiling and a.ceiling_visible else "")
-                + ("The room is open now. " if a.is_live()
-                   else "You will be told when the room opens. ")
-                + (f"Bidding closes on {_when(a.ends_at)}. " if a.ends_at else ""),
+                + _schedule_words(a) + _agreement_words(a).strip(),
                 destination={"page": "auction", "id": a.id})
             if reached:
                 part.invite_count += 1
@@ -469,6 +627,9 @@ def send_invites(request, p, body, aid):
     a = _find(aid)
     if not a:
         return err("Auction not found.", 404)
+    if not _may_tell(a):
+        return err("Invitations go out when the auction is approved and scheduled. "
+                   "Send it for approval first.", 409)
     sent = _send_invites(a, p, body.get("supplierIds"))
     if not sent:
         # Untold vendors left over after a send are ones nobody could reach,
@@ -518,6 +679,8 @@ def participants(request, p, body, aid):
             defaults={"id": rid("ap"), "invited_at": now_ms(), "invite_count": 0})
         added += 1 if made else 0
 
+    if body.get("notify") and not _may_tell(a):
+        body = {**body, "notify": False}
     # invite_count is how many times this vendor has actually been EMAILED, and
     # it was being set to 1 by a code path that has never sent anything. Adding
     # somebody to the list is not telling them, and the column that exists to
@@ -737,7 +900,7 @@ def invite_list(request, p, body, aid):
     ids = list(dict.fromkeys(ids))
 
     # Never with an empty list: _send_invites reads "no filter" as everybody.
-    sent = _send_invites(a, p, ids) if (body.get("send") and ids) else 0
+    sent = _send_invites(a, p, ids) if (body.get("send") and ids and _may_tell(a)) else 0
 
     log(p, "Auction vendors invited from a list",
         f"{len(ids)} vendor(s) from an uploaded list put on {a.ref}, {created} of them new "
@@ -771,13 +934,235 @@ def invite_list(request, p, body, aid):
 
 # ---------------- the lifecycle ----------------
 
+EARLIER_NOTICE_MS = 24 * 3600 * 1000
+
+
+def _ready_problem(a, now=None):
+    """What stops this auction going out, or None. The same checks the
+    draft's checklist shows."""
+    now = now if now is not None else now_ms()
+    if not a.lots.exists():
+        return "Add at least one lot."
+    if not a.participants.filter(disqualified=False).exists():
+        return "Invite at least one vendor."
+    if not a.ends_at:
+        return "Set a closing time."
+    if a.ends_at <= now:
+        return "The closing time has already passed. Set a later one."
+    if a.starts_at and a.starts_at >= a.ends_at:
+        return "The auction has to close after it opens."
+    if a.nda_required and len((a.nda_text or "").strip()) < 40:
+        return "Write the non-disclosure agreement vendors will sign, or switch it off."
+    return None
+
+
+def release(a, p, approved_by=None):
+    """Send an approved (or approval-free) auction out. With a start time still
+    ahead it is scheduled and every vendor is told when it opens; otherwise the
+    room opens now. Returns an error sentence, or None."""
+    a = _find(a.id)
+    if a.status not in ("draft", "approval"):
+        return "the auction has already gone out."
+    problem = _ready_problem(a)
+    if problem:
+        return problem
+    now = now_ms()
+    by = f" Approved by {approved_by}." if approved_by else ""
+    if a.starts_at and a.starts_at > now:
+        a.status = "scheduled"
+        a.scheduled_at = now
+        a.scheduled_ends_at = a.ends_at
+        a.save(update_fields=["status", "scheduled_at", "scheduled_ends_at"])
+        record_event(actor=p["name"], role=p["role"], action="Auction scheduled",
+                     detail=f"{a.ref}: opens {_when(a.starts_at)}, closes {_when(a.ends_at)}."
+                            + (" Pre-bids allowed until it opens." if a.allow_prebid else "") + by)
+        sent = _send_invites(a, p)
+        if sent:
+            log(p, "Auction invitations sent", f"{sent} vendor(s) emailed the schedule for {a.ref}.")
+        return None
+    told = _told(a)
+    a.starts_at = now
+    a.save(update_fields=["starts_at"])
+    bad = engine.open_auction(a, p["name"])
+    if bad:
+        return bad
+    _tell(told, f"The auction room is open: {a.title}",
+          f"{org_name()} has opened {a.ref} - {a.title}. You can bid now. "
+          f"Bidding closes on {_when(a.ends_at)}.", a)
+    sent = _send_invites(a, p)
+    if sent:
+        log(p, "Auction invitations sent", f"{sent} vendor(s) emailed when {a.ref} opened.")
+    return None
+
+
 @route(["POST"], perm="auction.open")
-def auction_open(request, p, body, aid):
+def auction_submit(request, p, body, aid):
+    """Send a draft out: to the line manager first where that is required, and
+    otherwise straight to the vendors, scheduled or open now."""
     a = _find(aid)
     if not a:
         return err("Auction not found.", 404)
-    told = list(a.participants.filter(invite_count__gt=0, disqualified=False)
-                .values_list("supplier_id", flat=True))
+    return _submit(a, p)
+
+
+def _submit(a, p):
+    from . import approvals, signoffs
+    aid = a.id
+    if a.status == "approval":
+        return err("This auction is already waiting for approval.", 409)
+    if a.status != "draft":
+        return err("This auction has already gone out.", 409)
+    problem = _ready_problem(a)
+    if problem:
+        return err(problem, 409)
+    if approvals.line_manager_required():
+        so, msg = signoffs.request(
+            "auction_release", p, auction=a,
+            change={"startsAt": [None, a.starts_at or 0], "endsAt": [None, a.ends_at]}
+            if a.starts_at else {"endsAt": [None, a.ends_at]})
+        if msg:
+            return err(msg, 409)
+        a.status = "approval"
+        a.save(update_fields=["status"])
+        out = _auction_view(a, p, monitor=True)
+        out["pending"] = True
+        out["approver"] = signoffs.approver_words(so)
+        return JsonResponse(out)
+    problem = release(a, p)
+    if problem:
+        return err(problem, 409)
+    a = _find(aid)
+    return JsonResponse(_auction_view(a, p, monitor=True))
+
+
+@route(["POST"])
+def auction_recall(request, p, body, aid):
+    """Take an auction back from approval to draft, to change it."""
+    from . import signoffs
+    a = _find(aid)
+    if not a or a.status != "approval":
+        return err("Only an auction waiting for approval can be recalled.", 409)
+    so = signoffs.pending("auction_release", auction=a)
+    if not (has(p, "auction.edit") or (so and so.requested_by_id == p.get("id"))):
+        return err("You don't have permission to do that.", 403)
+    if so:
+        so.status = "withdrawn"
+        so.decided_at, so.decided_by = now_ms(), p["name"]
+        so.save(update_fields=["status", "decided_at", "decided_by"])
+    a.status = "draft"
+    a.save(update_fields=["status"])
+    log(p, "Auction recalled to draft", f"{a.ref} taken back from approval to be changed.")
+    return JsonResponse(_auction_view(a, p, monitor=True))
+
+
+def times_problem(a, starts_at, ends_at, now=None):
+    """Why the auction cannot move to these times, or None."""
+    now = now if now is not None else now_ms()
+    if a.status == "scheduled":
+        if not starts_at or starts_at <= now:
+            return "The opening time must be in the future."
+        if not ends_at or ends_at <= starts_at:
+            return "The auction has to close after it opens."
+        if starts_at < (a.starts_at or 0) and starts_at < now + EARLIER_NOTICE_MS:
+            return ("Moving the opening earlier needs at least 24 hours' notice to vendors. "
+                    f"Pick {_when(now + EARLIER_NOTICE_MS)} or later.")
+        if starts_at == a.starts_at and ends_at == a.ends_at:
+            return "Those are the times already."
+        return None
+    if a.status in ("live", "paused"):
+        if starts_at and starts_at != a.starts_at:
+            return "The room is already open; only its closing time can move."
+        if not ends_at or ends_at <= max(now, a.ends_at or 0):
+            return "A live auction's closing time can only move later."
+        return None
+    return "Only a scheduled or live auction's times can be changed."
+
+
+def apply_times(a, p, starts_at=None, ends_at=None, reason="", requested_by=None):
+    """Move the times and tell every vendor. Returns an error, or None."""
+    a = _find(a.id)
+    starts_at = starts_at or a.starts_at
+    ends_at = ends_at or a.ends_at
+    problem = times_problem(a, starts_at, ends_at)
+    if problem:
+        return problem
+    old_start, old_end = a.starts_at, a.ends_at
+    a.starts_at, a.ends_at = starts_at, ends_at
+    fields = ["starts_at", "ends_at"]
+    if a.status == "scheduled":
+        a.scheduled_ends_at = ends_at
+        fields.append("scheduled_ends_at")
+    a.save(update_fields=fields)
+    by = requested_by or p["name"]
+    approved = f" Approved by {p['name']}." if requested_by and requested_by != p["name"] else ""
+    moved = []
+    if old_start != starts_at:
+        moved.append(f"opens {_when(old_start)} → {_when(starts_at)}")
+    if old_end != ends_at:
+        moved.append(f"closes {_when(old_end)} → {_when(ends_at)}")
+    record_event(actor=p["name"], role=p["role"], action="Auction times changed",
+                 detail=f"{a.ref}: {'; '.join(moved)}. {reason} Requested by {by}.{approved}")
+    _tell(_told(a), f"New times: {a.title}",
+          f"{org_name()} has changed the times of {a.ref} - {a.title}. "
+          + (f"Bidding now opens on {_when(starts_at)} and closes on {_when(ends_at)}."
+             if a.status == "scheduled" else f"Bidding now closes on {_when(ends_at)}.")
+          + (f" Reason given: {reason}" if reason else ""), a)
+    return None
+
+
+@route(["POST"], perm="auction.lifecycle")
+def auction_times(request, p, body, aid):
+    """Move a scheduled auction's opening or closing, or a live one's close.
+    Waits for the line manager where date change approval is on."""
+    from . import signoffs
+    a = _find(aid)
+    if not a:
+        return err("Auction not found.", 404)
+    try:
+        starts_at = int(body["startsAt"]) if body.get("startsAt") else a.starts_at
+        ends_at = int(body["endsAt"]) if body.get("endsAt") else a.ends_at
+    except (TypeError, ValueError):
+        return err("Enter valid times.")
+    problem = times_problem(a, starts_at, ends_at)
+    if problem:
+        return err(problem, 409 if "Only a" in problem else 400)
+    reason = str(body.get("reason") or "").strip()[:300]
+    if not reason:
+        return err("Give a reason - it is recorded and sent to every vendor.")
+    if signoffs.timeline_approval_required():
+        if signoffs.pending("auction_times", auction=a):
+            return err("A change to these times is already waiting for approval.", 409)
+        change = {}
+        if starts_at != a.starts_at:
+            change["startsAt"] = [a.starts_at, starts_at]
+        if ends_at != a.ends_at:
+            change["endsAt"] = [a.ends_at, ends_at]
+        so, msg = signoffs.request("auction_times", p, auction=a, change=change, reason=reason)
+        if msg:
+            return err(msg, 409)
+        out = _auction_view(a, p, monitor=True)
+        out["pending"] = True
+        out["approver"] = signoffs.approver_words(so)
+        return JsonResponse(out)
+    problem = apply_times(a, p, starts_at, ends_at, reason)
+    if problem:
+        return err(problem, 409)
+    return JsonResponse(_auction_view(_find(aid), p, monitor=True))
+
+
+@route(["POST"], perm="auction.open")
+def auction_open(request, p, body, aid):
+    """The old "open the room" button. A draft goes the way every draft goes
+    now (auction_submit); a scheduled auction opens on schedule, not early."""
+    a = _find(aid)
+    if not a:
+        return err("Auction not found.", 404)
+    if a.status in ("draft", "approval"):
+        return _submit(a, p)
+    if a.status == "scheduled":
+        return err(f"This auction opens on schedule, {_when(a.starts_at)}. Change its times "
+                   f"to open it at another time.", 409)
+    told = _told(a)
     bad = engine.open_auction(a, p["name"])
     if bad:
         return err(bad, 409)
@@ -858,18 +1243,23 @@ def auction_close(request, p, body, aid):
 
 @route(["POST"], perm="auction.lifecycle")
 def auction_cancel(request, p, body, aid):
+    from . import signoffs
     a = _find(aid)
     if not a or a.status in ("awarded", "cancelled"):
         return err("This auction cannot be cancelled.", 409)
     reason = str(body.get("reason", "")).strip()[:300]
     if not reason:
         return err("Cancelling an auction needs a reason on the record.")
+    told = _told(a) if a.status not in ("draft", "approval") else []
     a.status = "cancelled"
     a.cancelled_at = now_ms()
     a.cancel_reason = reason
     a.save(update_fields=["status", "cancelled_at", "cancel_reason"])
+    signoffs.void_for("The auction was cancelled.", auction=a)
     record_event(actor=p["name"], role=p["role"], action="Auction cancelled",
                  detail=f"{a.ref}: {reason}")
+    _tell(told, f"Auction cancelled: {a.title}",
+          f"{org_name()} has cancelled {a.ref} - {a.title}. Reason given: {reason}", a)
     return JsonResponse(_auction_view(a, p, monitor=True))
 
 
@@ -987,14 +1377,19 @@ def room(request, p, body, aid):
     a = _find(aid)
     if not a:
         return err("Auction not found.", 404)
-    # Time up: settle it now, so whoever is looking sees the result rather
-    # than a "live" room with the clock at zero.
+    # Start time reached, or time up: settle it now, so whoever is looking sees
+    # the room as it is rather than as the last sweep left it.
+    if a.status == "scheduled" and (a.starts_at or 0) <= now_ms():
+        engine.start_due()
+        a = _find(aid)
     if engine.settle_if_due(a):
         a = _find(aid)
     supplier = p["role"] == "supplier"
     part = _mine(a, p)
     if supplier and not part:
         return err("You are not a participant in this auction.", 403)
+    if supplier and a.status in ("draft", "approval"):
+        return err("This auction has not gone out to vendors yet.", 404)
     if not supplier and not has(p, "page.auctions"):
         return err("You don't have permission to do that.", 403)
 
@@ -1002,6 +1397,15 @@ def room(request, p, body, aid):
     now = now_ms()
     out = _auction_view(a, p, monitor=monitor)
     out["lotState"] = []
+    out["questions"] = _questions_view(a, p)
+    if supplier and out.get("gated"):
+        # Past the NDA and the payment terms first: nothing about the lots.
+        out["questions"] = []
+        out["accepted"] = bool(part.accepted_at)
+        out["disqualified"] = part.disqualified
+        out["disqualifiedReason"] = part.disqualified_reason or ""
+        return JsonResponse(out)
+    sealed = a.status == "scheduled"   # the pre-bid stage: own prices only
 
     names = {s.id: s.name for s in Supplier.objects.all()} if monitor else {}
 
@@ -1027,6 +1431,15 @@ def room(request, p, body, aid):
             my_rank = next((r["rank"] for r in rows if r["supplierId"] == me), None)
             st.update({"myBids": mine, "myRank": my_rank,
                        "leading": my_rank == 1 if my_rank else False})
+            if sealed:
+                # Before the room opens a vendor sees their own pre-bid and
+                # nothing about anybody else's: no rank, no count, no best.
+                st.update({"myRank": None, "leading": None, "best": None, "toLead": None,
+                           "myLimit": None})
+                st.pop("bidders", None)
+                st.pop("movements", None)
+                out["lotState"].append(st)
+                continue
             if a.visibility == "price":
                 st["best"] = top["amount"] if top else None
             elif a.visibility == "rank":
@@ -1055,12 +1468,76 @@ def room(request, p, body, aid):
     return JsonResponse(out)
 
 
+def _questions_view(a, p):
+    """Questions and answers on this auction. A vendor sees every answered
+    question and their own unanswered ones; never who asked."""
+    rows = []
+    names = None
+    for c in a.questions.order_by("asked_at"):
+        if p["role"] == "supplier":
+            if not c.a and c.supplier_id != p["supplierId"]:
+                continue
+            rows.append({"id": c.id, "q": c.q, "askedAt": c.asked_at, "a": c.a,
+                         "answeredAt": c.answered_at, "mine": c.supplier_id == p["supplierId"]})
+        else:
+            if names is None:
+                names = dict(Supplier.objects.filter(
+                    pk__in=a.questions.values_list("supplier_id", flat=True)).values_list("id", "name"))
+            rows.append({"id": c.id, "q": c.q, "askedAt": c.asked_at, "a": c.a,
+                         "answeredAt": c.answered_at, "supplierId": c.supplier_id,
+                         "supplier": names.get(c.supplier_id, c.supplier_id)})
+    return rows
+
+
+@route(["POST"], roles={"supplier"})
+def ask_question(request, p, body, aid):
+    """A vendor's question, before the room opens or while it is open. The
+    answer goes to every vendor still in the auction."""
+    from .models import Clarification
+    from .notify import _users_for_perm, notify_users
+    a = _find(aid)
+    part = a and _mine(a, p)
+    if not part or part.disqualified or a.status not in ("scheduled", "live", "paused"):
+        return err("Questions can be asked while the auction is scheduled or open.", 403)
+    gate = _gate_error(a, p["supplierId"])
+    if gate:
+        return err(gate, 403)
+    q = str(body.get("q") or "").strip()[:2000]
+    if not q:
+        return err("The question is empty.")
+    Clarification.objects.create(id=rid("q"), tender=None, auction=a, supplier_id=p["supplierId"],
+                                 q=q, asked_at=now_ms())
+    log(p, "Auction question asked", f"{a.ref}: question submitted to the buyer.")
+    notify_users(_users_for_perm("clarification.answer"), f"New question: {a.title}",
+                 f"A vendor asked a question on {a.ref}. The answer is published to every vendor "
+                 f"in the auction.", destination={"page": "auction", "id": a.id})
+    return JsonResponse({"ok": True, "questions": _questions_view(a, p)})
+
+
 @route(["POST"], roles={"supplier"})
 def accept_terms(request, p, body, aid):
     a = _find(aid)
     part = a and _mine(a, p)
-    if not part:
+    if not part or a.status in ("draft", "approval"):
         return err("You are not a participant in this auction.", 403)
+    kind = str(body.get("kind") or "rules")
+    if kind in ("nda", "payment"):
+        from . import agreements
+        if body.get("agree") is not True:
+            return err("Tick the box to confirm you have read it and agree.")
+        from .views import _username
+        acc, msg = agreements.accept(a, p["supplierId"], kind, body.get("name"), body.get("title"),
+                                     _username(p), agreements.client_ip(request))
+        if msg:
+            return err(msg)
+        what = "Non-disclosure agreement signed" if kind == "nda" else "Payment terms accepted"
+        log(p, what, f"{a.ref}: {acc.signed_name}"
+                     f"{f' ({acc.signed_title})' if acc.signed_title else ''}. "
+                     f"Text digest {acc.digest[:16]}.")
+        return JsonResponse({"ok": True, "agreements": agreements.summary(a, p["supplierId"])})
+    gate = _gate_error(a, p["supplierId"])
+    if gate:
+        return err(gate, 403)
     if not part.accepted_at:
         part.accepted_at = now_ms()
         part.save(update_fields=["accepted_at"])
@@ -1079,7 +1556,17 @@ def place_bid(request, p, body, aid, lid):
         amount = _bid_whole(body.get("amount"))
     except (TypeError, ValueError):
         return err("Enter a positive whole amount; fractions and negative prices are not accepted.")
+    gate = _gate_error(a, p["supplierId"])
+    if gate:
+        return err(gate, 403)
 
+    if a.status == "scheduled":
+        bid, bad = engine.place_prebid(lot, p["supplierId"], amount)
+        if bad:
+            return err(bad, 409)
+        return JsonResponse({"ok": True, "bidId": bid.id, "amount": bid.amount, "at": bid.at,
+                             "prebid": True, "myRank": None, "leading": None, "extended": False,
+                             "endsAt": a.ends_at, "serverNow": now_ms()})
     bid, bad = engine.place_bid(lot, p["supplierId"], amount)
     if bad:
         return err(bad, 409)

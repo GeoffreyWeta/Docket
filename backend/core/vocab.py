@@ -40,6 +40,8 @@ CURRENCIES = [code for code, _label in VOCAB["currencies"]]
 NIGERIAN_STATES = VOCAB["nigerianStates"]
 TIMEZONES = [z for z, _label in VOCAB["timezones"]]
 COUNTRIES = [c[0] for c in VOCAB["countries"]]
+BID_DOC_TYPES = {v: envelope for v, _label, envelope in VOCAB["bidDocTypes"]}
+REMINDER_HOURS = [h for h, _label in VOCAB["reminderHours"]]
 
 
 class Refused(ValueError):
@@ -148,6 +150,45 @@ def payment_terms(value, keep=""):
     if re.search(r"MILESTONE|STAGED", up):
         return "Milestone payments"
     raise Refused(f'"{raw}" is not one of the payment terms. Choose one from the list.')
+
+
+def bid_doc_type(value):
+    """One of the bid document types, or blank (an upload from an older
+    screen that did not ask)."""
+    raw = _text(value)
+    if not raw:
+        return ""
+    hit = _exact(raw, list(BID_DOC_TYPES))
+    if not hit:
+        raise Refused(f'"{raw}" is not one of the document types. Choose one from the list.')
+    return hit
+
+
+def bid_doc_types(values):
+    """A list of bid document types, deduplicated, in the list's own order."""
+    if values in (None, ""):
+        return []
+    if not isinstance(values, list):
+        raise Refused("Required documents must be a list of document types.")
+    picked = {bid_doc_type(v) for v in values} - {""}
+    return [v for v in BID_DOC_TYPES if v in picked]
+
+
+def reminder_hours(values):
+    """When to remind vendors, in hours before a closing time: values off the
+    list only, largest first. An empty list switches reminders off."""
+    if not isinstance(values, list):
+        raise Refused("Reminder times must be a list.")
+    out = set()
+    for v in values:
+        try:
+            h = int(v)
+        except (TypeError, ValueError):
+            raise Refused("Choose reminder times from the list.")
+        if h not in REMINDER_HOURS:
+            raise Refused("Choose reminder times from the list.")
+        out.add(h)
+    return sorted(out, reverse=True)
 
 
 # ------------------------------------------------------------- what is bought

@@ -1,7 +1,8 @@
 from django.urls import path
 
 from . import (account_views, admin_views, auction_views, auth_views, export_views,
-               feed_views, finance_views, invite_views, setup_views, procurement, views)
+               feed_views, finance_views, invite_views, setup_views, procurement, signoffs,
+               views)
 
 # The administration console. Its own sign-in, its own token check (superuser or
 # nothing), and no link to it anywhere in the tendering UI.
@@ -62,6 +63,13 @@ auction_urlpatterns = [
     path("auctions/<str:aid>/invite_list/", auction_views.invite_list),
     path("auctions/<str:aid>/participants/<str:pid>/disqualify/", auction_views.disqualify),
     path("auctions/<str:aid>/open/", auction_views.auction_open),
+    path("auctions/<str:aid>/submit/", auction_views.auction_submit),
+    path("auctions/<str:aid>/recall/", auction_views.auction_recall),
+    path("auctions/<str:aid>/times/", auction_views.auction_times),
+    path("auctions/<str:aid>/questions/", auction_views.ask_question),
+    path("auctions/<str:aid>/docs/", auction_views.doc_upload),
+    path("auctions/<str:aid>/docs/<str:did>/", auction_views.doc_download),
+    path("auctions/<str:aid>/docs/<str:did>/delete/", auction_views.doc_delete),
     path("auctions/<str:aid>/pause/", auction_views.auction_pause),
     path("auctions/<str:aid>/resume/", auction_views.auction_resume),
     path("auctions/<str:aid>/close/", auction_views.auction_close),
@@ -125,6 +133,10 @@ urlpatterns = admin_urlpatterns + feed_urlpatterns + auction_urlpatterns + [
 
     # --- the event lifecycle (procurement.py) ---
     path("tenders/<str:tid>/extend/", procurement.extend_deadline),
+    path("tenders/<str:tid>/accept/", views.accept_agreement),
+    path("acceptances/<str:aid>/", views.acceptance_record),
+    path("signoffs/<str:sid>/decide/", signoffs.decide),
+    path("signoffs/<str:sid>/withdraw/", signoffs.withdraw),
     path("tenders/<str:tid>/pause/", procurement.pause_event),
     path("tenders/<str:tid>/resume/", procurement.resume_event),
     path("tenders/<str:tid>/cancel/", procurement.cancel_event),

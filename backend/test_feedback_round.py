@@ -127,14 +127,15 @@ def make(extra, submit=True):
 
 # ---------------------------------------------------------------- maximums
 print("\n-- optional maximums, visible ceiling, closing time")
-OrgSetting.objects.update_or_create(pk=1, defaults={"data": {"approvalThreshold": 1_000_000_000}})
+OrgSetting.objects.update_or_create(pk=1, defaults={"data": {"approvalThreshold": 1_000_000_000,
+                                                       "lineManagerApproval": False}})
 t = make({"deadline": now_ms() + 2 * DAY_MS,
           "lines": [{"desc": "Cups", "qty": 100, "unit": "box"}]})
 ok("a tender with no maximums is accepted", t.budget == 0, t.budget)
 ok("and with a threshold set it waits for sign-off instead of publishing",
    t.status == "approval", t.status)
 
-OrgSetting.objects.update_or_create(pk=1, defaults={"data": {"approvalThreshold": 0}})
+OrgSetting.objects.update_or_create(pk=1, defaults={"data": {"approvalThreshold": 0, "lineManagerApproval": False}})
 deadline = now_ms() + 3 * DAY_MS + 37 * 60_000      # not on the hour
 t = make({"deadline": deadline, "budgetVisible": True,
           "lines": [{"desc": "Cups", "qty": 100, "unit": "box", "price": 500},

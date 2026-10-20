@@ -413,7 +413,7 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
       done: f.useLadder
         ? `${f.levels.length} level${f.levels.length === 1 ? "" : "s"} of signing authority`
         : "Single threshold: " + (Number(f.threshold) > 0
-          ? "sign-off from " + fmtMoney(Number(f.threshold), cur) : "everything publishes straight away"),
+          ? "sign-off from " + fmtMoney(Number(f.threshold), cur) : "only the line manager signs"),
       note: f.useLadder
         ? "Requests walk your reporting line until somebody's limit covers the amount."
         : undefined },
@@ -1009,9 +1009,9 @@ export function SetupWorkspace({ onDone, onLoggedIn }) {
                     <input id="su-thr-in" className="in" type="number" min="0" step="1000000"
                            value={f.threshold} onChange={(e) => set("threshold", e.target.value)} />
                     <div className="hint">
-                      A tender at or above this amount needs a sign-off before it publishes;
-                      below it, it publishes directly. Awards always need a sign-off. Set 0 to
-                      send nothing for sign-off.
+                      Every tender first needs the raiser's line manager. One at or above this
+                      amount also needs a sign-off from someone who can approve publication.
+                      Awards always need a sign-off. Set 0 to leave it to the line manager.
                     </div>
                   </div>
                 )}

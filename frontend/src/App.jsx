@@ -845,11 +845,22 @@ export default function App() {
     campaignStop: () => raw("/suppliers/campaign/", { method: "POST", body: { action: "stop" } }),
 
     /* ---- the event lifecycle ---- */
-    extendDeadline: wrap((id, deadline, reason) =>
+    /* Both hand back the server's answer: with date change approval on, the
+       answer is "waiting for <line manager>" and nothing has moved yet. */
+    extendDeadline: wrapValue((id, deadline, reason) =>
       raw(`/tenders/${id}/extend/`, { method: "POST", body: { deadline, reason } })),
     pauseEvent: wrap((id, reason) => raw(`/tenders/${id}/pause/`, { method: "POST", body: { reason } })),
-    resumeEvent: wrap((id, deadline) =>
+    resumeEvent: wrapValue((id, deadline) =>
       raw(`/tenders/${id}/resume/`, { method: "POST", body: deadline ? { deadline } : {} })),
+
+    /* ---- line manager sign-offs (auctions going out, dates moving) ---- */
+    decideSignoff: wrap((sid, ok, note) =>
+      raw(`/signoffs/${sid}/decide/`, { method: "POST", body: { ok, note } })),
+    withdrawSignoff: wrap((sid) => raw(`/signoffs/${sid}/withdraw/`, { method: "POST", body: {} })),
+
+    /* ---- a vendor signing an event's NDA or accepting its payment terms ---- */
+    acceptAgreement: wrap((tid, kind, name, title) =>
+      raw(`/tenders/${tid}/accept/`, { method: "POST", body: { kind, name, title, agree: true } })),
     cancelEvent: wrap((id, reason) => raw(`/tenders/${id}/cancel/`, { method: "POST", body: { reason } })),
 
     /* ---- the event's vendors ---- */

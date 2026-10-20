@@ -116,6 +116,9 @@ def vendor_rows(t, p):
     from .views import UNREACHED
     unreached = " ".join(Event.objects.filter(tender_id=t.id, action=UNREACHED)
                          .values_list("detail", flat=True))
+    from . import agreements
+    signed = agreements.buyer_rows(t)
+    asked = agreements.required(t)
     out = []
     for sid in ids:
         s = suppliers.get(sid)
@@ -147,6 +150,8 @@ def vendor_rows(t, p):
             "disqualified": bool(last and last.disqualified),
             "evaluationStatus": ("scored" if scored else "pending" if last else "n/a"),
             "awarded": t.awarded_to == sid,
+            # The NDA and the payment terms, where the event asks for them.
+            "agreements": {k: signed.get(sid, {}).get(k) for k in asked},
         })
     return out
 
@@ -199,42 +204,53 @@ def _bucket_bids(bids, t, p):
 
 # ---------------- lifecycle: deadline ----------------
 
-@route(["POST"], perm="tender.extend")
-def extend_deadline(request, p, body, tid):
-    """Push the submission deadline back.
+# Moving a closing date earlier is allowed, with notice: a vendor working to
+# the published date must have at least this long to finish.
+EARLIER_NOTICE_MS = 24 * 3600 * 1000
 
-    Only forward: a deadline brought in is a deadline a bidder who was working
-    to the published one cannot meet, and there is no version of that which is
-    fair. Sealed events can be extended - that is a reopening, and it is the
-    normal remedy when a deadline lapses on a competition with too few bids -
-    but an opened one cannot, because bids whose prices have been seen cannot
-    compete against bids submitted afterwards.
+
+def deadline_problem(t, new_deadline, now=None):
+    """Why this tender's closing date cannot move to `new_deadline`, or None.
+
+    Later is the ordinary case, and reopens an event whose deadline has lapsed
+    but whose bids are still sealed. Earlier is allowed with a day's notice,
+    because a vendor pricing to the published date has to be able to finish.
+    Never once the bids have been opened: bids whose prices have been seen
+    cannot compete against bids submitted afterwards.
     """
-    t = Tender.objects.filter(pk=tid).first()
-    if not t:
-        return err("Tender not found.", 404)
+    now = now if now is not None else now_ms()
     if t.status in FROZEN:
-        return err(f"This event is {t.status} - its deadline is final.", 409)
+        return f"This event is {t.status} - its deadline is final."
     if t.status in ("draft", "approval"):
-        return err("Set the deadline on the draft itself; extensions are for live events.", 409)
+        return "Set the deadline on the draft itself; changes here are for live events."
     if t.opened_at or t.tech_opened_at:
-        return err("Bids have been opened. Reopening after an opening would let a late "
-                   "bidder price against what was already unsealed.", 409)
-    try:
-        new_deadline = int(body.get("deadline") or 0)
-    except (TypeError, ValueError):
-        return err("Enter a valid new deadline.")
-    if new_deadline <= now_ms():
-        return err("The new deadline must be in the future.")
-    if new_deadline <= t.deadline:
-        return err("A deadline can only be pushed back. Bidders working to the published "
-                   "date cannot be asked to meet an earlier one.")
-    reason = str(body.get("reason") or "").strip()[:300]
-    if not reason:
-        return err("Give a reason - it is recorded and sent to every invited vendor.")
+        return ("Bids have been opened. Reopening after an opening would let a late "
+                "bidder price against what was already unsealed.")
+    if new_deadline <= now:
+        return "The new deadline must be in the future."
+    if new_deadline == t.deadline:
+        return "That is already the closing date."
+    if new_deadline < t.deadline and new_deadline < now + EARLIER_NOTICE_MS:
+        return ("Moving the closing date earlier needs at least 24 hours' notice to vendors. "
+                f"Pick {fmt_date_ms(now + EARLIER_NOTICE_MS)} or later.")
+    return None
 
+
+def apply_deadline_change(t, new_deadline, reason, p, requested_by=None, resume=False):
+    """Move the closing date and tell every invited vendor. Returns an error
+    sentence, or None. `p` is whoever is applying it (the requester, or the
+    line manager approving it); `requested_by` names the requester."""
+    t.refresh_from_db()
+    if resume and t.status != "paused":
+        return "the event is no longer paused."
+    problem = deadline_problem(t, new_deadline)
+    if problem:
+        return problem
     old = t.deadline
     reopened = eff_status(t) == "closed"
+    earlier = new_deadline < old
+    by = requested_by or p["name"]
+    approved_by = p["name"] if requested_by and requested_by != p["name"] else None
     with transaction.atomic():
         # Reopening needs no status change: "closed" was never stored, it was
         # derived from the deadline having passed (see util.eff_status), so
@@ -242,9 +258,16 @@ def extend_deadline(request, p, body, tid):
         # would be a second, contradictory source of truth for the same fact.
         t.deadline = new_deadline
         t.deadline_changes = list(t.deadline_changes or []) + [
-            {"from": old, "to": new_deadline, "at": now_ms(), "by": p["name"], "reason": reason}
+            {"from": old, "to": new_deadline, "at": now_ms(), "by": by, "reason": reason,
+             **({"approvedBy": approved_by} if approved_by else {})}
         ]
-        t.save(update_fields=["deadline", "deadline_changes"])
+        fields = ["deadline", "deadline_changes"]
+        if resume:
+            t.status = "published"
+            t.resumed_at = now_ms()
+            t.paused_reason = ""
+            fields += ["status", "resumed_at", "paused_reason"]
+        t.save(update_fields=fields)
         r = t.active_round() or t.latest_round()
         if r and r.status in ("open", "closed"):
             r.deadline = new_deadline
@@ -252,13 +275,68 @@ def extend_deadline(request, p, body, tid):
             r.closed_at = None
             r.save(update_fields=["deadline", "status", "closed_at"])
 
-    log(p, "Deadline extended" + (" - event reopened" if reopened else ""),
-        f"{fmt_date_ms(old)} → {fmt_date_ms(new_deadline)}. {reason}", t.id)
-    notify_suppliers(t.invited, f"Deadline extended: {t.title}",
-                     f"The submission deadline for {t.ref} has moved from {fmt_date_ms(old)} to "
-                     f"{fmt_date_ms(new_deadline)}. Reason given: {reason}", t.id)
-    notify_perm("bid.open", f"Deadline extended: {t.title}",
-                f"{p['name']} moved the deadline on {t.ref} to {fmt_date_ms(new_deadline)}. {reason}", t.id)
+    approved = f" Approved by {approved_by}." if approved_by else ""
+    if resume:
+        log(p, "Event resumed", f"Submissions reopened. Deadline moved {fmt_date_ms(old)} → "
+                                f"{fmt_date_ms(new_deadline)}. Requested by {by}.{approved}", t.id)
+        notify_suppliers(t.invited, f"Event resumed: {t.title}",
+                         f"{org_name()} has resumed {t.ref}. Submissions are open again until "
+                         f"{fmt_date_ms(new_deadline)}.", t.id)
+    else:
+        action = ("Closing date brought forward" if earlier
+                  else "Deadline extended" + (" - event reopened" if reopened else ""))
+        log(p, action, f"{fmt_date_ms(old)} → {fmt_date_ms(new_deadline)}. {reason} "
+                       f"Requested by {by}.{approved}", t.id)
+        word = "brought forward" if earlier else "extended"
+        notify_suppliers(t.invited, f"Closing date {word}: {t.title}",
+                         f"The submission deadline for {t.ref} has moved from {fmt_date_ms(old)} to "
+                         f"{fmt_date_ms(new_deadline)}. Reason given: {reason}"
+                         + (" Please make sure your bid is in by the new, earlier time." if earlier
+                            else ""), t.id)
+    notify_perm("bid.open", f"Deadline {'brought forward' if earlier else 'moved'}: {t.title}",
+                f"The deadline on {t.ref} is now {fmt_date_ms(new_deadline)}. {reason}", t.id)
+    return None
+
+
+@route(["POST"], perm="tender.extend")
+def extend_deadline(request, p, body, tid):
+    """Move a live tender's closing date, later or (with notice) earlier.
+
+    With date change approval on (the default) this raises a request for the
+    requester's line manager and nothing moves until they approve; every
+    invited vendor is told the moment it does.
+    """
+    from . import signoffs
+    t = Tender.objects.filter(pk=tid).first()
+    if not t:
+        return err("Tender not found.", 404)
+    if t.status in FROZEN or t.status in ("draft", "approval") or t.opened_at or t.tech_opened_at:
+        return err(deadline_problem(t, now_ms() + 1), 409)
+    try:
+        new_deadline = int(body.get("deadline") or 0)
+    except (TypeError, ValueError):
+        return err("Enter a valid new deadline.")
+    problem = deadline_problem(t, new_deadline)
+    if problem:
+        return err(problem)
+    reason = str(body.get("reason") or "").strip()[:300]
+    if not reason:
+        return err("Give a reason - it is recorded and sent to every invited vendor.")
+
+    if signoffs.timeline_approval_required():
+        waiting = signoffs.pending("deadline", tender=t)
+        if waiting:
+            return err(f"A change to this closing date is already waiting for "
+                       f"{signoffs.approver_words(waiting)}. Withdraw it before asking for another.", 409)
+        so, msg = signoffs.request("deadline", p, tender=t, reason=reason,
+                                   change={"deadline": [t.deadline, new_deadline]})
+        if msg:
+            return err(msg, 409)
+        return JsonResponse({"ok": True, "pending": True, "approver": signoffs.approver_words(so),
+                             "signoff": signoffs.view(so, p)})
+    problem = apply_deadline_change(t, new_deadline, reason, p)
+    if problem:
+        return err(problem, 409)
     return JsonResponse({"ok": True, "deadline": new_deadline})
 
 
@@ -296,11 +374,28 @@ def resume_event(request, p, body, tid):
     the event was paused, a new one is required rather than defaulted: the
     system cannot know how long bidders now need.
     """
+    from . import signoffs
     t = Tender.objects.filter(pk=tid).first()
     if not t:
         return err("Tender not found.", 404)
     if t.status != "paused":
         return err("This event is not paused.", 409)
+    if body.get("deadline") and signoffs.timeline_approval_required():
+        # A new closing date is a date change like any other: the event stays
+        # paused until the line manager approves it, and resumes on that date.
+        try:
+            new_deadline = int(body.get("deadline"))
+        except (TypeError, ValueError):
+            return err("Enter a valid new deadline.")
+        if new_deadline <= now_ms():
+            return err("The new deadline must be in the future.")
+        if signoffs.pending("deadline", tender=t):
+            return err("A change to this closing date is already waiting for approval.", 409)
+        so, msg = signoffs.request("deadline", p, tender=t, reason="Event resumed after a pause.",
+                                   change={"deadline": [t.deadline, new_deadline], "resume": True})
+        if msg:
+            return err(msg, 409)
+        return JsonResponse({"ok": True, "pending": True, "approver": signoffs.approver_words(so)})
     new_deadline = body.get("deadline")
     if new_deadline:
         try:
@@ -373,6 +468,8 @@ def cancel_event(request, p, body, tid):
         t.save(update_fields=["status", "cancelled_at", "cancel_reason"])
         t.rounds.exclude(status__in=("completed", "cancelled")).update(
             status="cancelled", cancel_reason=reason)
+    from . import signoffs
+    signoffs.void_for("The event was cancelled.", tender=t)
     log(p, "Event cancelled", f"{reason} {n} submission(s) "
         + ("had already been opened." if opened else "held unopened."), t.id)
     notify_suppliers(t.invited, f"Event cancelled: {t.title}",
@@ -480,12 +577,12 @@ def event_vendors(request, p, body, tid):
 
     live = t.status in ("published", "paused") or eff_status(t) == "closed"
     if live and body.get("notify", True):
-        from .views import UNREACHED, _closes_at
+        from .views import UNREACHED, _agreement_words, _closes_at
         for sid in fresh:
             if not notify_supplier(sid, f"Invitation to tender: {t.title}",
                                    f"{org_name()} invites your sealed bid for {t.ref} - {t.title}. "
                                    + (f"Submissions close {_closes_at(t.deadline)}. " if t.deadline else "")
-                                   + "Full terms are in your bid room.", t.id):
+                                   + "Full terms are in your bid room." + _agreement_words(t), t.id):
                 log(p, UNREACHED, f"{found[sid].name} [{sid}] has no account and no contact "
                                   f"email on the register, so the invitation reached nobody.", t.id)
     return JsonResponse({"ok": True, "added": fresh, "alreadyInvited": already,

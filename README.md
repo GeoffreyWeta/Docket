@@ -93,8 +93,27 @@ dispatch, and an idempotent background sweep - no worker dyno required.
   each round seals and opens on its own record, and the **bid bucket** groups every
   submission by round with a movement column showing what the re-bid actually
   changed.
-* **The controls a live event needs** - extend the deadline (forward only, with the
-  old date, the new one, the reason and a notice to every bidder), pause and resume,
+* **Line manager first** - every tender and auction waits for the raiser's line
+  manager (or anyone above them) before any vendor hears of it, whatever its value;
+  the approval matrix still applies on top. Somebody with no line manager on record
+  goes to anyone who can approve publication, never to themselves. Switchable on the
+  Approvals page.
+* **Vendor agreements** - an event can state payment terms and, for a sensitive
+  request, require a non-disclosure agreement. Until a vendor has accepted them they
+  see only the title and dates: no scope, lines, documents or questions, and no
+  bidding. Each acceptance is kept with the signer, the time, the address and the
+  exact text with its SHA-256 digest, downloadable from the event's vendor table.
+  The standard NDA and default payment terms live on the Team page.
+* **Reminders at set times** - vendors who have not bid are emailed at the workspace's
+  reminder times (3 days, 1 day and 2 hours before the close by default), once each,
+  and only for moments after the event went out. Auctions get the same before they
+  open and, once live, before they close.
+* **Typed bid documents** - vendors say what each upload is (quotation, product
+  specification, certificate...); a quotation is sealed in the commercial envelope,
+  and the buyer can require particular types.
+* **The controls a live event needs** - change the closing date (later, or earlier
+  with at least a day's notice; with date change approval on it waits for the
+  requester's line manager, and every invited vendor is told once it moves), pause and resume,
   cancel with a reason every vendor is told verbatim, add or withdraw vendors
   mid-competition, and send the field a message that is not an addendum. Every one
   is capability-gated, recorded on the hash chain, and refused where the event's
@@ -105,6 +124,11 @@ dispatch, and an idempotent background sweep - no worker dyno required.
   organisation was actually paying. The evaluation screen shows all three and
   measures the saving against the strongest one available, naming which - a saving
   whose basis is unstated is a saving nobody can check.
+* **Scheduled auctions with a pre-bid stage** - an auction goes to the line manager,
+  then out on a schedule: vendors are invited with the opening and closing times,
+  can read the lots, terms and documents, ask questions and (where allowed) put in a
+  sealed opening price before it opens. It opens and closes by itself; its times move
+  only with approval, and vendors are told.
 * **Reverse auctions** - a live, rank-visible price competition (tender type "AUC").
   Suppliers see their position, never a competitor's price; the buyer watches a live
   leaderboard. Minimum decrements are enforced, bids in the final two minutes extend

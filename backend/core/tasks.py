@@ -78,17 +78,17 @@ def run_sweep():
                         f"The deadline for {t.ref} has passed. {n} sealed bid(s) are ready for a recorded opening.",
                         t.id)
 
-    # 2) Bid reminders: invited suppliers without a bid, deadline within 2 days.
-    for t in Tender.objects.filter(status="published", deadline__gt=now, deadline__lt=now + 2 * DAY_MS):
-        bidders = set(Bid.objects.filter(tender=t, round=t.active_round())
-                      .values_list("supplier_id", flat=True))
-        word = "sealed bid"
-        rnd = t.active_round()
-        for sid in (rnd.bidders() if rnd else t.invited):
-            if sid not in bidders and _once(f"remind:{t.id}:{t.deadline}:{sid}"):
-                notify_supplier(sid, f"Deadline approaching: {t.title}",
-                                f"Your {word} for {t.ref} is due by {fmt_date_ms(t.deadline)}. "
-                                f"No submission has been received yet.", t.id)
+    # 2) Bid reminders: invited vendors who have not bid, at each of the
+    #    workspace's reminder times before the close (settings "reminderHours").
+    send_tender_reminders(now)
+    # 2b) Auctions: the room opening on schedule, then reminders before it
+    #     opens and, once live, before it closes to those who have not bid.
+    try:
+        from . import auction as auction_engine
+        auction_engine.start_due(now)
+        send_auction_reminders(now)
+    except Exception:                                             # noqa: BLE001
+        pass
 
     # 3) Compliance documents expiring → the vendor at 60 and 7 days, procurement at 30.
     for s in Supplier.objects.all():
@@ -183,6 +183,125 @@ def run_sweep():
     #    here so an overdue payment or a duplicate invoice reaches somebody
     #    without anyone having to open the page and look.
     sweep_finance(now)
+
+
+HOUR_MS = 3600 * 1000
+
+
+def reminder_hours():
+    """The workspace's reminder times, in hours before a close, largest first."""
+    from .views import org_settings
+    raw = org_settings().get("reminderHours")
+    hours = raw if isinstance(raw, list) else [72, 24, 2]
+    return sorted({int(h) for h in hours if str(h).isdigit() and int(h) > 0}, reverse=True)
+
+
+def due_reminder(close_at, went_out, now, hours):
+    """The reminder that is due now, in hours before `close_at`, or None.
+
+    Only reminder moments that came after the event went out count: a tender
+    published two days before its close does not get a "3 days left" email.
+    When several are due at once (the sweep was down, or the times are close
+    together), only the latest is sent - one email saying "2 hours left", not
+    three in a row.
+    """
+    if not close_at or now >= close_at:
+        return None
+    due = [h for h in hours
+           if now >= close_at - h * HOUR_MS and close_at - h * HOUR_MS > (went_out or 0)]
+    return min(due) if due else None
+
+
+def _left(ms):
+    """Time left, as a vendor reads it in an email."""
+    h = max(1, round(ms / HOUR_MS))
+    if h >= 48:
+        return f"{round(h / 24)} days"
+    return f"{h} hour{'s' if h != 1 else ''}"
+
+
+def send_tender_reminders(now=None):
+    """Remind invited vendors who have not bid, once per reminder time."""
+    from . import agreements
+    from .views import _closes_at, org_name
+    now = now or now_ms()
+    hours = reminder_hours()
+    if not hours:
+        return 0
+    sent = 0
+    for t in Tender.objects.filter(status="published", deadline__gt=now,
+                                   deadline__lt=now + max(hours) * HOUR_MS):
+        rnd = t.active_round()
+        went_out = (rnd.opens_at if rnd else t.published_at) or 0
+        h = due_reminder(t.deadline, went_out, now, hours)
+        if h is None:
+            continue
+        bidders = set(Bid.objects.filter(tender=t, round=rnd).values_list("supplier_id", flat=True))
+        suspended = set(Supplier.objects.filter(suspended=True).values_list("id", flat=True))
+        word = "bid" if t.bid_mode == "open" else "sealed bid"
+        for sid in (rnd.bidders() if rnd else t.invited):
+            if sid in bidders or sid in suspended:
+                continue
+            # The one reminder sent before reminder times existed went out
+            # inside the last two days; count it as the earlier ones.
+            if h >= 48 and TaskMark.objects.filter(pk=f"remind:{t.id}:{t.deadline}:{sid}").exists():
+                continue
+            if not _once(f"remind:{t.id}:{t.deadline}:{sid}:{h}"):
+                continue
+            todo = agreements.gates(t, sid)
+            extra = (" You will first be asked to "
+                     + " and ".join({"nda": "sign the non-disclosure agreement",
+                                     "payment": "accept the payment terms"}[k] for k in todo) + "."
+                     if todo else "")
+            notify_supplier(sid, f"Reminder: {t.title} closes in {_left(t.deadline - now)}",
+                            f"{org_name()} is waiting for your {word} on {t.ref} - {t.title}. "
+                            f"Bids close {_closes_at(t.deadline)}, about {_left(t.deadline - now)} "
+                            f"from now, and nothing has been received from you yet.{extra}", t.id)
+            sent += 1
+    return sent
+
+
+def send_auction_reminders(now=None):
+    """Before a scheduled auction opens, every invited vendor; once it is live,
+    those who have not bid yet, before it closes."""
+    from .auction_views import _when
+    from .models import Auction, LotBid
+    from .views import org_name
+    now = now or now_ms()
+    hours = reminder_hours()
+    if not hours:
+        return 0
+    sent = 0
+    for a in Auction.objects.filter(status__in=("scheduled", "live")):
+        if a.status == "scheduled":
+            close_at, went_out, what = a.starts_at, a.scheduled_at, "opens"
+        else:
+            close_at, went_out, what = a.ends_at, a.starts_at, "closes"
+        h = due_reminder(close_at, went_out, now, hours)
+        if h is None:
+            continue
+        bid = set(LotBid.objects.filter(auction=a, retracted_at__isnull=True)
+                  .values_list("supplier_id", flat=True)) if what == "closes" else set()
+        for part in a.participants.filter(disqualified=False, withdrawn_at__isnull=True,
+                                          invite_count__gt=0):
+            sid = part.supplier_id
+            # The close moves with every late bid, so it is not part of the key
+            # for "closes": an extension must not resend the same reminder.
+            when = close_at if what == "opens" else "live"
+            if sid in bid or not _once(f"aucremind:{a.id}:{what}:{when}:{sid}:{h}"):
+                continue
+            if what == "opens":
+                body = (f"{a.ref} - {a.title} opens for bidding on {_when(a.starts_at)} and closes "
+                        f"on {_when(a.ends_at)}. Before then you can read the lots and terms, ask "
+                        f"questions" + (" and put in an opening price" if a.allow_prebid else "")
+                        + " in the auction room.")
+            else:
+                body = (f"{a.ref} - {a.title} is live and closes on {_when(a.ends_at)}, about "
+                        f"{_left(a.ends_at - now)} from now. You have not placed a bid yet.")
+            notify_supplier(sid, f"Reminder: {a.title} {what} in {_left(close_at - now)}",
+                            f"{org_name()}: {body}", destination={"page": "auction", "id": a.id})
+            sent += 1
+    return sent
 
 
 # The severities worth interrupting somebody for. "watch" findings are real and

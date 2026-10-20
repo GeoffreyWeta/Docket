@@ -326,6 +326,20 @@ class Tender(Syncable, SpendDimensions):
     # Whether vendors are told the maximum order value (the ceiling). Off by
     # default: it is the buyer's call per tender.
     budget_visible = models.BooleanField(default=False)
+    # What the buyer will pay on, and when. Set on the draft, and a vendor
+    # accepts it before they see the rest of the event or bid (see Acceptance).
+    # Blank means the event states no payment terms and asks nobody to accept.
+    payment_terms = models.CharField(max_length=80, blank=True, default="")
+    payment_conditions = models.TextField(blank=True, default="")
+    # A sensitive request: vendors sign the non-disclosure agreement before
+    # they see anything beyond the title and the closing date. The text is
+    # copied onto the event when it is set, so a later change to the company's
+    # standard agreement never alters what an earlier vendor signed.
+    nda_required = models.BooleanField(default=False)
+    nda_text = models.TextField(blank=True, default="")
+    # Document types (vocab "bidDocTypes") a bid must carry, on top of the two
+    # envelope requirements above: e.g. a quotation and a product specification.
+    required_docs = models.JSONField(default=list, blank=True)
     id = models.CharField(primary_key=True, max_length=16)
     ref = models.CharField(max_length=40, unique=True)
     title = models.CharField(max_length=200)
@@ -555,8 +569,13 @@ class Bid(Syncable):
 
 
 class Clarification(models.Model):
+    """A vendor's question and the buyer's published answer. Belongs to a
+    tender or, before and during an auction, to the auction."""
     id = models.CharField(primary_key=True, max_length=16)
-    tender = models.ForeignKey(Tender, on_delete=models.CASCADE, related_name="clarifications")
+    tender = models.ForeignKey(Tender, null=True, blank=True, on_delete=models.CASCADE,
+                               related_name="clarifications")
+    auction = models.ForeignKey("Auction", null=True, blank=True, on_delete=models.CASCADE,
+                                related_name="questions")
     supplier_id = models.CharField(max_length=16)
     q = models.TextField()
     asked_at = models.BigIntegerField()
@@ -650,10 +669,11 @@ class Document(models.Model):
     kind='tender'  - buyer-published tender document (visible to invited suppliers)
     kind='bid'     - supplier submission document; sealed until the recorded opening
     kind='auction' - a photo of what an auction is buying, shown to its bidders
+    kind='auctiondoc' - a document in an auction's pack (specification, drawing)
     envelope       - 'technical' or 'commercial' for bid documents
     """
     id = models.CharField(primary_key=True, max_length=16)
-    kind = models.CharField(max_length=12)  # tender | bid | supplier | auction
+    kind = models.CharField(max_length=12)  # tender | bid | supplier | auction | auctiondoc
     tender = models.ForeignKey(Tender, null=True, blank=True, on_delete=models.CASCADE, related_name="documents")
     auction = models.ForeignKey("Auction", null=True, blank=True, on_delete=models.CASCADE, related_name="images")
     # Which round this belongs to, where it belongs to one. Null is the event
@@ -663,6 +683,9 @@ class Document(models.Model):
                               on_delete=models.SET_NULL, related_name="documents")
     supplier_id = models.CharField(max_length=16, null=True, blank=True)
     envelope = models.CharField(max_length=12, blank=True, default="")
+    # What a bid document is (vocab "bidDocTypes": quotation, product
+    # specification...). Blank on documents uploaded before types existed.
+    doc_type = models.CharField(max_length=40, blank=True, default="")
     encrypted = models.BooleanField(default=False)          # bid docs are ciphertext until opening
     expiry = models.BigIntegerField(null=True, blank=True)  # compliance docs (kind=supplier)
     name = models.CharField(max_length=200)
@@ -766,6 +789,77 @@ class OrgSetting(models.Model):
     id = models.IntegerField(primary_key=True, default=1)
     # {approvalThreshold, approvalLevels, dimensions, name, short, profile, logo}
     data = models.JSONField(default=dict)
+
+
+class SignOff(models.Model):
+    """One request for a line manager's yes, outside the publication chain.
+
+    Three things wait on one: an auction going out to its vendors, a tender's
+    closing date moving after publication, and an auction's times moving after
+    it was scheduled. (A tender going out is the publication chain, with the
+    line manager as its first step: see approvals.publish_plan.)
+
+    `approver` is the requester's line manager when the request was made, and
+    `also` the people above them, who may sign when the manager cannot. With
+    nobody on record above the requester, `approver` is null and anybody
+    holding the fallback capability signs. Nobody signs their own request.
+    """
+    KINDS = (("auction_release", "Auction going out to vendors"),
+             ("deadline", "Tender closing date change"),
+             ("auction_times", "Auction times change"))
+    STATUS = (("pending", "Waiting"), ("approved", "Approved"), ("rejected", "Turned down"),
+              ("withdrawn", "Withdrawn"), ("void", "No longer applies"))
+
+    id = models.CharField(primary_key=True, max_length=16)
+    kind = models.CharField(max_length=20, choices=KINDS)
+    tender = models.ForeignKey(Tender, null=True, blank=True, on_delete=models.CASCADE,
+                               related_name="signoffs")
+    auction = models.ForeignKey("Auction", null=True, blank=True, on_delete=models.CASCADE,
+                                related_name="signoffs")
+    requested_by = models.ForeignKey(Persona, null=True, blank=True, on_delete=models.SET_NULL,
+                                     related_name="+")
+    requested_by_name = models.CharField(max_length=120, blank=True, default="")
+    requested_at = models.BigIntegerField()
+    approver = models.ForeignKey(Persona, null=True, blank=True, on_delete=models.SET_NULL,
+                                 related_name="+")
+    also = models.JSONField(default=list, blank=True)       # persona ids above the approver
+    # What would change, as {field: [from, to]}: {"deadline": [a, b]} or
+    # {"startsAt": [a, b], "endsAt": [a, b]}; plus {"resume": true} when a
+    # paused tender resumes on the new date.
+    change = models.JSONField(default=dict, blank=True)
+    reason = models.CharField(max_length=300, blank=True, default="")
+    status = models.CharField(max_length=12, default="pending", choices=STATUS)
+    decided_at = models.BigIntegerField(null=True, blank=True)
+    decided_by = models.CharField(max_length=120, blank=True, default="")
+    note = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta:
+        ordering = ["-requested_at"]
+
+
+class Acceptance(models.Model):
+    """A vendor's signature on an event's NDA, or acceptance of its payment
+    terms. Kept with the exact text accepted and its digest, because "they
+    agreed to it" is a claim somebody eventually has to evidence."""
+    KINDS = (("nda", "Non-disclosure agreement"), ("payment", "Payment terms"))
+
+    id = models.CharField(primary_key=True, max_length=16)
+    kind = models.CharField(max_length=8, choices=KINDS)
+    tender = models.ForeignKey(Tender, null=True, blank=True, on_delete=models.CASCADE,
+                               related_name="acceptances")
+    auction = models.ForeignKey("Auction", null=True, blank=True, on_delete=models.CASCADE,
+                                related_name="acceptances")
+    supplier_id = models.CharField(max_length=16, db_index=True)
+    signed_name = models.CharField(max_length=120)
+    signed_title = models.CharField(max_length=120, blank=True, default="")
+    username = models.CharField(max_length=150, blank=True, default="")
+    text = models.TextField()
+    digest = models.CharField(max_length=64)
+    at = models.BigIntegerField()
+    ip = models.CharField(max_length=64, blank=True, default="")
+
+    class Meta:
+        ordering = ["at"]
 
 
 class FailedLogin(models.Model):
@@ -1242,7 +1336,8 @@ class Auction(Syncable, SpendDimensions):
     VISIBILITY = (("rank", "Rank only"), ("price", "Best price visible"),
                   ("blind", "Nothing but your own bids"))
 
-    STATUS = (("draft", "Draft"), ("scheduled", "Scheduled"), ("live", "Live"),
+    STATUS = (("draft", "Draft"), ("approval", "Waiting for approval"),
+              ("scheduled", "Scheduled"), ("live", "Live"),
               ("paused", "Paused"), ("closed", "Closed"), ("awarded", "Awarded"),
               ("cancelled", "Cancelled"))
 
@@ -1289,6 +1384,20 @@ class Auction(Syncable, SpendDimensions):
     # them. Recorded per participant, because "they agreed to the terms" is a
     # claim somebody eventually has to evidence.
     require_acceptance = models.BooleanField(default=True)
+
+    # When the invitations went out with the schedule. Reminders before the
+    # room opens are only sent for moments that came after this.
+    scheduled_at = models.BigIntegerField(null=True, blank=True)
+    # The pre-bid stage: while the auction is scheduled, invited vendors can
+    # read everything, ask questions and, where this is on, put in an opening
+    # price that stands as their first bid when the room opens. Pre-bids are
+    # sealed from the other vendors until then.
+    allow_prebid = models.BooleanField(default=False)
+    # Same meaning as on a tender: accepted, or signed, before access.
+    payment_terms = models.CharField(max_length=80, blank=True, default="")
+    payment_conditions = models.TextField(blank=True, default="")
+    nda_required = models.BooleanField(default=False)
+    nda_text = models.TextField(blank=True, default="")
 
     owner = models.ForeignKey(Persona, null=True, blank=True, on_delete=models.SET_NULL,
                               related_name="owned_auctions")
@@ -1421,7 +1530,8 @@ class LotBid(Syncable):
     row and the reason in place.
     """
     KINDS = (("manual", "Entered by the bidder"),
-             ("proxy", "Placed automatically from a standing instruction"))
+             ("proxy", "Placed automatically from a standing instruction"),
+             ("prebid", "Opening price put in before the room opened"))
 
     id = models.CharField(primary_key=True, max_length=16)
     lot = models.ForeignKey(AuctionLot, on_delete=models.CASCADE, related_name="bids")

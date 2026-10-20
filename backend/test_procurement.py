@@ -490,8 +490,11 @@ def sec_round_one(ctx):
 
     # --- extending the deadline --------------------------------------------
     old = tender_of(BUYER, tid)["deadline"]
-    refused("bringing a deadline forward", "POST", f"/api/tenders/{tid}/extend/", BUYER,
-            {"deadline": old - DAY, "reason": "no"}, status=(400,))
+    # Earlier is allowed with a day's notice (October 2026 round); this is
+    # inside it, so it is refused.
+    refused("bringing a deadline forward with under a day's notice", "POST",
+            f"/api/tenders/{tid}/extend/", BUYER,
+            {"deadline": now_ms() + 2 * 3600_000, "reason": "no"}, status=(400,))
     refused("extending without a reason", "POST", f"/api/tenders/{tid}/extend/", BUYER,
             {"deadline": old + 3 * DAY}, status=(400,))
     mail.outbox = []
@@ -951,6 +954,13 @@ def main():
     if not args.keep:
         print("Reseeding the demo workspace…")
         seed_all()
+    # This file exercises the event lifecycle with both approval switches off
+    # (the line manager's sign-off and date change approval have their own
+    # tests in test_event_controls.py), so publishing and extending act at once.
+    from core.models import OrgSetting
+    row, _ = OrgSetting.objects.get_or_create(pk=1)
+    row.data = {**(row.data or {}), "lineManagerApproval": False, "timelineApproval": False}
+    row.save()
     for who in (BUYER, APPROVER, EVAL1, EVAL2, AUDITOR):
         signin(who)
 
