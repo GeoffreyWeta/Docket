@@ -2644,11 +2644,185 @@ function ReturnDialog({ kind, t, onClose, onConfirm }) {
   );
 }
 
+const DIM_LABELS = { department: "Department", cost_centre: "Cost centre", project: "Project",
+  region: "Region", funding_source: "Funding source" };
+
+/** Everything a signer needs to say yes or send it back with a reason: what
+    is being bought and how much of it, the most the company will pay, how bids
+    will be scored, who is invited, what they will be sent and on what terms.
+    The signer approves what vendors will see, so they see all of it. */
+function PublicationReview({ api, t }) {
+  const { state, go } = api;
+  const users = state.users || [];
+  const owner = users.find((u) => u.id === t.ownerId);
+  const vendors = (t.invited || []).map((id) => (state.suppliers || []).find((x) => x.id === id))
+    .filter(Boolean);
+  const docs = (state.documents || []).filter((x) => x.kind === "tender" && x.tenderId === t.id);
+  const terms = t.paymentTerms ? (PAYMENT_TERMS.find(([v]) => v === t.paymentTerms) || [0, t.paymentTerms])[1] : "";
+  const dims = Object.entries(t.dimensions || {}).filter(([, v]) => v);
+  const head = { margin: "16px 0 6px" };
+  return (
+    <div style={{ fontSize: 13.5 }}>
+      <div className="hint" style={{ marginTop: 0 }}>
+        {owner ? `Raised by ${owner.name}${owner.title ? `, ${owner.title}` : ""}. ` : ""}
+        {t.type} · {t.category} · closes {fmtDateTime(t.deadline)}
+        {" "}· {t.bidMode === "open" ? "open bidding: vendors see their position" : "sealed bids"}.
+      </div>
+
+      <div className="lbl" style={head}>What is being bought</div>
+      {(t.lines || []).length > 0 ? (
+        <div className="tscroll">
+          <table className="tbl">
+            <thead><tr><th>#</th><th>Line</th><th className="num">Qty</th><th>Unit</th>
+              <th className="num">Max per unit</th><th className="num">Line maximum</th></tr></thead>
+            <tbody>
+              {t.lines.map((l, i) => (
+                <tr key={l.id}><td className="mono muted">{i + 1}</td>
+                  <td>{l.desc}{l.itemCode ? <span className="mono faint"> · {l.itemCode}</span> : null}</td>
+                  <td className="num mono" data-l="Qty">{Number(l.qty).toLocaleString()}</td>
+                  <td className="muted" data-l="Unit">{l.unit}</td>
+                  <td className="num" data-l="Max per unit">{l.price ? <Money n={l.price} /> : <span className="faint">not set</span>}</td>
+                  <td className="num" data-l="Line maximum">{l.price ? <Money n={l.price * l.qty} /> : <span className="faint">-</span>}</td></tr>
+              ))}
+              <tr><td /><td style={{ fontWeight: 600 }}>Ceiling</td><td /><td /><td />
+                <td className="num" data-l="Ceiling">{t.budget > 0 ? <Money n={t.budget} strong /> : <span className="faint">no maximum set</span>}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      ) : <div className="muted">A single lump sum{t.budget > 0 ? <>, ceiling <Money n={t.budget} /></> : ""}.</div>}
+      {(t.projectedCost != null || t.baseline != null) && (
+        <div className="hint">
+          {t.projectedCost != null && <>Expected to land at <Money n={t.projectedCost} />. </>}
+          {t.baseline != null && <>Currently paying <Money n={t.baseline} />{t.baselineSource ? ` (${t.baselineSource})` : ""}.</>}
+        </div>
+      )}
+
+      <div className="lbl" style={head}>Scope</div>
+      <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{t.scope || <span className="faint">No scope written.</span>}</div>
+
+      <div className="lbl" style={head}>How bids are scored</div>
+      <div className="hint" style={{ marginTop: 0, marginBottom: 6 }}>
+        {t.techWeight}% from the criteria below, {t.commWeight}% from price
+        {t.twoStage ? `. Two-stage: prices open only for bidders scoring at least ${t.techThreshold}/100` : ""}.
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {(t.criteria || []).map((c) => <span key={c.id} className="chip">{c.name} · {c.weight}%</span>)}
+      </div>
+
+      <div className="lbl" style={head}>Vendors invited ({vendors.length})</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {vendors.map((v) => (
+          <span key={v.id} className={"chip" + (v.suspended ? " warn" : "")}
+                title={`${v.category || ""}${v.verificationStatus === "verified" ? " · verified" : " · not verified"}`}>
+            {v.name}
+          </span>
+        ))}
+        {!vendors.length && <span className="faint">Nobody yet.</span>}
+      </div>
+
+      <div className="lbl" style={head}>Documents vendors will be sent</div>
+      {docs.length ? docs.map((x) => (
+        <div className="docrow" key={x.id}>
+          <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}><Icon n="file" s={13} />{x.name}</button>
+          <span className="mono faint">{Math.max(1, Math.round(x.size / 1024))} KB</span>
+        </div>
+      )) : <div className="faint">No documents attached.</div>}
+
+      <div className="lbl" style={head}>Terms</div>
+      <div className="rowline"><span className="muted" style={{ flex: 1 }}>Payment terms vendors accept</span>
+        <span>{terms || "None stated"}</span></div>
+      {t.paymentConditions && <div className="rowline"><span className="muted" style={{ flex: 1 }}>Payment conditions</span>
+        <span style={{ maxWidth: "60%", textAlign: "right" }}>{t.paymentConditions}</span></div>}
+      <div className="rowline"><span className="muted" style={{ flex: 1 }}>Non-disclosure agreement</span>
+        <span>{t.ndaRequired ? "Vendors sign it before they see anything" : "Not required"}</span></div>
+      {t.ndaRequired && t.ndaText && (
+        <details style={{ margin: "4px 0 8px" }}>
+          <summary className="hint">Read the agreement vendors will sign</summary>
+          <div style={{ whiteSpace: "pre-wrap", fontSize: 12.5, marginTop: 6, maxHeight: 280, overflowY: "auto" }}>{t.ndaText}</div>
+        </details>
+      )}
+      <div className="rowline"><span className="muted" style={{ flex: 1 }}>Documents a bid must include</span>
+        <span style={{ maxWidth: "60%", textAlign: "right" }}>
+          {[t.technicalDocumentRequired && "technical proposal", t.commercialDocumentRequired && "commercial document",
+            ...(t.requiredDocs || []).map((d) => d.toLowerCase())].filter(Boolean).join(", ") || "none"}
+        </span></div>
+      {t.budget > 0 && <div className="rowline"><span className="muted" style={{ flex: 1 }}>Maximum value shown to vendors</span>
+        <span>{t.budgetVisible ? "Yes" : "No"}</span></div>}
+      {dims.map(([k, v]) => (
+        <div className="rowline" key={k}><span className="muted" style={{ flex: 1 }}>{DIM_LABELS[k] || k}</span><span>{v}</span></div>
+      ))}
+
+      <div style={{ marginTop: 12 }}>
+        <button className="btn sm" onClick={() => go({ page: "tender", id: t.id })}>Open the full tender</button>
+      </div>
+    </div>
+  );
+}
+
 const SO_KIND = {
   auction_release: "Auction going out to vendors",
   deadline: "Closing date change",
   auction_times: "Auction times change",
 };
+
+/** What the request is about, in full: an auction's lots, vendors, times and
+    terms; or, for a date change, how far the competition has got. */
+function SignoffDetails({ so }) {
+  const d = so.details || {};
+  const head = { margin: "12px 0 6px" };
+  if (so.kind === "deadline") {
+    return (
+      <div className="hint" style={{ marginBottom: 10 }}>
+        {d.invited} vendor{d.invited === 1 ? "" : "s"} invited, {d.bids} bid{d.bids === 1 ? "" : "s"} in so far.
+        {d.changes ? ` The closing date has already moved ${d.changes === 1 ? "once" : `${d.changes} times`}.` : ""}
+      </div>
+    );
+  }
+  return (
+    <More title="The auction in full" open summary="lots, vendors, times and terms">
+      <div style={{ fontSize: 13.5 }}>
+        <div className="hint" style={{ marginTop: 0 }}>
+          {d.direction === "sale" ? "Selling: highest bid wins" : "Buying: lowest price wins"} ·
+          {d.startsAt ? ` opens ${fmtDateTime(d.startsAt)}` : " opens as soon as it is approved"} · closes {fmtDateTime(d.endsAt)} ·
+          {d.visibility === "rank" ? " bidders see their rank" : d.visibility === "price" ? " bidders see the best price" : " blind"}
+          {d.allowPrebid ? " · pre-bids allowed" : ""}.
+        </div>
+        <div className="lbl" style={head}>Lots</div>
+        <div className="tscroll">
+          <table className="tbl">
+            <thead><tr><th>#</th><th>Lot</th><th className="num">Qty</th><th className="num">Opening price</th>
+              <th className="num">Reserve</th><th className="num">Step</th></tr></thead>
+            <tbody>
+              {(d.lots || []).map((l) => (
+                <tr key={l.number}><td className="mono muted">{l.number}</td><td>{l.title}</td>
+                  <td className="num mono" data-l="Qty">{Number(l.qty).toLocaleString()} {l.uom}</td>
+                  <td className="num" data-l="Opening price"><Money n={l.ceiling} /></td>
+                  <td className="num" data-l="Reserve">{l.reserve ? <Money n={l.reserve} /> : <span className="faint">none</span>}</td>
+                  <td className="num" data-l="Step">{l.minDecrement ? (l.decrementIsPct ? `${l.minDecrement}%` : <Money n={l.minDecrement} />) : <span className="faint">any</span>}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {d.scope && <><div className="lbl" style={head}>Scope</div><div style={{ whiteSpace: "pre-wrap" }}>{d.scope}</div></>}
+        {d.terms && <><div className="lbl" style={head}>Terms bidders accept</div><div style={{ whiteSpace: "pre-wrap" }}>{d.terms}</div></>}
+        <div className="lbl" style={head}>Vendors invited ({(d.vendors || []).length})</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {(d.vendors || []).map((v) => <span key={v} className="chip">{v}</span>)}
+        </div>
+        <div className="lbl" style={head}>Payment terms and confidentiality</div>
+        <div className="rowline"><span className="muted" style={{ flex: 1 }}>Payment terms vendors accept</span>
+          <span>{d.paymentTermsLabel || "None stated"}</span></div>
+        {d.paymentConditions && <div className="rowline"><span className="muted" style={{ flex: 1 }}>Conditions</span>
+          <span style={{ maxWidth: "60%", textAlign: "right" }}>{d.paymentConditions}</span></div>}
+        <div className="rowline"><span className="muted" style={{ flex: 1 }}>Non-disclosure agreement</span>
+          <span>{d.ndaRequired ? "Vendors sign it before they see anything" : "Not required"}</span></div>
+        {(d.documents || []).length > 0 && (
+          <div className="hint">Documents for bidders: {d.documents.join(", ")}.</div>
+        )}
+      </div>
+    </More>
+  );
+}
 
 function TurnDownDialog({ so, onClose, onConfirm }) {
   const [why, setWhy] = useState("");
@@ -2684,6 +2858,7 @@ function SignoffCard({ api, so, onDecide }) {
         </div>
         {so.summary && <div style={{ marginBottom: 8 }}>{so.summary.charAt(0).toUpperCase() + so.summary.slice(1)}.</div>}
         {so.reason && <div className="muted" style={{ marginBottom: 10 }}>Reason: {so.reason}</div>}
+        {so.details && <SignoffDetails so={so} />}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {onDecide && <button className="btn pri" onClick={() => onDecide(true)}>Approve</button>}
           {onDecide && <button className="btn" onClick={() => onDecide(false)}>Turn down…</button>}
@@ -3005,6 +3180,11 @@ export function ApprovalsPage({ api }) {
               · scored {t.techWeight}% technical, {t.commWeight}% commercial
               {t.lines && t.lines.length > 0 ? ` · ${t.lines.length} priced lines` : ""}.
             </div>
+            {/* Read first, then decide: the buttons come after the tender. */}
+            <More title="The tender in full" open
+                  summary="lines, scope, scoring, vendors, documents and terms">
+              <PublicationReview api={api} t={t} />
+            </More>
             <ApprovalChain chain={t.publishChain} users={users} me={me} compact />
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button className="btn pri" onClick={() => setPubT(t)}>
@@ -3013,12 +3193,6 @@ export function ApprovalsPage({ api }) {
               </button>
               <button className="btn" onClick={() => setRetQ({ t, kind: "publish" })}>Return to draft…</button>
             </div>
-            <More title="Scope and criteria" summary="what is being bought, and how bids will be scored">
-              <p style={{ margin: "0 0 10px", fontSize: 13.5, lineHeight: 1.6 }}>{t.scope}</p>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {t.criteria.map((c) => <span key={c.id} className="chip">{c.name} · {c.weight}%</span>)}
-              </div>
-            </More>
           </div>
         </div>
       ))}

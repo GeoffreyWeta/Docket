@@ -269,6 +269,9 @@ code, _ = call("POST", f"/api/signoffs/{so.id}/decide/", APPR2_K, {"ok": True})
 ok("nor somebody outside the reporting line", code == 403, code)
 ok("the line manager sees it as theirs", any(x["id"] == so.id and x["mayDecide"]
                                              for x in boot(AMARA_K)["signoffs"]))
+mine = next(x for x in boot(AMARA_K)["signoffs"] if x["id"] == so.id)
+ok("with how far the competition has got", mine["details"] == {"invited": 2, "bids": 0, "changes": 0},
+   mine.get("details"))
 code, out = call("POST", f"/api/signoffs/{so.id}/decide/", AMARA_K, {"ok": True})
 t.refresh_from_db()
 ok("approved, the closing date moves", code == 200 and t.deadline == old + 3 * DAY_MS, (code, out))
@@ -409,6 +412,10 @@ code, out = call("POST", f"/api/auctions/{aid}/recall/", CHIDI_K)
 ok("it can be recalled to draft", code == 200 and Auction.objects.get(pk=aid).status == "draft", code)
 call("POST", f"/api/auctions/{aid}/submit/", CHIDI_K)
 so = SignOff.objects.get(auction_id=aid, status="pending")
+mine = next(x for x in boot(AMARA_K)["signoffs"] if x["id"] == so.id)
+ok("the approver sees the auction in full: its lots, vendors and terms",
+   [l["title"] for l in mine["details"]["lots"]] == ["AGO 12 months"]
+   and mine["details"]["vendors"] == sorted(["Alpha Packaging", "Beta Packaging"]), mine.get("details"))
 code, _ = call("POST", f"/api/signoffs/{so.id}/decide/", APPR2_K, {"ok": True})
 ok("somebody outside the reporting line cannot approve it", code == 403, code)
 code, out = call("POST", f"/api/signoffs/{so.id}/decide/", AMARA_K, {"ok": True})

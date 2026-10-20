@@ -95,6 +95,36 @@ def view(so, p):
         "note": so.note,
         "mayDecide": approvals.may_decide(so, p),
         "mayWithdraw": so.status == "pending" and p.get("id") == so.requested_by_id,
+        "details": _details(so) if so.status == "pending" else None,
+    }
+
+
+def _details(so):
+    """What the signer is being asked about, in full, so a yes or a reasoned
+    no can be given from the request itself. Buying side only (bootstrap
+    sends sign-offs to nobody else)."""
+    if so.tender_id:
+        t = so.tender
+        return {"invited": len(t.invited or []), "bids": t.bids.count(),
+                "changes": len(t.deadline_changes or [])}
+    a = so.auction
+    from .models import Supplier
+    from .vocab import VOCAB
+    names = dict(Supplier.objects.filter(
+        pk__in=a.participants.filter(disqualified=False).values_list("supplier_id", flat=True))
+        .values_list("id", "name"))
+    return {
+        "direction": a.direction, "visibility": a.visibility, "allowPrebid": a.allow_prebid,
+        "startsAt": a.starts_at, "endsAt": a.ends_at, "scope": a.scope, "terms": a.terms,
+        "lots": [{"number": l.number, "title": l.title, "qty": l.qty, "uom": l.uom,
+                  "ceiling": l.ceiling, "reserve": l.reserve, "minDecrement": l.min_decrement,
+                  "decrementIsPct": l.decrement_is_pct} for l in a.lots.all()],
+        "vendors": sorted(names.values()),
+        "paymentTermsLabel": dict((v, lb) for v, lb in VOCAB["paymentTerms"]).get(
+            a.payment_terms or "", a.payment_terms or ""),
+        "paymentConditions": a.payment_conditions or "",
+        "ndaRequired": a.nda_required,
+        "documents": list(a.images.filter(kind="auctiondoc").values_list("name", flat=True)),
     }
 
 
