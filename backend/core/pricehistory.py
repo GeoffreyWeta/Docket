@@ -31,7 +31,6 @@ an invention:
 Nothing here writes anything on its own. `apply_baselines` adopts exactly what
 an operator was shown and approved - see the note on preview-then-adopt below.
 """
-from collections import defaultdict
 
 from .models import Contract, Tender
 from .util import DAY_MS, fmt_money, now_ms, record_event
@@ -257,23 +256,6 @@ def item_prices(code, now=None):
         "change": (last - first) if len(prices) > 1 else None,
         "changePct": ((last - first) / first * 100) if len(prices) > 1 and first else None,
     }
-
-
-def item_coverage():
-    """How much of the tendered line record carries an item code.
-
-    The number that says whether unit-price history is worth looking at yet: a
-    trend built on 4% of lines is a trend about those four per cent.
-    """
-    from .models import Tender
-    total = coded = 0
-    for t in Tender.objects.all():
-        for line in (t.lines or []):
-            total += 1
-            if str(line.get("itemCode") or "").strip():
-                coded += 1
-    return {"lines": total, "coded": coded,
-            "pct": (coded / total * 100) if total else None}
 
 
 # ------------------------------------------------------------------- coverage

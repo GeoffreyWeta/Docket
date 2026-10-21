@@ -32,15 +32,15 @@ export const THEMES = [
   { id: "dark", label: "Dark", icon: "moon",
     hint: "The same, after hours: raised green-black surfaces, brighter accent" },
 ];
-export const DARK = new Set(["dark"]);
+const DARK = new Set(["dark"]);
 
-export const THEME_KEY = "docket.theme";
+const THEME_KEY = "docket.theme";
 const IDS = THEMES.map((t) => t.id);
 /** What a visitor with nothing stored gets, and the block on bare :root. */
-export const DEFAULT_THEME = "light";
+const DEFAULT_THEME = "light";
 /** Kept as a named export because callers import it; same thing as the
     default now that :root carries the light theme. */
-export const ROOT_THEME = DEFAULT_THEME;
+const ROOT_THEME = DEFAULT_THEME;
 
 export function getTheme() {
   try {
@@ -51,7 +51,7 @@ export function getTheme() {
   }
 }
 
-export function applyTheme(id) {
+function applyTheme(id) {
   const theme = IDS.includes(id) ? id : DEFAULT_THEME;
   const root = document.documentElement;
   if (theme === ROOT_THEME) delete root.dataset.theme;      // :root carries light

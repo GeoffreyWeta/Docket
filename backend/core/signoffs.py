@@ -140,13 +140,6 @@ def for_bootstrap(p):
     return [view(so, p) for so in rows]
 
 
-def queue_count(p):
-    """How many requests are waiting on this person: theirs to sign."""
-    if p["role"] == "supplier":
-        return 0
-    return sum(1 for so in SignOff.objects.filter(status="pending") if approvals.may_decide(so, p))
-
-
 def request(kind, p, *, tender=None, auction=None, change=None, reason=""):
     """Raise a request. Returns (SignOff, error)."""
     me = Persona.objects.filter(pk=p.get("id")).first()

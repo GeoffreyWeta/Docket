@@ -34,7 +34,6 @@ import logging
 from django.conf import settings
 from django.core.mail import get_connection
 from django.core.mail.message import EmailMessage
-from django.db.models import Q
 
 from .models import ActionToken, Profile, Supplier, TaskMark
 from .util import now_ms, rid

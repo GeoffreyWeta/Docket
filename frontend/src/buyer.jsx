@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { clearLogo, downloadDoc, downloadUrl, raw, setApprovalLevel, uploadFile, uploadLogo } from "./api";
 import { BP } from "./breakpoints";
 import { orgIndex, savingsSplit } from "./analytics-model";
-import { Countdown, Empty, MiniBars, Money, Stamp, Stat, StageTracker } from "./atoms";
+import { Countdown, Empty, Money, Stamp, StageTracker } from "./atoms";
 import { BaselineHint } from "./baselines";
 import {
   CategorySelect, CountrySelect, CurrencySelect, FiscalStartSelect, IndustrySelect, LocationSelect,
@@ -11,29 +11,29 @@ import {
 } from "./fields";
 import { Illus } from "./illus";
 import { CampaignDialog } from "./campaign";
-import { CsvGuide, VENDOR_IMPORT_CSV, staffCsv } from "./csvguide";
+import { CsvGuide, VENDOR_IMPORT_CSV } from "./csvguide";
 import { draftKeyFor, readDraft, useDraftStorage } from "./drafts";
 import { MyDesk } from "./mydesk";
 import { StaffCsvDialog } from "./staffimport";
 import { Figures, Guide, More, Page, Quiet, Row, Rows } from "./page";
 import {
-  DAY, REG_STATUS, VERIFY_STATUS, abnormallyLow, closingTime, commScore, dateInZone, daysLeft, displayStatus,
+  REG_STATUS, VERIFY_STATUS, abnormallyLow, closingTime, commScore, dateInZone, daysLeft, displayStatus,
   offeredQty, partialLines, timeInZone,
   effStatus, fmtCompact, fmtDate, fmtDateTime, fmtMoney, lineMaxima, linesCeiling,
-  linesOverMax, mean, median, regStatusOf, roundsOf, savingsAgainst, stdev, techScore,
+  linesOverMax, regStatusOf, savingsAgainst, stdev, techScore,
   totalScore, uid, varianceFlags, verifyStatusOf,
 } from "./helpers";
 import {
   BidBucket, LifecycleBar, RegisterVendorDialog, RoundsTab, SuspendDialog, VendorsTab,
 } from "./lifecycle";
 import { Icon, SealMark } from "./icons";
-import { Mark, OrgMark } from "./logo";
+import { OrgMark } from "./logo";
 import { BID_DOC_TYPES, PAYMENT_TERMS, REMINDER_HOURS, RETURN_REASONS, fmtPhone, phoneProblem,
   unitFor } from "./vocab";
 import { Choice, PaymentTermsSelect } from "./fields";
 import { can, homePage, navPages } from "./perms";
 import { DUR, cue, reducedMotion, useCountUp, useFlip } from "./motion";
-import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, LiveCountdown, SoundToggle, ThemeSwitch, TopProgress, tabKeys } from "./ui";
+import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, SoundToggle, ThemeSwitch, TopProgress, tabKeys } from "./ui";
 
 /* How many register rows reach the DOM before the reader asks for more. The
    register runs to about 1,400 vendors and nobody reads that in one scroll. */
@@ -44,7 +44,7 @@ const PAGE = 60;
 /* One label per destination. Which of them a person sees is decided by their
    capabilities (perms.js), so a role invented in the administration console gets
    a working sidebar without a change here. */
-export const NAV_LABEL = {
+const NAV_LABEL = {
   dashboard: "Dashboard", approvals: "Approvals", evals: "My evaluations",
   tenders: "Tenders", auctions: "Auctions", suppliers: "Suppliers", scorecards: "Scorecards",
   team: "Team", analytics: "Analytics", finance: "Finance", audit: "Audit trail",
@@ -502,8 +502,6 @@ function waitedFor(since) {
 }
 
 /* Anything older than this has been waiting long enough to be called out. */
-const LATE_MS = 2 * DAY;
-
 /** Everything in the workspace that is mid-flight, as one list.
 
     The old dashboard had a single "Action queue" holding both the tenders whose
@@ -578,27 +576,6 @@ function workItems(state, tenders) {
                  verb: "Review", to: { page: "suppliers", tab: "review" }, waiting: "prequalification" });
   }
   return items.sort((a, b) => (a.since || Infinity) - (b.since || Infinity));
-}
-
-function WorkRow({ it, mine, go }) {
-  const late = it.since && Date.now() - it.since > LATE_MS;
-  return (
-    <div className={"wq " + (mine ? "mine" : "theirs") + (late ? " late" : "")}>
-      <span className="wqmark" />
-      <div className="wqmain">
-        <div className="wqtitle">{it.title}</div>
-        <div className="wqwhy">{mine ? it.why : `With someone else for ${it.waiting}.`}</div>
-      </div>
-      <span className="wqage" title={it.since ? new Date(it.since).toLocaleString("en-GB") : ""}>
-        {waitedFor(it.since)}
-      </span>
-      {mine && (
-        <button className={"btn sm" + (it.tone === "wax" ? " wax" : "")} onClick={() => go(it.to)}>
-          {it.verb}
-        </button>
-      )}
-    </div>
-  );
 }
 
 export function Dashboard({ api }) {
@@ -1193,7 +1170,7 @@ export function TenderDetail({ api, id, initialTab }) {
   );
 }
 
-export function OverviewTab({ api, t }) {
+function OverviewTab({ api, t }) {
   const { state, user, act, go } = api;
   const st = effStatus(t);
   const [ad, setAd] = useState({ title: "", note: "" });
@@ -1452,7 +1429,7 @@ function ProjectCard({ api, t }) {
   );
 }
 
-export function ClarTab({ api, t }) {
+function ClarTab({ api, t }) {
   const { state, user, act, ai } = api;
   const items = state.clarifications.filter((c) => c.tenderId === t.id).sort((a, b) => b.askedAt - a.askedAt);
   const [drafts, setDrafts] = useState({});
@@ -1581,7 +1558,7 @@ function NewVendorBids({ api, t }) {
   );
 }
 
-export function BidsTab({ api, t }) {
+function BidsTab({ api, t }) {
   return (
     <div>
       <NewVendorBids api={api} t={t} />
@@ -1909,7 +1886,7 @@ function Dial({ value, label, onPick, disabled = false }) {
 
 /* ---------------- evaluation ---------------- */
 
-export function EvalTab({ api, t }) {
+function EvalTab({ api, t }) {
   const { state, user, act, ai } = api;
   const bids = state.bids.filter((b) => b.tenderId === t.id);
   const [brief, setBrief] = useState("");
@@ -2301,7 +2278,7 @@ function eventDetail(e, user, tenders) {
   return t && t.status === "awarded" ? e.detail : "Scores held back until the panel's scores are revealed.";
 }
 
-export function AuditTab({ api, t }) {
+function AuditTab({ api, t }) {
   const events = api.state.events.filter((e) => e.tenderId === t.id);
   return (
     <div className="card"><div className="chead"><h3>Audit trail</h3><span className="mono faint" style={{ marginLeft: "auto" }}>immutable · every action, named and timestamped</span></div>
@@ -2397,7 +2374,7 @@ export function EvalsPage({ api }) {
     level's role. The role is last because most workspaces give every rung the
     same one, and checking it first would make all the rungs interchangeable.
     See the long note on the server. */
-export function canSignStep(step, me, users, ownerId) {
+function canSignStep(step, me, users, ownerId) {
   if (!step || step.decidedAt) return false;
   /* The line manager's signature, or the fallback for somebody with nobody
      above them: the manager or the people above them, else anybody who can
@@ -2452,7 +2429,7 @@ function stepWho(step, users) {
     Shown to everybody on the buying side, not only to the signatories. "Who is
     this sitting with" is the single most asked question about a submitted
     tender, and an answer only the approvers can see is an answer to nobody. */
-export function ApprovalChain({ chain, users, me, compact = false }) {
+function ApprovalChain({ chain, users, me, compact = false }) {
   if (!chain || !chain.steps || !chain.steps.length) return null;
   const done = chain.currentId == null;
   return (
@@ -5528,7 +5505,7 @@ export function TeamPage({ api }) {
   // `user` is read further down to decide whether the reporting lines are shown.
   // It was missing from this destructure, which threw a ReferenceError during
   // render and unmounted the whole application - a blank page, not a broken card.
-  const { act, user } = api;
+  const { user } = api;
   const [team, setTeam] = useState(null);
   const canInvite = can(user, "team.invite");
   const [f, setF] = useState({ email: "", role: "", name: "", title: "" });

@@ -847,7 +847,6 @@ def sec_auction(ctx):
 
 def sec_vendor_admin(ctx):
     section("H. vendor onboarding, prequalification and self-service")
-    sid = ctx["sid"]
     sid2, _ = register_company(COMPANY2)
     ok(f'second vendor "{COMPANY2["company"]}" registered ({sid2})')
     d = boot(COMPANY2["email"])

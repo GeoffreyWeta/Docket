@@ -188,7 +188,7 @@ function Avatar({ name, seed, size = 40, dim }) {
 
 /* ---------------- sign in ---------------- */
 
-export function AdminLogin({ onIn }) {
+function AdminLogin({ onIn }) {
   const [u, setU] = useState("");
   const [pw, setPw] = useState("");
   const [code, setCode] = useState("");
@@ -251,7 +251,7 @@ export function AdminLogin({ onIn }) {
     answer comes from - the role, or a decision somebody made about this person -
     because "why can they do that?" is the question this console exists to
     answer. */
-export function PermGrid({ catalogue, held, defaults = [], allowed, onToggle, readOnly, search = "", selectedOnly = false, group = "all" }) {
+function PermGrid({ catalogue, held, defaults = [], allowed, onToggle, readOnly, search = "", selectedOnly = false, group = "all" }) {
   const heldSet = useMemo(() => new Set(held), [held]);
   const defSet = useMemo(() => new Set(defaults), [defaults]);
   const okSet = useMemo(() => (allowed ? new Set(allowed) : null), [allowed]);
@@ -303,7 +303,7 @@ export function PermGrid({ catalogue, held, defaults = [], allowed, onToggle, re
 
 /* ---------------- one person ---------------- */
 
-export function UserPanel({ state, user, onClose, onSaved, toast }) {
+function UserPanel({ state, user, onClose, onSaved, toast }) {
   const [u, setU] = useState(user);
   const [form, setForm] = useState({ name: user.name, email: user.email, title: user.title, role: user.role });
   const [extra, setExtra] = useState(new Set(user.extra));
@@ -565,7 +565,7 @@ export function UserPanel({ state, user, onClose, onSaved, toast }) {
 
 /* ---------------- create an account ---------------- */
 
-export function NewUserDialog({ state, onClose, onSaved, toast }) {
+function NewUserDialog({ state, onClose, onSaved, toast }) {
   const [f, setF] = useState({
     name: "", username: "", title: "", role: state.roles[0]?.key || "procurement",
     password: generatePassword(), isAdmin: false,
@@ -693,7 +693,7 @@ const FILTERS = [
   ["all", "Everyone", () => true],
 ];
 
-export function PeopleTab({ state, reload, toast }) {
+function PeopleTab({ state, reload, toast }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -785,7 +785,7 @@ const ROLE_CHOICES = [
   {label:"Approve awards", help:"Commit an award decision. Assigned signing authority still applies.", keys:["award.decide"], needs:["page.approvals", "page.tenders", "award.see_recommendation"]},
 ];
 
-export function RoleDialog({ state, role, onClose, onSaved, toast }) {
+function RoleDialog({ state, role, onClose, onSaved, toast }) {
   const creating = !role;
   const [permissionSearch, setPermissionSearch] = useState("");
   const [selectedOnly, setSelectedOnly] = useState(false);
@@ -958,7 +958,7 @@ export function RoleDialog({ state, role, onClose, onSaved, toast }) {
   );
 }
 
-export function VendorsTab({ state }) {
+function VendorsTab({ state }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [page, setPage] = useState(0);
@@ -993,7 +993,7 @@ export function VendorsTab({ state }) {
   </>;
 }
 
-export function RolesTab({ state, reload, toast }) {
+function RolesTab({ state, reload, toast }) {
   const [open, setOpen] = useState(null);       // role object
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1070,7 +1070,7 @@ export function RolesTab({ state, reload, toast }) {
 
 /* ---------------- log ---------------- */
 
-export function LogTab() {
+function LogTab() {
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState("");
   useEffect(() => { req("/log/").then((d) => setRows(d.entries)).catch((e) => setErr(e.message)); }, []);

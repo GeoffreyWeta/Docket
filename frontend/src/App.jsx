@@ -5,10 +5,9 @@ import {
   authConfig, authStorageKey, clearAuth, demoLogin, fetchBootstrap, fetchFinance,
   adoptBaselines, baselineFor, fetchBaselines,
   fetchFinanceExceptions, financeFeeds, getToken, getUsername, importFinance,
-  inDemo, login as apiLogin, logout as apiLogout, raw, setDemo, siteAppearance, storeAuth,
+  inDemo, logout as apiLogout, raw, setDemo, siteAppearance, storeAuth,
   uploadFile, DOWNLOAD_FAILED,
 } from "./api";
-import { BP } from "./breakpoints";
 import { activeRound, roundsOf } from "./helpers";
 import { GuidePanel, seenKey } from "./guide";
 import { SecurityPanel } from "./security";
@@ -22,7 +21,7 @@ import {
   TendersPage, Topbar,
 } from "./buyer";
 import { allowedPages, homePage } from "./perms";
-import { ICON_CSS, Icon } from "./icons";
+import { ICON_CSS } from "./icons";
 import { MOTION_CSS, hasViewTransitions, useReveal, withViewTransition } from "./motion";
 import { AUCTION_CSS, AuctionPage, AuctionsPage } from "./auctions";
 import { BASELINE_CSS } from "./baselines";
@@ -117,17 +116,6 @@ function Login({ onLoggedIn, onScreen, notice }) {
     setBusy(false);
     submitting.current = false;
   };
-  const quick = async (username) => {
-    setBusy(true); setMsg("");
-    try {
-      const res = await demoLogin(username);
-      onLoggedIn(res, username);
-    } catch (e) {
-      setMsg(e.message || "Sign-in failed.");
-    }
-    setBusy(false);
-  };
-
   return (
     <div className="loginwrap" role="main">
       <style>{ALL_CSS}</style>

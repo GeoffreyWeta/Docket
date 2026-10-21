@@ -109,7 +109,6 @@ def vendor_rows(t, p):
         ids.append(t.awarded_to)
     suppliers = {s.id: s for s in Supplier.objects.filter(id__in=ids)}
     bids = list(Bid.objects.filter(tender=t).select_related("round"))
-    rounds = {r.id: r for r in t.rounds.all()}
     latest = t.latest_round()
     # Who the publish invitation reached nobody at (views._publish records it).
     from .models import Event
@@ -658,7 +657,7 @@ def round_collection(request, p, body, tid):
         return err("The round's deadline must be after it opens.")
 
     with transaction.atomic():
-        first = ProcurementRound.materialise(t, actor=p["name"])
+        ProcurementRound.materialise(t, actor=p["name"])
         prev = t.rounds.order_by("-number").first()
         if prev and prev.status in ("open", "upcoming"):
             return err(f"{prev.label} is still open. Close it before opening another.", 409)

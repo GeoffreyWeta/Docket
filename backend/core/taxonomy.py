@@ -33,7 +33,6 @@ from .vocab import VOCAB
 FAMILIES = [(f["key"], f["label"], f["categories"]) for f in VOCAB["families"]]
 
 FAMILY_OF = {cat: key for key, _label, cats in FAMILIES for cat in cats}
-FAMILY_LABEL = {key: label for key, label, _cats in FAMILIES}
 ALL_CATEGORIES = [cat for _k, _l, cats in FAMILIES for cat in cats]
 
 

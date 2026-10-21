@@ -31,11 +31,11 @@ import { Empty, Stat } from "./atoms";
 import { BaselineBackfill } from "./baselines";
 import { Choice } from "./fields";
 import {
-  Bars, Columns, DataTable, Donut, Dumbbell, Figure, Heatmap, Legend, Meter,
+  Bars, Columns, DataTable, Donut, Dumbbell, Figure, Meter,
   StackedBars, TimeChart, foldTail, palette, slot,
 } from "./charts";
 import {
-  AGE_TONE, EXCEPTION_KINDS, FEED_LABELS, FRAUD_KINDS, FRESHNESS, LEVEL_META, TONE, asAt,
+  AGE_TONE, EXCEPTION_KINDS, FEED_LABELS, FRAUD_KINDS, LEVEL_META, TONE,
   columns, days, delta, exceptionTotals, feedFailed, freshness, groupExceptions, pct, points,
   riskLevels, term, topN, weakest,
 } from "./finance-model";
@@ -65,7 +65,7 @@ const TABS = [
 ];
 
 export function FinancePage({ api }) {
-  const { user, toast } = api;
+  const { user } = api;
   const tab = api.route.tab || "savings";
   const setTab = (next) => api.setView({ tab: next });
   const askedYear = Number(api.route.year);

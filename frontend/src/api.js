@@ -216,7 +216,6 @@ export async function siteAppearance() {
   const c = await authConfig();
   return { landing: c.landing, accent: c.accent };
 }
-export const login = (username, password) => raw("/auth/login/", { method: "POST", body: { username, password } });
 export const demoLogin = (username, asBidder = false) => raw("/auth/demo/", { method: "POST", body: { username, asBidder } });
 export const logout = () => raw("/auth/logout/", { method: "POST", body: {} });
 
@@ -239,7 +238,6 @@ export const verifySetupCode = (code) => raw("/setup/code/", { method: "POST", b
 
 /* the workspace's own identity: the company profile, the authority ladder and
    the mark that replaces the DOCKET seal in the chrome once it is set */
-export const saveSettings = (b) => raw("/settings/", { method: "POST", body: b });
 export const uploadLogo = (file) => uploadFile("/settings/logo/", file);
 export const clearLogo = () => raw("/settings/logo/", { method: "DELETE", body: {} });
 export const setApprovalLevel = (personId, levelId) =>

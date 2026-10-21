@@ -1,6 +1,6 @@
 import React from "react";
 
-import { STATUS, daysLeft, fmtCompact, fmtDate, fmtMoney, nowMs } from "./helpers";
+import { STATUS, daysLeft, fmtDate, fmtMoney, nowMs } from "./helpers";
 import { Icon } from "./icons";
 import { Illus } from "./illus";
 import { fmtRemaining, tickRateFor, useTicker } from "./motion";
@@ -83,25 +83,6 @@ export const Empty = ({ children, icon, art }) => (
     {children}
   </div>
 );
-
-/* Label, bar, figure. The widths live in .bar in the stylesheet so the label
-   column can shrink on a phone instead of pushing the bar off the card. */
-export function MiniBars({ data }) {
-  const max = Math.max(...data.map((d) => d.value), 1);
-  return (
-    <div className="bars">
-      {data.map((d, i) => (
-        <div className="bar" key={i}>
-          <div className="bl" title={d.label}>{d.label}</div>
-          <div className="bt">
-            <span style={{ width: (d.value / max) * 100 + "%", background: d.color || "var(--green)" }} />
-          </div>
-          <div className="bv">{fmtCompact(d.value)}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function StageTracker({ t }) {
   const T = nowMs();

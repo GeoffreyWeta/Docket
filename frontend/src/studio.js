@@ -52,8 +52,8 @@ export const ACCENTS = [
   { key: "graphite", label: "Graphite", hex: "#1d1d1f",
     note: "No accent at all. The most restrained, and the most Apple." },
 ];
-export const ACCENT_KEYS = ACCENTS.map((a) => a.key);
-export const DEFAULT_ACCENT = "blue";
+const ACCENT_KEYS = ACCENTS.map((a) => a.key);
+const DEFAULT_ACCENT = "blue";
 
 /** Always a real accent, so a stored key that has since been removed paints
     the default rather than leaving the brand tokens undefined. */
@@ -298,7 +298,6 @@ export const STUDIO_CSS = `
 /* ---------------------------------------------------------------- lists */
 :root[data-layout="studio"] .tbl th{font-size:12px;font-weight:600;color:var(--muted);border-bottom-color:var(--line)}
 :root[data-layout="studio"] .tbl td{border-bottom-color:var(--hair)}
-:root[data-layout="studio"] .wq{border-bottom-color:var(--hair)}
 :root[data-layout="studio"] .rowline{border-bottom-color:var(--hair)}
 
 /* ---------------------------------------------------------------- layers

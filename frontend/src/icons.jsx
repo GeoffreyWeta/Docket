@@ -69,8 +69,6 @@ const P = {
   moon: <><path d="M16.2 11.6A6.8 6.8 0 0 1 8.4 3.8a6.9 6.9 0 1 0 7.8 7.8Z" /></>,
 };
 
-export const ICON_NAMES = Object.keys(P);
-
 export function Icon({ n, s, className = "", style, title }) {
   const body = P[n];
   if (!body) return null;

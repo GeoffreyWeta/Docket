@@ -24,7 +24,7 @@ import { Dialog } from "./ui";
 
 /* How long the queue takes, in words: batches go out about every
    `sweepMinutes` while the workspace is in use. */
-export function drivePace(n, batch, minutes) {
+function drivePace(n, batch, minutes) {
   if (!n || !batch) return "";
   const mins = Math.ceil(n / batch) * (minutes || 10);
   const when = mins < 60 ? `about ${mins} minutes`

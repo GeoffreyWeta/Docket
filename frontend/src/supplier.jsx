@@ -7,7 +7,7 @@ import { Countdown, Empty, Money, Stat } from "./atoms";
 import { Meter } from "./charts";
 import { BidDocTypeSelect, CategorySelect, DocTypeSelect, LocationSelect, PhoneInput } from "./fields";
 import { BID_DOC_TYPES } from "./vocab";
-import { Figures, Guide, More, Page, Quiet, Row, Rows } from "./page";
+import { Figures, Guide, Page, Quiet, Row, Rows } from "./page";
 import {
   REG_STATUS, VERIFY_STATUS, activeRound, daysLeft, effStatus, fmtCompact, fmtDate,
   fmtDateTime, fmtMoney, nowMs, regStatusOf, roundsOf, verifyStatusOf, wholeAmount,
@@ -532,7 +532,7 @@ function gateWords(ag) {
    sign, payment terms to accept. One name and job title for both, and a box
    of its own for each, so nobody signs one by ticking the other. The server
    records each with the exact text and the time; this only collects them. */
-export function AgreementGate({ agreements, company, onAccept, onDone }) {
+function AgreementGate({ agreements, company, onAccept, onDone }) {
   const ag = agreements || {};
   const pending = ag.pending || [];
   const [name, setName] = useState("");
@@ -648,7 +648,6 @@ export function BidRoom({ api, id }) {
 
 function BidRoomFor({ api, t }) {
   const { state, user, act, ai, go, toast } = api;
-  const id = t.id;
   const me = user.supplierId;
   const st = effStatus(t);
   const rnd = activeRound(t);

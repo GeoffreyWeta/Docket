@@ -30,7 +30,7 @@ const PAGE_ICONS = {
 };
 
 /** "g" then this letter jumps to the page, when the role has it. */
-export const GOTO = {
+const GOTO = {
   d: "dashboard", t: "tenders", s: "suppliers", c: "scorecards", m: "team",
   a: "analytics", u: "audit", p: "approvals", e: "evals", i: "portal", n: "new",
 };
@@ -52,7 +52,7 @@ function fuzzy(hay, needle) {
   return score / 4;
 }
 
-export function buildCommands({ api, allowed, chrome }) {
+function buildCommands({ api, allowed, chrome }) {
   const { state, user, go } = api;
   const out = [];
 

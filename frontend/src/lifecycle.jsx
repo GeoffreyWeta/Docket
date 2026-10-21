@@ -51,7 +51,7 @@ function DateTimeField({ id, label, value, onChange, hint, min }) {
   );
 }
 
-export const RoundChip = ({ status }) => {
+const RoundChip = ({ status }) => {
   const r = ROUND_STATUS[status] || { label: status, tone: "" };
   return <span className={"chip " + r.tone}>{r.label}</span>;
 };
@@ -808,7 +808,6 @@ function NewRoundDialog({ api, t, onClose }) {
 /* Submissions grouped by round. The point is comparison across rounds: did the
    best-and-final actually move anybody's price, and by how much. */
 export function BidBucket({ api, t }) {
-  const { toast } = api;
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
   useEffect(() => {
@@ -955,7 +954,7 @@ export function BidBucket({ api, t }) {
 /* ---------------- vendor register: direct registration & suspension ------- */
 
 export function RegisterVendorDialog({ api, onClose }) {
-  const { act, toast, refresh } = api;
+  const { toast, refresh } = api;
   const [f, setF] = useState({
     name: "", email: "", contactPerson: "", phone: "", category: "", subcategory: "",
     location: "", address: "", paymentTerms: "", code: "", invite: true,

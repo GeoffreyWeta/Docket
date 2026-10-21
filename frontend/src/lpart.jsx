@@ -324,8 +324,6 @@ const SCENES = {
   ),
 };
 
-export const ART_NAMES = Object.keys(SCENES);
-
 /* Every scene draws into 240x160 except the ones listed here, which say why
    in their own comment. Keeping the exception in one map rather than beside
    each drawing is what stops the box quietly becoming a per-scene decision. */

@@ -40,7 +40,7 @@ export class PageBoundary extends React.Component {
    number the CSS shell switches on. */
 
 /** Subscribes to a media query and re-renders when it changes. */
-export function useMedia(query) {
+function useMedia(query) {
   const [matches, setMatches] = useState(() => {
     try { return window.matchMedia(query).matches; } catch (e) { return false; }
   });

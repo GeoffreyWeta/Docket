@@ -19,7 +19,7 @@
 */
 import { DAY, effStatus, mean, median, nowMs } from "./helpers";
 
-export const BASIS = { BASELINE: "baseline", BUDGET: "budget" };
+const BASIS = { BASELINE: "baseline", BUDGET: "budget" };
 
 /* ---------------- savings ---------------- */
 
@@ -28,7 +28,7 @@ export const BASIS = { BASELINE: "baseline", BUDGET: "budget" };
     Returns null for anything not awarded or not priced: an unawarded tender has
     no saving, and inventing one from a median bid would put a forecast in the
     same column as a fact. */
-export function savingOf(t) {
+function savingOf(t) {
   if (t.status !== "awarded" || t.awardedAmount == null) return null;
   const basis = t.baseline ? BASIS.BASELINE : BASIS.BUDGET;
   const against = t.baseline || t.budget || 0;
@@ -146,7 +146,7 @@ export const DESK_BUCKETS = [
   { key: "draft", label: "Drafts", hint: "not yet submitted" },
 ];
 
-export function deskBucket(t) {
+function deskBucket(t) {
   if (t.status === "draft") return "draft";
   // "Concluded without an award" is what the Closed bucket already says it
   // holds, and a cancelled event is exactly that. Left in "in progress" it

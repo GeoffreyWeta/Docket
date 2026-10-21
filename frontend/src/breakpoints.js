@@ -12,7 +12,7 @@
    wide  roomy desktop: four-up stat rows */
 export const BP = { sm: 600, tab: 900, desk: 1024, wide: 1280 };
 
-export const up = (px) => `(min-width:${px}px)`;
+const up = (px) => `(min-width:${px}px)`;
 
 /** The width at which the navigation drawer becomes a permanent sidebar. */
 export const DESKTOP_Q = up(BP.desk);

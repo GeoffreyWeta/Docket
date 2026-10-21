@@ -176,7 +176,7 @@ ok("the ladder is on the payload", len(boot["org"]["approvalLevels"]) == 4)
 
 print("\n=== the org chart before anybody accepts ===")
 
-from core.models import ActionToken, Persona, Tender   # noqa: E402
+from core.models import ActionToken, Persona   # noqa: E402
 
 people = {p.name: p for p in Persona.objects.all()}
 ok("everybody is on the chart already", len(people) == 7, str(sorted(people)))

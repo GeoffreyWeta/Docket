@@ -1394,7 +1394,6 @@ def room(request, p, body, aid):
         return err("You don't have permission to do that.", 403)
 
     monitor = (not supplier) and has(p, "auction.monitor")
-    now = now_ms()
     out = _auction_view(a, p, monitor=monitor)
     out["lotState"] = []
     out["questions"] = _questions_view(a, p)

@@ -130,7 +130,7 @@ function complianceScore(supplier, now) {
 
 /* ---------------- one supplier ---------------- */
 
-export function scoreSupplier(supplier, tenders, bids, now = nowMs()) {
+function scoreSupplier(supplier, tenders, bids, now = nowMs()) {
   const sid = supplier.id;
   const perf = supplier.perf || {};
   const price = priceScore(sid, tenders, bids);

@@ -76,15 +76,6 @@ def dimension_codes():
     return (org_settings().get("dimensionCodes") or {})
 
 
-def resolve_dimension(slot, value):
-    """A dimension value as a name, whether it arrived as a code or a name."""
-    v = str(value or "").strip()
-    if not v:
-        return ""
-    table = dimension_codes().get(slot) or {}
-    return table.get(v) or table.get(v.upper()) or v
-
-
 # ============================================================ normal row shape
 #
 # Every adapter emits dicts in these shapes. Keys absent means "the source did
@@ -782,7 +773,6 @@ def _apply_vendor(row, ctx):
 
 
 def _apply_item(row, ctx):
-    from .models import Item
     existing, prov = _base(row, ctx, Item)
     fields = {
         **prov,

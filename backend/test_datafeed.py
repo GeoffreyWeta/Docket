@@ -174,7 +174,7 @@ print("\n=== nothing is skipped ===")
 
 seen, cursor, pages = [], None, 0
 while True:
-    q = f"/api/v1/suppliers/?limit=2" + (f"&cursor={cursor}" if cursor else "")
+    q = "/api/v1/suppliers/?limit=2" + (f"&cursor={cursor}" if cursor else "")
     p = get(q, key=FULL)
     seen += [row["id"] for row in p["rows"]]
     cursor, pages = p["cursor"], pages + 1

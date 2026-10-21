@@ -14,7 +14,7 @@
 export const can = (user, key) => !!user && (user.perms || []).includes(key);
 
 /** Sections of the workspace, in the order a sidebar reads them. */
-export const PAGE_PERM = {
+const PAGE_PERM = {
   dashboard: "page.dashboard",
   approvals: "page.approvals",
   evals: "page.evals",
@@ -35,7 +35,7 @@ export const PAGE_PERM = {
   portal: "page.portal",
 };
 
-export const PAGE_ORDER = Object.keys(PAGE_PERM);
+const PAGE_ORDER = Object.keys(PAGE_PERM);
 
 /** Destinations reached from within a section rather than from the sidebar. */
 function subPages(pages, user) {

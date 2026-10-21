@@ -15,14 +15,14 @@ import React, { useMemo, useState } from "react";
 
 import { Empty, Stat } from "./atoms";
 import {
-  BASIS, byOwner, competition, complianceRisk, cycleTimes, orgIndex, rollupFamilies,
+  byOwner, competition, complianceRisk, cycleTimes, orgIndex, rollupFamilies,
   savingsOverTime, savingsSplit, spendByCategory, spendOverTime, thisYear, vendorsByNode,
 } from "./analytics-model";
 import {
-  Bars, DataTable, Donut, Dumbbell, Figure, Heatmap, Legend, Meter, StackedBars,
+  Bars, DataTable, Donut, Dumbbell, Figure, Heatmap, Meter, StackedBars,
   TimeChart, foldTail, palette, slot,
 } from "./charts";
-import { DAY, abnormallyLow, fmtCompact, fmtDate, fmtMoney, mean, varianceFlags } from "./helpers";
+import { abnormallyLow, fmtCompact, fmtDate, fmtMoney, mean, varianceFlags } from "./helpers";
 import { Icon } from "./icons";
 import { can } from "./perms";
 import { CountUp } from "./ui";
@@ -39,7 +39,7 @@ const pct = (n) => (n == null ? "-" : (n >= 0 ? "" : "−") + Math.abs(n).toFixe
 const days = (n) => (n == null ? "-" : Math.round(n) + "d");
 
 export function AnalyticsPage({ api }) {
-  const { state, go, user, ai } = api;
+  const { state } = api;
   const [tab, setTab] = useState("spend");
   const [year, setYear] = useState(true);
 
@@ -88,7 +88,7 @@ export function AnalyticsPage({ api }) {
 /* ---------------- spend ---------------- */
 
 function SpendTab({ api, tenders }) {
-  const { state, go } = api;
+  const { state } = api;
   const [openFamily, setOpenFamily] = useState(null);
 
   const cats = useMemo(() => spendByCategory(tenders, state.bids), [tenders, state.bids]);
@@ -173,7 +173,7 @@ function SpendTab({ api, tenders }) {
 /* ---------------- savings ---------------- */
 
 function SavingsTab({ api, tenders }) {
-  const { state, go } = api;
+  const { go } = api;
   const s = useMemo(() => savingsSplit(tenders), [tenders]);
   const trend = useMemo(() => savingsOverTime(tenders), [tenders]);
 
@@ -276,7 +276,7 @@ function SavingsTab({ api, tenders }) {
 /* ---------------- people ---------------- */
 
 function PeopleTab({ api, tenders }) {
-  const { state, user, go } = api;
+  const { state, user } = api;
   const org = useMemo(() => orgIndex(state.users || []), [state.users]);
   const rows = useMemo(() => byOwner(tenders, state.users || []), [tenders, state.users]);
   const named = rows.filter((r) => r.id !== "__none");
@@ -508,7 +508,7 @@ function ThinList({ rows }) {
 /* ---------------- risk ---------------- */
 
 function RiskTab({ api, tenders }) {
-  const { state, go, ai } = api;
+  const { state, ai } = api;
   const [insight, setInsight] = useState("");
   const [busy, setBusy] = useState(false);
 

@@ -93,7 +93,7 @@ const money = (n, cur) => (Number(n) > 0 ? fmtMoney(Number(n), cur || "NGN") : "
 /** Parse a pasted or uploaded vendor list. Accepts CSV and TSV, with or
     without a header row, and maps whatever column names it finds onto the four
     fields that matter. Returns {rows, warnings}. */
-export function parseVendors(text) {
+function parseVendors(text) {
   const lines = String(text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (!lines.length) return { rows: [], warnings: [] };
   const delim = (lines[0].match(/\t/g) || []).length > (lines[0].match(/,/g) || []).length ? "\t" : ",";

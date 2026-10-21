@@ -98,7 +98,7 @@ export const effStatus = (t) => (t.status === "published" && t.deadline < nowMs(
    transitions into or out of it - it is the last stretch of "open", surfaced
    because a bidder with 30 hours left and a bidder with 30 days left are not
    in the same situation and a single green badge tells them they are. */
-export const CLOSING_SOON = 2 * DAY;
+const CLOSING_SOON = 2 * DAY;
 export const displayStatus = (t) => {
   const st = effStatus(t);
   if (st !== "published") return st;

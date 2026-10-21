@@ -924,21 +924,13 @@ class AccessRole(models.Model):
 
 class Mirrored(models.Model):
     """Provenance and staleness for anything mirrored from the finance system."""
-    SOURCES = (("nav", "Dynamics NAV"), ("bc", "Business Central"),
-               ("seed", "Demo seed"), ("manual", "Entered here"))
-
     id = models.CharField(primary_key=True, max_length=24)
-    source = models.CharField(max_length=12, default="nav")
+    source = models.CharField(max_length=12, default="nav")   # nav | bc | seed | manual
     external_id = models.CharField(max_length=80, blank=True, default="")
     synced_at = models.BigIntegerField(default=0)
 
     class Meta:
         abstract = True
-
-    @property
-    def from_ledger(self):
-        """False for rows this workspace invented - they carry no ERP authority."""
-        return self.source in ("nav", "bc")
 
 
 class Money(models.Model):
@@ -958,10 +950,6 @@ class Money(models.Model):
 
     class Meta:
         abstract = True
-
-    @property
-    def foreign(self):
-        return self.currency != "NGN"
 
 
 class FxRate(models.Model):

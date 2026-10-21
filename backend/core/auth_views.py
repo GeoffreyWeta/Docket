@@ -13,7 +13,7 @@ from django.contrib.auth.models import User
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-from .models import AuthToken, FailedLogin, Persona, Supplier
+from .models import AuthToken, FailedLogin
 from .util import now_ms, record_event
 
 LOCKOUT_ATTEMPTS = 5

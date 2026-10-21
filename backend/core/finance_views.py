@@ -5,7 +5,6 @@ sign-in and after every action, by every role; the finance rollups read a
 mirrored ledger and are wanted by one page. Putting them in bootstrap would
 make an evaluator's scoring screen wait on a payables aggregation.
 """
-import json
 
 from django.db.models import Q
 from django.http import JsonResponse

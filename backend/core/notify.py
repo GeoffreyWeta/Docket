@@ -15,10 +15,6 @@ from .util import base_url, now_ms, org_name, rid
 log = logging.getLogger(__name__)
 
 
-def _users_for_role(role):
-    return User.objects.filter(profile__persona__role=role).select_related("profile")
-
-
 def _users_for_perm(key):
     """Everyone on the buyer side who actually holds this capability.
 
@@ -107,10 +103,6 @@ def notify_users(users, subject, body, tender_id=None, destination=None):
                 n.save(update_fields=["emailed"])
             except Exception:
                 log.warning("email dispatch failed for %s", u.username, exc_info=True)
-
-
-def notify_role(role, subject, body, tender_id=None):
-    notify_users(_users_for_role(role), subject, body, tender_id)
 
 
 def notify_perm(key, subject, body, tender_id=None):

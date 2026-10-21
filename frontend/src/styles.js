@@ -697,23 +697,6 @@ label.btn[aria-disabled="true"]{opacity:.42;cursor:not-allowed;box-shadow:none}
   opacity:0;transform:translateX(-3px);transition:opacity var(--t) var(--ease),transform var(--t) var(--ease)}
 .statlink:hover .statgo,.statlink:focus-visible .statgo{opacity:1;transform:none}
 
-/* ---- the dashboard's work queue ----
-   One row per thing that is waiting, with how long it has been waiting said
-   plainly. A .mine row is something this person can act on; a .theirs row is
-   somebody else's move and is deliberately quieter. */
-.wq{display:flex;align-items:flex-start;gap:11px;padding:11px 0;border-bottom:1px solid var(--line2)}
-.wq:last-child{border-bottom:0}
-.wq .wqmain{flex:1;min-width:0}
-.wq .wqtitle{font-weight:600;line-height:1.35}
-.wq .wqwhy{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.45}
-.wq .wqage{font-family:var(--font-mono);font-size:11px;color:var(--faint);white-space:nowrap;
-  font-variant-numeric:tabular-nums;padding-top:2px}
-.wq.late .wqage{color:var(--wax)}
-.wq.theirs{opacity:.72}
-.wqmark{width:9px;height:9px;border-radius:50%;flex:0 0 auto;margin-top:6px;background:var(--line2)}
-.wq.mine .wqmark{background:var(--brass)}
-.wq.late .wqmark{background:var(--wax)}
-
 /* ---- tabs ----
    A phone scrolls them sideways rather than wrapping them into a second row
    that shifts the whole page down; the scrollbar itself is hidden because the
@@ -795,15 +778,6 @@ label.btn[aria-disabled="true"]{opacity:.42;cursor:not-allowed;box-shadow:none}
   background:var(--sunk);line-height:1.55}
 .addm{border:1px solid var(--addm-line);border-left:3px solid var(--brass);border-radius:var(--r-sm);background:var(--brass-tint);
   padding:12px var(--gutter);margin-bottom:10px;font-size:13px;line-height:1.55}
-/* the category bars in analytics: label column shrinks with the viewport
-   rather than pushing the bar off the card */
-.bars{display:flex;flex-direction:column;gap:9px}
-.bar{display:flex;align-items:center;gap:9px}
-.bar .bl{flex:0 0 76px;font-family:var(--font-mono);font-size:10.5px;color:var(--muted);text-align:right;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bar .bt{flex:1;height:16px;background:var(--line);border-radius:3px;overflow:hidden;min-width:0}
-.bar .bt>span{display:block;height:100%;border-radius:3px;background:var(--brand)}
-.bar .bv{flex:0 0 auto;font-family:var(--font-mono);font-size:11.5px;font-variant-numeric:tabular-nums}
 
 /* ============================================================ the ladder
    Every width-conditional rule in DOCKET is below this line, and every one of
@@ -900,7 +874,6 @@ label.btn[aria-disabled="true"]{opacity:.42;cursor:not-allowed;box-shadow:none}
   .letter{padding:16px 18px;line-height:1.65}
   .aihint{padding:13px 15px}
   .empty{padding:30px}
-  .bar .bl{flex:0 0 110px;font-size:11px}
 }
 
 /* ---- ${BP.desk}px · desktop: the drawer becomes furniture ----

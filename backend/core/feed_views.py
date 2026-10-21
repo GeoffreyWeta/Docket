@@ -23,7 +23,6 @@ runs on a timer and has no reason to ever approach the ceiling. A 429 carries
 `Retry-After` so a well-behaved client backs off without guessing.
 """
 import hashlib
-import json
 import secrets
 
 from django.http import JsonResponse

@@ -31,16 +31,15 @@ from .notify import notify_perm, notify_supplier, notify_suppliers
 from .permissions import has
 from .seed import ORG, seed_all
 from .tasks import maybe_sweep
-from .taxonomy import ALL_CATEGORIES, family_for
+from .taxonomy import family_for
 from .taxonomy import tree as taxonomy_tree
 from .util import (record_event, seal_bytes, seal_json, unseal_bytes,
                    unseal_json, verify_chain)
 from .util import (abnormally_low, award_letter, comm_score, eff_status,
                    fmt_compact, fmt_date_ms, fmt_money, lines_ceiling, lines_over_max,
-                   now_ms, partial_lines, price_positions, regret_letter, rid, savings_against,
+                   now_ms, partial_lines, price_positions, regret_letter, rid,
                    tech_score, total_score, variance_flags)
 
-PERSONA_SUPPLIERS = ["s2", "s3", "s7"]                 # supplier personas exposed in the demo switcher
 
 
 # ---------------- plumbing ----------------
@@ -2943,7 +2942,7 @@ def invite_vendor(request, p, body):
     email = str(body.get("email", "")).strip().lower()
     if not EMAIL_RE.match(email):
         return err("Enter a valid email address.")
-    tok = _mint("vendor_invite", email, {})
+    _mint("vendor_invite", email, {})
     _mail(email, f"{org_name()} invites you to register on DOCKET",
           f"{org_name()} uses DOCKET for sealed-bid tendering. Register your company here:\n\n"
           f"{_link(request, 'register', '1')}\n\nOnce registered and prequalified, you can be invited to tenders.")
@@ -3183,7 +3182,7 @@ def export_compliance(request, p, body, tid):
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import mm
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+    from reportlab.platypus import Paragraph, SimpleDocTemplate
 
     from .util import fmt_date_ms, verify_chain
     h = ParagraphStyle("h", fontName="Times-Bold", fontSize=15, spaceAfter=2)

@@ -8,7 +8,7 @@
    stale the ledger is allowed to look before the page says so, how an exception
    is worded, and how a set of rows becomes a chart series.
 */
-import { DAY, fmtCompact, fmtDate, nowMs } from "./helpers";
+import { DAY, fmtCompact, nowMs } from "./helpers";
 import { slot } from "./charts";
 
 /* ---------------- staleness ----------------
@@ -17,14 +17,14 @@ import { slot } from "./charts";
    than one drawing nothing, because the first one gets believed. These bands
    decide how loudly the page says it. */
 
-export const FRESHNESS = {
+const FRESHNESS = {
   LIVE: "live", AGEING: "ageing", STALE: "stale", NEVER: "never",
 };
 
 /* The feeds freshness is judged on. Vendors, items, dimensions and exchange
    rates change rarely, so a two-week-old vendor list says nothing about whether
    the money figures are current; contracts, invoices and payments do. */
-export const CORE_FEEDS = ["contract", "invoice", "payment"];
+const CORE_FEEDS = ["contract", "invoice", "payment"];
 
 export const FEED_LABELS = {
   dimension: "Cost centres and dimensions", vendor: "Vendors", item: "Items",
@@ -187,7 +187,7 @@ export const AGE_TONE = {
    comparisons. An organisation that disagrees with one should be able to find
    it and change it in a minute. */
 
-export const LEVEL = { HIGH: "high", MEDIUM: "medium", LOW: "low" };
+const LEVEL = { HIGH: "high", MEDIUM: "medium", LOW: "low" };
 
 export const LEVEL_META = {
   high: { label: "High", tone: "var(--wax)", icon: "alert", rank: 0 },
@@ -199,7 +199,7 @@ export const LEVEL_META = {
   unknown: { label: "Not assessed yet", tone: "var(--muted)", icon: "info", rank: 3 },
 };
 
-export const RISK_THRESHOLDS = {
+const RISK_THRESHOLDS = {
   overrunShareHigh: 5,      // % of committed spend committed above its budget
   lateDaysHigh: 30,         // average days past due
   overdueShareHigh: 10,     // % of outstanding payables that is overdue
@@ -336,4 +336,3 @@ export const FRAUD_KINDS = [
 export const weakest = (checks) =>
   (checks || []).filter((c) => c.total > 0).slice().sort((a, b) => a.rate - b.rate);
 
-export const asAt = (ms) => (ms ? `as at ${fmtDate(ms)}` : "");

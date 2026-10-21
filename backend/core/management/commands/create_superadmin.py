@@ -72,7 +72,7 @@ class Command(BaseCommand):
         w("")
         w(self.style.SUCCESS("  Administration console " + ("account created." if created else "access granted.")))
         w("")
-        w(f"    URL       /superadmin")
+        w("    URL       /superadmin")
         w(f"    username  {username}")
         if created or o["password"]:
             w(f"    password  {password}" + ("   (generated - store it now, it is not shown again)" if generated else ""))

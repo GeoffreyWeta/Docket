@@ -61,7 +61,7 @@ _old_db = _runner.setup_databases()
 
 from core import auction as engine                         # noqa: E402
 from core.models import (Auction, AuctionLot, AuctionParticipant, AuthToken,  # noqa: E402
-                         LotBid, OrgSetting, Persona, Profile, ProxyBid, Supplier, Tender)
+                         LotBid, OrgSetting, Persona, Profile, Supplier, Tender)
 from core.util import now_ms, rid                          # noqa: E402
 
 # These sections exercise the room itself. Sending an auction for the line
@@ -550,7 +550,6 @@ print("\n=== invitation, account claim, bidding and award journey ===")
 from django.test import override_settings
 from django.core import mail
 from core.models import ActionToken
-from unittest.mock import patch
 
 with override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend"):
     organiser, organiser_token = buyer("Independent auction organiser", "evaluator")

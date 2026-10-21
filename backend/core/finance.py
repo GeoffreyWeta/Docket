@@ -42,7 +42,6 @@ from .util import DAY_MS, abnormally_low, fmt_money, now_ms
 
 # ------------------------------------------------------------------ time keys
 
-MONTH_MS = 30 * DAY_MS
 
 
 def month_key(ms):
@@ -586,7 +585,6 @@ def compliance(tenders, contract_rows_, threshold, now=None):
     awarded = [t for t in tenders if t.status == "awarded"]
 
     # 1) Approval matrix respected: anything above the threshold needed sign-off.
-    from .models import Event
     approved_ids = _approved_tender_ids()
     above = [t for t in awarded if (t.awarded_amount or 0) > threshold]
     missing_approval = [t for t in above if t.id not in approved_ids]
@@ -1000,7 +998,6 @@ def _ex_low_bid(now):
 
 def _ex_missing_approval(now, threshold):
     out = []
-    from .models import Event
     approved = _approved_tender_ids()
     for t in Tender.objects.filter(status="awarded").exclude(awarded_amount=None):
         if (t.awarded_amount or 0) > threshold and t.id not in approved:

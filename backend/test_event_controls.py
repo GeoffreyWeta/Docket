@@ -63,9 +63,9 @@ _old_db = _runner.setup_databases()
 
 from core import auction as engine                         # noqa: E402
 from core import tasks                                     # noqa: E402
-from core.models import (Acceptance, Auction, AuctionLot, AuctionParticipant,  # noqa: E402
-                         AuthToken, Bid, Document, LotBid, Notification, OrgSetting,
-                         Persona, Profile, SignOff, Supplier, TaskMark, Tender)
+from core.models import (Acceptance, Auction, AuctionLot, AuthToken,  # noqa: E402
+                         Document, Notification, OrgSetting, Persona, Profile, SignOff,
+                         Supplier, Tender)
 from core.util import DAY_MS, now_ms, rid                  # noqa: E402
 
 PASSED, FAILED = [], []

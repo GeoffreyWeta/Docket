@@ -240,8 +240,6 @@ const S = {
   ),
 };
 
-export const ILLUS_NAMES = Object.keys(S);
-
 /** A decorative scene. `n` is a key of S; `w` caps its rendered width. */
 export function Illus({ n, w = 200, className = "" }) {
   const art = S[n];

@@ -341,7 +341,6 @@ assert _N.objects.filter(user__username="harmattan", subject__startswith="Docume
 # t1 was awarded earlier in this run - restage it. The recommendation goes too:
 # scores are locked while one is pending, so nobody is nudged to score then.
 _T.objects.filter(pk="t1").update(status="evaluation", award_rec=None)
-from core.models import Tender as _T2
 _TM.objects.filter(key__startswith="scorenudge:t1").delete()
 _sweep()
 assert _N.objects.filter(user__username="tunde@example.com", subject__startswith="Scores outstanding").exists()

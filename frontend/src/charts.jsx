@@ -30,7 +30,7 @@ import { Icon } from "./icons";
 /* The eight categorical slots, in fixed order. Anything past the eighth folds
    into "Other" - a ninth generated hue is indistinguishable from one of these
    under colour-blindness and breaks the whole set. */
-export const SLOTS = 8;
+const SLOTS = 8;
 export const slot = (i) => `var(--s${(i % SLOTS) + 1})`;
 
 /* Stable colour per key: identity decides the slot, so the same category is the
@@ -80,7 +80,7 @@ export function Figure({ title, sub, legend, children, table, right, tall }) {
   );
 }
 
-export function Legend({ items }) {
+function Legend({ items }) {
   if (!items || items.length < 2) return null;   // one series names itself in the title
   return (
     <ul className="legend">

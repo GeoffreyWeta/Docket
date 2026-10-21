@@ -38,7 +38,6 @@ for _stream in (sys.stdout, sys.stderr):   # Windows consoles default to cp1252
         pass
 
 from django.conf import settings  # noqa: E402
-from django.contrib.auth.models import User  # noqa: E402
 from django.core import mail  # noqa: E402
 from django.test import Client  # noqa: E402
 

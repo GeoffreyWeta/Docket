@@ -8,9 +8,8 @@ draw trends with no shape in them.
 
 Everything is generated from a fixed seed, so the demo is the same after every
 reset and a screenshot taken today still matches the app next month. Marked
-`source="seed"` throughout, which is what keeps it honest: `Mirrored.from_ledger`
-is False for these rows, so nothing in the product can mistake demo data for
-something Dynamics NAV actually said.
+`source="seed"` throughout, which is what keeps it honest: these rows can always
+be told apart from something Dynamics NAV actually said.
 
 The exceptions are planted deliberately, at the bottom of this file, and each
 one is labelled with the rule it exists to trigger. A dashboard of alerts that
