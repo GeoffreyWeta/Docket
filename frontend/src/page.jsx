@@ -210,6 +210,16 @@ export const PAGE_CSS = `
 .lrmeta .mono{font-size:12px}
 .lrright{display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
 .card > .lrows{padding:0}
+/* A list's room is not the window's. Beside the sidebar and the guide on a
+   1024px laptop the list column is ~360px wide, and status chips that never
+   shrink left the title one letter wide, a word per line down the page. So the
+   row stacks (title, then status and action underneath) by the width of the
+   list itself, wherever the list happens to sit. */
+.lrows{container-type:inline-size}
+@container (max-width:560px){
+  .lrow{align-items:flex-start;flex-wrap:wrap}
+  .lrright{width:100%;justify-content:flex-start}
+}
 
 /* ---- more: the disclosure that holds the rest ---- */
 .more{margin-top:14px}

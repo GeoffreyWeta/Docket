@@ -38,8 +38,9 @@ const EXPORTS = [
   ["motion.js", "MOTION_CSS"], ["icons.jsx", "ICON_CSS"], ["ui.jsx", "RADAR_CSS"],
   ["scorecards.jsx", "SCORECARD_CSS"], ["buyer.jsx", "MENU_CSS"], ["ui.jsx", "BOOT_CSS"],
   ["palette.jsx", "PALETTE_CSS"], ["charts-css.js", "CHART_CSS"],
-  ["campaign.jsx", "CAMPAIGN_CSS"], ["finance.jsx", "FINANCE_CSS"],
-  ["baselines.jsx", "BASELINE_CSS"], ["auctions.jsx", "AUCTION_CSS"], ["supplier.jsx", "PORTAL_CSS"],
+  ["campaign.jsx", "CAMPAIGN_CSS"], ["finance-css.js", "FINANCE_CSS"],
+  ["baselines.jsx", "BASELINE_CSS"], ["lifecycle.jsx", "LIFECYCLE_CSS"], ["illus.jsx", "ILLUS_CSS"],
+  ["buyer.jsx", "DRAFT_CSS"], ["page.jsx", "PAGE_CSS"],
   // The front page, its drawings and its four designs. The order is ALL_CSS's
   // order and all three positions are load-bearing. LPART_CSS is read FIRST so
   // that the page can place its own instances of a scene: the art sheet sets
@@ -47,8 +48,9 @@ const EXPORTS = [
   // beats it by being read later. DESIGN_CSS is read LAST because the `paper`
   // tear line and the dark hero are overrides of both.
   ["lpart.jsx", "LPART_CSS"], ["landing.jsx", "LANDING_CSS"], ["designs.js", "DESIGN_CSS"],
-  ["studio.js", "STUDIO_CSS"], ["studio-landing.jsx", "STUDIO_LANDING_CSS"],
-  ["superadmin.jsx", "ADMIN_CSS"],
+  ["logo.jsx", "LOGO_CSS"], ["buyer.jsx", "CHAIN_CSS"], ["buyer.jsx", "AWARD_CSS"],
+  ["studio.js", "STUDIO_CSS"], ["auctions.jsx", "AUCTION_CSS"], ["supplier-css.js", "PORTAL_CSS"],
+  ["studio-landing.jsx", "STUDIO_LANDING_CSS"], ["superadmin.jsx", "ADMIN_CSS"],
 ];
 
 /** Pull `export const NAME = \`...\`` out of a module. */
