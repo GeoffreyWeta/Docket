@@ -118,7 +118,9 @@ def savings(tenders):
         })
 
     hard = [r for r in rows if r["basis"] == "baseline"]
-    soft = [r for r in rows if r["basis"] == "budget"]
+    # Everything without a last price: measured against the average of the
+    # bids received, or (no bids priced) the budget.
+    soft = [r for r in rows if r["basis"] != "baseline"]
     total = lambda xs: sum(x["amount"] for x in xs)      # noqa: E731
 
     # Weighted, never the mean of the percentages: a ₦2m tender that saved 40%

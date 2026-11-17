@@ -26,7 +26,7 @@ from django.http import HttpResponse
 from . import ai, vocab
 from .models import (ActionToken as ActionTokenModel, AuthToken, Bid,
                      Clarification, Document, Event,
-                     Notification, Persona, ProcurementRound, Supplier, Tender)
+                     Notification, Participation, Persona, ProcurementRound, Supplier, Tender)
 from .notify import notify_perm, notify_supplier, notify_suppliers
 from .permissions import has
 from .seed import ORG, seed_all
@@ -35,7 +35,7 @@ from .taxonomy import family_for
 from .taxonomy import tree as taxonomy_tree
 from .util import (record_event, seal_bytes, seal_json, unseal_bytes,
                    unseal_json, verify_chain)
-from .util import (abnormally_low, award_letter, comm_score, eff_status,
+from .util import (AWARD_METHODS, abnormally_low, award_letter, award_options, comm_score, eff_status,
                    fmt_compact, fmt_date_ms, fmt_money, lines_ceiling, lines_over_max,
                    now_ms, partial_lines, price_positions, regret_letter, rid,
                    tech_score, total_score, variance_flags)
@@ -155,8 +155,37 @@ def supplier_view(s, full=False):
         "classification": s.classification, "contactPerson": s.contact_person,
         "phone": s.phone, "address": s.address, "paymentTerms": s.payment_terms,
         "registry": s.registry,
+        "poContact": contact_view(s.po_contact), "financeContact": contact_view(s.finance_contact),
+        "contract": contract_view(s),
     })
     return d
+
+
+def contact_view(c):
+    c = c or {}
+    return {"name": c.get("name", ""), "email": c.get("email", ""), "phone": c.get("phone", "")}
+
+
+CONTRACT_TEXT = ("ref", "bonusMalus", "escalation", "cashBack", "notes")
+
+
+def contract_view(s):
+    """The vendor's contract as one record: payment terms and the credit limit
+    from their own fields (Finance reads the same numbers), the rest from
+    Supplier.contract. Empty strings, never missing keys, so a form can bind."""
+    c = s.contract or {}
+    from .vocab import VOCAB
+    label = dict((v, lb) for v, lb in VOCAB["paymentTerms"]).get(s.payment_terms or "", s.payment_terms or "")
+    out = {k: str(c.get(k) or "") for k in CONTRACT_TEXT}
+    out.update({
+        "paymentTerms": s.payment_terms or "", "paymentTermsLabel": label,
+        "creditLimit": s.exposure_limit or 0,
+        "startsAt": c.get("startsAt") or None, "endsAt": c.get("endsAt") or None,
+        "updatedAt": c.get("updatedAt") or None, "updatedBy": c.get("updatedBy") or "",
+    })
+    out["isSet"] = bool(out["paymentTerms"] or out["creditLimit"] or any(out[k] for k in CONTRACT_TEXT)
+                        or out["startsAt"] or out["endsAt"])
+    return out
 
 
 def tender_view(t, p):
@@ -178,6 +207,9 @@ def tender_view(t, p):
         "requiredDocs": list(t.required_docs or []),
         "paymentTerms": t.payment_terms or "", "paymentConditions": t.payment_conditions or "",
         "ndaRequired": t.nda_required, "ndaText": t.nda_text or "",
+        "incoterm": t.incoterm or "", "incotermPlace": t.incoterm_place or "",
+        "creditLimit": t.credit_limit or None,
+        "awardMethod": t.award_method or "", "awardSplit": list(t.award_split or []),
         # Ownership and the savings basis. A supplier is told neither: which
         # buyer is carrying a tender, and what the organisation was paying
         # before it went to market, are both facts a bidder could price against.
@@ -216,10 +248,20 @@ def tender_view(t, p):
     cur = t.active_round() or t.latest_round()
     d["currentRound"] = cur.number if cur else 1
     d["roundCount"] = len(d["rounds"]) or 1
+    if p["role"] == "supplier":
+        # A split award shows each vendor its own share only: what another
+        # vendor won, and at what rate, is that vendor's business.
+        d["awardSplit"] = [x for x in d["awardSplit"] if x.get("supplierId") == p["supplierId"]]
+        mine = Participation.objects.filter(tender=t, supplier_id=p["supplierId"]).first()
+        d["myParticipation"] = participation_view(mine) if mine else None
     if p["role"] != "supplier":
         d["ownerId"] = t.owner_id
         d["baseline"] = t.baseline
         d["baselineSource"] = t.baseline_source or None
+        # Stands in for the last price when there is none (savings_against).
+        d["bidAverage"] = t.bid_average() if (t.opened_at and not t.baseline) else None
+        d["participation"] = {x.supplier_id: participation_view(x)
+                              for x in Participation.objects.filter(tender=t)}
         # How this spend is coded for finance reporting. Withheld from suppliers
         # with everything else on this branch: which cost centre is funding a
         # purchase is an internal fact, and a bidder who knows a project has its
@@ -236,6 +278,11 @@ def tender_view(t, p):
     if has(p, "award.see_recommendation"):
         d["awardRec"] = t.award_rec
         d["awardMemo"] = t.award_memo or None
+        if t.award_rec and t.status == "evaluation":
+            bids = [b for b in t.bids.all() if b.counts]
+            rbid = next((b for b in bids if b.id == (t.award_rec.get("recommendedBidId")
+                                                      or t.award_rec.get("bidId"))), None)
+            d["awardOptions"] = award_options(t, bids, rbid)
         d["letters"] = t.letters
         d["coi"] = t.coi or {}
     elif p["role"] != "supplier":
@@ -245,6 +292,11 @@ def tender_view(t, p):
         if t.letters and p["supplierId"] in t.letters:
             d["letters"] = {p["supplierId"]: t.letters[p["supplierId"]]}
     return d
+
+
+def participation_view(x):
+    return {"answer": x.answer, "reason": x.reason or "", "note": x.note or "",
+            "by": x.by_name or "", "at": x.at}
 
 
 def open_standing(t, supplier_id):
@@ -377,7 +429,7 @@ def doc_visible(d, t, p):
     return True
 
 
-def doc_view(d, label=None):
+def doc_view(d, label=None, buyer=False):
     # A compliance document carries its expiry, and its type as the vendor
     # chose it from the list (held on the supplier's docs record, keyed by
     # docId). Without them the portal could never say what had lapsed.
@@ -389,10 +441,15 @@ def doc_view(d, label=None):
         out["expiry"] = d.expiry or None
         out["label"] = (label or {}).get("name") or ""
         out["docType"] = (label or {}).get("type") or ""
+    if buyer:
+        # The copy in the company's SharePoint (sharepoint.py), for the buying
+        # side only: a vendor cannot open it, and the address is internal.
+        out["sharepointUrl"] = d.sharepoint_url or ""
+        out["sharepointError"] = "" if d.sharepoint_at else (d.sharepoint_error or "")
     return out
 
 
-def supplier_doc_views(qs):
+def supplier_doc_views(qs, buyer=False):
     """doc_view for compliance documents, with each one's type and label from
     its supplier's docs record."""
     docs = list(qs)
@@ -402,7 +459,7 @@ def supplier_doc_views(qs):
         for x in (s.docs or []):
             if x.get("docId"):
                 meta[x["docId"]] = x
-    return [doc_view(d, meta.get(d.id)) for d in docs]
+    return [doc_view(d, meta.get(d.id), buyer=buyer) for d in docs]
 
 
 def clar_view(c, p):
@@ -451,6 +508,7 @@ def bootstrap(request, p, body):
             deep.update(t.invited or [])
             if t.awarded_to:
                 deep.add(t.awarded_to)
+            deep.update(x.get("supplierId") for x in (t.award_split or []) if x.get("supplierId"))
         deep.update(Bid.objects.filter(tender_id__in=visible_ids).values_list("supplier_id", flat=True))
         suppliers = [supplier_view(s, full=s.id in deep)
                      for s in Supplier.objects.all().order_by("name")]
@@ -499,11 +557,11 @@ def bootstrap(request, p, body):
     tmap = {t["id"]: Tender.objects.get(pk=t["id"]) for t in tenders}
     for d in Document.objects.select_related("round").filter(tender_id__in=visible_ids):
         if doc_visible(d, tmap[d.tender_id], p):
-            docs.append(doc_view(d))
+            docs.append(doc_view(d, buyer=p["role"] != "supplier"))
     if p["role"] == "supplier":
         docs += supplier_doc_views(Document.objects.filter(kind="supplier", supplier_id=p["supplierId"]))
     else:
-        docs += supplier_doc_views(Document.objects.filter(kind="supplier"))
+        docs += supplier_doc_views(Document.objects.filter(kind="supplier"), buyer=True)
 
     notifs = [{"id": n.id, "at": n.at, "subject": n.subject, "body": n.body,
                "tenderId": n.tender_id, "destination": n.destination, "read": n.read}
@@ -532,7 +590,16 @@ def bootstrap(request, p, body):
         "clarifications": clars, "events": events, "documents": docs,
         "notifications": notifs,
         "demoLogin": settings.DEMO_LOGIN,
+        "sharepoint": sharepoint_status() if p["role"] != "supplier" else None,
     })
+
+
+def sharepoint_status():
+    from . import sharepoint
+    try:
+        return sharepoint.status()
+    except Exception:                                             # noqa: BLE001
+        return {"enabled": True, "error": "Could not read the filing status."}
 
 
 # The capabilities the dashboard's work queue can be blocked on. Only these are
@@ -1062,6 +1129,26 @@ def _whole(v):
         return 0
 
 
+# The most lines one tender can carry. Enough for a full ingredients or
+# packaging list; past it, a bid room becomes a spreadsheet nobody can price
+# on a phone, and it is two purchases, not one.
+MAX_LINES = 200
+
+
+def apply_trade_terms(event, body):
+    """Delivery terms (an Incoterm and its named place) and the credit limit,
+    for a tender or an auction. Only what the body carries is changed."""
+    if "incoterm" in body:
+        event.incoterm = vocab.incoterm(body.get("incoterm"), keep=event.incoterm or "")
+    if "incotermPlace" in body:
+        event.incoterm_place = str(body.get("incotermPlace") or "").strip()[:120]
+    if not event.incoterm:
+        event.incoterm_place = ""
+    if "creditLimit" in body:
+        limit = _whole(body.get("creditLimit"))
+        event.credit_limit = limit or None
+
+
 def _apply_tender_payload(t, body):
     t.title = str(body.get("title", "")).strip()
     t.ttype = body.get("type", "RFQ")
@@ -1099,6 +1186,7 @@ def _apply_tender_payload(t, body):
         t.nda_text = text if t.nda_required else ""
         if t.nda_required and not text:
             t.nda_text = default_nda()
+    apply_trade_terms(t, body)
 
     # vocab.category accepts the seven words the old dropdown offered (via
     # taxonomy.canonical), so a draft saved in a browser tab before this shipped
@@ -1136,6 +1224,10 @@ def _apply_tender_payload(t, body):
     # kept as it was, so editing an older draft does not fail on a line nobody
     # touched.
     had = {str(l.get("unit", "")) for l in (t.lines or [])}
+    sent = [l for l in (body.get("lines") or []) if str(l.get("desc", "")).strip()]
+    if len(sent) > MAX_LINES:
+        raise vocab.Refused(f"A tender can carry at most {MAX_LINES} lines. This one has {len(sent)}. "
+                            f"Split it into two tenders, or group similar items into one line.")
     t.lines = [{"id": l.get("id") or rid("l"), "desc": str(l["desc"]).strip(),
                 "qty": int(l.get("qty", 0) or 0), "unit": vocab.unit(l.get("unit"), keep=had),
                 "itemCode": str(l.get("itemCode", "") or "").strip()[:40],
@@ -1198,6 +1290,9 @@ def _validate_tender(t, submitting):
             return "Every line item needs a quantity above zero."
         if t.nda_required and len((t.nda_text or "").strip()) < 40:
             return "Write the non-disclosure agreement vendors will sign, or switch it off."
+        if t.incoterm and not (t.incoterm_place or "").strip():
+            return (f"Name the place for {t.incoterm}: for example the port, the warehouse or the "
+                    f"address the goods are delivered to.")
     return None
 
 
@@ -1578,8 +1673,15 @@ def recommend_award(request, p, body, tid):
         f"commercial {cs:.0f}/100, weighted total {f'{tot:.1f}' if tot is not None else '-'}. "
         + (("Flags: " + "; ".join(flags) + ".") if flags else "No variance or pricing flags.")
     )
+    # The approver may award it another way: to the lowest total, or line by
+    # line to the lowest rate on each (see award_decision). The signatures are
+    # collected on the largest of those, so whichever is chosen is covered.
+    options = award_options(t, bids, bid)
+    cover = max([bid.amount] + [o["amount"] for o in options.values()])
     t.award_rec = {"bidId": bid.id, "supplierId": bid.supplier_id, "amount": bid.amount,
-                   "by": p["name"], "byId": p.get("id"), "at": now_ms(), "memo": memo}
+                   "by": p["name"], "byId": p.get("id"), "at": now_ms(), "memo": memo,
+                   "method": "recommended", "recommendedBidId": bid.id,
+                   "parts": options["recommended"]["parts"], "chainAmount": cover}
     t.save()
 
     # The award walks the ladder on the *awarded* amount, not the budget: the
@@ -1588,7 +1690,7 @@ def recommend_award(request, p, body, tid):
     # is just as common where the market came in well under the estimate.
     from . import approvals
     raiser = t.owner or Persona.objects.filter(pk=p.get("id")).first()
-    steps = approvals.open_chain(t, approvals.AWARD, bid.amount, raiser)
+    steps = approvals.open_chain(t, approvals.AWARD, cover, raiser)
     if steps:
         log(p, "Award recommended",
             f"Panel recommendation for {s.name} at {fmt_compact(bid.amount)} needs "
@@ -1619,6 +1721,62 @@ def withdraw_recommendation(request, p, body, tid):
     return JsonResponse({"ok": True})
 
 
+METHOD_WORDS = {"recommended": "the panel's recommendation", "total": "the lowest total cost",
+                "item": "the best item cost (each line to its lowest price)"}
+
+
+def _basis_words(rec, names):
+    """The sentence the award memo gains when it records how it was awarded."""
+    method = rec.get("method") or "recommended"
+    if method == "recommended" and not rec.get("changedBy"):
+        return ""
+    parts = rec.get("parts") or []
+    if method == "item" and len(parts) > 1:
+        split = "; ".join(f"{names.get(x['supplierId'], x['supplierId'])} {len(x['lines'])} "
+                          f"line{'' if len(x['lines']) == 1 else 's'}, {fmt_compact(x['amount'])}" for x in parts)
+        out = f" Awarded on {METHOD_WORDS[method]}, across {len(parts)} vendors: {split}."
+    else:
+        out = f" Awarded on {METHOD_WORDS[method]}: {names.get(parts[0]['supplierId'], '') if parts else ''}."
+    if rec.get("short"):
+        out += f" {len(rec['short'])} line(s) could not be filled in full from the bids."
+    if rec.get("changedBy"):
+        out += f" Basis chosen by {rec['changedBy']} at sign-off."
+    return out
+
+
+def _rebase_award(t, rec, method, p):
+    """Change what a pending award awards, at signature. Returns (rec, problem).
+
+    The signatures were collected on the largest of the three options when the
+    panel recommended (recommend_award), so switching between them stays inside
+    what the chain covers. A recommendation made before that rule existed is
+    checked against the amount its steps were opened for."""
+    from . import approvals
+    bids = [b for b in t.bids.all() if b.counts]
+    rbid = next((b for b in bids if b.id == (rec.get("recommendedBidId") or rec.get("bidId"))), None)
+    opt = award_options(t, bids, rbid).get(method)
+    if not opt:
+        return rec, "That way of awarding is not available on this tender."
+    steps = approvals.steps_for(t, approvals.AWARD)
+    cover = rec.get("chainAmount") or max([s_.amount for s_ in steps] or [0])
+    if steps and opt["amount"] > cover:
+        return rec, (f"Awarding on {METHOD_WORDS[method]} comes to {fmt_compact(opt['amount'])}, more than the "
+                     f"{fmt_compact(cover)} these signatures were collected for. Return it to the panel instead.")
+    was = METHOD_WORDS[rec.get("method") or "recommended"]
+    first = opt["parts"][0]
+    rec = {**rec, "method": method, "amount": opt["amount"], "supplierId": first["supplierId"],
+           "bidId": first["bidId"], "parts": opt["parts"], "short": opt["short"],
+           "changedBy": p["name"], "changedAt": now_ms()}
+    t.award_rec = rec
+    t.save(update_fields=["award_rec"])
+    names = {s_.id: s_.name for s_ in Supplier.objects.filter(id__in=[x["supplierId"] for x in opt["parts"]])}
+    log(p, "Award basis changed",
+        f"Changed from {was} to {METHOD_WORDS[method]}: "
+        + ", ".join(f"{names.get(x['supplierId'], x['supplierId'])} {fmt_compact(x['amount'])}" for x in opt["parts"])
+        + f", {fmt_compact(opt['amount'])} in all.", t.id)
+    return rec, None
+
+
 @route(["POST"])
 def award_decision(request, p, body, tid):
     """Sign, or return, one award. Chain first, capability second - see
@@ -1630,8 +1788,9 @@ def award_decision(request, p, body, tid):
     rec = t.award_rec
     if not rec or t.status != "evaluation":
         return err("No award recommendation is awaiting approval on this tender.", 409)
-    if body.get("ok") and Supplier.objects.filter(pk=rec.get("supplierId"), suspended=True).exists():
-        return err("The recommended vendor is blacklisted (suspended). Return the recommendation for review.", 409)
+    method = body.get("method") or rec.get("method") or "recommended"
+    if method not in AWARD_METHODS:
+        return err("Choose how to award: the panel's recommendation, the lowest total cost, or the best item cost.")
 
     reason = "" if body.get("ok") else _return_reason(body)
     step = approvals.current_step(t, approvals.AWARD)
@@ -1643,6 +1802,15 @@ def award_decision(request, p, body, tid):
         return err("You don't have permission to approve awards.", 403)
     if not body.get("ok") and not reason:
         return err("Say why it is going back, so the panel knows what to look at.")
+
+    if body.get("ok") and method != (rec.get("method") or "recommended"):
+        rec, problem = _rebase_award(t, rec, method, p)
+        if problem:
+            return err(problem, 409)
+    if body.get("ok"):
+        winners = [x["supplierId"] for x in (rec.get("parts") or [])] or [rec.get("supplierId")]
+        if Supplier.objects.filter(pk__in=winners, suspended=True).exists():
+            return err("A vendor in this award is blacklisted (suspended). Return the recommendation for review.", 409)
 
     if step:
         approvals.decide(step, p, bool(body.get("ok")), body.get("note", "") if body.get("ok") else reason)
@@ -1659,21 +1827,29 @@ def award_decision(request, p, body, tid):
                 return JsonResponse({"ok": True, "done": False, "next": nxt_name})
 
     if body.get("ok"):
-        winner = Supplier.objects.get(pk=rec["supplierId"])
+        method = rec.get("method") or "recommended"
+        names = {s_.id: s_.name for s_ in Supplier.objects.all()}
+        parts = rec.get("parts") or [{"supplierId": rec["supplierId"], "bidId": rec.get("bidId"),
+                                      "amount": rec["amount"], "lines": []}]
         t.status = "awarded"
-        t.awarded_to = rec["supplierId"]
+        t.award_method = "item" if method == "item" else "single"
+        t.award_split = parts if method == "item" else []
+        t.awarded_to = parts[0]["supplierId"]
         t.awarded_amount = rec["amount"]
         t.awarded_at = now_ms()
-        t.award_memo = rec["memo"]
+        t.award_memo = rec["memo"] + _basis_words(rec, names)
         t.award_rec = None
+        won = {x["supplierId"]: x for x in parts}
         letters = {}
         for b in t.bids.all():
             if not b.counts:
                 continue  # never in the competition; they were told when audit decided
-            name = Supplier.objects.get(pk=b.supplier_id).name
+            name = names.get(b.supplier_id, b.supplier_id)
+            share = won.get(b.supplier_id)
             letters[b.supplier_id] = (
-                {"type": "award", "text": award_letter(org_name(), t, name, t.awarded_amount)}
-                if b.supplier_id == t.awarded_to
+                {"type": "award", "text": award_letter(org_name(), t, name, share["amount"],
+                                                        lines=share["lines"] if method == "item" else None)}
+                if share
                 else {"type": "regret", "text": regret_letter(org_name(), t, name)}
             )
         t.letters = letters
@@ -1684,11 +1860,13 @@ def award_decision(request, p, body, tid):
             against = f" - {abs(under):.1f}% {'under' if under >= 0 else 'over'} budget"
         else:
             against = ""
+        who = (", ".join(f"{names.get(x['supplierId'], x['supplierId'])} ({fmt_compact(x['amount'])})"
+                         for x in parts) if len(parts) > 1 else names.get(parts[0]["supplierId"], ""))
         log(p, "Award approved",
-            f"Awarded to {winner.name} at {fmt_compact(t.awarded_amount)}{against}. "
-            f"Award and regret letters issued.", t.id)
+            f"Awarded {'line by line to ' if len(parts) > 1 else 'to '}{who}, "
+            f"{fmt_compact(t.awarded_amount)} in all{against}. Award and regret letters issued.", t.id)
         notify_perm("award.recommend", f"Award approved: {t.title}",
-                    f"The award to {winner.name} was approved. Letters have been issued to all bidders.", t.id)
+                    f"The award to {who} was approved. Letters have been issued to all bidders.", t.id)
         for sid in letters:
             notify_supplier(sid, f"Outcome available: {t.title}",
                             f"The outcome of {t.ref} has been decided. Your letter is available in your portal.",
@@ -1856,6 +2034,7 @@ def bid_collection(request, p, body, tid):
     log(p, "Conflict-of-interest declaration signed",
         f"{p['name']} declared no conflict of interest for {sup_name}, signed electronically "
         f"with bid {b.id} on {fmt_date_ms(signed_at)}.", t.id)
+    record_participation(t, me, "yes", by=p["name"])
 
     if review == "held" and not revised:
         log(p, "Bid held for audit approval",
@@ -2031,6 +2210,102 @@ def ask_clarification(request, p, body, tid):
     notify_perm("clarification.answer", f"New clarification: {t.title}",
                 f"A supplier asked a question on {t.ref}. Answers are published to all invited suppliers.", t.id)
     return JsonResponse({"ok": True})
+
+
+def clean_contact(given, current, key):
+    """{name, email, phone} for one of a vendor's named contacts. All three
+    blank clears it; an email, when given, has to look like one."""
+    import re
+    if not isinstance(given, dict):
+        raise vocab.Refused("Send the contact as a name, an email and a phone number.")
+    what = "purchase orders" if key == "poContact" else "finance"
+    name = str(given.get("name") or "").strip()[:120]
+    email = str(given.get("email") or "").strip()[:200]
+    phone = vocab.phone(given.get("phone"), keep=(current or {}).get("phone", "")) if given.get("phone") else ""
+    if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise vocab.Refused(f"The email for the {what} contact does not look right.")
+    if (email or phone) and len(name) < 2:
+        raise vocab.Refused(f"Give the name of the {what} contact.")
+    return {"name": name, "email": email, "phone": phone} if (name or email or phone) else {}
+
+
+@route(["POST"], roles={"supplier"})
+def participation(request, p, body, tid):
+    """A vendor says whether it will bid. Changeable until bids close; a "no"
+    needs a reason off the list, and tells the tender's owner."""
+    t = Tender.objects.filter(pk=tid).first()
+    if not t or p["supplierId"] not in (t.invited or []) or t.status in ("draft", "approval"):
+        return err("Tender not found.", 404)
+    if eff_status(t) != "published":
+        return err("Bids have closed, so there is nothing left to answer.", 409)
+    answer = body.get("answer")
+    if answer not in ("yes", "no"):
+        return err("Say whether you will bid: yes or no.")
+    reason, note = "", str(body.get("note") or "").strip()[:300]
+    if answer == "no":
+        if Bid.objects.filter(tender=t, supplier_id=p["supplierId"]).exclude(review="rejected").exists():
+            return err("You have already bid. Withdraw your bid first if you no longer want to take part.", 409)
+        reason = vocab.decline_reason(body.get("reason"))
+        if reason == "Other" and len(note) < 3:
+            return err("Say in a few words why you will not bid.")
+    row = record_participation(t, p["supplierId"], answer, reason, note, p["name"])
+    sup = Supplier.objects.filter(pk=p["supplierId"]).first()
+    name = sup.name if sup else p["supplierId"]
+    if answer == "no":
+        log(p, "Vendor will not bid", f"{name}: {reason}{f' - {note}' if note else ''}.", t.id)
+        if t.owner_id:
+            from .notify import notify_personas
+            notify_personas([t.owner_id], f"{name} will not bid: {t.title}",
+                            f"{name} says it will not bid on {t.ref}. Reason: {reason}"
+                            f"{f' ({note})' if note else ''}.", t.id)
+    else:
+        log(p, "Vendor will bid", f"{name} says it will bid.", t.id)
+    return JsonResponse({"ok": True, "participation": participation_view(row)})
+
+
+def record_participation(t, supplier_id, answer, reason="", note="", by=""):
+    row = Participation.objects.filter(tender=t, supplier_id=supplier_id).first()
+    if row is None:
+        row = Participation(id=rid("pa"), tender=t, supplier_id=supplier_id)
+    row.answer, row.reason, row.note = answer, reason if answer == "no" else "", note if answer == "no" else ""
+    row.by_name, row.at = str(by or "")[:120], now_ms()
+    row.save()
+    return row
+
+
+@route(["POST"], perm="supplier.contract")
+def supplier_contract(request, p, body, sid):
+    """Set what the company has agreed with a vendor: payment terms, credit
+    limit, bonus or malus, escalation, cash back, and the contract's dates."""
+    s = Supplier.objects.filter(pk=sid).first()
+    if not s:
+        return err("Vendor not found.", 404)
+    c = dict(s.contract or {})
+    if "paymentTerms" in body:
+        s.payment_terms = vocab.payment_terms(body.get("paymentTerms"), keep=s.payment_terms or "")
+    if "creditLimit" in body:
+        s.exposure_limit = _whole(body.get("creditLimit"))
+    for key in CONTRACT_TEXT:
+        if key in body:
+            c[key] = str(body.get(key) or "").strip()[:2000 if key == "notes" else 600]
+    for key in ("startsAt", "endsAt"):
+        if key in body:
+            try:
+                c[key] = int(body.get(key) or 0) or None
+            except (TypeError, ValueError):
+                return err("Pick the contract dates from the calendar.")
+    if c.get("startsAt") and c.get("endsAt") and c["endsAt"] < c["startsAt"]:
+        return err("The contract cannot end before it starts.")
+    c["updatedAt"], c["updatedBy"] = now_ms(), p["name"]
+    s.contract = c
+    s.save(update_fields=["payment_terms", "exposure_limit", "contract"])
+    log(p, "Vendor contract updated", f"{s.name}: " + "; ".join(
+        f"{k} {v}" for k, v in (("payment terms", s.payment_terms), ("credit limit",
+                                fmt_money(s.exposure_limit) if s.exposure_limit else ""))
+        if v) + ".")
+    notify_supplier(s.id, f"Your contract with {org_name()} was updated",
+                    f"{org_name()} updated the terms on file for {s.name}. See the Contract tab in your portal.")
+    return JsonResponse({"ok": True, "contract": contract_view(s)})
 
 
 @route(["POST"], roles={"supplier"})
@@ -3157,6 +3432,7 @@ def duplicate_tender(request, p, body, tid):
         required_docs=list(src.required_docs or []),
         payment_terms=src.payment_terms, payment_conditions=src.payment_conditions,
         nda_required=src.nda_required, nda_text=src.nda_text,
+        incoterm=src.incoterm, incoterm_place=src.incoterm_place, credit_limit=src.credit_limit,
         # The expectation carries over with the structure; the deadline and the
         # rounds do not, because those are facts about the run, not the template.
         projected_cost=src.projected_cost,
@@ -3237,8 +3513,14 @@ def export_compliance(request, p, body, tid):
 
     flow.append(Paragraph("5. Award", sec))
     if t.awarded_to:
-        para(f"Awarded to {names.get(t.awarded_to, t.awarded_to)} at {fmt_compact(t.awarded_amount)} on "
-             f"{fmt_date_ms(t.awarded_at)}. Award and regret letters issued to all bidders.")
+        if len(t.award_split or []) > 1:
+            who = "; ".join(f"{names.get(x['supplierId'], x['supplierId'])} {fmt_compact(x['amount'])} "
+                            f"({len(x.get('lines') or [])} lines)" for x in t.award_split)
+            para(f"Awarded line by line, each line to its lowest price, {fmt_compact(t.awarded_amount)} in all "
+                 f"on {fmt_date_ms(t.awarded_at)}: {who}. Award and regret letters issued to all bidders.")
+        else:
+            para(f"Awarded to {names.get(t.awarded_to, t.awarded_to)} at {fmt_compact(t.awarded_amount)} on "
+                 f"{fmt_date_ms(t.awarded_at)}. Award and regret letters issued to all bidders.")
     elif t.award_rec:
         para(f"Recommendation for {names.get(t.award_rec['supplierId'])} waiting for sign-off since {fmt_date_ms(t.award_rec['at'])}.")
     else:
@@ -3280,6 +3562,9 @@ def me_update(request, p, body):
             sup.phone = vocab.phone(body.get("phone"), keep=sup.phone)
         if "contactPerson" in body:
             sup.contact_person = str(body.get("contactPerson") or "").strip()[:140]
+        for key, field in (("poContact", "po_contact"), ("financeContact", "finance_contact")):
+            if key in body:
+                setattr(sup, field, clean_contact(body.get(key), getattr(sup, field) or {}, key))
         sup.save()
         if old != name:
             record_event(actor=name, role="supplier", action="Company renamed",

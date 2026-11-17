@@ -190,8 +190,8 @@ function SavingsTab({ api, tenders }) {
               d={s.hard.length ? `${s.hard.length} award${s.hard.length === 1 ? "" : "s"} vs a recorded prior price` : "no baselines recorded yet"}
               tone={s.hardTotal > 0 ? "var(--green)" : null} />
         <Stat k="Saving rate" v={pct(s.hardRate)} d="weighted, against baseline" />
-        <Stat k="Against budget only" v={fmtCompact(s.softTotal)}
-              d={`${s.soft.length} award${s.soft.length === 1 ? "" : "s"} with no prior price on file`}
+        <Stat k="No last price on file" v={fmtCompact(s.softTotal)}
+              d={`${s.soft.length} award${s.soft.length === 1 ? "" : "s"}, measured against the average bid`}
               tone="var(--s4)" />
         <Stat k="Baseline coverage" v={Math.round(s.coverage) + "%"}
               d="of awards measurable against a real prior price" />
@@ -204,9 +204,10 @@ function SavingsTab({ api, tenders }) {
           <b>Verified savings</b> compare an award to what the organisation was actually
           paying before - a prior contract, an incumbent's renewal quote, the price on the
           shelf. That is the figure that survives a review.{" "}
-          <b>Against budget</b> compares an award to the ceiling somebody estimated
-          beforehand, which measures the estimate as much as the buying. They are shown
-          apart because adding them together produces a headline nobody can defend.
+          Where there is <b>no last price on file</b>, an award is compared to the average
+          of the bids received (or, with no bids priced, to the budget): a fair read of
+          what the market asked, but not money that stopped leaving. They are shown apart
+          because adding them together produces a headline nobody can defend.
         </div>
       </div>
 
@@ -247,9 +248,9 @@ function SavingsTab({ api, tenders }) {
             </div>
             <div className="cbody" style={{ paddingTop: 6 }}>
               <div className="muted" style={{ fontSize: 12.5, marginBottom: 10 }}>
-                Each of these is measured against its budget because nothing records what
-                the organisation paid before. Adding a baseline to future tenders in these
-                categories is what moves the coverage figure above.
+                Each of these is measured against the average of its bids because nothing
+                records what the organisation paid before. Adding the last price paid to future
+                tenders in these categories is what moves the coverage figure above.
               </div>
               {s.missingBaseline.slice(0, 8).map((t) => (
                 <div className="rowline" key={t.id}>
@@ -257,7 +258,9 @@ function SavingsTab({ api, tenders }) {
                     <b className="doclink" onClick={() => go({ page: "tender", id: t.id })}>{t.title}</b>
                     <div className="muted" style={{ fontSize: 12 }}>{t.category}</div>
                   </div>
-                  <span className="mono faint">{fmtCompact(t.budget - t.awardedAmount)} vs budget</span>
+                  <span className="mono faint">{t.bidAverage
+                    ? `${fmtCompact(t.bidAverage - t.awardedAmount)} vs average bid`
+                    : `${fmtCompact(t.budget - t.awardedAmount)} vs budget`}</span>
                 </div>
               ))}
               {s.missingBaseline.length > 8 && (
@@ -303,20 +306,20 @@ function PeopleTab({ api, tenders }) {
       </div>
 
       <div className="grid g2">
-        <Figure title="Savings by person" sub="verified and budget-only, side by side"
+        <Figure title="Savings by person" sub="verified, and without a last price, side by side"
                 legend={[{ label: "Verified", color: "var(--green)" },
-                         { label: "Against budget", color: "var(--s4)" }]}
+                         { label: "No last price", color: "var(--s4)" }]}
                 table={<DataTable
                   cols={[{ key: "name", label: "Person" },
                          { key: "hardSaved", label: "Verified", num: true, render: (r) => fmtMoney(r.hardSaved) },
-                         { key: "softSaved", label: "vs budget", num: true, render: (r) => fmtMoney(r.softSaved) },
+                         { key: "softSaved", label: "no last price", num: true, render: (r) => fmtMoney(r.softSaved) },
                          { key: "awarded", label: "Awards", num: true }]}
                   rows={named} />}>
           {named.length ? (
             <StackedBars rows={named.map((r) => ({
               key: r.id, label: r.name,
               parts: [{ key: "h", label: "Verified", value: r.hardSaved, color: "var(--green)" },
-                      { key: "s", label: "Against budget", value: r.softSaved, color: "var(--s4)" }],
+                      { key: "s", label: "No last price", value: r.softSaved, color: "var(--s4)" }],
             }))} />
           ) : <Empty icon="team">No tender has an owner recorded yet.</Empty>}
         </Figure>

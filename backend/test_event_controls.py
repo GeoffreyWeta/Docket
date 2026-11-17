@@ -535,8 +535,8 @@ ok("with the switch off, it is scheduled straight away", Auction.objects.get(pk=
 # ================================================================ 5. documents
 print("\n-- bid documents have types")
 settings_to(lineManagerApproval=False)
-t = make(CHIDI_K, {"requiredDocs": ["Quotation", "Product specification"]})
-ok("the buyer can require document types", t.required_docs == ["Quotation", "Product specification"], t.required_docs)
+t = make(CHIDI_K, {"requiredDocs": ["Quotation", "Technical datasheet"]})
+ok("the buyer can require document types", t.required_docs == ["Quotation", "Technical datasheet"], t.required_docs)
 code, out = call("POST", "/api/tenders/", CHIDI_K, {**BASE, "deadline": now_ms() + DAY_MS * 5,
                                                     "requiredDocs": ["Passport photo"], "submit": True})
 ok("only types off the list", code == 400, (code, out))
@@ -548,7 +548,7 @@ ok("a quotation is sealed in the commercial envelope", code == 200 and out["doc"
    and out["doc"]["docType"] == "Quotation", out)
 code, out = upload(f"/api/tenders/{t.id}/bid_docs/", A_K, "x.pdf", b"%PDF-1.4", docType="Selfie")
 ok("an unknown type is refused", code == 400, (code, out))
-upload(f"/api/tenders/{t.id}/bid_docs/", A_K, "spec.pdf", b"%PDF-1.4", docType="Product specification")
+upload(f"/api/tenders/{t.id}/bid_docs/", A_K, "spec.pdf", b"%PDF-1.4", docType="Technical datasheet")
 code, out = call("POST", f"/api/tenders/{t.id}/bids/", A_K, {"decl": True, "lines": {line: 10}})
 ok("with both attached, the bid goes in", code == 200, (code, out))
 

@@ -157,6 +157,12 @@ def tender_row(t):
         "published_at": t.published_at, "deadline": t.deadline,
         "opened_at": t.opened_at, "awarded_at": t.awarded_at,
         "awarded_to": t.awarded_to, "awarded_amount": t.awarded_amount,
+        # "single" or "item" (line by line, several winners; awarded_to is the
+        # largest share and awarded_amount the total). Added Nov 2026.
+        "award_method": t.award_method or "",
+        "award_vendor_count": len(t.award_split or []) or (1 if t.awarded_to else 0),
+        "incoterm": t.incoterm or "", "incoterm_place": t.incoterm_place or "",
+        "credit_limit": t.credit_limit,
         "owner_id": t.owner_id,
         "tech_weight": t.tech_weight, "comm_weight": t.comm_weight,
         "two_stage": t.two_stage, "tech_opened_at": t.tech_opened_at,

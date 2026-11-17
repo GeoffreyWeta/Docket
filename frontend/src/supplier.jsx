@@ -5,12 +5,12 @@ import { draftKeyFor, readDraft, useDraftStorage } from "./drafts";
 import { AuctionGallery } from "./auctions";
 import { Countdown, Empty, Money, Stat } from "./atoms";
 import { Meter } from "./charts";
-import { BidDocTypeSelect, CategorySelect, DocTypeSelect, LocationSelect, PhoneInput } from "./fields";
+import { BidDocTypeSelect, CategorySelect, DeclineReasonSelect, DocTypeSelect, LocationSelect, PhoneInput } from "./fields";
 import { BID_DOC_TYPES } from "./vocab";
 import { Figures, Guide, Page, Quiet, Row, Rows } from "./page";
 import {
   REG_STATUS, VERIFY_STATUS, activeRound, daysLeft, effStatus, fmtCompact, fmtDate,
-  fmtDateTime, fmtMoney, nowMs, regStatusOf, roundsOf, verifyStatusOf, wholeAmount,
+  fmtDateTime, fmtMoney, nowMs, regStatusOf, roundsOf, verifyStatusOf, wholeAmount, wonAmount, wonBy,
 } from "./helpers";
 import { Icon, SealMark } from "./icons";
 import { DUR, cue, useCountUp, useFlip, usePrev } from "./motion";
@@ -42,10 +42,14 @@ export function PortalHome({ api }) {
   const tab = api.route.tab || "overview";
   const setTab = (next) => api.setView({ tab: next });
   const [docForm, setDocForm] = useState({ type: "", label: "", expiry: "" });
+  const blankContact = { name: "", email: "", phone: "" };
   const [profileForm, setProfileForm] = useState({
     name: supplier.name, category: supplier.category, location: supplier.location,
     phone: supplier.phone || "", contactPerson: supplier.contactPerson || "",
+    poContact: { ...blankContact, ...(supplier.poContact || {}) },
+    financeContact: { ...blankContact, ...(supplier.financeContact || {}) },
   });
+  const setContact = (which, k, v) => setProfileForm((f) => ({ ...f, [which]: { ...f[which], [k]: v } }));
   const [dropDoc, setDropDoc] = useState(null);
   const myComplianceDocs = (state.documents || []).filter((x) => x.kind === "supplier" && x.supplierId === me);
   /* The type is chosen from the list, so a buyer filtering the register for a
@@ -100,10 +104,10 @@ export function PortalHome({ api }) {
   });
   const soonest = openNow.length ? openNow.reduce((a, t) => (t.deadline < a.deadline ? t : a)) : null;
   const bidsMade = state.bids.filter((b) => b.supplierId === me);
-  const wins = state.tenders.filter((t) => t.awardedTo === me);
+  const wins = state.tenders.filter((t) => wonBy(t, me));
   const decided = state.tenders.filter((t) => t.status === "awarded" && bidsMade.some((b) => b.tenderId === t.id));
   const losses = decided.length - wins.length;
-  const value = wins.reduce((s2, t) => s2 + (t.awardedAmount || 0), 0);
+  const value = wins.reduce((s2, t) => s2 + (wonAmount(t, me) || 0), 0);
   const liveAucs = aucs.filter((a) => a.live);
   /* A decided auction used to leave no trace on the winner's page: nothing
      under Outcomes, no alert, only an "Awarded" chip on the invitation that
@@ -170,6 +174,7 @@ export function PortalHome({ api }) {
     ["overview", "Overview"],
     ["invitations", `Invitations${openNow.length + liveAucs.length ? ` (${openNow.length + liveAucs.length})` : ""}`],
     ["outcomes", "Outcomes"],
+    ["contract", "Contract"],
     ["company", "Company"],
   ];
 
@@ -338,7 +343,9 @@ export function PortalHome({ api }) {
                              ? <span className="chip ok">Your price: {t.standing.position} of {t.standing.of}</span>
                            : myBid ? <span className="chip ok">{t.bidMode === "open" ? "Bid in" : "Sealed"}</span>
                            : left ? <span className="chip">Not shortlisted</span>
-                           : st === "published" ? <span className="chip warn">Not started</span>
+                           : st === "published" && t.myParticipation?.answer === "no" ? <span className="chip">You said you will not bid</span>
+                           : st === "published" && t.myParticipation?.answer === "yes" ? <span className="chip warn">You said you will bid</span>
+                           : st === "published" ? <span className="chip warn">Will you bid?</span>
                            : <span className="chip">Closed</span>}
                          {st === "published" && !left && <button className="btn sm pri" onClick={() => go({ page: "bidroom", id: t.id })}>{t.gated ? "Open" : myBid ? (t.bidMode === "open" ? "See position" : "View receipt") : "Bid"}</button>}
                        </>} />
@@ -372,17 +379,18 @@ export function PortalHome({ api }) {
             })}
             {outcomes.map((t) => {
               const letter = t.letters && t.letters[me];
-              const won = t.status === "awarded" && t.awardedTo === me;
+              const won = wonBy(t, me);
+              const share = (t.awardSplit || []).find((x) => x.supplierId === me);
               /* Returned at the technical stage: the decision on this vendor is
                  made, even while the event is still being evaluated. */
               const out = t.status === "evaluation" && state.bids.some((b) => b.tenderId === t.id
                 && b.supplierId === me && b.disqualified);
-              const lost = (t.status === "awarded" && t.awardedTo !== me) || out;
+              const lost = (t.status === "awarded" && !won) || out;
               return (
                 <Row key={t.id} title={t.title} meta={<span className="mono">{t.ref}</span>}
                      right={<>
                        {t.status === "evaluation" && !out && <span className="chip">Being evaluated</span>}
-                       {won && <span className="chip gold">Awarded to you &middot; {fmtCompact(t.awardedAmount)}</span>}
+                       {won && <span className="chip gold">{share ? `Awarded ${share.lines.length} ${share.lines.length === 1 ? "line" : "lines"}` : "Awarded to you"} &middot; {fmtCompact(wonAmount(t, me))}</span>}
                        {lost && <span className="chip">Not successful</span>}
                        {letter && <button className="btn sm" onClick={() => setOpenL((o) => ({ ...o, [t.id]: !o[t.id] }))}>{openL[t.id] ? "Hide letter" : "Read the letter"}</button>}
                      </>}>
@@ -393,6 +401,8 @@ export function PortalHome({ api }) {
           </Rows>
         </div>
       )}
+
+      {tab === "contract" && <ContractCard contract={supplier.contract} org={state.org.name} />}
 
       {tab === "company" && (
         <>
@@ -417,12 +427,31 @@ export function PortalHome({ api }) {
                   <PhoneInput id="co-phone" value={profileForm.phone}
                               onChange={(v) => setProfileForm({ ...profileForm, phone: v })} /></div>
               </div>
+              {[["poContact", "Contact for purchase orders", "Receives the buyer's purchase orders."],
+                ["financeContact", "Contact for finance", "Deals with invoices and payments."]].map(([k, title, why]) => (
+                <fieldset className="cofield" key={k}>
+                  <legend className="lbl">{title}</legend>
+                  <div className="hint" style={{ marginTop: 0, marginBottom: 6 }}>{why}</div>
+                  <div className="grid g2">
+                    <div className="frow"><label className="lbl" htmlFor={`co-${k}-name`}>Name</label>
+                      <input id={`co-${k}-name`} className="in" autoComplete="name" maxLength={120}
+                             value={profileForm[k].name} onChange={(e) => setContact(k, "name", e.target.value)} /></div>
+                    <div className="frow"><label className="lbl" htmlFor={`co-${k}-email`}>Email</label>
+                      <input id={`co-${k}-email`} className="in" type="email" autoComplete="email" maxLength={200}
+                             value={profileForm[k].email} onChange={(e) => setContact(k, "email", e.target.value)} /></div>
+                    <div className="frow"><label className="lbl" htmlFor={`co-${k}-phone`}>Phone</label>
+                      <PhoneInput id={`co-${k}-phone`} value={profileForm[k].phone}
+                                  onChange={(v) => setContact(k, "phone", v)} /></div>
+                  </div>
+                </fieldset>
+              ))}
               <div className="gaterow">
                 <button className="btn" disabled={profileForm.name.trim().length < 2}
                         onClick={async () => {
                           const ok = await act.rename({
                             name: profileForm.name, category: profileForm.category, location: profileForm.location,
                             phone: profileForm.phone, contactPerson: profileForm.contactPerson.trim(),
+                            poContact: profileForm.poContact, financeContact: profileForm.financeContact,
                           });
                           if (ok) api.toast.ok("Saved", "Your company details are up to date.");
                         }}>Save details</button>
@@ -499,6 +528,116 @@ export function PortalHome({ api }) {
 }
 
 
+
+/* What the buyer has agreed with this vendor: read-only here, set by the
+   buyer's procurement team. Payment terms and the credit limit are the same
+   figures the buyer's finance team works to. */
+function ContractCard({ contract, org }) {
+  const c = contract || {};
+  const rows = [
+    ["Payment terms", c.paymentTermsLabel || c.paymentTerms],
+    ["Credit limit", c.creditLimit ? fmtMoney(c.creditLimit) : ""],
+    ["Bonus or malus", c.bonusMalus],
+    ["Escalation", c.escalation],
+    ["Cash back", c.cashBack],
+    ["Notes", c.notes],
+  ];
+  return (
+    <div className="card">
+      <div className="chead"><h3>Your contract with {org}</h3>
+        {c.ref && <span className="mono faint" style={{ marginLeft: "auto" }}>{c.ref}</span>}
+      </div>
+      <div className="cbody">
+        {!c.isSet ? (
+          <Empty art="tray">No contract terms are on file yet. When {org}'s procurement team records what you
+            have agreed (payment terms, credit limit, bonus or malus, escalation and cash back), it appears here.</Empty>
+        ) : (
+          <>
+            {(c.startsAt || c.endsAt) && (
+              <div className="hint" style={{ marginTop: 0, marginBottom: 10 }}>
+                {c.startsAt ? `Runs from ${fmtDate(c.startsAt)}` : "Runs"}{c.endsAt ? ` to ${fmtDate(c.endsAt)}` : ", with no end date set"}.
+                {c.endsAt && c.endsAt < nowMs() ? " It has ended." : ""}
+              </div>
+            )}
+            {rows.filter(([k, v]) => v || k !== "Notes").map(([k, v]) => (
+              <div className="rowline" key={k}>
+                <span className="muted" style={{ flex: "0 0 140px" }}>{k}</span>
+                <span style={{ flex: 1, whiteSpace: "pre-wrap" }}>{v || <span className="faint">Not agreed</span>}</span>
+              </div>
+            ))}
+            {c.updatedAt && <div className="hint">Last updated {fmtDate(c.updatedAt)}. Questions about these terms go to {org}'s procurement team.</div>}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* WILL YOU BID? Asked as soon as the vendor can read the tender, so the buyer
+   learns early who is in and who is out, and why. A no stops the reminders.
+   It can be changed until bids close; sending a bid is a yes. */
+function ParticipationCard({ api, t, myBid }) {
+  const { act, toast } = api;
+  const mine = t.myParticipation;
+  const [saying, setSaying] = useState(null);      // null | "no"
+  const [reason, setReason] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (effStatus(t) !== "published" || myBid) return null;
+  const answer = async (a) => {
+    if (busy) return;
+    setBusy(true);
+    const ok = await act.setParticipation(t.id, a, a === "no" ? reason : "", a === "no" ? note.trim() : "");
+    setBusy(false);
+    if (ok) {
+      setSaying(null);
+      if (a === "yes") toast.ok("Thank you", "The buyer knows you are bidding. Price the lines below and submit before the close.");
+      else toast.info("Noted", "The buyer has been told, and you will not be reminded about this tender.");
+    }
+  };
+  if (mine && !saying) {
+    return (
+      <div className={"notice" + (mine.answer === "no" ? "" : "")} style={{ marginBottom: 14 }}>
+        {mine.answer === "yes"
+          ? <>You told the buyer you will bid. </>
+          : <>You told the buyer you will not bid: <b>{mine.reason}</b>{mine.note ? ` (${mine.note})` : ""}. You will not be reminded. </>}
+        {mine.answer === "yes"
+          ? <button className="doclink" onClick={() => setSaying("no")}>We will not bid after all</button>
+          : <button className="doclink" disabled={busy} onClick={() => answer("yes")}>We will bid after all</button>}
+      </div>
+    );
+  }
+  return (
+    <div className="card" style={{ marginBottom: 14 }}>
+      <div className="chead"><h3>Will you bid on this tender?</h3></div>
+      <div className="cbody">
+        <p className="muted" style={{ marginTop: 0 }}>Tell the buyer now, before you price it. If you will not bid,
+          say why: it helps them, and you stop getting reminders. You can change your answer until bids close.</p>
+        {saying !== "no" ? (
+          <div className="formrow">
+            <button className="btn pri" disabled={busy} onClick={() => answer("yes")}>Yes, we will bid</button>
+            <button className="btn" disabled={busy} onClick={() => setSaying("no")}>No, we will not bid</button>
+          </div>
+        ) : (
+          <>
+            <div className="grid g2">
+              <div className="frow"><label className="lbl" htmlFor="pa-reason">Why not?</label>
+                <DeclineReasonSelect id="pa-reason" value={reason} onChange={setReason} /></div>
+              <div className="frow"><label className="lbl" htmlFor="pa-note">Anything to add <span className="faint">{reason === "Other" ? "required" : "optional"}</span></label>
+                <input id="pa-note" className="in" maxLength={300} value={note} onChange={(e) => setNote(e.target.value)}
+                       placeholder={reason === "We cannot meet the quantity" ? "e.g. We can supply up to 40 bags" : ""} /></div>
+            </div>
+            <div className="formrow">
+              <button className="btn pri" disabled={busy || !reason || (reason === "Other" && note.trim().length < 3)}
+                      onClick={() => answer("no")}>Tell the buyer</button>
+              <button className="btn" onClick={() => setSaying(null)}>Back</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /* "Closes Fri 14 Oct 2026, 12:00 WAT". A date alone left a vendor guessing
    whether noon or midnight, and the zone matters to anyone bidding from
@@ -579,6 +718,8 @@ function AgreementGate({ agreements, company, onAccept, onDone }) {
             <div className="lbl">Payment terms</div>
             <div className="notice" style={{ marginBottom: 6 }}>
               {ag.paymentTerms && <b>{ag.paymentTermsLabel}.</b>}{" "}
+              {ag.creditLimit ? <>Credit limit <b>{fmtMoney(ag.creditLimit)}</b>: the most the buyer may owe you at one time on this event before paying. </> : null}
+              {ag.incotermWords ? <>Delivery terms: <b>{ag.incotermWords}</b>. </> : null}
               <span style={{ whiteSpace: "pre-wrap" }}>{ag.paymentConditions}</span>
             </div>
             <label className="checkline">
@@ -611,12 +752,14 @@ function AgreementGate({ agreements, company, onAccept, onDone }) {
 function AgreementsAccepted({ agreements }) {
   const ag = agreements || {};
   const done = ag.accepted || {};
-  if (!Object.keys(done).length) return null;
+  if (!Object.keys(done).length && !ag.incotermWords) return null;
   return (
     <div className="notice" style={{ marginBottom: 14, fontSize: 12.5 }}>
       {done.nda && <>You signed the non-disclosure agreement on {fmtDate(done.nda.at)}. </>}
       {done.payment && <>Payment terms you accepted: <b>{ag.paymentTermsLabel || "as stated"}</b>.
+        {ag.creditLimit ? <> Credit limit {fmtMoney(ag.creditLimit)}.</> : null}
         {ag.paymentConditions ? <> {ag.paymentConditions.trim().replace(/[.!?]?$/, ".")}</> : null}</>}
+      {ag.incotermWords && <> Delivery terms: <b>{ag.incotermWords}</b>.</>}
     </div>
   );
 }
@@ -901,6 +1044,7 @@ function BidRoomFor({ api, t }) {
         </div>
       )}
       <AgreementsAccepted agreements={t.agreements} />
+      <ParticipationCard api={api} t={t} myBid={myBid} />
       {/* Everything the buyer changed that this vendor is owed. Stated before
           the scope, because a paused event or a moved deadline changes what
           they should do next and the scope does not. */}

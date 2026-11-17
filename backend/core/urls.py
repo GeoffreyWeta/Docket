@@ -134,6 +134,7 @@ urlpatterns = admin_urlpatterns + feed_urlpatterns + auction_urlpatterns + [
     # --- the event lifecycle (procurement.py) ---
     path("tenders/<str:tid>/extend/", procurement.extend_deadline),
     path("tenders/<str:tid>/accept/", views.accept_agreement),
+    path("tenders/<str:tid>/participation/", views.participation),
     path("acceptances/<str:aid>/", views.acceptance_record),
     path("signoffs/<str:sid>/decide/", signoffs.decide),
     path("signoffs/<str:sid>/withdraw/", signoffs.withdraw),
@@ -189,6 +190,7 @@ urlpatterns = admin_urlpatterns + feed_urlpatterns + auction_urlpatterns + [
     path("clarifications/<str:cid>/answer/", views.answer_clarification),
     path("suppliers/<str:sid>/", views.supplier_detail),
     path("suppliers/<str:sid>/prequalify/", views.prequalify),
+    path("suppliers/<str:sid>/contract/", views.supplier_contract),
 
     path("ai/scope/", views.ai_scope),
     path("ai/criteria/", views.ai_criteria),

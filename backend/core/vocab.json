@@ -93,11 +93,44 @@
   "bidDocTypes": [
     ["Quotation", "Quotation or price schedule", "commercial"],
     ["Technical proposal", "Technical proposal", "technical"],
-    ["Product specification", "Product specification or datasheet", "technical"],
+    ["Technical datasheet", "Technical Datasheet (TDS)", "technical"],
     ["Brochure or catalogue", "Brochure or catalogue", "technical"],
-    ["Certificate or licence", "Certificate or licence", "technical"],
+    ["Certificate of Analysis", "Certificate of Analysis (COA)", "technical"],
+    ["Licence", "Licence", "technical"],
     ["Sample photos", "Photos of samples", "technical"],
     ["Other supporting document", "Other supporting document", "technical"]
+  ],
+
+  "_bidDocTypesRenamed": "Old document type names and what they became (Nov 2026). Migration 0033 moved stored values; the cleaner still accepts an old name from an older screen.",
+  "bidDocTypesRenamed": {
+    "Product specification": "Technical datasheet",
+    "Certificate or licence": "Certificate of Analysis"
+  },
+
+  "_incoterms": "Incoterms 2020 (ICC): [code, name, group, what it means]. A term is written as the rule, the named place and the edition, e.g. FCA Shanghai Port, Incoterms 2020.",
+  "incoterms": [
+    ["EXW", "Ex Works", "Any mode of transport", "The seller makes the goods available at its own premises, not loaded and not cleared for export. The buyer handles and bears the risk of everything from there."],
+    ["FCA", "Free Carrier", "Any mode of transport", "The seller clears the goods for export and hands them to the buyer's nominated carrier at the named place. Risk passes on that handover."],
+    ["CPT", "Carriage Paid To", "Any mode of transport", "The seller pays freight to the named destination, but risk passes to the buyer when the goods are handed to the first carrier."],
+    ["CIP", "Carriage and Insurance Paid To", "Any mode of transport", "As CPT, plus the seller buys all-risks insurance (Institute Cargo Clauses A)."],
+    ["DAP", "Delivered at Place", "Any mode of transport", "The seller delivers to the named destination, ready for unloading. The buyer unloads and handles import clearance and duties."],
+    ["DPU", "Delivered at Place Unloaded", "Any mode of transport", "The seller delivers to the named destination and also unloads the goods."],
+    ["DDP", "Delivered Duty Paid", "Any mode of transport", "The seller delivers to the destination and pays all costs, including import duties and taxes."],
+    ["FAS", "Free Alongside Ship", "Sea and inland waterway only", "The seller places the goods alongside the vessel at the named port of shipment, cleared for export. Risk passes there."],
+    ["FOB", "Free on Board", "Sea and inland waterway only", "The seller loads the goods onto the vessel the buyer nominates. Risk passes once the goods are on board."],
+    ["CFR", "Cost and Freight", "Sea and inland waterway only", "The seller pays freight to the destination port, but risk passes once the goods are loaded at the origin port."],
+    ["CIF", "Cost, Insurance and Freight", "Sea and inland waterway only", "As CFR, plus the seller buys minimum insurance (Institute Cargo Clauses C)."]
+  ],
+
+  "_declineReasons": "Why an invited vendor says it will not bid. Shown to the buyer beside the vendor.",
+  "declineReasons": [
+    "We do not supply this",
+    "We cannot meet the quantity",
+    "We cannot meet the delivery date",
+    "The payment terms do not work for us",
+    "The closing date is too soon",
+    "We are at full capacity",
+    "Other"
   ],
 
   "_reminderHours": "When invited vendors who have not bid are reminded, in hours before the closing time (and, for auctions, before the room opens).",

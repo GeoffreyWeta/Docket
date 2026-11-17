@@ -282,6 +282,34 @@ Administrator) sets it up once:
 Exchange lets one mailbox send 30 messages a minute. DOCKET paces itself under
 that, and bulk invitations go 50 at a time instead of 500 while it is on.
 
+### Copying documents to SharePoint
+
+With `SHAREPOINT_SITE` set, DOCKET copies two kinds of document into a
+SharePoint document library (`core/sharepoint.py`), and keeps its own copy:
+
+* a vendor's company documents (tax clearance, CAC certificate...), as soon as
+  they are uploaded, under `Docket/Vendors/<vendor>/Company documents/`;
+* bid documents, **only after the recorded opening has unsealed them**, under
+  `Docket/Tenders/<ref> <title>/Bids/<vendor>/<Technical|Commercial>/`.
+  Nothing sealed is ever sent, and a commercial envelope returned unopened at
+  the technical stage never is.
+
+The background sweep files a few at a time and retries failures; buyers see a
+"SharePoint" link beside each filed document, and the Team page shows how many
+are filed, waiting and failed. Settings:
+
+* `SHAREPOINT_SITE`: host and path, e.g. `eatngo.sharepoint.com:/sites/Procurement`
+* `SHAREPOINT_LIBRARY` (optional): the library name; default the site's main one
+* `SHAREPOINT_FOLDER` (optional): the top folder; default `Docket`
+* `SHAREPOINT_TENANT_ID` / `SHAREPOINT_CLIENT_ID` / `SHAREPOINT_CLIENT_SECRET`:
+  an Entra app registration with the Microsoft Graph **application** permission
+  `Sites.Selected`, granted *write* on that one site by a SharePoint admin
+  (or `Sites.ReadWrite.All`, which reaches every site and is not recommended).
+  Without these, the `MS365_*` values are used.
+
+After setting it up, `python manage.py sharepoint_sync` files everything that
+is already waiting in one go.
+
 ## Accounts
 
 Seeded accounts (password = the `DEMO_PASSWORD` env var; locally `docket-demo`):

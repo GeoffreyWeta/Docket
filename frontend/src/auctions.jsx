@@ -32,7 +32,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { blobUrl, downloadUrl, raw, uploadFile } from "./api";
 import { BP } from "./breakpoints";
 import { Empty } from "./atoms";
-import { PaymentTermsSelect, UnitSelect } from "./fields";
+import { PaymentTermsSelect, TradeTerms, UnitSelect } from "./fields";
 import { SignoffBanner } from "./lifecycle";
 import { Figures, Guide, Page, Quiet } from "./page";
 import { Icon } from "./icons";
@@ -670,6 +670,8 @@ const formOf = (a) => ({
   requireAcceptance: !!a.requireAcceptance, allowPrebid: !!a.allowPrebid,
   paymentTerms: a.paymentTerms || "", paymentConditions: a.paymentConditions || "",
   ndaRequired: !!a.ndaRequired, ndaText: a.ndaText || "",
+  incoterm: a.incoterm || "", incotermPlace: a.incotermPlace || "",
+  creditLimit: a.creditLimit ? String(a.creditLimit) : "",
   startsAt: toLocalInput(a.startsAt),
   endsAt: toLocalInput(a.endsAt),
   snipeWindowMs: a.snipeWindowMs ?? 120000,
@@ -908,6 +910,8 @@ function DraftAuction({ api, a, refresh }) {
     requireAcceptance: f.requireAcceptance, allowPrebid: f.allowPrebid,
     paymentTerms: f.paymentTerms, paymentConditions: f.paymentConditions,
     ndaRequired: f.ndaRequired, ndaText: f.ndaRequired ? f.ndaText : "",
+    incoterm: f.incoterm || "", incotermPlace: f.incoterm ? (f.incotermPlace || "").trim() : "",
+    creditLimit: Number(f.creditLimit) || 0,
     startsAt: f.startsAt ? new Date(f.startsAt).getTime() : 0,
     endsAt: f.endsAt ? new Date(f.endsAt).getTime() : 0,
     snipeWindowMs: Number(f.snipeWindowMs) || 0,
@@ -988,7 +992,8 @@ function DraftAuction({ api, a, refresh }) {
   const startOk = !a.startsAt || a.startsAt < a.endsAt;
   const startAhead = !!a.startsAt && a.startsAt > Date.now();
   const ndaOk = !a.ndaRequired || (a.ndaText || "").trim().length >= 40;
-  const ready = isDraft && hasLot && hasVendor && clockAhead && startOk && ndaOk && !dirty;
+  const placeOk = !a.incoterm || !!(a.incotermPlace || "").trim();
+  const ready = isDraft && hasLot && hasVendor && clockAhead && startOk && ndaOk && placeOk && !dirty;
   /* What sending does, in words: to the line manager first where that is on,
      then scheduled (vendors told when it opens) or open at once. */
   const sendLabel = needsApproval ? "Send for approval" : startAhead ? "Schedule it" : "Open the room now";
@@ -1020,6 +1025,7 @@ function DraftAuction({ api, a, refresh }) {
         <Ready ok={clockAhead}>A closing time in the future</Ready>
         {!startOk && <Ready ok={false}>Opens before it closes</Ready>}
         {!ndaOk && <Ready ok={false}>The NDA written</Ready>}
+        {!placeOk && <Ready ok={false}>A place named for the Incoterm</Ready>}
         {dirty && <Ready ok={false}>Changes saved</Ready>}
       </div>
     </Guide>
@@ -1212,9 +1218,10 @@ function DraftAuction({ api, a, refresh }) {
                    onChange={(e) => setF({ ...f, allowPrebid: e.target.checked })} />
               <span>Take pre-bids: before it opens, vendors can put in an opening price, sealed from the others until then</span></label>
           </div>
-          <div className="lbl" style={{ marginTop: 14 }}>Payment terms and confidentiality</div>
+          <div className="lbl" style={{ marginTop: 14 }}>Delivery, payment and confidentiality</div>
           <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>Vendors accept these before they can see the
             lots or bid, recorded with their name, the time and the exact text.</div>
+          <TradeTerms idp="ac" disabled={!canEdit} f={f} set={(k, v) => setF({ ...f, [k]: v })} />
           <div className="grid g2">
             <div className="frow"><label className="lbl" htmlFor="ac-pay">Payment terms</label>
               <PaymentTermsSelect id="ac-pay" value={f.paymentTerms} disabled={!canEdit}
@@ -1421,6 +1428,7 @@ function DraftAuction({ api, a, refresh }) {
               <Ready ok={startOk}>{!a.startsAt ? "Opens as soon as it goes out"
                 : startOk ? "Opens " + fmtDateTime(a.startsAt) : "Opens after it closes"}</Ready>
               {!ndaOk && <Ready ok={false}>The NDA vendors sign is written</Ready>}
+              {!placeOk && <Ready ok={false}>A place named for the {a.incoterm} delivery terms</Ready>}
               {dirty && <Ready ok={false}>Unsaved changes above. Save them first.</Ready>}
             </div>
             {needsApproval && (

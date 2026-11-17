@@ -409,6 +409,9 @@ export function VendorsTab({ api, t }) {
     ? rows.filter((r) => (r.name + " " + r.email).toLowerCase().includes(q.trim().toLowerCase()))
     : rows;
   const submitted = rows.filter((r) => r.bidStatus === "submitted" || r.bidStatus === "held").length;
+  /* "Will you bid?" answers (views.participation). */
+  const willBid = rows.filter((r) => r.participation && r.participation.answer === "yes").length;
+  const wontBid = rows.filter((r) => r.participation && r.participation.answer === "no").length;
   /* Which agreements this event asks its vendors for (an NDA, payment terms). */
   const asked = Object.keys((rows[0] && rows[0].agreements) || {});
   const unverified = rows.filter((r) => r.verificationStatus === "unverified").length;
@@ -437,7 +440,7 @@ export function VendorsTab({ api, t }) {
         <div className="chead">
           <h3>Vendors on this event</h3>
           <span className="mono faint" style={{ marginLeft: 10 }}>
-            {rows.length} invited · {submitted} submitted
+            {rows.length} invited · {willBid} will bid · {wontBid} will not · {submitted} submitted
           </span>
           <span className="grow" />
           <input className="in" style={{ maxWidth: 200 }} placeholder="Search vendors…"
@@ -460,7 +463,7 @@ export function VendorsTab({ api, t }) {
                 <tr>
                   <th>Vendor</th><th>Registration</th><th>Verification</th>
                   <th>Invitation</th>{asked.length > 0 && <th>Agreements</th>}
-                  <th>Bid</th><th>Rounds</th><th>Evaluation</th><th>Actions</th>
+                  <th>Will bid?</th><th>Bid</th><th>Rounds</th><th>Evaluation</th><th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -468,7 +471,8 @@ export function VendorsTab({ api, t }) {
                   <tr key={r.supplierId}>
                     <td>
                       <b>{r.name}</b>
-                      {r.awarded && <span className="chip gold" style={{ marginLeft: 6 }}>Awarded</span>}
+                      {r.awarded && <span className="chip gold" style={{ marginLeft: 6 }}>
+                        {r.awardedLines ? `Awarded ${r.awardedLines} ${r.awardedLines === 1 ? "line" : "lines"}` : "Awarded"}</span>}
                       <div className="muted" style={{ fontSize: 11.5 }}>{r.email || "no email on file"}</div>
                     </td>
                     <td data-l="Registration"><StatusChip map={REG_STATUS} value={r.registrationStatus} /></td>
@@ -496,6 +500,16 @@ export function VendorsTab({ api, t }) {
                         })}
                       </td>
                     )}
+                    <td data-l="Will bid?" style={{ minWidth: 170 }}>
+                      {!r.participation ? <span className="muted">No answer</span>
+                        : r.participation.answer === "yes" ? <span className="chip ok">Yes</span>
+                        : <>
+                            <span className="chip warn">No</span>
+                            <div className="muted" style={{ fontSize: 11.5, maxWidth: 220 }}>
+                              {r.participation.reason}{r.participation.note ? `: ${r.participation.note}` : ""}
+                            </div>
+                          </>}
+                    </td>
                     <td data-l="Bid">
                       {r.bidStatus === "submitted" ? <span className="chip ok">Submitted</span>
                         : r.bidStatus === "held" ? <span className="chip warn" title="Not on the vendor register yet: the bid counts once audit approves it">Waiting for audit</span>

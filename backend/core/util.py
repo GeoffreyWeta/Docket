@@ -58,7 +58,8 @@ def savings_against(t, amount):
 
     Three numbers can play the part of "what we would otherwise have paid", and
     they are not interchangeable. A baseline is what the organisation actually
-    paid before, so a saving against it is money that stops leaving. A
+    paid before (the last price), so a saving against it is money that stops
+    leaving. Without one, the average of the bids received stands in. A
     projection is what the category manager expected this to land at, so a
     saving against it is a negotiation outcome. A budget is a ceiling somebody
     set, so a saving against it measures the estimate as much as the deal. The
@@ -68,8 +69,13 @@ def savings_against(t, amount):
     """
     if amount is None:
         return None
+    avg = None if t.baseline else t.bid_average()
     if t.baseline:
         basis, word = t.baseline, "baseline"
+    elif avg:
+        # No last price on file: the average of the bids received stands in
+        # for what the purchase would otherwise have cost.
+        basis, word = avg, "bids"
     elif t.projected_cost:
         basis, word = t.projected_cost, "projection"
     else:
@@ -218,30 +224,135 @@ def abnormally_low(bid, bids):
     return bid.amount < 0.65 * statistics.median([b.amount for b in bids])
 
 
+# ---------------- awarding: one vendor, or line by line ----------------
+
+AWARD_METHODS = ("recommended", "total", "item")
+
+
+def _award_part(bid, lines_taken):
+    return {"supplierId": bid.supplier_id, "bidId": bid.id,
+            "amount": sum(x["qty"] * x["rate"] for x in lines_taken), "lines": lines_taken}
+
+
+def _whole_bid(tender, bid):
+    """One vendor taking everything it bid for, as an award part."""
+    if not tender.lines:
+        return {"supplierId": bid.supplier_id, "bidId": bid.id, "amount": bid.amount, "lines": []}
+    taken = [{"lineId": l["id"], "qty": offered(bid, l), "rate": int((bid.lines or {}).get(l["id"]) or 0)}
+             for l in tender.lines if offered(bid, l) > 0 and (bid.lines or {}).get(l["id"])]
+    part = _award_part(bid, taken)
+    part["amount"] = bid.amount   # what they bid, to the naira
+    return part
+
+
+def best_item_split(tender, bids):
+    """Each line to the lowest rate on it.
+
+    A line's quantity is filled from the cheapest rate up: where the cheapest
+    vendor offers only part of it, the next cheapest supplies the rest. Equal
+    rates go to whoever bid first. Returns (parts, short), parts largest first,
+    `short` the lines nobody offered enough of: [{lineId, qty}]."""
+    parts, short = {}, []
+    for l in tender.lines or []:
+        offers = sorted(
+            ((int((b.lines or {}).get(l["id"]) or 0), b.submitted_at, b.id, b) for b in bids
+             if (b.lines or {}).get(l["id"]) and offered(b, l) > 0),
+            key=lambda x: x[:3])
+        need = int(l["qty"])
+        for rate, _at, _id, b in offers:
+            if need <= 0:
+                break
+            take = min(offered(b, l), need)
+            parts.setdefault(b.id, (b, []))[1].append({"lineId": l["id"], "qty": take, "rate": rate})
+            need -= take
+        if need > 0:
+            short.append({"lineId": l["id"], "qty": need})
+    out = [_award_part(b, taken) for b, taken in parts.values()]
+    out.sort(key=lambda p: (-p["amount"], p["supplierId"]))
+    return out, short
+
+
+def award_options(tender, bids, recommended_bid=None):
+    """The ways an approver can award this tender, each {method, amount,
+    parts, short, covers}:
+
+      recommended  the panel's pick, everything it bid for
+      total        the vendor with the lowest overall cost
+      item         each line to the lowest rate on it (best item cost)
+
+    `bids` are those still in the competition with their prices open. The
+    lowest total is looked for first among bids that offer every line in full,
+    because a vendor quoting half the lines is cheaper without being the
+    cheaper buy; only where nobody offers everything does it fall back to the
+    lowest total of all. Lines carrying no price have no item option."""
+    priced = [b for b in bids if b.amount is not None and not b.disqualified and b.counts]
+    out = {}
+    if recommended_bid is not None:
+        out["recommended"] = {"method": "recommended", "parts": [_whole_bid(tender, recommended_bid)],
+                              "short": [{"lineId": l["id"], "qty": l["qty"] - offered(recommended_bid, l)}
+                                        for l in partial_lines(tender, recommended_bid)]}
+    if priced:
+        full = [b for b in priced if not partial_lines(tender, b)]
+        low = min(full or priced, key=lambda b: (b.amount, b.submitted_at, b.id))
+        out["total"] = {"method": "total", "parts": [_whole_bid(tender, low)],
+                        "short": [{"lineId": l["id"], "qty": l["qty"] - offered(low, l)}
+                                  for l in partial_lines(tender, low)]}
+        if tender.lines:
+            parts, short = best_item_split(tender, priced)
+            if parts:
+                out["item"] = {"method": "item", "parts": parts, "short": short}
+    for o in out.values():
+        o["amount"] = sum(p["amount"] or 0 for p in o["parts"])
+        o["vendors"] = len(o["parts"])
+    return out
+
+
 # ---------------- letters ----------------
 
-def award_letter(org, tender, supplier_name, amount):
+def award_letter(org, tender, supplier_name, amount, lines=None):
+    """`lines`, on an award made line by line, are the lines this vendor won:
+    [{lineId, qty, rate}]. The letter lists them, since the vendor won those
+    and not the rest of what it bid for."""
+    if lines:
+        by_id = {l["id"]: l for l in tender.lines or []}
+        rows = []
+        for x in lines:
+            l = by_id.get(x["lineId"], {})
+            rows.append(f"  - {l.get('desc', x['lineId'])}: {x['qty']:,} {l.get('unit') or 'unit'} "
+                        f"at {fmt_money(x['rate'])} = {fmt_money(x['qty'] * x['rate'])}")
+        return (
+            f"Dear {supplier_name},\n\n"
+            f"Re: {tender.ref} - {tender.title}\n\n"
+            f"Following the bid opening and the evaluation panel's assessment, {org} has awarded this "
+            f"tender line by line, each line to the lowest price offered for it. {org} is pleased to inform "
+            f"you that your bid has been accepted for the following:\n\n"
+            + "\n".join(rows) +
+            f"\n\nTotal: {fmt_money(amount)}.\n\n"
+            f"Our contracts team will be in touch within five working days to begin contracting and mobilisation. "
+            f"This award is conditional on the compliance documents on file remaining valid at contract signature.\n\n"
+            f"Thank you for the quality of your submission.\n\n{org} - Procurement"
+        )
     return (
         f"Dear {supplier_name},\n\n"
-        f"Re: {tender.ref} \u2014 {tender.title}\n\n"
+        f"Re: {tender.ref} - {tender.title}\n\n"
         f"Following the sealed-bid opening and the evaluation panel's assessment under the published criteria, "
         f"{org} is pleased to inform you that your bid of {fmt_money(amount)} has been accepted.\n\n"
         f"Our contracts team will be in touch within five working days to begin contracting and mobilisation. "
         f"This award is conditional on the compliance documents on file remaining valid at contract signature.\n\n"
-        f"Thank you for the quality of your submission.\n\n{org} \u2014 Procurement"
+        f"Thank you for the quality of your submission.\n\n{org} - Procurement"
     )
 
 
 def regret_letter(org, tender, supplier_name):
     return (
         f"Dear {supplier_name},\n\n"
-        f"Re: {tender.ref} \u2014 {tender.title}\n\n"
+        f"Re: {tender.ref} - {tender.title}\n\n"
         f"Thank you for the time and care that went into your sealed bid. After evaluation against the published "
         f"criteria, we write to confirm that your bid was not successful on this occasion.\n\n"
         f"Your submission was opened only after the deadline, in a recorded opening, and was scored by the full "
         f"panel. A summary of your scores is available on request.\n\n"
         f"We valued your participation and encourage you to bid on future opportunities with {org}.\n\n"
-        f"{org} \u2014 Procurement"
+        f"{org} - Procurement"
     )
 
 

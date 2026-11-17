@@ -17,7 +17,7 @@ import {
 import { SetupWorkspace } from "./setup";
 import {
   AnalyticsPage, ApprovalsPage, AuditPage, Dashboard, EvalsPage, NewTender,
-  CHAIN_CSS, DRAFT_CSS, MENU_CSS, Sidebar, SuppliersPage, TeamPage, TenderDetail,
+  AWARD_CSS, CHAIN_CSS, DRAFT_CSS, MENU_CSS, Sidebar, SuppliersPage, TeamPage, TenderDetail,
   TendersPage, Topbar,
 } from "./buyer";
 import { allowedPages, homePage } from "./perms";
@@ -52,7 +52,7 @@ const AuctionRoom = lazy(() => import("./supplier").then((m) => ({ default: m.Au
 const ALL_CSS = CSS + EXTRA_CSS + THEME_CSS + MOTION_CSS + ICON_CSS + RADAR_CSS
   + SCORECARD_CSS + MENU_CSS + BOOT_CSS + PALETTE_CSS + CHART_CSS + CAMPAIGN_CSS
   + FINANCE_CSS + BASELINE_CSS + LIFECYCLE_CSS + ILLUS_CSS + DRAFT_CSS + PAGE_CSS
-  + LPART_CSS + LANDING_CSS + DESIGN_CSS + LOGO_CSS + CHAIN_CSS + STUDIO_CSS
+  + LPART_CSS + LANDING_CSS + DESIGN_CSS + LOGO_CSS + CHAIN_CSS + AWARD_CSS + STUDIO_CSS
   + AUCTION_CSS + PORTAL_CSS;
 
 /* Where you land and where you may go are both read off the capabilities the
@@ -849,6 +849,11 @@ export default function App() {
     /* ---- a vendor signing an event's NDA or accepting its payment terms ---- */
     acceptAgreement: wrap((tid, kind, name, title) =>
       raw(`/tenders/${tid}/accept/`, { method: "POST", body: { kind, name, title, agree: true } })),
+    /* "Will you bid?" - yes, or no with a reason off the list. */
+    setParticipation: wrap((tid, answer, reason, note) =>
+      raw(`/tenders/${tid}/participation/`, { method: "POST", body: { answer, reason, note } })),
+    /* What the company has agreed with a vendor (Vendors > the vendor > Contract). */
+    saveContract: wrap((sid, body) => raw(`/suppliers/${sid}/contract/`, { method: "POST", body })),
     cancelEvent: wrap((id, reason) => raw(`/tenders/${id}/cancel/`, { method: "POST", body: { reason } })),
 
     /* ---- the event's vendors ---- */

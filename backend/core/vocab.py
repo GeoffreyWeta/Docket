@@ -41,6 +41,9 @@ NIGERIAN_STATES = VOCAB["nigerianStates"]
 TIMEZONES = [z for z, _label in VOCAB["timezones"]]
 COUNTRIES = [c[0] for c in VOCAB["countries"]]
 BID_DOC_TYPES = {v: envelope for v, _label, envelope in VOCAB["bidDocTypes"]}
+BID_DOC_RENAMED = VOCAB["bidDocTypesRenamed"]
+INCOTERMS = [code for code, *_rest in VOCAB["incoterms"]]
+DECLINE_REASONS = VOCAB["declineReasons"]
 REMINDER_HOURS = [h for h, _label in VOCAB["reminderHours"]]
 
 
@@ -160,6 +163,11 @@ def bid_doc_type(value):
         return ""
     hit = _exact(raw, list(BID_DOC_TYPES))
     if not hit:
+        # A name the list used to have, sent by a screen opened before it
+        # changed: "Product specification" is now the technical datasheet.
+        old = _exact(raw, list(BID_DOC_RENAMED))
+        if old:
+            return BID_DOC_RENAMED[old]
         raise Refused(f'"{raw}" is not one of the document types. Choose one from the list.')
     return hit
 
@@ -172,6 +180,29 @@ def bid_doc_types(values):
         raise Refused("Required documents must be a list of document types.")
     picked = {bid_doc_type(v) for v in values} - {""}
     return [v for v in BID_DOC_TYPES if v in picked]
+
+
+def incoterm(value, keep=""):
+    """One of the eleven Incoterms 2020 rules by its code, or blank. "fob" and
+    "FOB Lagos" are FOB; the place goes in its own field."""
+    raw = _text(value)
+    if not raw:
+        return ""
+    if keep and raw == keep:
+        return keep
+    code = raw.split(" ")[0].upper()
+    if code in INCOTERMS:
+        return code
+    raise Refused(f'"{raw}" is not one of the Incoterms. Choose one from the list.')
+
+
+def decline_reason(value):
+    """Why a vendor will not bid: one of DECLINE_REASONS."""
+    raw = _text(value)
+    hit = _exact(raw, DECLINE_REASONS) if raw else None
+    if not hit:
+        raise Refused("Choose why you will not bid from the list.")
+    return hit
 
 
 def reminder_hours(values):

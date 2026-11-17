@@ -32,7 +32,7 @@
    every imputed dimension is labelled in the UI rather than shown as a number
    the supplier earned. */
 
-import { DAY, nowMs } from "./helpers";
+import { DAY, nowMs, wonBy } from "./helpers";
 
 export const DIMENSIONS = [
   { key: "delivery", label: "Delivery", weight: 25,
@@ -146,7 +146,7 @@ function scoreSupplier(supplier, tenders, bids, now = nowMs()) {
   };
 
   const bidsMade = bids.filter((b) => b.supplierId === sid);
-  const wins = tenders.filter((t) => t.awardedTo === sid);
+  const wins = tenders.filter((t) => wonBy(t, sid));
   const decided = tenders.filter((t) => t.status === "awarded" &&
                                         bidsMade.some((b) => b.tenderId === t.id));
 

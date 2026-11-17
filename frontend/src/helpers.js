@@ -154,6 +154,24 @@ export const verifyStatusOf = (s) =>
   s.verificationStatus || (s.suspended ? "suspended" : s.rejectedReason ? "rejected"
     : s.prequalified ? "verified" : "unverified");
 
+/* ---------------- who won ---------------- */
+
+/** Did this vendor win anything on this tender? A tender awarded line by line
+    has several winners (awardSplit); `awardedTo` is only the largest share. */
+export const wonBy = (t, sid) => !!sid && t.status === "awarded"
+  && (t.awardedTo === sid || (t.awardSplit || []).some((p) => p.supplierId === sid));
+
+/** What this vendor won on this tender: its share on a split award, else
+    the whole award. */
+export const wonAmount = (t, sid) => {
+  const part = (t.awardSplit || []).find((p) => p.supplierId === sid);
+  return part ? part.amount : t.awardedTo === sid ? t.awardedAmount : 0;
+};
+
+/** Everyone who won something, largest share first. */
+export const winnersOf = (t) => ((t.awardSplit || []).length
+  ? t.awardSplit.map((p) => p.supplierId) : t.awardedTo ? [t.awardedTo] : []);
+
 /* ---------------- what a bid is worth ---------------- */
 
 /* Mirrors util.savings_against. Three numbers can play "what we would otherwise
@@ -163,7 +181,9 @@ export const verifyStatusOf = (s) =>
    with the number, because a saving whose basis is unstated cannot be checked. */
 export const savingsAgainst = (t, amount) => {
   if (amount == null) return null;
+  /* No last price on file: the average of the bids received stands in. */
   const [basisAmount, basis] = t.baseline ? [t.baseline, "baseline"]
+    : t.bidAverage ? [t.bidAverage, "bids"]
     : t.projectedCost ? [t.projectedCost, "projection"]
     : [t.budget, "budget"];
   /* Nothing to measure against: no baseline, no projection, no maximums. */

@@ -19,7 +19,7 @@
 */
 import { DAY, effStatus, mean, median, nowMs } from "./helpers";
 
-const BASIS = { BASELINE: "baseline", BUDGET: "budget" };
+const BASIS = { BASELINE: "baseline", BIDS: "bids", BUDGET: "budget" };
 
 /* ---------------- savings ---------------- */
 
@@ -30,8 +30,10 @@ const BASIS = { BASELINE: "baseline", BUDGET: "budget" };
     same column as a fact. */
 function savingOf(t) {
   if (t.status !== "awarded" || t.awardedAmount == null) return null;
-  const basis = t.baseline ? BASIS.BASELINE : BASIS.BUDGET;
-  const against = t.baseline || t.budget || 0;
+  /* The last price paid; without one, the average of the bids received
+     (sent by the server once bids are open); without bids, the budget. */
+  const basis = t.baseline ? BASIS.BASELINE : t.bidAverage ? BASIS.BIDS : BASIS.BUDGET;
+  const against = t.baseline || t.bidAverage || t.budget || 0;
   if (!against) return null;
   const amount = against - t.awardedAmount;
   return {
@@ -50,7 +52,7 @@ function savingOf(t) {
 export function savingsSplit(tenders) {
   const all = tenders.map(savingOf).filter(Boolean);
   const hard = all.filter((s) => s.basis === BASIS.BASELINE);
-  const soft = all.filter((s) => s.basis === BASIS.BUDGET);
+  const soft = all.filter((s) => s.basis !== BASIS.BASELINE);
   const sum = (xs) => xs.reduce((n, s) => n + s.amount, 0);
   return {
     all, hard, soft,

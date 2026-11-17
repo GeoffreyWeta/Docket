@@ -20,6 +20,16 @@ export const COUNTRIES = V.countries;            // [[name, iso2, dialling code]
 export const RETURN_REASONS = V.returnReasons;   // why a signer sends something back
 export const BID_DOC_TYPES = V.bidDocTypes;      // [[value, label, envelope]]
 export const REMINDER_HOURS = V.reminderHours;   // [[hours, label]]
+export const INCOTERMS = V.incoterms;            // [[code, name, group, meaning]]
+export const DECLINE_REASONS = V.declineReasons; // why a vendor will not bid
+
+/** "FCA Apapa Port, Incoterms 2020 (Free Carrier)", or "" with no rule. */
+export function incotermWords(code, place) {
+  if (!code) return "";
+  const row = INCOTERMS.find(([c]) => c === code);
+  const where = String(place || "").trim();
+  return `${code}${where ? " " + where : ""}, Incoterms 2020${row ? ` (${row[1]})` : ""}`;
+}
 
 /* Financial year starts on the first of a month, stored "01-MM". */
 export const FY_STARTS = ["January", "February", "March", "April", "May", "June", "July",

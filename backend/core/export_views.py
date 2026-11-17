@@ -35,6 +35,7 @@ def export_comparison(request, p, body, tid):
     ws.append([])
     sups = {s.id: s.name for s in Supplier.objects.all()}
     bids = list(Bid.objects.filter(tender=t).exclude(review__in=("held", "rejected")).order_by("submitted_at"))
+    won = {x.get("supplierId") for x in (t.award_split or [])} | ({t.awarded_to} if t.awarded_to else set())
     head = ["Supplier", "Amount", "vs ceiling"]
     if t.lines:
         head += [f"{l['desc']} (x{l['qty']})" for l in t.lines]
@@ -59,7 +60,7 @@ def export_comparison(request, p, body, tid):
             row += [len(lines_over_max(t, b))]
         ts = total_score(t, b, bids)
         row += [round(ts, 2) if ts is not None else "not scored",
-                "YES" if t.awarded_to == b.supplier_id else ""]
+                "YES" if b.supplier_id in won else ""]
         ws.append(row)
     for col in ws.columns:
         ws.column_dimensions[col[0].column_letter].width = max(14, min(38, max(len(str(c.value or "")) for c in col) + 2))

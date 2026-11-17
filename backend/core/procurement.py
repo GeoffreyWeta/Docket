@@ -105,8 +105,12 @@ def vendor_rows(t, p):
     if p["role"] == "supplier":
         return []
     ids = list(t.invited or [])
-    if t.awarded_to and t.awarded_to not in ids:
-        ids.append(t.awarded_to)
+    won = {x.get("supplierId"): x for x in (t.award_split or [])}
+    if t.awarded_to:
+        won.setdefault(t.awarded_to, {"supplierId": t.awarded_to, "amount": t.awarded_amount})
+    for sid in won:
+        if sid and sid not in ids:
+            ids.append(sid)
     suppliers = {s.id: s for s in Supplier.objects.filter(id__in=ids)}
     bids = list(Bid.objects.filter(tender=t).select_related("round"))
     latest = t.latest_round()
@@ -118,6 +122,9 @@ def vendor_rows(t, p):
     from . import agreements
     signed = agreements.buyer_rows(t)
     asked = agreements.required(t)
+    # Whether each vendor said it will bid (views.participation).
+    from .models import Participation
+    answers = {x.supplier_id: x for x in Participation.objects.filter(tender=t)}
     out = []
     for sid in ids:
         s = suppliers.get(sid)
@@ -148,7 +155,12 @@ def vendor_rows(t, p):
             "inCurrentRound": (sid in latest.bidders()) if latest else True,
             "disqualified": bool(last and last.disqualified),
             "evaluationStatus": ("scored" if scored else "pending" if last else "n/a"),
-            "awarded": t.awarded_to == sid,
+            "awarded": sid in won,
+            "awardedAmount": (won.get(sid) or {}).get("amount"),
+            "awardedLines": len((won.get(sid) or {}).get("lines") or []),
+            "participation": ({"answer": answers[sid].answer, "reason": answers[sid].reason,
+                               "note": answers[sid].note, "at": answers[sid].at}
+                              if sid in answers else None),
             # The NDA and the payment terms, where the event asks for them.
             "agreements": {k: signed.get(sid, {}).get(k) for k in asked},
         })

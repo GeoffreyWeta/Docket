@@ -21,16 +21,16 @@ import {
   offeredQty, partialLines, timeInZone,
   effStatus, fmtCompact, fmtDate, fmtDateTime, fmtMoney, lineMaxima, linesCeiling,
   linesOverMax, regStatusOf, savingsAgainst, stdev, techScore,
-  totalScore, uid, varianceFlags, verifyStatusOf,
+  totalScore, uid, varianceFlags, verifyStatusOf, winnersOf, wonBy,
 } from "./helpers";
 import {
   BidBucket, LifecycleBar, RegisterVendorDialog, RoundsTab, SuspendDialog, VendorsTab,
 } from "./lifecycle";
 import { Icon, SealMark } from "./icons";
 import { OrgMark } from "./logo";
-import { BID_DOC_TYPES, PAYMENT_TERMS, REMINDER_HOURS, RETURN_REASONS, fmtPhone, phoneProblem,
-  unitFor } from "./vocab";
-import { Choice, PaymentTermsSelect } from "./fields";
+import { BID_DOC_TYPES, PAYMENT_TERMS, REMINDER_HOURS, RETURN_REASONS, fmtPhone,
+  incotermWords, phoneProblem, unitFor } from "./vocab";
+import { Choice, PaymentTermsSelect, TradeTerms } from "./fields";
 import { can, homePage, navPages } from "./perms";
 import { DUR, cue, reducedMotion, useCountUp, useFlip } from "./motion";
 import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, SoundToggle, ThemeSwitch, TopProgress, tabKeys } from "./ui";
@@ -1315,7 +1315,10 @@ function OverviewTab({ api, t }) {
               <span className="mono">{t.deadlineChanges.length}×, last from {fmtDate(t.deadlineChanges[t.deadlineChanges.length - 1].from)}</span></div>
           )}
           {t.status === "awarded" && (
-            <div className="rowline"><span className="muted" style={{ flex: 1 }}>Awarded to</span><b>{state.suppliers.find((s) => s.id === t.awardedTo)?.name}</b></div>
+            <div className="rowline"><span className="muted" style={{ flex: 1 }}>{(t.awardSplit || []).length > 1 ? "Awarded line by line to" : "Awarded to"}</span>
+              <b style={{ textAlign: "right" }}>{(t.awardSplit || []).length > 1
+                ? t.awardSplit.map((p) => `${state.suppliers.find((s) => s.id === p.supplierId)?.name} (${p.lines.length} ${p.lines.length === 1 ? "line" : "lines"}, ${fmtCompact(p.amount)})`).join(", ")
+                : state.suppliers.find((s) => s.id === t.awardedTo)?.name}</b></div>
           )}
         </div>
       </div>
@@ -1659,7 +1662,7 @@ function BidsTabBody({ api, t }) {
                     Technical proposal open · {scored ? `${scored} scorer(s) done` : "awaiting scores"}
                     {" · "}
                     {(state.documents || []).filter((x) => x.kind === "bid" && x.tenderId === t.id && x.supplierId === b.supplierId).map((x) => (
-                      <button key={x.id} className="doclink" style={{ fontSize: 11.5, marginRight: 8 }} onClick={() => downloadDoc(x.id, x.name)}>{x.docType ? `${x.docType}: ` : ""}{x.name}</button>
+                      <button key={x.id} className="doclink" style={{ fontSize: 11.5, marginRight: 8 }} onClick={() => downloadDoc(x.id, x.name)}>{x.docType ? `${bidDocLabel(x.docType)}: ` : ""}{x.name}</button>
                     ))}
                   </div>
                 </div>
@@ -1769,10 +1772,13 @@ function BidsTabBody({ api, t }) {
               return (
                 <tr key={b.id}>
                   <td>
-                    <b>{s.name}</b>{t.awardedTo === b.supplierId && <span className="chip gold" style={{ marginLeft: 8 }}>Awarded</span>}
+                    <b>{s.name}</b>{wonBy(t, b.supplierId) && <span className="chip gold" style={{ marginLeft: 8 }}>{(t.awardSplit || []).length > 1 ? "Awarded lines" : "Awarded"}</span>}
                     <div style={{ marginTop: 3 }}>
                       {(state.documents || []).filter((x) => x.kind === "bid" && x.tenderId === t.id && x.supplierId === b.supplierId).map((x) => (
-                        <button key={x.id} className="doclink" style={{ fontSize: 11.5, marginRight: 10 }} onClick={() => downloadDoc(x.id, x.name)}>{x.docType ? `${x.docType}: ` : ""}{x.name}</button>
+                        <span key={x.id} style={{ marginRight: 10, whiteSpace: "nowrap" }}>
+                          <button className="doclink" style={{ fontSize: 11.5 }} onClick={() => downloadDoc(x.id, x.name)}>{x.docType ? `${bidDocLabel(x.docType)}: ` : ""}{x.name}</button>
+                          <SpLink doc={x} />
+                        </span>
                       ))}
                     </div>
                   </td>
@@ -1845,6 +1851,23 @@ function BidsTabBody({ api, t }) {
               </tbody>
             </table>
           </div>
+          {t.awardOptions && (
+            <div className="cbody" style={{ borderTop: "1px solid var(--line)" }}>
+              {awardChoices(t).list.filter((c) => c.key !== "recommended").map((c) => (
+                <div className="rowline" key={c.key}>
+                  <span style={{ flex: 1 }}><b>{c.title}</b>
+                    <span className="hint" style={{ display: "block", margin: 0 }}>
+                      {c.opt.parts.map((p) => (state.suppliers.find((x) => x.id === p.supplierId) || {}).name).join(", ")}
+                    </span></span>
+                  <span className="money" style={{ fontWeight: 600 }}>{fmtMoney(c.opt.amount)}</span>
+                </div>
+              ))}
+              <div className="hint">
+                The approver chooses between these, or the panel's recommendation, when signing the award.
+                {can(user, "page.approvals") && <> <button className="doclink" onClick={() => api.go({ page: "approvals" })}>Go to Approvals</button></>}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -2058,7 +2081,7 @@ function EvalTab({ api, t }) {
                 <div style={{ padding: "8px 18px 0" }}>
                   <span className="mono faint" style={{ fontSize: 10.5, marginRight: 8 }}>READ FIRST:</span>
                   {bidDocs.map((x) => (
-                    <button key={x.id} className="doclink" style={{ fontSize: 12, marginRight: 12 }} onClick={() => downloadDoc(x.id, x.name)}>{x.docType ? `${x.docType}: ` : ""}{x.name}</button>
+                    <button key={x.id} className="doclink" style={{ fontSize: 12, marginRight: 12 }} onClick={() => downloadDoc(x.id, x.name)}>{x.docType ? `${bidDocLabel(x.docType)}: ` : ""}{x.name}</button>
                   ))}
                 </div>
               )}
@@ -2160,7 +2183,7 @@ function EvalTab({ api, t }) {
                           <b>{s.name}</b>
                           {idx === 0 && total != null && t.status !== "awarded" && !rec && <span className="chip ok" style={{ marginLeft: 8 }}>Leading</span>}
                           {rec && rec.supplierId === b.supplierId && t.status !== "awarded" && <span className="chip gold" style={{ marginLeft: 8 }}>Recommended</span>}
-                          {t.awardedTo === b.supplierId && <span className="chip gold" style={{ marginLeft: 8 }}>Awarded</span>}
+                          {wonBy(t, b.supplierId) && <span className="chip gold" style={{ marginLeft: 8 }}>{(t.awardSplit || []).length > 1 ? "Awarded lines" : "Awarded"}</span>}
                         </td>
                         <td className="num">{b.amount != null ? <Money n={b.amount} /> : <span className="mono waxfg" style={{ fontSize: 10.5 }}>{b.disqualified ? "UNOPENED" : "SEALED"}</span>}</td>
                         <td className="num mono" data-l="Saving">
@@ -2250,14 +2273,16 @@ function EvalMoney({ t, bids }) {
   const priced = bids.filter((b) => b.amount != null && !b.disqualified).map((b) => b.amount);
   const best = priced.length ? Math.min(...priced) : null;
   const sv = savingsAgainst(t, best);
-  const BASIS = { baseline: "against the baseline", projection: "against the projection", budget: "against the budget" };
+  const BASIS = { baseline: "against the last price", bids: "against the average bid",
+                  projection: "against the projection", budget: "against the budget" };
   return (
     <div className="evalmoney">
       <div className="em"><div className="k">Budget ceiling</div><div className="v">{t.budget > 0 ? fmtCompact(t.budget) : <span className="faint">not set</span>}</div></div>
       <div className="em"><div className="k">Projected cost</div>
         <div className="v">{t.projectedCost != null ? fmtCompact(t.projectedCost) : <span className="faint">not set</span>}</div></div>
-      <div className="em"><div className="k">Baseline</div>
-        <div className="v">{t.baseline != null ? fmtCompact(t.baseline) : <span className="faint">not set</span>}</div></div>
+      <div className="em"><div className="k">{t.baseline != null || !t.bidAverage ? "Last price paid" : "Average bid"}</div>
+        <div className="v">{t.baseline != null ? fmtCompact(t.baseline)
+          : t.bidAverage ? fmtCompact(t.bidAverage) : <span className="faint">not set</span>}</div></div>
       <div className="em"><div className="k">Best priced bid</div>
         <div className="v">{best != null ? fmtCompact(best) : <span className="faint">sealed</span>}</div></div>
       <div className="em"><div className="k">Saving {sv ? BASIS[sv.basis] : ""}</div>
@@ -2708,6 +2733,10 @@ function PublicationReview({ api, t }) {
       <div className="lbl" style={head}>Terms</div>
       <div className="rowline"><span className="muted" style={{ flex: 1 }}>Payment terms vendors accept</span>
         <span>{terms || "None stated"}</span></div>
+      <div className="rowline"><span className="muted" style={{ flex: 1 }}>Credit limit</span>
+        <span>{t.creditLimit ? <Money n={t.creditLimit} /> : "None stated"}</span></div>
+      <div className="rowline"><span className="muted" style={{ flex: 1 }}>Delivery terms (Incoterm)</span>
+        <span style={{ maxWidth: "60%", textAlign: "right" }}>{t.incoterm ? incotermWords(t.incoterm, t.incotermPlace) : "None stated"}</span></div>
       {t.paymentConditions && <div className="rowline"><span className="muted" style={{ flex: 1 }}>Payment conditions</span>
         <span style={{ maxWidth: "60%", textAlign: "right" }}>{t.paymentConditions}</span></div>}
       <div className="rowline"><span className="muted" style={{ flex: 1 }}>Non-disclosure agreement</span>
@@ -2721,7 +2750,7 @@ function PublicationReview({ api, t }) {
       <div className="rowline"><span className="muted" style={{ flex: 1 }}>Documents a bid must include</span>
         <span style={{ maxWidth: "60%", textAlign: "right" }}>
           {[t.technicalDocumentRequired && "technical proposal", t.commercialDocumentRequired && "commercial document",
-            ...(t.requiredDocs || []).map((d) => d.toLowerCase())].filter(Boolean).join(", ") || "none"}
+            ...(t.requiredDocs || []).map((d) => ((BID_DOC_TYPES.find(([v]) => v === d) || [d, d])[1]))].filter(Boolean).join(", ") || "none"}
         </span></div>
       {t.budget > 0 && <div className="rowline"><span className="muted" style={{ flex: 1 }}>Maximum value shown to vendors</span>
         <span>{t.budgetVisible ? "Yes" : "No"}</span></div>}
@@ -2884,6 +2913,132 @@ function LineManagerSwitches({ api }) {
   );
 }
 
+/* HOW TO AWARD, LINE BY LINE.
+
+   The panel recommends one vendor. The approver can award it that way, to the
+   vendor with the lowest total cost, or item by item: each line to whoever
+   offered the lowest price for it, so one tender can end with several
+   vendors. The server works out all three (util.award_options) and the
+   signatures are collected on the largest, so whichever is picked is covered.
+   The table shows every bidder's rate per line, the lowest in green, and who
+   each line goes to under the option picked. */
+const AWARD_METHOD = {
+  item: { title: "Best item cost", sub: "Each line goes to the vendor with the lowest price for it." },
+  total: { title: "Total lowest cost", sub: "Everything goes to the vendor with the lowest overall cost." },
+  recommended: { title: "The panel's recommendation", sub: "Everything the recommended vendor bid for." },
+};
+
+/** The options this award offers, as cards to pick from: [{key, method,
+    title, sub, opt}]. "Total lowest cost" is the panel's own pick when the two
+    are the same vendor, and is then sent as the recommendation, so nothing is
+    recorded as changed when nothing changed. */
+function awardChoices(t) {
+  const opts = t.awardOptions || {};
+  const rec = t.awardRec || {};
+  const firstOf = (o) => (o && o.parts[0] ? o.parts[0].supplierId : null);
+  const same = opts.total && opts.recommended && firstOf(opts.total) === firstOf(opts.recommended)
+    && opts.total.amount === opts.recommended.amount;
+  const out = [];
+  if (opts.item && (t.lines || []).length) out.push({ key: "item", method: "item", ...AWARD_METHOD.item, opt: opts.item });
+  if (opts.total) out.push({ key: "total", method: same ? "recommended" : "total", ...AWARD_METHOD.total, opt: opts.total, alsoRec: same });
+  if (opts.recommended && !same) out.push({ key: "recommended", method: "recommended", ...AWARD_METHOD.recommended, opt: opts.recommended });
+  const current = rec.method || "recommended";
+  const preset = out.find((c) => c.method === current) || out[0];
+  return { list: out, preset: preset ? preset.key : null };
+}
+
+function AwardChoice({ api, t, pick, onPick }) {
+  const { state } = api;
+  const { list } = awardChoices(t);
+  const chosen = list.find((c) => c.key === pick) || list[0];
+  const name = (sid) => (state.suppliers.find((s) => s.id === sid) || {}).name || sid;
+  const lines = t.lines || [];
+  const bids = state.bids.filter((b) => b.tenderId === t.id && b.amount != null && !b.disqualified
+    && !["held", "rejected"].includes(b.review));
+  const lineMin = {};
+  lines.forEach((l) => {
+    const r = bids.map((b) => (b.lines || {})[l.id]).filter((x) => x > 0);
+    lineMin[l.id] = r.length ? Math.min(...r) : null;
+  });
+  const goesTo = {};
+  ((chosen && chosen.opt.parts) || []).forEach((p) => (p.lines || []).forEach((x) => {
+    (goesTo[x.lineId] = goesTo[x.lineId] || []).push({ sid: p.supplierId, qty: x.qty });
+  }));
+  const short = new Set(((chosen && chosen.opt.short) || []).map((x) => x.lineId));
+  if (!list.length) return null;
+  return (
+    <div className="awchoice">
+      {lines.length > 0 && bids.length > 0 && (
+        <>
+          <div className="lbl" style={{ margin: "4px 0 6px" }}>Line by line</div>
+          <div className="tscroll">
+            <table className="tbl wide awlines">
+              <thead><tr><th>Line</th><th className="num">Qty</th>
+                {bids.map((b) => <th key={b.id} className="num">{name(b.supplierId)}</th>)}
+                <th>Goes to</th></tr></thead>
+              <tbody>
+                {lines.map((l) => (
+                  <tr key={l.id}>
+                    <td>{l.desc}</td>
+                    <td className="num mono muted">{Number(l.qty).toLocaleString()}</td>
+                    {bids.map((b) => {
+                      const r = (b.lines || {})[l.id];
+                      const taking = (goesTo[l.id] || []).find((x) => x.sid === b.supplierId);
+                      return (
+                        <td key={b.id} className={"num money" + (r && r === lineMin[l.id] ? " best" : "") + (taking ? " taking" : "")}>
+                          {r ? fmtMoney(r) : <span className="faint">-</span>}
+                          {taking && taking.qty < l.qty && <div className="hint" style={{ marginTop: 2 }}>{taking.qty.toLocaleString()} of {Number(l.qty).toLocaleString()}</div>}
+                        </td>
+                      );
+                    })}
+                    <td className="awto">{(goesTo[l.id] || []).map((x) => name(x.sid)).join(", ")
+                      || <span className="chip warn">nobody</span>}
+                      {short.has(l.id) && (goesTo[l.id] || []).length > 0 && <span className="chip warn" style={{ marginLeft: 4 }}>short</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="hint" style={{ marginTop: 4 }}>Unit rates. The lowest on each line is in green; outlined is who gets the line under the option picked below.</div>
+        </>
+      )}
+      <div className="awopts" role="radiogroup" aria-label="How to award">
+        {list.map((c) => (
+          <label key={c.key} className={"awopt" + (chosen && chosen.key === c.key ? " on" : "")}>
+            <input type="radio" name={"aw-" + t.id} checked={!!chosen && chosen.key === c.key} onChange={() => onPick(c.key)} />
+            <span className="awbody">
+              <b>Approve on {c.title.toLowerCase()}</b>
+              <span className="hint" style={{ margin: 0 }}>{c.sub}{c.alsoRec ? " This is also the panel's recommendation." : ""}</span>
+              <span className="awwho">
+                {c.opt.parts.length > 1
+                  ? c.opt.parts.map((p) => `${name(p.supplierId)} ${fmtCompact(p.amount)}`).join(" · ")
+                  : name(c.opt.parts[0].supplierId)}
+              </span>
+            </span>
+            <span className="awamt money">{fmtMoney(c.opt.amount)}
+              <span className="hint" style={{ margin: 0, textAlign: "right" }}>{c.opt.parts.length > 1 ? `${c.opt.parts.length} vendors` : "1 vendor"}</span></span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export const AWARD_CSS = `
+.awchoice{margin:6px 0 14px}
+.awlines td.best{color:var(--green);font-weight:600}
+.awlines td.taking{box-shadow:inset 0 0 0 2px var(--brand);border-radius:6px}
+.awlines td.awto{font-size:12.5px}
+.awopts{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.awopt{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);
+  border-radius:10px;cursor:pointer;background:var(--card)}
+.awopt.on{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand)}
+.awopt input{margin-top:3px}
+.awbody{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.awwho{font-size:12.5px;overflow-wrap:anywhere}
+.awamt{display:flex;flex-direction:column;align-items:flex-end;font-weight:650;white-space:nowrap}
+`;
+
 export function ApprovalsPage({ api }) {
   const { state, act } = api;
   const me = state.me;
@@ -2949,9 +3104,10 @@ export function ApprovalsPage({ api }) {
      return carries its reason and a signature's answer says whether it was
      the last one. Errors are thrown so the dialog that asked shows them and
      stays open; the dialog also holds its button while the request is out. */
-  const decide = async (t, kind, ok, reason) => {
+  const decide = async (t, kind, ok, reason, method) => {
     const path = kind === "award" ? "award_decision" : "publish_decision";
-    const r = await raw(`/tenders/${t.id}/${path}/`, { method: "POST", body: ok ? { ok } : { ok, reason } });
+    const r = await raw(`/tenders/${t.id}/${path}/`, { method: "POST",
+      body: ok ? (method ? { ok, method } : { ok }) : { ok, reason } });
     await api.refresh();
     return r || {};
   };
@@ -2979,16 +3135,30 @@ export function ApprovalsPage({ api }) {
   /** Approving the last signature on an award issues letters to every bidder
       and cannot be undone, so that one is press-and-hold rather than a click.
       A signature with more to come only passes it up, and says so. */
+  /* How each award card is set to be approved: {tenderId: choice key}. */
+  const [awardPick, setAwardPick] = useState({});
+  const pickFor = (t) => {
+    const { list, preset } = awardChoices(t);
+    const key = awardPick[t.id] || preset;
+    return list.find((c) => c.key === key) || null;
+  };
+  const supName = (sid) => (state.suppliers.find((s) => s.id === sid) || {}).name || sid;
+  /** "Alpha Foods", or "Alpha Foods, Beta Foods and 1 more" on a split award. */
+  const winnersWords = (opt) => {
+    const names = (opt ? opt.parts : []).map((p) => supName(p.supplierId));
+    return names.length <= 2 ? names.join(" and ") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+  };
   const approveAward = async (t) => {
-    const rec = t.awardRec;
-    const r = await decide(t, "award", true);   // letters generated server-side
+    const c = pickFor(t);
+    const r = await decide(t, "award", true, undefined, c ? c.method : undefined);   // letters generated server-side
     if (r.done === false) {
       api.toast.ok(`Signed. Now with ${r.next}.`, `The award on ${t.ref} moves on to the next signature.`);
       return;
     }
     cue.chime();
-    const winner = state.suppliers.find((s) => s.id === rec.supplierId);
-    api.toast.ok("Award approved, letters issued", `${winner?.name} at ${fmtCompact(rec.amount)}. Every bidder has been notified.`);
+    const rec = t.awardRec;
+    api.toast.ok("Award approved, letters issued",
+      `${c ? winnersWords(c.opt) : supName(rec.supplierId)} at ${fmtCompact(c ? c.opt.amount : rec.amount)}. Every bidder has been notified.`);
   };
   const sendBack = async ({ t, kind }, reason) => {
     await decide(t, kind, false, reason);
@@ -3004,7 +3174,9 @@ export function ApprovalsPage({ api }) {
      you look at committed spend when someone asks. */
   const queue = [
     ...awards.map((t) => ({ key: "a" + t.id, label: t.title,
-      note: `Award · ${state.suppliers.find((s) => s.id === t.awardRec.supplierId)?.name} at ${fmtCompact(t.awardRec.amount)}`,
+      note: (t.awardRec.parts || []).length > 1
+        ? `Award · ${t.awardRec.parts.length} vendors at ${fmtCompact(t.awardRec.amount)}`
+        : `Award · ${state.suppliers.find((s) => s.id === t.awardRec.supplierId)?.name} at ${fmtCompact(t.awardRec.amount)}`,
       onPick: () => document.getElementById("appr-a" + t.id)?.scrollIntoView({ behavior: "smooth", block: "start" }) })),
     ...pubs.map((t) => ({ key: "p" + t.id, label: t.title,
       note: `Publish · ${ceilWords(t)}`,
@@ -3029,14 +3201,18 @@ export function ApprovalsPage({ api }) {
     <Page guide={guide}>
       {awardT && (() => {
         const rec = awardT.awardRec;
-        const winner = state.suppliers.find((s) => s.id === rec.supplierId);
-        const losers = state.bids.filter((b) => b.tenderId === awardT.id && b.supplierId !== rec.supplierId).length;
+        const c = pickFor(awardT);
+        const amount = c ? c.opt.amount : rec.amount;
+        const winIds = c ? c.opt.parts.map((p) => p.supplierId) : [rec.supplierId];
+        const winner = { name: c ? winnersWords(c.opt) : supName(rec.supplierId) };
+        const losers = state.bids.filter((b) => b.tenderId === awardT.id && !winIds.includes(b.supplierId)).length;
+        const how = c ? <> on <b>{c.title.toLowerCase()}</b></> : null;
         const nextWho = after(awardT.awardChain);
         if (nextWho) {
           return (
             <ConfirmDialog title="Sign this award?" confirmLabel="Sign and pass it up"
                            onClose={() => setAwardT(null)} onConfirm={() => approveAward(awardT)}>
-              <b>{winner?.name}</b> for “{awardT.title}” at <b>{fmtMoney(rec.amount)}</b>, {vsCeiling(awardT.budget, rec.amount)}.
+              <b>{winner?.name}</b> for “{awardT.title}”{how} at <b>{fmtMoney(amount)}</b>, {vsCeiling(awardT.budget, amount)}.
               <div style={{ marginTop: 8 }}>
                 Your signature passes it to {nextWho}. Nothing reaches any supplier until the last signature,
                 and your signature is recorded in the audit trail under your name.
@@ -3048,9 +3224,9 @@ export function ApprovalsPage({ api }) {
           <ConfirmDialog title="Approve this award?" confirmLabel="Hold to approve & issue letters"
                          tone="pri" hold holdHint="Irreversible: hold to sign off"
                          onClose={() => setAwardT(null)} onConfirm={() => approveAward(awardT)}>
-            <b>{winner?.name}</b> wins “{awardT.title}” at <b>{fmtMoney(rec.amount)}</b>, {vsCeiling(awardT.budget, rec.amount)}.
+            <b>{winner?.name}</b> {winIds.length > 1 ? "win" : "wins"} “{awardT.title}”{how} at <b>{fmtMoney(amount)}</b>, {vsCeiling(awardT.budget, amount)}.
             <div style={{ marginTop: 8 }}>
-              Signing off issues the award letter immediately, plus {losers} regret letter{losers === 1 ? "" : "s"},
+              Signing off issues {winIds.length > 1 ? `${winIds.length} award letters, each listing that vendor's lines,` : "the award letter"} immediately, plus {losers} regret letter{losers === 1 ? "" : "s"},
               and notifies every bidder. It is recorded in the audit trail under your name and <b>cannot be undone.</b>
             </div>
           </ConfirmDialog>
@@ -3122,11 +3298,19 @@ export function ApprovalsPage({ api }) {
                 {rec.by} recommends <b>{winner.name}</b> at <b>{fmtMoney(rec.amount)}</b>, {vsCeiling(t.budget, rec.amount, false)},
                 from {bids.length} sealed {bids.length === 1 ? "bid" : "bids"}. {fmtDateTime(rec.at)}.
               </div>
+              {(rec.method && rec.method !== "recommended") && (
+                <div className="notice" style={{ marginBottom: 10 }}>
+                  {rec.changedBy} changed this to {AWARD_METHOD[rec.method].title.toLowerCase()} when signing.
+                </div>
+              )}
+              <AwardChoice api={api} t={t} pick={(pickFor(t) || {}).key}
+                           onPick={(k) => setAwardPick((x) => ({ ...x, [t.id]: k }))} />
               <ApprovalChain chain={t.awardChain} users={users} me={me} compact />
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button className="btn pri" onClick={() => setAwardT(t)}>
                   {t.awardChain && t.awardChain.total > t.awardChain.signed + 1
-                    ? "Sign and pass it up" : "Approve award & issue letters"}
+                    ? "Sign and pass it up"
+                    : pickFor(t) ? `Approve on ${pickFor(t).title.toLowerCase()} & issue letters` : "Approve award & issue letters"}
                 </button>
                 <button className="btn" onClick={() => setRetQ({ t, kind: "award" })}>Return to panel…</button>
               </div>
@@ -3660,6 +3844,258 @@ function AddVendorDialog({ api, category, onClose, onAdded }) {
 /* `price` is the most the buyer will pay per unit, kept as typed until save. */
 const blankLine = () => ({ id: uid(), desc: "", qty: "", unit: "unit", price: "", itemCode: "" });
 
+/* A document's copy in the company's SharePoint (core/sharepoint.py): a link
+   once filed, a quiet note when filing failed, nothing while it is waiting or
+   when SharePoint is not set up. */
+function SpLink({ doc }) {
+  if (doc.sharepointUrl) {
+    return <a className="doclink sp" href={doc.sharepointUrl} target="_blank" rel="noopener noreferrer"
+              title="Open the copy in SharePoint" style={{ fontSize: 11, marginLeft: 4 }}>SharePoint</a>;
+  }
+  if (doc.sharepointError) {
+    return <span className="faint" title={doc.sharepointError} style={{ fontSize: 11, marginLeft: 4 }}>not in SharePoint</span>;
+  }
+  return null;
+}
+
+/** The bid document type as the list names it: "Technical Datasheet (TDS)". */
+const bidDocLabel = (v) => (BID_DOC_TYPES.find(([k]) => k === v) || [v, v])[1];
+
+function SharePointStatus({ sp }) {
+  if (!sp) return null;
+  return (
+    <div className="rowline" style={{ marginTop: 14 }}>
+      <span className="muted" style={{ flex: 1 }}>Documents copied to SharePoint</span>
+      <span style={{ textAlign: "right", fontSize: 12.5 }}>
+        {!sp.enabled ? "Not set up. Vendor company documents and opened bid documents go there once IT connects a SharePoint site."
+          : sp.error ? sp.error
+          : <>{sp.site}/{sp.folder}: {sp.filed} filed, {sp.waiting} waiting{sp.failed ? <>, <b>{sp.failed} failed</b></> : null}</>}
+      </span>
+    </div>
+  );
+}
+
+/* ---------------- what you are buying ----------------
+
+   THE LINES ARE A GRID YOU CAN PASTE INTO. A tender carries up to 200 lines
+   (the server holds the same limit, views.MAX_LINES), and the list usually
+   already exists in a spreadsheet. So: copy the rows in Excel - description,
+   quantity, unit, most you will pay - and paste them into any description box,
+   or through "Paste from Excel". Enter on the last line starts the next one.
+   On a wide screen the lines are a table with one header; on a phone each is
+   a card with its own labels, because a header scrolled out of view labels
+   nothing. */
+export const MAX_LINES = 200;
+
+/** Spreadsheet rows as lines. Columns in order: description, quantity, unit,
+    most per unit. A header row and blank rows are skipped; "₦1,200" is 1200. */
+export function parsePastedLines(text) {
+  const num = (v) => {
+    const n = Number(String(v ?? "").replace(/[₦N,\s]/gi, ""));
+    return Number.isFinite(n) && n > 0 ? String(Math.round(n)) : "";
+  };
+  const out = [];
+  String(text || "").replace(/\r/g, "").split("\n").forEach((row, i) => {
+    const [desc = "", qty = "", unit = "", price = ""] = row.split("\t").map((c) => c.trim());
+    if (!desc) return;
+    if (i === 0 && !num(qty) && /desc|item|product|name|material/i.test(desc)) return;
+    out.push({ ...blankLine(), desc: desc.slice(0, 200), qty: num(qty), unit: unitFor(unit) || "unit",
+               price: num(price) });
+  });
+  return out;
+}
+
+function PasteLinesDialog({ room, onClose, onAdd }) {
+  const [text, setText] = useState("");
+  const rows = parsePastedLines(text);
+  const over = Math.max(0, rows.length - room.add);
+  return (
+    <Dialog title="Paste lines from Excel" onClose={onClose} wide
+            footer={<>
+              <button className="btn" onClick={onClose}>Cancel</button>
+              {room.lines > 0 && (
+                <button className="btn" disabled={!rows.length}
+                        onClick={() => { onAdd(rows.slice(0, MAX_LINES), true); onClose(); }}>
+                  Replace all {room.lines} lines</button>
+              )}
+              <button className="btn pri" disabled={!rows.length || room.add <= 0}
+                      onClick={() => { onAdd(rows.slice(0, room.add), false); onClose(); }}>
+                Add {Math.min(rows.length, room.add) || ""} {Math.min(rows.length, room.add) === 1 ? "line" : "lines"}</button>
+            </>}>
+      <p className="hint" style={{ marginTop: 0 }}>
+        In Excel, select the rows and copy them. Columns in this order: <b>description</b>, <b>quantity</b>,
+        <b> unit</b>, and the <b>most you will pay per unit</b> (optional). A header row is ignored.
+      </p>
+      <textarea className="in mono" rows={9} autoFocus value={text} onChange={(e) => setText(e.target.value)}
+                aria-label="Pasted rows" placeholder={"Flour, 50kg\t100\tbag\t42000\nSugar, granulated\t50\tbag\t38000"} />
+      <div className="hint" role="status">
+        {!text.trim() ? "Nothing pasted yet."
+          : !rows.length ? "No rows with a description found. Check the first column is the description."
+          : `${rows.length} ${rows.length === 1 ? "line" : "lines"} found`
+            + (rows.some((r) => !r.qty) ? `, ${rows.filter((r) => !r.qty).length} without a quantity (fill those in after)` : "")
+            + (over > 0 ? `. Only ${room.add} more fit: a tender holds at most ${MAX_LINES} lines.` : ".")}
+      </div>
+      {rows.length > 0 && (
+        <div className="tscroll" style={{ marginTop: 8, maxHeight: 220 }}>
+          <table className="tbl">
+            <thead><tr><th>Description</th><th className="num">Qty</th><th>Unit</th><th className="num">Most per unit</th></tr></thead>
+            <tbody>
+              {rows.slice(0, 8).map((r) => (
+                <tr key={r.id}><td>{r.desc}</td><td className="num mono">{r.qty || <span className="faint">-</span>}</td>
+                  <td>{r.unit}</td><td className="num money">{r.price ? fmtMoney(Number(r.price)) : <span className="faint">-</span>}</td></tr>
+              ))}
+              {rows.length > 8 && <tr><td colSpan={4} className="faint">and {rows.length - 8} more</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
+function LinesGrid({ lines, onLines, ceiling, somePriced, budgetVisible, onBudgetVisible }) {
+  const [pasting, setPasting] = useState(false);
+  const [find, setFind] = useState("");
+  const [note, setNote] = useState("");
+  const wrap = useRef(null);
+  const full = lines.length >= MAX_LINES;
+  const setLine = (id, k, v) => onLines(lines.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
+  const focusDesc = (id) => setTimeout(() => wrap.current?.querySelector(`[data-line="${id}"] .ldesc`)?.focus(), 0);
+  const addLine = (after) => {
+    if (full) return;
+    const fresh = blankLine();
+    const at = after ? lines.findIndex((x) => x.id === after) + 1 : lines.length;
+    onLines([...lines.slice(0, at), fresh, ...lines.slice(at)]);
+    focusDesc(fresh.id);
+  };
+  /* Rows pasted into a description box land from that line down: the line
+     itself takes the first row if it was empty, the rest go in after it. */
+  const pasteInto = (l) => (e) => {
+    const text = e.clipboardData?.getData("text") || "";
+    if (!/[\t\n]/.test(text.trim())) return;          // one cell: an ordinary paste
+    e.preventDefault();
+    const rows = parsePastedLines(text);
+    if (!rows.length) return;
+    const at = lines.findIndex((x) => x.id === l.id);
+    const empty = !l.desc.trim() && !String(l.qty).trim();
+    const room = MAX_LINES - lines.length + (empty ? 1 : 0);
+    const take = rows.slice(0, room);
+    onLines([...lines.slice(0, empty ? at : at + 1), ...take, ...lines.slice(at + 1)]);
+    setNote(rows.length > room
+      ? `${take.length} of ${rows.length} pasted rows added. A tender holds at most ${MAX_LINES} lines.`
+      : `${take.length} ${take.length === 1 ? "line" : "lines"} pasted.`);
+  };
+  const addPasted = (rows, replace) => {
+    onLines(replace ? rows : [...lines.filter((x) => x.desc.trim() || String(x.qty).trim()), ...rows].slice(0, MAX_LINES));
+    setNote(`${rows.length} ${rows.length === 1 ? "line" : "lines"} ${replace ? "now make up the tender" : "added"}.`);
+  };
+  const enterNext = (l) => (e) => {
+    if (e.key === "Enter" && !e.shiftKey && lines[lines.length - 1]?.id === l.id) { e.preventDefault(); addLine(l.id); }
+  };
+  const q = find.trim().toLowerCase();
+  const shown = q ? lines.filter((l) => l.desc.toLowerCase().includes(q) || (l.itemCode || "").toLowerCase().includes(q)) : lines;
+  const missing = lines.filter((l) => !l.desc.trim() || !(Number(l.qty) > 0)).length;
+
+  return (
+    <div className="frow" style={{ marginTop: 16, marginBottom: 0 }} id="nt-lines" ref={wrap}>
+      <div className="lgtop">
+        <label className="lbl" style={{ margin: 0 }}>What you are buying</label>
+        <span className={"mono faint lgcount" + (full ? " full" : "")}>{lines.length} of {MAX_LINES} lines</span>
+      </div>
+      <div className="hint" style={{ marginTop: 2, marginBottom: 10 }}>
+        One line per item. The most you will pay per unit is optional and vendors never see it; with one on
+        every line, bids are graded against them. Lists in Excel can be pasted straight in.
+      </div>
+      <div className="lgtools">
+        <button className="btn sm" onClick={() => setPasting(true)} disabled={full && !lines.length}>
+          <Icon n="upload" s={13} />Paste from Excel</button>
+        {lines.length > 12 && (
+          <input className="in lgfind" type="search" placeholder="Find a line…" aria-label="Find a line"
+                 value={find} onChange={(e) => setFind(e.target.value)} />
+        )}
+        {missing > 0 && lines.length > 1 && (
+          <span className="hint" style={{ margin: 0 }}>{missing} {missing === 1 ? "line needs" : "lines need"} a description and a quantity</span>
+        )}
+      </div>
+      {note && <div className="notice" role="status" style={{ margin: "8px 0" }}>{note}</div>}
+
+      <div className="lgrid" role="table" aria-label="Lines">
+        <div className="lgrow lghead" role="row">
+          <span role="columnheader" className="lgn">#</span><span role="columnheader" className="lgitem">Item</span>
+          <span role="columnheader" className="lgdesc">Description</span><span role="columnheader" className="lgq num">Quantity</span>
+          <span role="columnheader" className="lgu">Unit</span><span role="columnheader" className="lgm num">Most per unit <i>optional</i></span>
+          <span role="columnheader" className="lgt num">Line maximum</span><span role="columnheader" className="lgdel" aria-label="Remove" />
+        </div>
+        {shown.map((l) => {
+          const n = lines.indexOf(l) + 1;
+          const bad = (l.desc.trim() || String(l.qty).trim()) && !(l.desc.trim() && Number(l.qty) > 0);
+          return (
+            <div className={"lgrow" + (bad ? " lgbad" : "")} role="row" key={l.id} data-line={l.id}>
+              <span className="lgn mono faint" role="cell">{n}</span>
+              <span role="cell" className="lgitem">
+                <ItemPick line={l}
+                          onPick={(it) => onLines(lines.map((x) => x.id === l.id
+                            ? { ...x, itemCode: it ? it.code : "",
+                                desc: it && !x.desc.trim() ? it.label : x.desc,
+                                unit: (it && unitFor(it.uom)) || x.unit }
+                            : x))} />
+              </span>
+              <label role="cell" className="lgcell lgdesc"><span className="lglbl">Description</span>
+                <input className="in ldesc" placeholder="e.g. Mozzarella, shredded" aria-label={"Line " + n + " description"}
+                       value={l.desc} onChange={(e) => setLine(l.id, "desc", e.target.value)}
+                       onPaste={pasteInto(l)} onKeyDown={enterNext(l)} /></label>
+              <label role="cell" className="lgcell lgq"><span className="lglbl">Quantity</span>
+                <input className="in num" type="number" min="1" inputMode="numeric" placeholder="e.g. 500"
+                       aria-label={"Line " + n + " quantity"} value={l.qty}
+                       onChange={(e) => setLine(l.id, "qty", e.target.value)} onKeyDown={enterNext(l)} /></label>
+              <div role="cell" className="lgcell lgu"><span className="lglbl">Unit</span>
+                <UnitSelect ariaLabel={"Line " + n + " unit"} required value={l.unit}
+                            onChange={(v) => setLine(l.id, "unit", v)} /></div>
+              <label role="cell" className="lgcell lgm"><span className="lglbl">Most per {l.unit || "unit"} <i>optional</i></span>
+                <input className="in num" type="number" min="0" inputMode="numeric" placeholder="₦"
+                       aria-label={"Line " + n + " most you will pay per unit"} value={l.price}
+                       onChange={(e) => setLine(l.id, "price", e.target.value)} onKeyDown={enterNext(l)} /></label>
+              <div role="cell" className="lgcell lgt"><span className="lglbl">Line maximum</span>
+                <span className="ltot money">
+                  {Number(l.qty) > 0 && Number(l.price) > 0 ? fmtMoney(Number(l.qty) * Number(l.price)) : <span className="faint">-</span>}
+                </span></div>
+              <button className="btn sm iconly lgdel" aria-label={"Remove line " + n} role="cell"
+                      onClick={() => onLines(lines.filter((x) => x.id !== l.id))}><Icon n="close" s={13} /></button>
+            </div>
+          );
+        })}
+        {q && !shown.length && <div className="hint" style={{ padding: 10 }}>No line matches “{find}”.</div>}
+      </div>
+
+      <div className="linesum">
+        <button className="btn sm" style={{ marginRight: "auto" }} disabled={full} onClick={() => addLine()}>
+          Add a line</button>
+        <span className="lbl" style={{ margin: 0 }}>Maximum order value</span>
+        <span className="money" style={{ fontWeight: 650, fontSize: 16 }}>
+          {ceiling > 0 ? fmtMoney(ceiling) : <span className="faint">not set</span>}</span>
+      </div>
+      <div className="hint" style={{ textAlign: "right" }}>
+        {full ? `This tender has the most lines one tender can carry (${MAX_LINES}). Split anything else into a second tender.`
+          : ceiling > 0 ? "What the line maximums add up to. It also decides who has to approve this."
+          : somePriced ? "Give every line a maximum to get a total. Without one on every line there is no maximum order value."
+          : "No maximums given. Where there is an approval threshold, this goes for sign-off because its value is unknown."}
+      </div>
+      <label className="checkline" style={{ marginTop: 10 }}>
+        <input type="checkbox" checked={!!budgetVisible && ceiling > 0} disabled={ceiling <= 0}
+               onChange={(e) => onBudgetVisible(e.target.checked)} />
+        <span>Show the maximum order value to vendors
+          <span className="hint" style={{ display: "block" }}>
+            {ceiling > 0 ? `Vendors will see ${fmtMoney(ceiling)} in their invitation and bid room. The per-line maximums stay hidden.`
+              : "Needs a maximum on every line."}
+          </span></span>
+      </label>
+      {pasting && <PasteLinesDialog room={{ add: MAX_LINES - lines.filter((x) => x.desc.trim() || String(x.qty).trim()).length,
+                                            lines: lines.filter((x) => x.desc.trim()).length }}
+                                    onClose={() => setPasting(false)} onAdd={addPasted} />}
+    </div>
+  );
+}
+
 export function NewTender({ api, editId }) {
   const { state, act, ai, go } = api;
   const editing = editId ? state.tenders.find((t) => t.id === editId) : null;
@@ -3687,6 +4123,8 @@ export function NewTender({ api, editId }) {
     requiredDocs: [...(editing.requiredDocs || [])],
     paymentTerms: editing.paymentTerms || "", paymentConditions: editing.paymentConditions || "",
     ndaRequired: !!editing.ndaRequired, ndaText: editing.ndaText || "",
+    incoterm: editing.incoterm || "", incotermPlace: editing.incotermPlace || "",
+    creditLimit: editing.creditLimit ? String(editing.creditLimit) : "",
     minDecrement: String(editing.minDecrement || ""),
     baseline: editing.baseline ? String(editing.baseline) : "",
     baselineSource: editing.baselineSource || "",
@@ -3702,6 +4140,7 @@ export function NewTender({ api, editId }) {
     /* The company's default payment terms, from Team > Vendor reminders and agreements. */
     requiredDocs: [], paymentTerms: state.org.paymentTerms || "",
     paymentConditions: state.org.paymentConditions || "", ndaRequired: false, ndaText: "",
+    incoterm: "", incotermPlace: "", creditLimit: "",
     baseline: "", baselineSource: "", projectedCost: "",
   });
   const [initial] = useState(() => JSON.stringify(f));
@@ -3735,9 +4174,10 @@ export function NewTender({ api, editId }) {
   const projOk = !(Number(f.projectedCost) > 0 && ceiling > 0 && Number(f.projectedCost) > ceiling);
   /* An NDA vendors are asked to sign has to say something. */
   const ndaOk = !f.ndaRequired || String(f.ndaText || "").trim().length >= 40;
-  const ready = f.title.trim() && f.category && deadlineOk && f.invited.length > 0 && projOk && ndaOk
+  /* An Incoterm means nothing without its place: "FCA" where? */
+  const placeOk = !f.incoterm || !!String(f.incotermPlace || "").trim();
+  const ready = f.title.trim() && f.category && deadlineOk && f.invited.length > 0 && projOk && ndaOk && placeOk
     && (isAuction ? Number(f.minDecrement) > 0 && f.lines.length === 0 : linesOk && weightSum === 100 && namesOk);
-  const setLine = (id, k, v) => set("lines", f.lines.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
 
   /* Move one weight and let the others absorb the difference, proportionally,
      so the total is always exactly 100. The rounding drift lands on the first
@@ -3814,6 +4254,9 @@ export function NewTender({ api, editId }) {
     { key: "nda", ok: ndaOk, to: "nt-nda", quiet: ndaOk,
       todo: "Write the NDA vendors will sign", done: "NDA ready",
       note: "Use the company's standard text, or switch the NDA off." },
+    { key: "place", ok: placeOk, to: "nt-place", quiet: placeOk,
+      todo: `Name the place for ${f.incoterm}`, done: "Delivery place named",
+      note: "The port, warehouse or address the Incoterm applies at." },
   ].filter((c) => !(c.quiet && c.ok));
 
   const outstanding = checks.filter((c) => !c.ok);
@@ -3875,6 +4318,8 @@ export function NewTender({ api, editId }) {
       requiredDocs: f.requiredDocs || [],
       paymentTerms: f.paymentTerms || "", paymentConditions: String(f.paymentConditions || "").trim(),
       ndaRequired: !!f.ndaRequired, ndaText: f.ndaRequired ? String(f.ndaText || "").trim() : "",
+      incoterm: f.incoterm || "", incotermPlace: f.incoterm ? String(f.incotermPlace || "").trim() : "",
+      creditLimit: Number(f.creditLimit) || 0,
       minDecrement: Number(f.minDecrement) || 0,
       baseline: Number(f.baseline) || 0,
       baselineSource: f.baselineSource.trim(),
@@ -3989,66 +4434,9 @@ export function NewTender({ api, editId }) {
               </div>
 
               {!isAuction && (
-                <div className="frow" style={{ marginTop: 16, marginBottom: 0 }} id="nt-lines">
-                  <label className="lbl">What you are buying, and the most you will pay</label>
-                  <div className="hint" style={{ marginTop: 0, marginBottom: 10 }}>
-                    One line per item and how many. The most you will pay for each one is optional. Where you
-                    give it, bids are checked against it and, with one on every line, the price score is graded
-                    on them. Vendors never see the per-line maximums.
-                  </div>
-                  {f.lines.map((l, i) => (
-                    <div key={l.id} className="lineedit">
-                      <div className="lhead">
-                        <ItemPick line={l}
-                                  onPick={(it) => set("lines", f.lines.map((x) => x.id === l.id
-                                    ? { ...x, itemCode: it ? it.code : "",
-                                        desc: it && !x.desc.trim() ? it.label : x.desc,
-                                        unit: (it && unitFor(it.uom)) || x.unit }
-                                    : x))} />
-                        <input className="in desc" placeholder="What this line is, e.g. Mozzarella, shredded"
-                               aria-label={"Line " + (i + 1)} value={l.desc}
-                               onChange={(e) => setLine(l.id, "desc", e.target.value)} />
-                      </div>
-                      <label className="lcell"><span>Quantity</span>
-                        <input className="in" type="number" min="1" placeholder="e.g. 500" value={l.qty}
-                               onChange={(e) => setLine(l.id, "qty", e.target.value)} /></label>
-                      <div className="lcell"><span>Unit</span>
-                        <UnitSelect ariaLabel="Unit" required value={l.unit}
-                                    onChange={(v) => setLine(l.id, "unit", v)} /></div>
-                      <button className="btn sm" aria-label="Remove line" style={{ alignSelf: "end" }}
-                              onClick={() => set("lines", f.lines.filter((x) => x.id !== l.id))}><Icon n="close" s={13} /></button>
-                      <label className="lcell"><span>Most you will pay per {l.unit || "unit"} <span className="faint">optional</span></span>
-                        <input className="in" type="number" min="0" placeholder="In naira" value={l.price}
-                               onChange={(e) => setLine(l.id, "price", e.target.value)} /></label>
-                      <div className="lcell"><span>Line maximum</span>
-                        <span className="ltot money">
-                          {Number(l.qty) > 0 && Number(l.price) > 0 ? fmtMoney(Number(l.qty) * Number(l.price)) : "-"}
-                        </span></div>
-                    </div>
-                  ))}
-                  <div className="linesum">
-                    <button className="btn sm" style={{ marginRight: "auto" }}
-                            onClick={() => set("lines", [...f.lines, blankLine()])}>
-                      Add another line</button>
-                    <span className="lbl" style={{ margin: 0 }}>Maximum order value</span>
-                    <span className="money" style={{ fontWeight: 650, fontSize: 16 }}>
-                      {ceiling > 0 ? fmtMoney(ceiling) : <span className="faint">not set</span>}</span>
-                  </div>
-                  <div className="hint" style={{ textAlign: "right" }}>
-                    {ceiling > 0 ? "What the line maximums add up to. It also decides who has to approve this."
-                      : somePriced ? "Give every line a maximum to get a total. Without one on every line there is no maximum order value."
-                      : "No maximums given. Where there is an approval threshold, this goes for sign-off because its value is unknown."}
-                  </div>
-                  <label className="checkline" style={{ marginTop: 10 }}>
-                    <input type="checkbox" checked={!!f.budgetVisible && ceiling > 0} disabled={ceiling <= 0}
-                           onChange={(e) => set("budgetVisible", e.target.checked)} />
-                    <span>Show the maximum order value to vendors
-                      <span className="hint" style={{ display: "block" }}>
-                        {ceiling > 0 ? `Vendors will see ${fmtMoney(ceiling)} in their invitation and bid room. The per-line maximums stay hidden.`
-                          : "Needs a maximum on every line."}
-                      </span></span>
-                  </label>
-                </div>
+                <LinesGrid lines={f.lines} onLines={(next) => set("lines", next)}
+                           ceiling={ceiling} somePriced={somePriced}
+                           budgetVisible={f.budgetVisible} onBudgetVisible={(v) => set("budgetVisible", v)} />
               )}
             </div>
           </div>
@@ -4133,10 +4521,11 @@ export function NewTender({ api, editId }) {
           </div>}
 
           {!isAuction && <div className="card" id="nt-nda">
-            <div className="chead"><h3>Payment terms and confidentiality</h3></div>
+            <div className="chead"><h3>Delivery, payment and confidentiality</h3></div>
             <div className="cbody">
               <p className="hint" style={{ marginTop: 0 }}>Vendors accept these before they can see the rest of the
                 tender or bid. Each acceptance is recorded with their name, the time and the exact text.</p>
+              <TradeTerms f={f} set={set} />
               <div className="grid g2">
                 <div className="frow"><label className="lbl" htmlFor="nt-pay">Payment terms</label>
                   <PaymentTermsSelect id="nt-pay" value={f.paymentTerms || ""} onChange={(v) => set("paymentTerms", v)} />
@@ -4211,12 +4600,13 @@ export function NewTender({ api, editId }) {
                   </div></div>
 
                 <div className="frow"><label className="lbl" htmlFor="nt-base">
-                  What we pay now <span className="faint">optional</span></label>
+                  Last price paid <span className="faint">optional</span></label>
                   <input id="nt-base" className="in" type="number" min="0" placeholder="e.g. 505000000"
                          value={f.baseline} onChange={(e) => set("baseline", e.target.value)} />
                   <div className="hint">
-                    Last year's contract, the incumbent's renewal quote, or the current price. With it, the
-                    saving is measured against what the business actually pays rather than against the ceiling.
+                    What the business pays now: last year's contract, the incumbent's renewal quote, or the
+                    current price. With it, the saving is measured against that. Without it, the saving is
+                    measured against the average of the bids received.
                   </div>
                   <BaselineHint api={api} category={f.category} current={f.baseline}
                                 onAdopt={(amount, source) => {
@@ -4334,6 +4724,50 @@ const fmtDeadline = (d) => {
    ============================================================ */
 export const DRAFT_CSS = `
 .ntcols{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start}
+
+/* ---- the lines grid ----
+   Sized by the room it has, not the window: the form column is narrow beside
+   the readiness panel on a laptop and wide on a big screen. Under 520px each
+   line is a card; from 520px, two rows (what it is, then the numbers); from
+   780px, one row per line under a single header. */
+.lgtop{display:flex;align-items:baseline;gap:10px}
+.lgcount{margin-left:auto;font-size:11.5px}
+.lgcount.full{color:var(--wax)}
+.lgtools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
+.lgfind{flex:1 1 180px;max-width:280px}
+.lgrid{display:flex;flex-direction:column;margin-bottom:10px;container-type:inline-size}
+.lghead{display:none !important}
+.lgrow{display:grid;gap:8px;align-items:end;padding:10px 0;border-bottom:1px solid var(--line);
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;
+  grid-template-areas:"n item item" "desc desc desc" "qty unit del" "max tot tot"}
+.lgn{grid-area:n;align-self:center}
+.lgitem{grid-area:item;justify-self:end;align-self:center}
+.lgdesc{grid-area:desc}
+.lgq{grid-area:qty}.lgu{grid-area:unit}.lgm{grid-area:max}.lgt{grid-area:tot}
+.lgdel{grid-area:del;align-self:end;min-width:34px;min-height:34px;padding:0;display:inline-flex;
+  align-items:center;justify-content:center}
+.lgrow.lgbad .ldesc:placeholder-shown,.lgrow.lgbad input[type=number]:placeholder-shown{border-color:var(--wax)}
+.lgcell{display:flex;flex-direction:column;gap:4px;min-width:0}
+.lgcell>.lglbl{font-size:11px;color:var(--muted)}
+.lgcell>.lglbl i,.lghead i{font-style:normal;color:var(--faint)}
+.lgcell .ltot{font-weight:600;padding:9px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lgrow .in.num{text-align:right}
+@container (min-width:520px){
+  .lgrow{grid-template-columns:22px repeat(4,minmax(0,1fr)) auto;
+    grid-template-areas:"n desc desc desc item item" ". qty unit max tot del";padding:8px 0}
+  .lgitem{justify-self:end}
+}
+@container (min-width:780px){
+  .lghead{display:grid !important;font-size:11px;color:var(--muted);padding:2px 0 6px}
+  .lghead>span{align-self:end}
+  .lghead .num{text-align:right}
+  .lgrow{grid-template-columns:24px auto minmax(150px,1fr) 78px 112px 108px 104px 36px;
+    grid-template-areas:"n item desc qty unit max tot del";align-items:center;padding:4px 0;gap:6px}
+  .lgdel{align-self:center}
+  .lgitem{justify-self:start}
+  .lgcell>.lglbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  .lgcell .ltot{text-align:right;padding:0 4px}
+}
 
 /* ---- the readiness panel ---- */
 .ready{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);
@@ -4920,9 +5354,12 @@ export function SuppliersPage({ api }) {
                      </>}>
                   <div id={"vq-" + s.id} className="lrmeta" style={{ marginTop: 6 }}>
                     {docs.map((x) => (
-                      <button key={x.id} className="doclink" onClick={() => downloadDoc(x.id, x.name)}>
-                        <Icon n="file" s={12} />{x.name}
-                      </button>
+                      <span key={x.id} style={{ whiteSpace: "nowrap" }}>
+                        <button className="doclink" onClick={() => downloadDoc(x.id, x.name)}>
+                          <Icon n="file" s={12} />{x.name}
+                        </button>
+                        <SpLink doc={x} />
+                      </span>
                     ))}
                     {docs.length === 0 && <span className="faint">No compliance documents uploaded yet.</span>}
                     {s.rejectedReason && <span className="faint">Previously declined: {s.rejectedReason}</span>}
@@ -5066,8 +5503,9 @@ export function SuppliersPage({ api }) {
         </div>
       )}
 
-      {openId && <VendorRecord row={all.find((x) => x.id === openId)}
-                               detail={detail} onClose={() => setOpenId(null)} />}
+      {openId && <VendorRecord api={api} row={all.find((x) => x.id === openId)}
+                               detail={detail} onClose={() => setOpenId(null)}
+                               onContract={(c) => setDetail((d) => (d ? { ...d, contract: c } : d))} />}
       {regOpen && <RegisterImport api={api} onClose={() => setRegOpen(false)} />}
       {csvOpen && <VendorCsvDialog api={api} onClose={() => setCsvOpen(false)} />}
     </Page>
@@ -5283,8 +5721,80 @@ function RegisterImport({ api, onClose }) {
     tenders, it does not pay invoices, so a full account number has no reason to
     reach a browser, and 1,400 of them have no reason to sit in this database.
     See vendor_import.py. */
-function VendorRecord({ row, detail, onClose }) {
+/* What the company has agreed with a vendor. Payment terms and the credit
+   limit are the vendor's own fields (Finance's exposure figures read the same
+   limit); bonus or malus, escalation and cash back are written as agreed. The
+   vendor reads all of it on their Contract tab. */
+function ContractEditor({ api, sid, contract, onSaved }) {
+  const c = contract || {};
+  const dateOf = (ms) => (ms ? new Date(ms).toISOString().slice(0, 10) : "");
+  const [f, setF] = useState(() => ({
+    ref: c.ref || "", paymentTerms: c.paymentTerms || "", creditLimit: c.creditLimit ? String(c.creditLimit) : "",
+    bonusMalus: c.bonusMalus || "", escalation: c.escalation || "", cashBack: c.cashBack || "",
+    notes: c.notes || "", startsAt: dateOf(c.startsAt), endsAt: dateOf(c.endsAt),
+  }));
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e && e.target ? e.target.value : e }));
+  const badDates = f.startsAt && f.endsAt && f.endsAt < f.startsAt;
+  const save = async () => {
+    setBusy(true);
+    try {
+      const r = await raw(`/suppliers/${sid}/contract/`, { method: "POST", body: {
+        ...f, creditLimit: Number(f.creditLimit) || 0,
+        startsAt: f.startsAt ? new Date(f.startsAt + "T00:00:00").getTime() : null,
+        endsAt: f.endsAt ? new Date(f.endsAt + "T00:00:00").getTime() : null,
+      } });
+      onSaved(r.contract);
+      api.toast.ok("Contract saved", "The vendor can read it on their Contract tab, and has been told.");
+    } catch (e) {
+      api.toast.warn("That didn't go through", e.message);
+    } finally { setBusy(false); }
+  };
+  const area = (k, label, ph) => (
+    <div className="frow"><label className="lbl" htmlFor={`ct-${k}`}>{label}</label>
+      <textarea id={`ct-${k}`} className="in" rows={2} maxLength={600} placeholder={ph}
+                value={f[k]} onChange={set(k)} /></div>
+  );
+  return (
+    <div>
+      <div className="grid g3">
+        <div className="frow"><label className="lbl" htmlFor="ct-ref">Contract reference</label>
+          <input id="ct-ref" className="in" maxLength={600} value={f.ref} onChange={set("ref")} placeholder="e.g. CTR-2026-014" /></div>
+        <div className="frow"><label className="lbl" htmlFor="ct-from">Starts</label>
+          <input id="ct-from" className="in" type="date" value={f.startsAt} onChange={set("startsAt")} /></div>
+        <div className="frow"><label className="lbl" htmlFor="ct-to">Ends</label>
+          <input id="ct-to" className="in" type="date" value={f.endsAt} onChange={set("endsAt")} />
+          {badDates && <div className="hint docwarn">It cannot end before it starts.</div>}</div>
+      </div>
+      <div className="grid g2">
+        <div className="frow"><label className="lbl" htmlFor="ct-pay">Payment terms</label>
+          <PaymentTermsSelect id="ct-pay" value={f.paymentTerms} onChange={set("paymentTerms")} /></div>
+        <div className="frow"><label className="lbl" htmlFor="ct-credit">Credit limit</label>
+          <input id="ct-credit" className="in" type="number" min="0" inputMode="numeric" placeholder="In naira"
+                 value={f.creditLimit} onChange={set("creditLimit")} />
+          <div className="hint">The most the company may owe this vendor at one time. Finance's exposure checks use it.</div></div>
+      </div>
+      <div className="grid g2">
+        {area("bonusMalus", "Bonus or malus", "e.g. 2% rebate above 95% on-time delivery; 1% deduction per late delivery")}
+        {area("escalation", "Escalation", "e.g. Prices fixed for 6 months, then reviewed against CPI")}
+        {area("cashBack", "Cash back", "e.g. 1% of annual spend above ₦100m, paid quarterly")}
+        {area("notes", "Anything else agreed", "")}
+      </div>
+      <div className="formrow" style={{ alignItems: "center" }}>
+        <button className="btn pri" disabled={busy || badDates} onClick={save}>{busy ? "Saving…" : "Save the contract"}</button>
+        {c.updatedAt && <span className="hint" style={{ margin: 0 }}>Last saved {fmtDate(c.updatedAt)} by {c.updatedBy}.</span>}
+      </div>
+    </div>
+  );
+}
+
+function VendorRecord({ api, row, detail, onClose, onContract }) {
   const d = detail || {};
+  const ct = d.contract || {};
+  const [editing, setEditing] = useState(false);
+  const mayEdit = can(api.user, "supplier.contract");
+  const contactLine = (x) => (x && (x.name || x.email || x.phone)
+    ? [x.name, x.email, x.phone ? fmtPhone(x.phone) : ""].filter(Boolean).join(" · ") : "");
   const reg = d.registry || {};
   /* label left, value right: the register is read by eye, one field at a time */
   const line = (label, value, mono) => (
@@ -5319,6 +5829,8 @@ function VendorRecord({ row, detail, onClose }) {
               {line("Email", d.contactEmail)}
               {line("Phone", fmtPhone(d.phone), true)}
               {line("Address", d.address)}
+              {line("Purchase orders", contactLine(d.poContact))}
+              {line("Finance", contactLine(d.financeContact))}
             </div>
             <div>
               <div className="msec" style={{ padding: "0 0 8px" }}>Commercial</div>
@@ -5330,6 +5842,27 @@ function VendorRecord({ row, detail, onClose }) {
               {line("State payer ID", reg.statePayerId, true)}
             </div>
           </div>
+          <div className="msec" style={{ padding: "14px 0 8px", display: "flex", alignItems: "center", gap: 8 }}>
+            Contract{ct.ref ? <span className="mono faint">{ct.ref}</span> : null}
+            {mayEdit && !editing && <button className="btn xs" style={{ marginLeft: "auto" }} onClick={() => setEditing(true)}>
+              {ct.isSet ? "Change" : "Record the contract"}</button>}
+          </div>
+          {editing ? (
+            <ContractEditor api={api} sid={d.id} contract={ct}
+                            onSaved={(c) => { onContract(c); setEditing(false); }} />
+          ) : !ct.isSet ? (
+            <div className="muted" style={{ fontSize: 12.5 }}>No contract terms recorded.</div>
+          ) : (
+            <>
+              {(ct.startsAt || ct.endsAt) && line("Runs", `${ct.startsAt ? fmtDate(ct.startsAt) : "?"} to ${ct.endsAt ? fmtDate(ct.endsAt) : "no end date"}`)}
+              {line("Payment terms", ct.paymentTermsLabel || ct.paymentTerms)}
+              {line("Credit limit", ct.creditLimit ? fmtMoney(ct.creditLimit) : "")}
+              {line("Bonus or malus", ct.bonusMalus)}
+              {line("Escalation", ct.escalation)}
+              {line("Cash back", ct.cashBack)}
+              {ct.notes ? line("Notes", ct.notes) : null}
+            </>
+          )}
           <div className="msec" style={{ padding: "14px 0 8px" }}>Paperwork the register records</div>
           {(d.docs || []).length === 0
             ? <div className="muted" style={{ fontSize: 12.5 }}>Nothing on file.</div>
@@ -5397,7 +5930,7 @@ export function AuditPage({ api }) {
     }
   });
   const wins = {};
-  awarded.forEach((t) => { wins[t.awardedTo] = (wins[t.awardedTo] || 0) + 1; });
+  awarded.forEach((t) => winnersOf(t).forEach((sid) => { wins[sid] = (wins[sid] || 0) + 1; }));
   Object.entries(wins).forEach(([sid, n]) => {
     if (awarded.length >= 2 && n / awarded.length > 0.5) {
       const s = state.suppliers.find((x) => x.id === sid);
@@ -6435,6 +6968,7 @@ function WorkspaceCard({ api }) {
           {name.trim().length < 2 && <span className="hint gatehint">The name needs at least two characters.</span>}
         </div>
         {msg && <div className="notice" style={{ marginTop: 12, marginBottom: 0 }}>{msg}</div>}
+        <SharePointStatus sp={state.sharepoint} />
       </div>
     </div>
   );

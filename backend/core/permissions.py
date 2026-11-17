@@ -133,6 +133,7 @@ PERMISSIONS = [
     ("supplier.invite", "suppliers", "Invite vendors", "Email a vendor an invitation to register."),
     ("supplier.import", "suppliers", "Import the register", "Bulk-load vendors from a register export."),
     ("supplier.register", "suppliers", "Register vendors directly", "Type a vendor onto the register yourself, without waiting for them to complete a registration form. They arrive unverified either way."),
+    ("supplier.contract", "suppliers", "Set vendor contracts", "What the company has agreed with a vendor: payment terms, credit limit, bonus or malus, escalation and cash back. The vendor reads it on their Contract tab."),
     ("supplier.suspend", "suppliers", "Suspend vendors", "Bar a verified vendor from new invitations without striking them off. Separate from prequalification, because lifting a suspension must not mean re-verifying from nothing."),
 
     ("team.view", "workspace", "See the team", "The member list and pending invitations."),
@@ -170,7 +171,7 @@ _PROCUREMENT = {
     "page.auctions", "auction.create", "auction.edit", "auction.invite",
     "auction.open", "auction.lifecycle", "auction.monitor", "auction.retract",
     "supplier.prequalify", "supplier.invite", "supplier.import",
-    "supplier.register", "supplier.suspend",
+    "supplier.register", "supplier.suspend", "supplier.contract",
     "team.view", "team.invite", "team.org", "desk.see_reports", "settings.rename",
     "audit.integrity", "audit.export",
     "export.comparison", "export.memo", "export.compliance",

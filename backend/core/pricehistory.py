@@ -217,11 +217,16 @@ def item_prices(code, now=None):
         lines = [l for l in (t.lines or []) if str(l.get("itemCode") or "").strip() == code]
         if not lines:
             continue
-        win = Bid.objects.filter(tender=t, supplier_id=t.awarded_to).first()
-        if not win or not win.lines:
+        # A tender awarded line by line has a winner, and a rate, per line.
+        split = {x["lineId"]: (part["supplierId"], x["rate"])
+                 for part in (t.award_split or []) for x in (part.get("lines") or [])}
+        win = None if split else Bid.objects.filter(tender=t, supplier_id=t.awarded_to).first()
+        if not split and (not win or not win.lines):
             continue
         for line in lines:
-            unit = win.lines.get(line.get("id"))
+            if split and line.get("id") not in split:
+                continue
+            who, unit = split[line.get("id")] if split else (t.awarded_to, win.lines.get(line.get("id")))
             if unit in (None, ""):
                 continue
             try:
@@ -234,7 +239,7 @@ def item_prices(code, now=None):
                 "tenderId": t.id, "ref": t.ref, "title": t.title,
                 "at": t.awarded_at, "unit": unit,
                 "qty": line.get("qty") or 0, "uom": line.get("unit") or "",
-                "supplier": t.awarded_to,
+                "supplier": who,
             })
 
     points.sort(key=lambda p: p["at"] or 0)

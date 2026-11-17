@@ -79,6 +79,8 @@ def _auction_view(a, p, *, monitor=False):
         "allowPrebid": a.allow_prebid, "scheduledAt": a.scheduled_at,
         "paymentTerms": a.payment_terms or "", "paymentConditions": a.payment_conditions or "",
         "ndaRequired": a.nda_required, "ndaText": "" if supplier else (a.nda_text or ""),
+        "incoterm": a.incoterm or "", "incotermPlace": a.incoterm_place or "",
+        "creditLimit": a.credit_limit or None,
         "documents": _docs_view(a),
         # The pre-bid stage: scheduled, and the room not open yet.
         "prebidOpen": a.status == "scheduled" and a.allow_prebid and (a.starts_at or 0) > now_ms(),
@@ -219,6 +221,7 @@ def auction_duplicate(request, p, body, aid):
         require_acceptance=src.require_acceptance, allow_prebid=src.allow_prebid,
         payment_terms=src.payment_terms, payment_conditions=src.payment_conditions,
         nda_required=src.nda_required, nda_text=src.nda_text,
+        incoterm=src.incoterm, incoterm_place=src.incoterm_place, credit_limit=src.credit_limit,
         created_at=now_ms(), created_by=p["name"], owner_id=p.get("id"),
         **{key: getattr(src, key) for key, _ in Auction.DIMENSIONS},
     )
@@ -280,6 +283,8 @@ def auction_update(request, p, body, aid):
         from .agreements import default_nda
         text = str(body.get("ndaText", a.nda_text) or "").strip()[:20000]
         a.nda_text = (text or default_nda()) if a.nda_required else ""
+    from .views import apply_trade_terms
+    apply_trade_terms(a, body)
     if a.ends_at and a.starts_at and a.ends_at <= a.starts_at:
         return err("The auction has to close after it opens.")
     a.save()
@@ -953,6 +958,8 @@ def _ready_problem(a, now=None):
         return "The auction has to close after it opens."
     if a.nda_required and len((a.nda_text or "").strip()) < 40:
         return "Write the non-disclosure agreement vendors will sign, or switch it off."
+    if a.incoterm and not (a.incoterm_place or "").strip():
+        return f"Name the place for {a.incoterm}: the port, warehouse or address the goods go to."
     return None
 
 

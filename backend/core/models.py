@@ -237,6 +237,20 @@ class Supplier(Syncable):
     # tells Finance every vendor is in breach.
     exposure_limit = models.BigIntegerField(default=0)
 
+    # Who at the vendor receives purchase orders, and who deals with invoices
+    # and payments: {name, email, phone} each. The vendor keeps them up to
+    # date from their Company tab; `contact_person` above stays the general
+    # contact the register came with.
+    po_contact = models.JSONField(default=dict, blank=True)
+    finance_contact = models.JSONField(default=dict, blank=True)
+
+    # What the company has agreed with this vendor, beyond any one event:
+    # {ref, startsAt, endsAt, bonusMalus, escalation, cashBack, notes,
+    #  updatedAt, updatedBy}. Payment terms are `payment_terms` above and the
+    # credit limit is `exposure_limit`, so the contract tab and Finance read
+    # the same numbers. Procurement sets it; the vendor reads it.
+    contract = models.JSONField(default=dict, blank=True)
+
     # --- the verification lifecycle ----------------------------------------
     # `prequalified` has always been the verification decision; these record
     # when it was taken and by whom, which a register that is audited needs and
@@ -337,6 +351,13 @@ class Tender(Syncable, SpendDimensions):
     # standard agreement never alters what an earlier vendor signed.
     nda_required = models.BooleanField(default=False)
     nda_text = models.TextField(blank=True, default="")
+    # Delivery terms: an Incoterms 2020 rule (vocab "incoterms") and its named
+    # place, written "FCA Apapa Port, Incoterms 2020". Blank states none.
+    incoterm = models.CharField(max_length=3, blank=True, default="")
+    incoterm_place = models.CharField(max_length=120, blank=True, default="")
+    # The credit asked of the vendor on this event: the most the buyer may owe
+    # the winner at once before paying. Accepted with the payment terms.
+    credit_limit = models.BigIntegerField(null=True, blank=True)
     # Document types (vocab "bidDocTypes") a bid must carry, on top of the two
     # envelope requirements above: e.g. a quotation and a product specification.
     required_docs = models.JSONField(default=list, blank=True)
@@ -362,6 +383,14 @@ class Tender(Syncable, SpendDimensions):
     addenda = models.JSONField(default=list)        # [{id, at, title, note}]
     invited = models.JSONField(default=list)        # [supplier ids]
     award_rec = models.JSONField(null=True, blank=True)  # {bidId, supplierId, amount, by, at, memo}
+    # How the award was decided. "single": one vendor takes everything it bid
+    # for (the panel's pick, or the lowest total). "item": each line goes to
+    # the lowest rate on it, so several vendors can win one tender.
+    award_method = models.CharField(max_length=8, blank=True, default="")
+    # On an item award, who won what, largest share first:
+    # [{supplierId, bidId, amount, lines: [{lineId, qty, rate}]}].
+    # `awarded_to` is the first of them; `awarded_amount` the sum.
+    award_split = models.JSONField(default=list, blank=True)
     letters = models.JSONField(null=True, blank=True)    # {supplierId: {type, text}}
     coi = models.JSONField(default=dict)                 # {personaId: declaredAt(ms)} - conflict-of-interest sign-offs
     # two-stage envelope opening (technical first; commercial only for compliant bidders)
@@ -420,11 +449,29 @@ class Tender(Syncable, SpendDimensions):
     # event in a chain of four thousand.
     deadline_changes = models.JSONField(default=list, blank=True)
 
+    def bid_average(self):
+        """The average of the priced bids that are in the competition, in the
+        latest round anybody priced: what the market asked, on average. None
+        until a price has been opened. Used as the savings basis when there is
+        no last price on file (see savings_basis)."""
+        priced = [b for b in self.bids.select_related("round").all()
+                  if b.counts and not b.disqualified and b.amount is not None]
+        if not priced:
+            return None
+        last = max(b.round_number for b in priced)
+        amounts = [b.amount for b in priced if b.round_number == last]
+        return round(sum(amounts) / len(amounts))
+
     def savings_basis(self):
         """(amount, basis) - the number to measure the award against and the
-        word for where it came from. Never guesses: no baseline means budget."""
+        word for where it came from. The last price paid when there is one;
+        without it, the average of the bids received; with no bids priced,
+        the budget."""
         if self.baseline:
             return self.baseline, "baseline"
+        avg = self.bid_average()
+        if avg:
+            return avg, "bids"
         return self.budget, "budget"
 
     def active_round(self):
@@ -694,6 +741,13 @@ class Document(models.Model):
     data = models.BinaryField()
     uploaded_by = models.CharField(max_length=120)
     uploaded_at = models.BigIntegerField()
+    # Its copy in SharePoint (see sharepoint.py): the web link once filed, or
+    # the last failure. A bid document is filed only after the recorded
+    # opening, so nothing sealed ever leaves.
+    sharepoint_url = models.CharField(max_length=1000, blank=True, default="")
+    sharepoint_at = models.BigIntegerField(null=True, blank=True)
+    sharepoint_error = models.CharField(max_length=300, blank=True, default="")
+    sharepoint_tries = models.IntegerField(default=0)
 
 
 class Notification(models.Model):
@@ -860,6 +914,36 @@ class Acceptance(models.Model):
 
     class Meta:
         ordering = ["at"]
+
+
+class Participation(models.Model):
+    """An invited vendor's answer to "will you bid on this?".
+
+    Asked on the invitation, before the work of pricing. A "no" carries its
+    reason, so the buyer learns early who is out and why, and the reminders
+    stop. A vendor can change its answer until bids close, and submitting a
+    bid records a yes."""
+    ANSWERS = (("yes", "Will bid"), ("no", "Will not bid"))
+
+    id = models.CharField(primary_key=True, max_length=16)
+    tender = models.ForeignKey(Tender, null=True, blank=True, on_delete=models.CASCADE,
+                               related_name="participation")
+    auction = models.ForeignKey("Auction", null=True, blank=True, on_delete=models.CASCADE,
+                                related_name="participation")
+    supplier_id = models.CharField(max_length=16, db_index=True)
+    answer = models.CharField(max_length=3, choices=ANSWERS)
+    reason = models.CharField(max_length=80, blank=True, default="")
+    note = models.CharField(max_length=300, blank=True, default="")
+    by_name = models.CharField(max_length=120, blank=True, default="")
+    at = models.BigIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["tender", "supplier_id"], condition=models.Q(tender__isnull=False),
+                                    name="one_answer_per_tender_vendor"),
+            models.UniqueConstraint(fields=["auction", "supplier_id"], condition=models.Q(auction__isnull=False),
+                                    name="one_answer_per_auction_vendor"),
+        ]
 
 
 class FailedLogin(models.Model):
@@ -1386,6 +1470,9 @@ class Auction(Syncable, SpendDimensions):
     payment_conditions = models.TextField(blank=True, default="")
     nda_required = models.BooleanField(default=False)
     nda_text = models.TextField(blank=True, default="")
+    incoterm = models.CharField(max_length=3, blank=True, default="")
+    incoterm_place = models.CharField(max_length=120, blank=True, default="")
+    credit_limit = models.BigIntegerField(null=True, blank=True)
 
     owner = models.ForeignKey(Persona, null=True, blank=True, on_delete=models.SET_NULL,
                               related_name="owned_auctions")

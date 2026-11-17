@@ -9,9 +9,11 @@
    an event, so a form's setter can be passed straight in. */
 import React, { useEffect, useRef, useState } from "react";
 
+import { fmtMoney } from "./helpers";
+
 import {
-  BID_DOC_TYPES, COUNTRIES, CURRENCIES, DOC_TYPES, FAMILIES, FY_STARTS, INDUSTRIES, LOCATIONS,
-  NIGERIAN_STATES, PAYMENT_TERMS, TIMEZONES, UNITS, groupNational, joinPhone,
+  BID_DOC_TYPES, COUNTRIES, CURRENCIES, DECLINE_REASONS, DOC_TYPES, FAMILIES, FY_STARTS, INCOTERMS,
+  INDUSTRIES, LOCATIONS, NIGERIAN_STATES, PAYMENT_TERMS, TIMEZONES, UNITS, groupNational, incotermWords, joinPhone,
   phoneProblem, splitPhone,
 } from "./vocab";
 
@@ -74,6 +76,52 @@ export function DocTypeSelect(props) {
 }
 
 /** What a document attached to a bid is: a quotation, a specification... */
+/** The eleven Incoterms 2020 rules, in their two groups: any mode of
+    transport, and sea and inland waterway only. Blank states no delivery terms. */
+export function IncotermSelect(props) {
+  const groups = [...new Set(INCOTERMS.map((r) => r[2]))].map((g) => ({
+    label: g, options: INCOTERMS.filter((r) => r[2] === g).map(([code, name]) => [code, `${code} - ${name}`]),
+  }));
+  return <Choice groups={groups} placeholder="No delivery terms stated" {...props} />;
+}
+
+/** Why a vendor says it will not bid. */
+export function DeclineReasonSelect(props) {
+  return <Choice options={DECLINE_REASONS} placeholder="Choose a reason" {...props} />;
+}
+
+/* Delivery terms and the credit limit, on a tender or an auction. The
+   Incoterm comes off the list of the eleven 2020 rules and says what it means
+   once picked, because "CPT" and "CIP" differ by one insurance policy and
+   nobody should have to remember which. */
+export function TradeTerms({ f, set, disabled = false, idp = "nt" }) {
+  const rule = INCOTERMS.find(([c]) => c === f.incoterm);
+  return (
+    <>
+      <div className="grid g2">
+        <div className="frow"><label className="lbl" htmlFor={`${idp}-inco`}>Incoterm <span className="faint">optional</span></label>
+          <IncotermSelect id={`${idp}-inco`} disabled={disabled} value={f.incoterm || ""} onChange={(v) => set("incoterm", v)} />
+          <div className="hint">{rule ? rule[3] : "Who handles shipping, insurance and clearance, and where risk passes to you."}</div></div>
+        <div className="frow" id={`${idp}-place`}><label className="lbl" htmlFor={`${idp}-incoplace`}>Named place</label>
+          <input id={`${idp}-incoplace`} className="in" maxLength={120} disabled={disabled || !f.incoterm}
+                 placeholder={f.incoterm ? (rule && rule[2].startsWith("Sea") ? "e.g. Apapa Port, Lagos" : "e.g. Ikeja central warehouse") : "Choose an Incoterm first"}
+                 value={f.incotermPlace || ""} onChange={(e) => set("incotermPlace", e.target.value)} />
+          <div className="hint">{f.incoterm && String(f.incotermPlace || "").trim()
+            ? <>Vendors read: <b>{incotermWords(f.incoterm, f.incotermPlace)}</b></>
+            : "The port, warehouse or address the rule applies at."}</div></div>
+      </div>
+      <div className="grid g2">
+        <div className="frow"><label className="lbl" htmlFor={`${idp}-credit`}>Credit limit <span className="faint">optional</span></label>
+          <input id={`${idp}-credit`} className="in" type="number" min="0" inputMode="numeric" placeholder="In naira" disabled={disabled}
+                 value={f.creditLimit || ""} onChange={(e) => set("creditLimit", e.target.value)} />
+          <div className="hint">{Number(f.creditLimit) > 0
+            ? `Vendors accept that you may owe them up to ${fmtMoney(Number(f.creditLimit))} at a time before paying.`
+            : "The most you may owe the winning vendor at one time before paying. Vendors accept it with the payment terms."}</div></div>
+      </div>
+    </>
+  );
+}
+
 export function BidDocTypeSelect(props) {
   return <Choice options={BID_DOC_TYPES} placeholder="What is this document?" {...props} />;
 }

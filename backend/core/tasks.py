@@ -5,7 +5,7 @@ run on a schedule via `python manage.py run_sweep` (Render cron, GitHub Action,
 anything that can hit a shell). Every effect is keyed in TaskMark so repeated
 runs never double-send.
 """
-from .models import Bid, ProcurementRound, Supplier, TaskMark, Tender
+from .models import Bid, Participation, ProcurementRound, Supplier, TaskMark, Tender
 from .notify import notify_perm, notify_supplier
 from .util import DAY_MS, fmt_date_ms, now_ms, record_event
 
@@ -87,6 +87,14 @@ def run_sweep():
         from . import auction as auction_engine
         auction_engine.start_due(now)
         send_auction_reminders(now)
+    except Exception:                                             # noqa: BLE001
+        pass
+
+    # 2c) Copies to SharePoint, where it is set up: vendor company documents,
+    #     and bid documents once their recorded opening has unsealed them.
+    try:
+        from . import sharepoint
+        sharepoint.sweep()
     except Exception:                                             # noqa: BLE001
         pass
 
@@ -238,9 +246,13 @@ def send_tender_reminders(now=None):
             continue
         bidders = set(Bid.objects.filter(tender=t, round=rnd).values_list("supplier_id", flat=True))
         suspended = set(Supplier.objects.filter(suspended=True).values_list("id", flat=True))
+        # A vendor that said it will not bid is not chased. It can still
+        # change its mind and bid; it just stops being reminded.
+        declined = set(Participation.objects.filter(tender=t, answer="no")
+                       .values_list("supplier_id", flat=True))
         word = "bid" if t.bid_mode == "open" else "sealed bid"
         for sid in (rnd.bidders() if rnd else t.invited):
-            if sid in bidders or sid in suspended:
+            if sid in bidders or sid in suspended or sid in declined:
                 continue
             # The one reminder sent before reminder times existed went out
             # inside the last two days; count it as the earlier ones.

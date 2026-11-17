@@ -63,24 +63,51 @@ def default_nda(org=None):
     return text.replace("{company}", company)
 
 
-def payment_text(terms, conditions):
-    """What accepting the payment terms means, as one block of text."""
+def incoterm_words(code, place):
+    """"FCA Apapa Port, Incoterms 2020 (Free Carrier)", or blank."""
+    if not code:
+        return ""
+    from .vocab import VOCAB
+    name = next((n for c, n, *_ in VOCAB["incoterms"] if c == code), code)
+    where = f" {place.strip()}" if (place or "").strip() else ""
+    return f"{code}{where}, Incoterms 2020 ({name})"
+
+
+def _buyer():
+    try:
+        from .views import org_name
+        return org_name() or "the buyer"
+    except Exception:                                             # noqa: BLE001
+        return "the buyer"
+
+
+def payment_text(terms, conditions, credit_limit=None, incoterm="", place=""):
+    """What accepting the payment terms means, as one block of text: the
+    terms, the credit asked for, the delivery terms and the conditions."""
+    from .util import fmt_money
     from .vocab import VOCAB
     label = dict((v, lb) for v, lb in VOCAB["paymentTerms"]).get(terms, terms)
     parts = []
     if terms:
         parts.append(f"Payment terms: {label}.")
+    if credit_limit:
+        parts.append(f"Credit limit: {fmt_money(credit_limit)}. This is the most {_buyer()} may owe "
+                     f"the vendor at any one time on this event before paying.")
+    if incoterm:
+        parts.append(f"Delivery terms: {incoterm_words(incoterm, place)}.")
     if (conditions or "").strip():
         parts.append(conditions.strip())
     return "\n\n".join(parts)
 
 
 def required(event):
-    """The agreements this event asks for, in the order a vendor signs them."""
+    """The agreements this event asks for, in the order a vendor signs them.
+    A credit limit is accepted with the payment terms, as part of them."""
     out = []
     if event.nda_required and (event.nda_text or "").strip():
         out.append(NDA)
-    if (event.payment_terms or "").strip() or (event.payment_conditions or "").strip():
+    if ((event.payment_terms or "").strip() or (event.payment_conditions or "").strip()
+            or getattr(event, "credit_limit", None)):
         out.append(PAYMENT)
     return out
 
@@ -88,7 +115,8 @@ def required(event):
 def text_for(event, kind):
     if kind == NDA:
         return (event.nda_text or "").strip()
-    return payment_text(event.payment_terms, event.payment_conditions)
+    return payment_text(event.payment_terms, event.payment_conditions, getattr(event, "credit_limit", None),
+                        getattr(event, "incoterm", ""), getattr(event, "incoterm_place", ""))
 
 
 def _scope(event):
@@ -122,6 +150,9 @@ def summary(event, supplier_id):
         "paymentTerms": event.payment_terms or "",
         "paymentTermsLabel": label,
         "paymentConditions": event.payment_conditions or "",
+        "creditLimit": getattr(event, "credit_limit", None) or None,
+        "incoterm": getattr(event, "incoterm", "") or "",
+        "incotermWords": incoterm_words(getattr(event, "incoterm", ""), getattr(event, "incoterm_place", "")),
         "accepted": {k: {"at": a.at, "by": a.signed_name, "title": a.signed_title}
                      for k, a in have.items()},
     }
