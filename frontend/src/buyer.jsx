@@ -32,7 +32,7 @@ import { BID_DOC_TYPES, PAYMENT_TERMS, REMINDER_HOURS, RETURN_REASONS, fmtPhone,
   incotermWords, phoneProblem, unitFor } from "./vocab";
 import { Choice, PaymentTermsSelect, TradeTerms } from "./fields";
 import { can, homePage, navPages } from "./perms";
-import { DUR, cue, reducedMotion, useCountUp, useFlip } from "./motion";
+import { DUR, EASE, cue, reducedMotion, useCountUp, useFlip } from "./motion";
 import { ConfirmDialog, CountUp, Decrypting, Dialog, HoldButton, SoundToggle, ThemeSwitch, TopProgress, tabKeys } from "./ui";
 
 /* How many register rows reach the DOM before the reader asks for more. The
@@ -2454,15 +2454,19 @@ function stepWho(step, users) {
     Shown to everybody on the buying side, not only to the signatories. "Who is
     this sitting with" is the single most asked question about a submitted
     tender, and an answer only the approvers can see is an answer to nobody. */
-function ApprovalChain({ chain, users, me, compact = false }) {
+/* `signing` is the moment just after a decision, before the page refreshes:
+   "signed" turns the step that was waiting into a signed one (its tick presses
+   in), "returned" into a returned one. The server's answer arrives a beat
+   later and says the same thing. */
+function ApprovalChain({ chain, users, me, compact = false, signing = null }) {
   if (!chain || !chain.steps || !chain.steps.length) return null;
-  const done = chain.currentId == null;
+  const done = chain.currentId == null || signing === "signed" && chain.signed + 1 >= chain.total;
   return (
     <div className={"sigchain" + (compact ? " compact" : "")}>
       <div className="sigtop">
         <Icon n="stamp" s={14} />
         <b>{done
-          ? `Signed by all ${chain.total}`
+          ? (chain.total === 1 ? "Signed" : `Signed by all ${chain.total}`)
           : `Signature ${chain.signed + 1} of ${chain.total}`}</b>
         <span className="faint">
           {done ? "the chain is complete"
@@ -2470,13 +2474,15 @@ function ApprovalChain({ chain, users, me, compact = false }) {
         </span>
       </div>
       <ol className="sigsteps">
-        {chain.steps.map((st) => {
-          const state = st.decision === "approved" ? "done"
-            : st.decision === "rejected" ? "no"
+        {chain.steps.map((st, i) => {
+          const justNow = signing && st.id === chain.currentId;
+          const state = st.decision === "approved" || (justNow && signing === "signed") ? "done"
+            : st.decision === "rejected" || (justNow && signing === "returned") ? "no"
             : st.id === chain.currentId ? "now" : "next";
           const mine = state === "now" && me && canSignStep(st, me, users, chain.ownerId);
           return (
-            <li className={"sigstep " + state + (mine ? " mine" : "")} key={st.id}>
+            <li className={"sigstep " + state + (mine ? " mine" : "") + (justNow ? " justnow" : "")} key={st.id}
+                style={{ "--i": i }}>
               <span className="sigdot" aria-hidden="true">
                 {state === "done" ? <Icon n="check" s={11} />
                   : state === "no" ? <Icon n="close" s={11} />
@@ -2491,7 +2497,9 @@ function ApprovalChain({ chain, users, me, compact = false }) {
                   )}
                 </b>
                 <span>
-                  {state === "done"
+                  {justNow
+                    ? (signing === "signed" ? `${me.name} signed · just now` : `${me.name} returned it · just now`)
+                    : state === "done"
                     ? `${st.decidedBy} signed · ${fmtDateTime(st.decidedAt)}`
                     : state === "no"
                       ? `${st.decidedBy} returned it · ${fmtDateTime(st.decidedAt)}`
@@ -2541,6 +2549,54 @@ export const CHAIN_CSS = `
 .signote{display:block;font-size:11.8px;color:var(--muted);margin-top:3px;line-height:1.45}
 .sigyou{flex-shrink:0;align-self:center}
 .sigstep.next{opacity:.66}
+
+/* ---- the chain, moving ----
+   Physical, like the rest of DOCKET's motion: the steps settle in one after
+   another and the line between them draws down; a signature presses in like
+   a stamp; the step waiting on somebody breathes, slowly, and a little faster
+   when it is waiting on you. A decision stamps the card and folds it away, so
+   the next one slides up into its place (see ApprovalsPage). */
+.sigstep{animation:dk-rise ${DUR.settle}ms ${EASE.out} both;animation-delay:calc(var(--i,0) * 70ms + 40ms)}
+.sigstep + .sigstep::before{transform-origin:top;transition:background ${DUR.settle}ms ${EASE.standard};
+  animation:dk-growy ${DUR.settle}ms ${EASE.out} both;animation-delay:calc(var(--i,0) * 70ms)}
+.sigdot{transition:background ${DUR.settle}ms ${EASE.standard},border-color ${DUR.settle}ms ${EASE.standard},
+  color ${DUR.settle}ms ${EASE.standard}}
+.sigstep.done .sigdot svg,.sigstep.no .sigdot svg{animation:dk-press ${DUR.ceremony}ms ${EASE.press} both;
+  animation-delay:calc(var(--i,0) * 70ms + 160ms)}
+.sigstep.justnow .sigdot{animation:dk-press ${DUR.ceremony}ms ${EASE.press} both}
+.sigstep.justnow .sigdot svg{animation-delay:120ms}
+.sigstep.now .sigdot{animation:dk-ring 2.6s ${EASE.out} 600ms infinite}
+.sigstep.now.mine .sigdot{animation-duration:1.9s}
+.sigyou{animation:dk-pop ${DUR.settle}ms ${EASE.press} both;animation-delay:calc(var(--i,0) * 70ms + 260ms)}
+@keyframes dk-growy{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes dk-ring{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--brand) 42%,transparent)}
+  70%,100%{box-shadow:0 0 0 8px color-mix(in srgb,var(--brand) 0%,transparent)}}
+
+/* ---- the approval cards: arrive, get stamped, fold away ---- */
+.apprcard{position:relative;animation:dk-rise ${DUR.settle}ms ${EASE.out} both;
+  animation-delay:calc(var(--i,0) * 60ms)}
+.apprcard.leaving .btn{pointer-events:none}
+/* The stamp lands in the button row, beside the button that was pressed: a
+   card with the tender open is taller than the screen, and a stamp in its top
+   corner would land where nobody is looking. */
+.apprstamp{margin-left:auto;align-self:center;pointer-events:none;
+  font-family:var(--badge-font);font-weight:800;font-size:15px;letter-spacing:.14em;text-transform:uppercase;
+  padding:6px 13px;border:2.5px solid currentColor;border-radius:8px;color:var(--green);
+  background:color-mix(in srgb,var(--card) 82%,transparent);
+  animation:dk-slam ${DUR.ceremony}ms ${EASE.press} both}
+.apprstamp.wax{color:var(--wax)}
+@keyframes dk-slam{0%{opacity:0;transform:rotate(-9deg) scale(1.7)}
+  55%{opacity:1;transform:rotate(-9deg) scale(.92)}100%{opacity:1;transform:rotate(-9deg) scale(1)}}
+
+/* switching how an award is approved: the outline moves rather than jumps */
+.awopt{transition:border-color ${DUR.base}ms ${EASE.standard},box-shadow ${DUR.base}ms ${EASE.standard}}
+.awlines td{transition:box-shadow ${DUR.settle}ms ${EASE.out},color ${DUR.base}ms ${EASE.standard}}
+
+@media(prefers-reduced-motion:reduce){
+  .sigstep,.sigstep + .sigstep::before,.sigstep .sigdot,.sigstep .sigdot svg,.sigyou,.apprcard,.apprstamp{
+    animation:none!important}
+  .sigdot,.awopt,.awlines td{transition:none!important}
+}
 .elsewhere{padding:10px 0}
 .elsewhere + .elsewhere{border-top:1px solid var(--line)}
 .elsehead{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:2px}
@@ -3104,13 +3160,56 @@ export function ApprovalsPage({ api }) {
      return carries its reason and a signature's answer says whether it was
      the last one. Errors are thrown so the dialog that asked shows them and
      stays open; the dialog also holds its button while the request is out. */
+  /* THE MOMENT OF SIGNING. The decision is made on the server first; then
+     the card shows it before it goes: the step turns signed, a stamp lands
+     ("Published", "Signed", "Awarded", or "Returned" in wax), and the card
+     folds away so the next one slides up into its place. Only then does the
+     page refresh. The dialog that asked closes at once, so the stamp is seen
+     on the card and not behind a dialog. With reduced motion there is no
+     pause: the page refreshes straight away. */
+  const [leaving, setLeaving] = useState({});   // {cardKey: outcome}
+  const cardEls = useRef({});
+  const settle = (key, outcome) => {
+    setLeaving((x) => ({ ...x, [key]: outcome }));
+    if (outcome === "published" || outcome === "signed") cue.stamp();   // a final award chimes instead
+    const still = reducedMotion();
+    setTimeout(async () => {
+      const el = cardEls.current[key];
+      let fold = null;
+      if (el && !still) {
+        const cs = getComputedStyle(el);
+        el.style.overflow = "hidden";
+        fold = el.animate([
+          { height: el.offsetHeight + "px", opacity: 1, marginBottom: cs.marginBottom },
+          { height: "0px", opacity: 0, marginBottom: "0px", paddingTop: "0px", paddingBottom: "0px",
+            borderTopWidth: "0px", borderBottomWidth: "0px" },
+        ], { duration: DUR.settle + 60, easing: EASE.standard, fill: "forwards" });
+        try { await fold.finished; } catch (e) { /* interrupted: refresh anyway */ }
+      }
+      await api.refresh();
+      /* Still on the page after the refresh (it failed, or it is back for
+         another signature): undo the fold rather than leave a gap. */
+      if (el && el.isConnected) { if (fold) fold.cancel(); el.style.overflow = ""; }
+      setLeaving((x) => { const n = { ...x }; delete n[key]; return n; });
+    }, still ? 0 : DUR.ceremony + 180);
+  };
   const decide = async (t, kind, ok, reason, method) => {
     const path = kind === "award" ? "award_decision" : "publish_decision";
     const r = await raw(`/tenders/${t.id}/${path}/`, { method: "POST",
       body: ok ? (method ? { ok, method } : { ok }) : { ok, reason } });
-    await api.refresh();
+    settle((kind === "award" ? "a" : "p") + t.id,
+           !ok ? "returned" : r && r.done === false ? "signed" : kind === "award" ? "awarded" : "published");
     return r || {};
   };
+  const STAMP_WORD = { published: "Published", signed: "Signed", awarded: "Awarded", returned: "Returned" };
+  const stampFor = (key) => (leaving[key]
+    ? <span className={"apprstamp" + (leaving[key] === "returned" ? " wax" : "")} aria-hidden="true">{STAMP_WORD[leaving[key]]}</span>
+    : null);
+  const cardProps = (key, i) => ({
+    ref: (el) => { if (el) cardEls.current[key] = el; else delete cardEls.current[key]; },
+    className: "card apprcard" + (leaving[key] ? " leaving" : ""),
+    style: { marginBottom: 14, "--i": i },
+  });
   /** Signatures still owed after this one, and who the next belongs to. */
   const after = (chain) => {
     if (!chain || !chain.currentId) return null;
@@ -3282,13 +3381,13 @@ export function ApprovalsPage({ api }) {
         <span className="sub">Awards to sign off, tenders and auctions waiting to go out, and date changes.</span>
       </div>
 
-      {awards.map((t) => {
+      {awards.map((t, i) => {
         const rec = t.awardRec;
         const winner = state.suppliers.find((s) => s.id === rec.supplierId);
         const bids = state.bids.filter((b) => b.tenderId === t.id);
         const ranked = bids.map((b) => ({ b, tot: totalScore(t, b, bids) })).sort((x, y) => (y.tot ?? -1) - (x.tot ?? -1));
         return (
-          <div className="card" key={"a" + t.id} id={"appr-a" + t.id} style={{ marginBottom: 14 }}>
+          <div key={"a" + t.id} id={"appr-a" + t.id} {...cardProps("a" + t.id, i)}>
             <div className="chead">
               <h3>{t.title}</h3>
               <span className="chip gold" style={{ marginLeft: "auto" }}>Award · {winner.name} · {fmtCompact(rec.amount)}</span>
@@ -3305,7 +3404,8 @@ export function ApprovalsPage({ api }) {
               )}
               <AwardChoice api={api} t={t} pick={(pickFor(t) || {}).key}
                            onPick={(k) => setAwardPick((x) => ({ ...x, [t.id]: k }))} />
-              <ApprovalChain chain={t.awardChain} users={users} me={me} compact />
+              <ApprovalChain chain={t.awardChain} users={users} me={me} compact
+                             signing={leaving["a" + t.id] ? (leaving["a" + t.id] === "returned" ? "returned" : "signed") : null} />
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button className="btn pri" onClick={() => setAwardT(t)}>
                   {t.awardChain && t.awardChain.total > t.awardChain.signed + 1
@@ -3313,6 +3413,7 @@ export function ApprovalsPage({ api }) {
                     : pickFor(t) ? `Approve on ${pickFor(t).title.toLowerCase()} & issue letters` : "Approve award & issue letters"}
                 </button>
                 <button className="btn" onClick={() => setRetQ({ t, kind: "award" })}>Return to panel…</button>
+                {stampFor("a" + t.id)}
               </div>
               <More title="The recommendation in full" summary="the memo, every bidder's total, and the PDF">
                 <div className="aihint" style={{ marginBottom: 12 }}>{rec.memo}</div>
@@ -3329,8 +3430,8 @@ export function ApprovalsPage({ api }) {
         );
       })}
 
-      {pubs.map((t) => (
-        <div className="card" key={t.id} id={"appr-p" + t.id} style={{ marginBottom: 14 }}>
+      {pubs.map((t, i) => (
+        <div key={t.id} id={"appr-p" + t.id} {...cardProps("p" + t.id, awards.length + i)}>
           <div className="chead">
             <h3>{t.title}</h3>
             <span className="chip" style={{ marginLeft: "auto" }}>Publish · {ceilWords(t)}</span>
@@ -3346,13 +3447,15 @@ export function ApprovalsPage({ api }) {
                   summary="lines, scope, scoring, vendors, documents and terms">
               <PublicationReview api={api} t={t} />
             </More>
-            <ApprovalChain chain={t.publishChain} users={users} me={me} compact />
+            <ApprovalChain chain={t.publishChain} users={users} me={me} compact
+                           signing={leaving["p" + t.id] ? (leaving["p" + t.id] === "returned" ? "returned" : "signed") : null} />
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button className="btn pri" onClick={() => setPubT(t)}>
                 {t.publishChain && t.publishChain.total > t.publishChain.signed + 1
                   ? "Sign and pass it up" : "Approve & publish"}
               </button>
               <button className="btn" onClick={() => setRetQ({ t, kind: "publish" })}>Return to draft…</button>
+              {stampFor("p" + t.id)}
             </div>
           </div>
         </div>

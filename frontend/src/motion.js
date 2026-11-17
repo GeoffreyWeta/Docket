@@ -412,6 +412,8 @@ body:has(.scrim,.panelwrap) .toasts{top:calc(10px + env(safe-area-inset-top,0px)
 
 /* the award letter unfolds; the wax cracks and throws two shards */
 .unfold{animation:dk-unfold 420ms var(--ease) both}
+/* every "More" and "Advanced options" disclosure unfolds rather than appearing */
+.adv[open] > .cbody{animation:dk-unfold ${DUR.settle}ms ${EASE.out} both}
 .cracked{animation:dk-crack 520ms cubic-bezier(.34,1.56,.64,1) both}
 .shard{position:absolute;width:5px;height:5px;border-radius:1px;background:var(--seal-core);pointer-events:none;
   animation:dk-shard 620ms var(--ease) both}
@@ -469,7 +471,8 @@ body:has(.scrim,.panelwrap) .toasts{top:calc(10px + env(safe-area-inset-top,0px)
 }
 
 @media(prefers-reduced-motion:reduce){
-  .toast,.dlg,.scrim,.panel,.panelwrap,.navscrim,.rise,.stamped,.tickbump,.flash,.flash-wax,.extbadge{animation:none!important}
+  .toast,.dlg,.scrim,.panel,.panelwrap,.navscrim,.rise,.stamped,.tickbump,.flash,.flash-wax,.extbadge,
+  .adv[open] > .cbody{animation:none!important}
   .roll .strip{transition:none!important}
   .clock.critical{animation:none!important}
   .sheen::after{display:none}
