@@ -4450,7 +4450,7 @@ export function NewTender({ api, editId }) {
       {dirty && <p className="hint" role="status">{draft.status || "Saving on this device..."}</p>}
 
       <div className="ntcols">
-        <div>
+        <div className="ntform">
           <div className="card">
             <div className="chead"><h3>The basics</h3></div>
             <div className="cbody">
@@ -4827,6 +4827,11 @@ const fmtDeadline = (d) => {
    ============================================================ */
 export const DRAFT_CSS = `
 .ntcols{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start}
+/* The form's cards stack with the same 14px every other screen leaves
+   between cards. .card carries no margin of its own, so without this they sat
+   border to border. */
+.ntform{display:flex;flex-direction:column;gap:14px;min-width:0}
+.ntform > .adv{margin-bottom:0}
 
 /* ---- the lines grid ----
    Sized by the room it has, not the window: the form column is narrow beside
